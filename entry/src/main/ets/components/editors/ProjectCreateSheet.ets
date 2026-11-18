@@ -1,9 +1,13 @@
-import { ProjectRepositoryOption, ProjectLocation, ProjectRegionDraft, projectFileName, projectInputError } from '../../ui/ProjectCreatePresentation'
+import { CoreTask, CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
+import { ProjectCreateService } from '../../services/ProjectCreateService'
+import { ProjectRepositoryOption, ProjectRegionDraft, projectFileName, projectInputError } from '../../ui/ProjectCreatePresentation'
 import { window } from '@kit.ArkUI'
 import { UiColor } from '../../ui/Theme'
 
 @Component
 export struct ProjectCreateSheet {
+  source: CoreTask | undefined = undefined
+  @Link generating: boolean
   @Prop repositories: ProjectRepositoryOption[] = []
   @Prop initialRepoId: string = ''
   @Prop initialRegion: string = ''
@@ -24,7 +28,7 @@ export struct ProjectCreateSheet {
   private active: boolean = false
   typingChanged: (typing: boolean) => void = () => {}
   private keyboardChanged = (height: number): void => { if (this.active) this.typingChanged(height > 0) }
-  create: (location: ProjectLocation, name: string, fileName: string) => void = () => {}
+  generated: (group: CoreTaskOperationGroup) => void = () => {}
   cancel: () => void = () => {}
 
   async aboutToAppear(): Promise<void> {
@@ -57,7 +61,7 @@ export struct ProjectCreateSheet {
   }
 
   selectRegion(index: number): void {
-    if (this.busy) return
+    if (this.isBusy()) return
     const options = this.regionOptions()
     if (index === options.length + 1) {
       this.addingRegion = true
@@ -77,17 +81,26 @@ export struct ProjectCreateSheet {
     if (value !== this.fileName) { this.fileNameEdited = true; this.fileName = value }
   }
 
-  submit(): void {
-    if (this.busy) return
+  isBusy(): boolean { return this.busy || this.generating }
+
+  async submit(): Promise<void> {
+    if (this.isBusy()) return
     if (this.addingRegion && !this.saveRegion()) return
     this.inputError = projectInputError(this.repoId, this.name, this.fileName, this.region)
     if (this.inputError) return
-    this.create({ repoId: this.repoId, region: this.region }, this.name.trim(), projectFileName(this.fileName))
+    if (!this.source) { this.inputError = '原记录已失效，请重新打开'; return }
+    this.generating = true
+    try {
+      const group = await ProjectCreateService.operationGroup(this.getUIContext().getHostContext()!, this.source,
+        { repoId: this.repoId, region: this.region }, this.name.trim(), projectFileName(this.fileName))
+      if (this.active) this.generated(group)
+    } catch (error) { if (this.active) this.inputError = coreErrorMessage(error as CoreBridgeError) }
+    finally { this.generating = false }
   }
 
   selectRepository(index: number): void {
     const next = this.repositories[index]?.repoId ?? ''
-    if (this.busy || next === this.repoId) return
+    if (this.isBusy() || next === this.repoId) return
     this.repoId = next
     this.region = this.defaultRegion()
     this.addingRegion = false
@@ -101,7 +114,7 @@ export struct ProjectCreateSheet {
   }
 
   saveRegion(): boolean {
-    if (this.busy) return false
+    if (this.isBusy()) return false
     const name = this.newRegionName.trim()
     if (!name) { this.inputError = '请输入分类名称'; return false }
     if (/[\r\n\u0000]/.test(name)) { this.inputError = '分类名称不能包含换行或控制字符'; return false }
@@ -119,18 +132,18 @@ export struct ProjectCreateSheet {
       Row() {
         Text('新建分类').fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
         Button('取消').id('project_create_region_cancel').height(44).fontColor(UiColor.secondary)
-          .backgroundColor(Color.Transparent).enabled(!this.busy).onClick((): void => {
+          .backgroundColor(Color.Transparent).enabled(!this.isBusy()).onClick((): void => {
             this.addingRegion = false; this.newRegionName = ''; this.inputError = ''
           })
       }.width('100%')
       Text(this.repositories.find(option => option.repoId === this.repoId)?.name || '')
         .fontSize(14).fontColor(UiColor.secondary).width('100%')
       TextInput({ text: this.newRegionName, placeholder: '分类名称' }).id('project_create_region_name')
-        .height(48).fontSize(16).fontColor(UiColor.text).backgroundColor('#414542').enabled(!this.busy)
+        .height(48).fontSize(16).fontColor(UiColor.text).backgroundColor('#414542').enabled(!this.isBusy())
         .onChange((value: string): void => { this.newRegionName = value })
       if (this.inputError) { Text(this.inputError).fontSize(14).fontColor(UiColor.error).width('100%') }
       Button('添加分类').id('project_create_region_save').width('100%').height(48).backgroundColor(UiColor.primary)
-        .fontColor(UiColor.onPrimary).enabled(!this.busy).onClick((): void => { this.saveRegion() })
+        .fontColor(UiColor.onPrimary).enabled(!this.isBusy()).onClick((): void => { this.saveRegion() })
     }.width('100%')
   }
 
@@ -144,7 +157,7 @@ export struct ProjectCreateSheet {
           Row() {
             Text('转换为项目').fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
             Button('取消').id('project_create_cancel').height(44).fontColor(UiColor.secondary)
-              .backgroundColor(Color.Transparent).enabled(!this.busy).onClick(this.cancel)
+              .backgroundColor(Color.Transparent).enabled(!this.isBusy()).onClick(this.cancel)
           }.width('100%')
           Text('正文与子条目会保留到新项目。').fontSize(14).fontColor(UiColor.secondary).width('100%')
           Row({ space: 12 }) {
@@ -155,13 +168,13 @@ export struct ProjectCreateSheet {
                 .value(this.repositories.find(option => option.repoId === this.repoId)?.name || '选择存储库')
                 .layoutWeight(1).height(48).font({ size: 14 }).fontColor(UiColor.text).backgroundColor('#414542')
                 .borderRadius(12).padding({ left: 12, right: 12 }).accessibilityText('位置：选择存储库')
-                .enabled(!this.busy).onSelect((index: number): void => { this.selectRepository(index) })
+                .enabled(!this.isBusy()).onSelect((index: number): void => { this.selectRepository(index) })
               Text('·').width(6).fontSize(18).fontColor(UiColor.secondary).textAlign(TextAlign.Center)
               Select(['无'].concat(this.regionOptions(), ['新建分类']).map((value: string): SelectOption => ({ value })))
                 .id('project_create_region').selected(Math.max(0, this.regionOptions().indexOf(this.region) + 1))
                 .value(this.region || '无').layoutWeight(1).height(48).font({ size: 14 })
                 .fontColor(UiColor.text).backgroundColor('#414542').borderRadius(12).padding({ left: 12, right: 12 })
-                .enabled(!this.busy && !!this.repoId).accessibilityText('位置：选择分类')
+                .enabled(!this.isBusy() && !!this.repoId).accessibilityText('位置：选择分类')
                 .onSelect((index: number): void => { this.selectRegion(index) })
             }.layoutWeight(1)
           }.width('100%')
@@ -169,7 +182,7 @@ export struct ProjectCreateSheet {
             Text('项目名').fontSize(16).fontColor(UiColor.text).width(64)
             TextInput({ text: this.name }).id('project_create_name').height(48).layoutWeight(1)
               .fontSize(16).fontColor(UiColor.text).backgroundColor('#414542').borderRadius(12)
-              .enabled(!this.busy).onChange((value: string): void => { this.changeName(value) })
+              .enabled(!this.isBusy()).onChange((value: string): void => { this.changeName(value) })
           }.width('100%')
           Button({ type: ButtonType.Normal }) {
             Row({ space: 12 }) {
@@ -180,22 +193,22 @@ export struct ProjectCreateSheet {
               Image($r('app.media.ui_down')).width(16).height(16).rotate({ angle: this.fileNameExpanded ? 180 : 0 })
             }.width('100%')
           }.id('project_create_filename_toggle').width('100%').height(48).padding(0).backgroundColor(Color.Transparent)
-            .enabled(!this.busy).accessibilityText(this.fileNameExpanded ? '收起文件名' : '展开文件名')
+            .enabled(!this.isBusy()).accessibilityText(this.fileNameExpanded ? '收起文件名' : '展开文件名')
             .onClick((): void => { this.fileNameExpanded = !this.fileNameExpanded })
           if (this.fileNameExpanded) {
             Row({ space: 12 }) {
               Blank().width(64)
               TextInput({ text: this.fileName }).id('project_create_filename').height(48).layoutWeight(1)
                 .fontSize(16).fontColor(UiColor.text).backgroundColor('#414542').borderRadius(12)
-                .enabled(!this.busy).onChange((value: string): void => { this.changeFileName(value) })
+                .enabled(!this.isBusy()).onChange((value: string): void => { this.changeFileName(value) })
             }.width('100%')
           }
           if (this.inputError || this.message) {
             Text(this.inputError || this.message).fontSize(14).fontColor(UiColor.error).width('100%')
           }
-          Button(this.busy ? '正在创建…' : '创建项目').id('project_create_submit').width('100%').height(48)
+          Button(this.isBusy() ? '正在创建…' : '创建项目').id('project_create_submit').width('100%').height(48)
             .fontSize(16).fontColor(UiColor.onPrimary).backgroundColor(UiColor.primary)
-            .enabled(!this.busy).onClick((): void => { this.submit() })
+            .enabled(!this.isBusy()).onClick((): void => { this.submit() })
         }
       }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 24 }).backgroundColor('#363A38')
     }.width('100%').height(this.addingRegion ? 280 : (this.fileNameExpanded ? 444 : 380) +

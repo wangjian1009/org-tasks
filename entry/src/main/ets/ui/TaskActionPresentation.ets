@@ -13,13 +13,14 @@ export enum TaskOperation {
   Delete = 'delete',
   Clear = 'clear',
   Restore = 'restore',
+  Reopen = 'reopen',
   Merge = 'merge',
   Select = 'select'
 }
 
 type TaskCommonOperation = TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
-  TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore
-export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState
+  TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore | TaskOperation.Reopen
+export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.Project
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
 export type TaskBatchAction = TaskCommonOperation | TaskOperation.Restore | TaskOperation.Merge
 type TaskMenuOperation = TaskSingleOperation | TaskBatchAction
@@ -76,6 +77,9 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
             icon: start ? $r('app.media.ui_task_start') : $r('app.media.ui_task_pause'), action: () => activate(operation) })
         }
         break
+      case TaskOperation.Project:
+        items.push({ id: operation, title: '项目', label: '转换为项目', icon: $r('app.media.ui_folder'), busyTitle: '创建中…', action: () => activate(operation) })
+        break
       case TaskOperation.Move:
         items.push({ id: operation, title: '移动', label: '移动到目标', icon: $r('app.media.ui_move_to'), busyTitle: '移动中…', action: () => activate(operation) })
         break
@@ -96,6 +100,9 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
         break
       case TaskOperation.Clear:
         items.push({ id: operation, title: '清除', label: '永久清除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '清除中…', action: () => activate(operation) })
+        break
+      case TaskOperation.Reopen:
+        items.push({ id: operation, title: '恢复', label: '恢复为待办', icon: $r('app.media.ui_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
         break
       case TaskOperation.Restore:
         items.push({ id: operation, title: '恢复', label: '恢复', icon: $r('app.media.ui_restore'), busyTitle: '恢复中…', action: () => activate(operation) })
@@ -125,7 +132,7 @@ export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: T
 
 export function taskBatchMenu(policy: TaskPageActionPolicy, activate: (action: TaskBatchAction) => void): TaskActionItem[] {
   return taskOperationMenu(policy.bulkOperations, (action: TaskMenuOperation): void => {
-    if (action !== TaskOperation.ToggleState) activate(action)
+    if (action !== TaskOperation.ToggleState && action !== TaskOperation.Project) activate(action)
   })
 }
 

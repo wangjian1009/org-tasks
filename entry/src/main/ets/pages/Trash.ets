@@ -1,3 +1,4 @@
+import { TaskOperation } from '../ui/TaskActionPresentation'
 import { AppShell } from '../components/AppShell'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { LogbookTaskList } from '../components/LogbookTaskList'
@@ -57,9 +58,9 @@ struct Trash {
             .onClick((): void => { this.load(true) })
         }
         if (this.groups.length > 0 && this.dataManager) {
-          LogbookTaskList({ trashMode: true, ready: this.ready, dataSet: this.dataManager.tasks,
-            groups: this.groups, referenceTime: this.referenceTime,
-            perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => { await this.dataManager!.perform(tasks, action) } })
+          LogbookTaskList({ trashMode: true, singleOperations: [TaskOperation.Restore, TaskOperation.Clear],
+            bulkOperations: [TaskOperation.Restore, TaskOperation.Clear], ready: this.ready, dataSet: this.dataManager.tasks,
+            groups: this.groups, referenceTime: this.referenceTime })
         } else {
           NotificationEmptyState({ title: this.loading ? '正在读取废纸篓' : '废纸篓为空',
             detail: '删除的记录会暂存于此。左滑可恢复、永久清除或多选。', busy: this.loading })

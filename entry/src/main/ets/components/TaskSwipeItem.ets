@@ -1,7 +1,15 @@
+import { TaskSelectionController } from '../ui/TaskSelectionController'
+import { TaskRecordActionController } from '../ui/TaskRecordActionController'
+import { TaskRecordOperations, TaskRecordOperation } from '../services/TaskRecordOperations'
+import { KeyboardAvoidMode } from '@kit.ArkUI'
+import { ProjectCreateService } from '../services/ProjectCreateService'
+import { ProjectRepositoryOption } from '../ui/ProjectCreatePresentation'
+import { TaskInlineSession } from '../services/TaskInlineService'
+import { ProjectCreateSheet } from './editors/ProjectCreateSheet'
 import { DataSet } from '../services/DataSet'
-import { CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskSwipeOperations } from './TaskSwipeOperations'
-import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu } from '../ui/TaskActionPresentation'
+import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy } from '../ui/TaskActionPresentation'
 import { TaskStateCategory, taskStateToggleCategory } from '../ui/TaskStatePresentation'
 import { TaskEditorController } from '../ui/TaskEditorController'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
@@ -21,6 +29,8 @@ export struct TaskSwipeItem {
   @Prop listItem: boolean = true
   @Prop listOutset: number = 0
   @Prop itemId: string = ''
+  selection: TaskSelectionController | undefined = undefined
+  @Prop menuIdPrefix: string = 'task_swipe'
   @Prop rightSwipeAction: TaskRightSwipeAction | undefined = undefined
   menuAvailable: (() => boolean) | undefined = undefined
   @BuilderParam menuContent: (activate: (action: TaskOperation) => void) => void = this.swipeMenu
@@ -38,6 +48,18 @@ export struct TaskSwipeItem {
   private controller: TaskEditorController = new TaskEditorController((group: CoreTaskOperationGroup): void => {
     this.receiveOperation(group).catch((error: Error): void => { this.reportOperationError(error) })
   })
+  @State projectOpen: boolean = false
+  @State projectLoading: boolean = false
+  @State projectGenerating: boolean = false
+  @State projectTyping: boolean = false
+  @State projectMessage: string = ''
+  @State projectSource: CoreTask | undefined = undefined
+  @State projectRepositories: ProjectRepositoryOption[] = []
+  private projectOwner: string = ''
+  private projectScope: string = ''
+  private projectKeyboardAvoidMode: KeyboardAvoidMode | undefined = undefined
+  private recordActions: TaskRecordActionController = new TaskRecordActionController()
+  @State recordActionPending: boolean = false
   @State submitting: boolean = false
   @Prop @Watch('operationsChanged') singleOperations: TaskSingleOperation[] = []
   @State toggleStateCategory: TaskStateCategory | null = null
@@ -51,7 +73,7 @@ export struct TaskSwipeItem {
     this.active = true
     this.operationsChanged()
   }
-  aboutToDisappear(): void { this.active = false; this.stopWatching?.(); this.stopWatching = undefined; this.controller.release() }
+  aboutToDisappear(): void { this.active = false; this.recordActions.close(); this.closeProject(true); this.stopWatching?.(); this.stopWatching = undefined; this.controller.release() }
 
   private taskDataSet(): DataSet {
     if (!this.dataSet) throw new Error('未提供页面数据管理对象')
@@ -72,7 +94,7 @@ export struct TaskSwipeItem {
       this.inlineTyping || this.checklistDragging
   }
 
-  gesturesBlocked(): boolean { return this.hostBlocked() || this.submitting }
+  gesturesBlocked(): boolean { return this.hostBlocked() || this.submitting || this.recordActionPending || this.projectLoading || this.projectOpen }
 
   blocked(): boolean {
     return this.gesturesBlocked() || !!this.controller?.isBound() && !this.controller.canActivate()
@@ -88,15 +110,20 @@ export struct TaskSwipeItem {
   }
 
   operationEnabled(action: TaskOperation): boolean {
-    return this.singleOperations.some(operation => operation === action) || this.rightSwipeAction === action
+    return action === TaskOperation.Select ? this.selection !== undefined :
+      this.singleOperations.some(operation => operation === action) || this.rightSwipeAction === action
   }
 
   async activateOperation(action: TaskOperation): Promise<void> {
     const allowed = (): boolean => !this.hostBlocked() && this.operationEnabled(action)
-    if (this.submitting || !allowed()) return
+    if (this.submitting || this.recordActionPending || this.projectOpen || this.projectLoading || !allowed()) return
     let group: CoreTaskOperationGroup | undefined = undefined
     try {
       switch (action) {
+        case TaskOperation.Select: await this.selection?.start(this.taskId); return
+        case TaskOperation.Reopen: case TaskOperation.Restore: case TaskOperation.Clear:
+          await this.executeRecordAction(action, allowed); return
+        case TaskOperation.Project: await this.openProject(allowed); return
         case TaskOperation.ToggleState:
           if (this.toggleStateCategory === TaskStateCategory.Doing) group = await this.controller.start(allowed)
           else if (this.toggleStateCategory === TaskStateCategory.Todo) group = await this.controller.stop(allowed)
@@ -110,6 +137,95 @@ export struct TaskSwipeItem {
       }
       if (group) await this.receiveOperation(group, allowed)
     } catch (error) { this.reportOperationError(error as Error) }
+  }
+
+  private async executeRecordAction(action: TaskRecordOperation, allowed: () => boolean): Promise<void> {
+    this.recordActionPending = true
+    const dataSet = this.taskDataSet(), scope = dataSet.identity
+    const valid = (): boolean => allowed() && scope === dataSet.identity
+    try {
+      if (!await TaskInlineSession.end(false)) return
+      await dataSet.settle()
+      if (!valid()) return
+      if (dataSet.error) throw new Error(dataSet.error)
+      const source = dataSet.getTask(this.taskId)
+      if (!source) throw new Error('任务已移除，请刷新后重试')
+      const result = await this.recordActions.execute(this.getUIContext(), dataSet, [source], action, valid)
+      if (valid() && result.retainedKeys.length) {
+        try { this.getUIContext().getPromptAction().showToast({ message: TaskRecordOperations.retainedMessage(result.retainedKeys.length), duration: 3000 }) }
+        catch (_) { /* 页面退出时提示可能不可用。 */ }
+      }
+    } finally { this.recordActionPending = false }
+  }
+
+  private async openProject(allowed: () => boolean): Promise<void> {
+    this.projectLoading = true
+    this.projectScope = this.taskDataSet().identity
+    const valid = (): boolean => allowed() && this.taskDataSet().identity === this.projectScope
+    try {
+      if (this.listItem && this.scrollHost) {
+        try { (this.scrollHost as ListScroller).closeAllSwipeActions() } catch (_) { /* 尚未绑定的列表无需收回菜单。 */ }
+      }
+      await new Promise<void>(resolve => setTimeout(resolve, 260))
+      if (!valid() || !await TaskInlineSession.end(true)) return
+      await this.taskDataSet().settle()
+      if (!valid()) return
+      if (this.taskDataSet().error) throw new Error(this.taskDataSet().error)
+      const source = this.taskDataSet().getTask(this.taskId)
+      if (!source) return
+      this.projectOwner = `project:${this.getUniqueId()}`
+      if (!await TaskInlineSession.begin(this.projectOwner, async (): Promise<boolean> => {
+        this.dismissProject()
+        return false
+      })) return
+      const repositories = await ProjectCreateService.repositories(this.getUIContext().getHostContext()!)
+      if (!valid()) return
+      this.projectRepositories = repositories
+      this.projectSource = source
+      this.projectMessage = ''
+      this.projectKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode()
+      this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+      this.projectOpen = true
+    } finally {
+      this.projectLoading = false
+      if (!this.projectOpen) this.closeProject()
+    }
+  }
+
+  private dismissProject(): void {
+    if (this.projectLoading || this.projectGenerating || this.submitting) return
+    if (this.projectTyping) {
+      this.getUIContext().getFocusController().clearFocus()
+      this.projectTyping = false
+      return
+    }
+    this.closeProject()
+  }
+
+  private closeProject(force: boolean = false): void {
+    if (!force && (this.projectLoading || this.projectGenerating || this.submitting)) return
+    if (this.projectKeyboardAvoidMode !== undefined) {
+      this.getUIContext().setKeyboardAvoidMode(this.projectKeyboardAvoidMode)
+      this.projectKeyboardAvoidMode = undefined
+    }
+    this.projectOpen = false
+    this.projectTyping = false
+    this.projectSource = undefined
+    this.projectRepositories = []
+    this.projectMessage = ''
+    TaskInlineSession.release(this.projectOwner)
+    this.projectOwner = ''
+  }
+
+  private async submitProject(group: CoreTaskOperationGroup): Promise<void> {
+    if (!this.projectOpen || this.submitting) return
+    this.projectMessage = ''
+    try {
+      const allowed = (): boolean => this.active && this.projectOpen && !this.hostBlocked() &&
+        this.operationEnabled(TaskOperation.Project) && this.taskDataSet().identity === this.projectScope
+      await this.submitOperationGroups([group], allowed)
+      this.closeProject(true)
+    } catch (error) { if (this.active) this.projectMessage = coreErrorMessage(error as CoreBridgeError) }
   }
 
   private reportOperationError(error: Error): void {
@@ -133,15 +249,25 @@ export struct TaskSwipeItem {
   }
 
   swipeMenuItems(): TaskActionItem[] {
-    return taskSingleMenu(this.singleOperations, (action: TaskSingleOperation): void => {
-      this.activateOperation(action)
-    }, this.toggleStateCategory)
+    const activate = (action: TaskOperation): void => { this.activateOperation(action) }
+    return this.selection ? taskSwipeMenu(taskActionPolicy({ singleOperations: this.singleOperations }), activate, this.toggleStateCategory) :
+      taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory)
   }
 
   @Builder
   swipeMenu(_activate: (action: TaskOperation) => void) {
-    TaskSwipeActions({ busy: this.gesturesBlocked(), idPrefix: 'task_swipe',
+    TaskSwipeActions({ busy: this.gesturesBlocked(), idPrefix: this.menuIdPrefix,
       items: this.swipeMenuItems() })
+  }
+
+  @Builder
+  projectPanel() {
+    ProjectCreateSheet({ source: this.projectSource, repositories: this.projectRepositories,
+      initialRepoId: this.projectSource?.repoId || '', initialRegion: this.projectSource?.category || '',
+      initialName: this.projectSource?.heading || '', busy: this.submitting, generating: $projectGenerating,
+      message: this.projectMessage, typingChanged: (typing: boolean): void => { this.projectTyping = typing },
+      cancel: (): void => { this.closeProject() },
+      generated: (group: CoreTaskOperationGroup): void => { this.submitProject(group) } })
   }
 
   @Builder
@@ -156,12 +282,19 @@ export struct TaskSwipeItem {
 
   @Builder
   swipeContent() {
-    RightSwipe({ disabled: !this.interactionEnabled || this.readOnly || this.busy || this.rightSwipeAction === undefined,
-      canActivate: (): boolean => this.rightSwipeAvailable(), action: (): void => {
-        if (this.rightSwipeAction !== undefined) this.activateOperation(this.rightSwipeAction)
-      } }) {
-      this.content(this.controller)
-    }
+    Column() {
+      RightSwipe({ disabled: !this.interactionEnabled || this.readOnly || this.busy || this.rightSwipeAction === undefined,
+        canActivate: (): boolean => this.rightSwipeAvailable(), action: (): void => {
+          if (this.rightSwipeAction !== undefined) this.activateOperation(this.rightSwipeAction)
+        } }) {
+        this.content(this.controller)
+      }
+    }.width('100%').bindSheet($$this.projectOpen, this.projectPanel, {
+      height: SheetSize.FIT_CONTENT, preferType: SheetType.BOTTOM,
+      backgroundColor: '#363A38', showClose: false,
+      onWillDismiss: (_action): void => { this.dismissProject() },
+      onDisappear: (): void => { this.closeProject() }
+    })
   }
 
   build() {

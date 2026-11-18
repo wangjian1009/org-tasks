@@ -25,8 +25,12 @@ function pagePolicy(page) {
   const file = page === 'inbox' ? 'entry/src/main/ets/pages/Inbox.ets' : 'entry/src/main/ets/components/LogbookTaskList.ets';
   if (!['inbox', 'logbook'].includes(page)) return taskPageActionPolicy(page);
   const source = fs.readFileSync(file, 'utf8');
-  const relevant = page === 'logbook' ? source.slice(source.indexOf('return taskActionPolicy',source.indexOf('bulkOperations: [TaskOperation.Restore, TaskOperation.Clear]'))) : source;
-  const call = relevant.match(/taskActionPolicy\((\{[\s\S]*?\})(?:, TaskOperation\.([A-Za-z]+))?\)/);
+  if (page === 'logbook') {
+    const single = source.match(/@Prop singleOperations:[^=]+=\s*(\[[^\n]+\])/)[1];
+    const bulk = source.match(/@Prop bulkOperations:[^=]+=\s*(\[[^\n]+\])/)[1];
+    return taskActionPolicy({singleOperations:vm.runInNewContext(single,{TaskOperation}),bulkOperations:vm.runInNewContext(bulk,{TaskOperation})});
+  }
+  const call = source.match(/taskActionPolicy\((\{[\s\S]*?\})(?:, TaskOperation\.([A-Za-z]+))?\)/);
   return taskActionPolicy(vm.runInNewContext('(' + call[1] + ')', { TaskOperation }), call[2] ? TaskOperation[call[2]] : undefined);
 }
 
@@ -133,11 +137,11 @@ test('操作列表默认留空，多选固定追加，页面配置与传入数�
   assert.deepEqual(taskBatchMenu(defaults, () => {}), []);
   assert.deepEqual(defaults.singleOperations, []); assert.deepEqual(defaults.bulkOperations, []);
   const inbox = pagePolicy('inbox');
-  assert.deepEqual(taskSwipeMenu(inbox, () => {}).map(item => item.id), ['move', 'someday', 'memo', 'delete', 'select']);
+  assert.deepEqual(taskSwipeMenu(inbox, () => {}).map(item => item.id), ['move', 'someday', 'memo', 'delete', 'project', 'select']);
   assert.deepEqual(taskBatchMenu(inbox, () => {}).map(item => item.id), ['move', 'someday', 'memo', 'delete', 'merge']);
-  assert.deepEqual(taskBatchMenu(pagePolicy('logbook'), () => {}).map(item => item.id), ['delete', 'restore']);
+  assert.deepEqual(taskBatchMenu(pagePolicy('logbook'), () => {}).map(item => item.id), ['delete', 'reopen']);
   inbox.singleOperations.length = 0;
-  assert.equal(pagePolicy('inbox').singleOperations.length, 4);
+  assert.equal(pagePolicy('inbox').singleOperations.length, 5);
   const input = { singleOperations: [TaskOperation.Delete], bulkOperations: [TaskOperation.Restore] };
   const policy = taskActionPolicy(input);
   policy.singleOperations.push(TaskOperation.Move); policy.bulkOperations.length = 0;
@@ -189,8 +193,8 @@ test('今天、计划、随时、某天与最近新增均由外层右滑设置�
   }
   const logbook = swipeCard('logbook'); logbook.state.activateOperation(TaskOperation.Schedule); assert.deepEqual(logbook.calls, []);
   const inboxMenu = taskSwipeMenu(pagePolicy('inbox'), () => {});
-  assert.deepEqual(inboxMenu.map(item => item.id), ['move', 'someday', 'memo', 'delete', 'select']);
-  assert.equal(taskSwipeMenuWidth(inboxMenu), 256);
+  assert.deepEqual(inboxMenu.map(item => item.id), ['move', 'someday', 'memo', 'delete', 'project', 'select']);
+  assert.equal(taskSwipeMenuWidth(inboxMenu), 304);
 });
 
 test('外部控制器仅作用于绑定卡片，卡片离开后不再打开编辑入口', () => {
@@ -300,7 +304,7 @@ test('日志簿左滑进入多选，批量恢复由操作列表独立控制', ()
   assert.deepEqual(taskSwipeMenu(policy, () => {}).map(item => item.id), ['delete', 'select']);
   const menu = taskBatchMenu(policy, action => invoked.push(action));
   assert.deepEqual(menu.map(item => item.title), ['删除', '恢复']);
-  menu[1].action(); assert.deepEqual(invoked, ['restore']);
+  menu[1].action(); assert.deepEqual(invoked, ['reopen']);
   policy.bulkOperations = [TaskOperation.Delete];
   assert.deepEqual(taskBatchMenu(policy, () => {}).map(item => item.id), ['delete']);
   policy.bulkOperations = [];

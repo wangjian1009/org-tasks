@@ -2,7 +2,6 @@ import { PageNavigator } from '../services/PageNavigator'
 import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
 import { AppConfig } from '../models/OrgTask'
 import { FileTargetService, configuredSpecialFileExclusions, systemTrashExclusions } from '../services/FileTargetService'
-import { LogbookService } from '../services/LogbookService'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -11,7 +10,6 @@ import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { TaskSwipeItem } from '../components/TaskSwipeItem'
-import { TaskSwipeOperations } from '../components/TaskSwipeOperations'
 import { MemoListItem } from '../components/MemoListItem'
 import { TodayTaskList } from '../components/TodayTaskList'
 import { PlannedTaskList } from '../components/PlannedTaskList'
@@ -369,9 +367,7 @@ export struct TaskPageContent {
         } else if (this.view === 'planned') {
           PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, singleOperations: taskPageActionPolicy(this.view).singleOperations, groups: this.planGroups, referenceTime: this.referenceTime })
         } else if (this.view === 'logbook') {
-          LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), perform: async (tasks: CoreTask[], action: 'delete' | 'restore'): Promise<void> => {
-            await TaskSwipeOperations.submit(this.taskDataSet(), await LogbookService.operationGroups(this.getUIContext().getHostContext()!, tasks, action), (): boolean => this.pageReady)
-          }, groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
+          LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
         } else {
           List({ scroller: this.listScroller }) {
             if (this.notificationState.notifications.length > 0) {

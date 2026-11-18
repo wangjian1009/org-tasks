@@ -101,7 +101,7 @@ function fixture() {
       if (dependency.endsWith('/PageDataSnapshot')) return {
         cacheDataSet: (name, result) => ({name, ...result}), restoreDataSet: ({name, ...result}) => result
       };
-      if (dependency.endsWith('/CaptureService') || dependency.endsWith('/LogbookService') || dependency.endsWith('/InboxService')) return {};
+      if (dependency.endsWith('/CaptureService') || dependency.endsWith('/InboxService')) return {};
       if (dependency.endsWith('/DataSetManager')) return managerFactory;
       if (dependency.endsWith('/NativeCoreService')||dependency==='./NativeCoreService') return native;
       if (dependency.endsWith('/AppConfigService')||dependency==='./AppConfigService') return {AppConfigService:{async load(){return config;},async save(){},watchChanges(fn){configCallbacks.add(fn);},stopWatchingChanges(fn){configCallbacks.delete(fn);}}};

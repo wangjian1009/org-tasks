@@ -25,8 +25,8 @@ export class ProjectCreateService {
         .map(file => file.category!))).sort() }))
   }
 
-  static async convert(context: Context, source: CoreTask, location: ProjectLocation, name: string,
-    fileName: string, operationId?: string): Promise<void> {
+  static async operationGroup(context: Context, source: CoreTask, location: ProjectLocation, name: string,
+    fileName: string): Promise<CoreTaskOperationGroup> {
     const error = projectInputError(location.repoId, name, fileName, location.region)
     if (error) throw new Error(error)
     const config = await AppConfigService.load(context, false)
@@ -43,12 +43,10 @@ export class ProjectCreateService {
       arguments: { 'project_name': name.trim(), 'category': location.region.trim() }, initTasks: []
     }
     // 随包模板仅含文件头，已有记录以首层子树移入，保留原始正文、属性和日志。
-    const group: CoreTaskOperationGroup = {
-      operationId,
+    return {
       operations: [{ type: 'FileNew', data: file },
         { type: 'Movement', data: { path: source.fullPath, position: { parent: file.path } } }],
       fileVersions: [{ repoId: source.repoId, file: source.filePath, version: source.fileVersion }]
     }
-    await workspace.executeTaskOperations(group)
   }
 }
