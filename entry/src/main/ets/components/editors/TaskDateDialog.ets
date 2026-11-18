@@ -6,6 +6,8 @@ import { inlineDate, TaskCalendarDay, taskCalendarDays } from '../../ui/TaskInli
 @CustomDialog
 export struct TaskDateDialog {
   controller: CustomDialogController
+  title: string = ''
+  allowTimeRange: boolean = true
   selected: string = ''
   planning: CoreTaskPlanningInfo | null = null
   deadline: boolean = false
@@ -33,7 +35,7 @@ export struct TaskDateDialog {
   aboutToAppear() {
     this.date = this.planning?.date || this.selected
     this.start = this.planning?.time?.start || ''
-    this.end = this.planning?.time?.end || ''
+    this.end = this.allowTimeRange === false ? '' : this.planning?.time?.end || ''
     const date = this.date ? new Date(`${this.date}T12:00:00`) : new Date()
     this.year = date.getFullYear(); this.month = date.getMonth()
   }
@@ -129,7 +131,7 @@ export struct TaskDateDialog {
       Text('开始时间').fontSize(15).fontColor(UiColor.text).layoutWeight(1)
       Text(this.draftStart).fontSize(16).fontColor(this.timeField === 'start' ? this.color() : UiColor.text)
     }.id('inline_time_start').width('100%').height(48).onClick(() => { this.selectTime('start') })
-    if (this.draftEnd) {
+    if (this.allowTimeRange !== false && this.draftEnd) {
       Row() {
         Row() {
           Text('结束时间').fontSize(15).fontColor(UiColor.text).layoutWeight(1)
@@ -138,7 +140,7 @@ export struct TaskDateDialog {
         Button('移除').height(44).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .onClick(() => { this.draftEnd = ''; this.selectTime('start') })
       }.id('inline_time_end').width('100%').height(48)
-    } else {
+    } else if (this.allowTimeRange !== false) {
       Button('＋ 添加结束时间').id('inline_time_add_end').width('100%').height(44).fontColor(this.color()).backgroundColor(Color.Transparent)
         .onClick(() => {
           const parts = this.draftStart.split(':')
@@ -156,7 +158,7 @@ export struct TaskDateDialog {
   @Builder
   datePanel() {
     Row() {
-      Text(this.deadline ? '截止日期' : '计划日期').fontSize(17).fontColor(UiColor.text).layoutWeight(1)
+      Text(this.title || (this.deadline ? '截止日期' : '计划日期')).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
       Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_close')).width(20).height(20) }
         .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('取消日期与时间修改')
         .enabled(!this.busy).onClick(() => { this.close() })

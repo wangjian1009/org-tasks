@@ -44,6 +44,7 @@ export interface PageTaskFields {
   hasText: boolean
   isRepeating: boolean
   isHabit: boolean
+  reminderAt: number | null
   properties: Record<string, string>
   hasAttach: boolean
 }
@@ -131,6 +132,7 @@ export function taskRecord(value: CoreTask): PageTaskRecord {
     hasText: value.hasText,
     isRepeating: value.isRepeating,
     isHabit: value.isHabit,
+    reminderAt: value.reminderAt ?? null,
     properties: value.properties,
     hasAttach: value.hasAttach,
   }, done: value.isDone(), states: states(value), priorities: priorities(value) }
@@ -176,6 +178,7 @@ export class PageTaskSnapshot {
   readonly hasText: boolean
   readonly isRepeating: boolean
   readonly isHabit: boolean
+  readonly reminderAt: number | null
   readonly properties: Record<string, string>
   readonly hasAttach: boolean
   property: (name: string) => string | null
@@ -224,6 +227,7 @@ export class PageTaskSnapshot {
     this.isRepeating = record.value.isRepeating
     this.property = (name: string): string | null => this.properties[name.replace(/[a-z]/g, (letter: string): string => letter.toUpperCase())] ?? null
     this.isHabit = record.value.isHabit
+    this.reminderAt = record.value.reminderAt ?? null
     this.properties = record.value.properties ?? {}
     this.hasAttach = record.value.hasAttach
     this.isDone = (): boolean => record.done

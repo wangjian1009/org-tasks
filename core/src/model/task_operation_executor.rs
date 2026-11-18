@@ -1002,6 +1002,17 @@ pub(super) fn modify(
         TaskModification::Property { name, value } => {
             super::task_state::modify_property(file, headline, name, value.as_deref())
         }
+        TaskModification::SetReminder(value) => {
+            use chrono::{Datelike, TimeZone};
+            let timestamp = value.map(|value| {
+                let date = chrono::Local.timestamp_millis_opt(value).single()
+                    .filter(|date| (1..=9999).contains(&date.year()))
+                    .ok_or(CoreError::InvalidInput("提醒时间超出有效日期范围"))?;
+                Ok::<_, CoreError>(date.format("[%Y-%m-%d %a %H:%M]").to_string())
+            }).transpose()?;
+            super::task_state::write_property(file, headline, super::properties::REMINDER_PROPERTY, timestamp.as_deref())
+        }
+
         TaskModification::ContentBlock(change) => {
             super::content_block::modify(file, headline, change)
         }

@@ -144,3 +144,7 @@ APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共�
 * 外部文件变化与通知刷新
 
 普通操作组提交后的事件为 ~DataChangeEvent::NotificationEvent~ ，携带任务／文件增量和当前仓库通知列表。同步与 reset 的文件增删改通过独立 ~ExternalFileChanged~ 广播。Core 先按各类通知条件更新通知缓存并广播列表变化，UI 通知模块只消费列表，不监听文件变化。数据管理层按查询范围合并刷新，Core 查询订阅只标记相关订阅失效，不隐式查询。完整契约见 [[file:core/外部文件变化监控设计.org][外部文件变化监控设计]] 。
+
+* 任务提醒平台接入
+
+Core 使用与创建时间相同的属性解析投影 ~reminder_at~ ，并以 ~SetReminder~ 封装底层属性名、时间戳序列化与保真写入。表达式支持 ~reminder~ / ~r~ 的自然日条件和完整时间排序。Harmony 的 ~TaskReminderService~ 负责单次系统实例及本机状态，设置子页进入后异步启动全部提醒任务列表，复用当前 Workspace 和 DataSet 通知。全局响铃默认 30 秒，设备开关与系统映射不进入 Core 同步记录。详见 [[file:harmony/任务提醒设计.org][任务提醒设计]]。

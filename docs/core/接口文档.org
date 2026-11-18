@@ -1284,3 +1284,7 @@ TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对�
 #+end_src
 
 ~note~ 的换行规范化为文件换行风格，内容不能为空白、NUL 或 drawer 标记。显式提交原因时，即使状态未配置自动日志，也记录一次带原因的状态日志；配置 ~lognotedone~ 且没有状态日志时使用 ~CLOSING NOTE~ 。日志遵守 ~LOG_INTO_DRAWER~ 及日志顺序设置；无效原因或后续联动失败时整组回滚。
+
+* 任务提醒
+
+~FilterTask.reminder_at() -> Option<TimestampMs>~ 复用 ~CREATED~ 的属性时间解析，仅投影标题自身唯一提醒时间；缺失、无效或范围返回空值，日期无时刻时为本地零点，不生成或回填。~TaskModification::SetReminder(Option<TimestampMs>)~ 封装底层属性名，JSON 为 ~SET_REMINDER~ ，毫秒时间戳设置、~null~ 清除；Core 写入精确到分钟的非活动 Org 时间戳，通用 ~PROPERTY~ 不能绕过专用修改。沿用操作组版本校验、事务与通知，详见 [[file:../harmony/任务提醒设计.org][任务提醒设计]]。

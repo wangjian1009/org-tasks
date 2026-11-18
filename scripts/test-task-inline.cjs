@@ -19,6 +19,8 @@ function load(file, mocks = {}) {
   return result.exports;
 }
 const storage = new Map();
+// 卡片测试只隔离提醒状态订阅；系统协调与恢复由提醒服务用例验证。
+global.TaskReminderService = { subscribe: () => () => {}, status: () => '' };
 test('任务链接仅在展开且可写时允许修改，收起后的旧编辑回调不能提交', async () => {
   const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
   const methods = ['linksEditable', 'changeLink'].map(name => {

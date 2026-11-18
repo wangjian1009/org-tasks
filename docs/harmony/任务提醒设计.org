@@ -1,0 +1,80 @@
+#+TITLE: 任务提醒设计
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
+
+* 范围与职责
+
+每个任务只有一个提醒时间，没有任务级次数、间隔或开关。Core 负责属性时间解析、查询及保真写入，Harmony 负责本机设置、系统代理提醒与恢复。应用使用 Background Tasks Kit 的 ~reminderAgentManager~ ，每项任务对应一个 ~ReminderRequestCalendar~ ，应用退出后已经登记的提醒由系统执行。
+
+* Core 读取与修改接口
+
+提醒读取与 ~CREATED~ 共用 ~property_time~ 处理流程：只读当前标题自身属性，不继承父标题或文件默认值；缺失、无效时间或时间范围返回 ~None~ ，只有日期时按本地零点解释，夏令时重叠取较早值、不存在的时刻忽略。查询不会生成或回填时间。
+
+#+begin_src rust
+impl FilterTask {
+    pub fn reminder_at(&self) -> Option<TimestampMs>;
+}
+
+pub enum TaskModification {
+    SetReminder(Option<TimestampMs>),
+    // 其余既有修改项省略。
+}
+#+end_src
+
+~SetReminder(Some(timestamp_ms))~ 设置唯一提醒时间， ~SetReminder(None)~ 清除。输入为 Unix 毫秒时间戳，Core 按本地时区写入精确到分钟、包含星期的非活动 Org 时间戳；超出有效年份范围的输入使整组失败，未涉及字节保持原样。继续通过 ~OrgWorkspace.execute_task_operations~ 提交，沿用版本校验、事务、回退与数据通知。
+
+JSON 修改项为 ~{"field":"SET_REMINDER","value":1795136400000}~ 或 ~{"field":"SET_REMINDER","value":null}~ 。公开接口不要求调用方知道属性名，也不要求调用方拼接 Org 原文。实现内部使用自身 ~REMIND_AT~ 属性，与 ~CREATED~ 使用同一属性抽屉及时间解析入口；通用 ~PROPERTY~ 修改不能绕过专用入口。界面只交换日期时间控件数据与可空毫秒时间戳，不生成 ID。旧次数、间隔和开关属性按未知普通属性保留，读取提醒时忽略。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{FilterTask}{reminder\_at : Option<TimestampMs>}{reminder\_at()}
+\umlclass[x=7,y=0]{TaskModification}{SetReminder(Option<TimestampMs>)}{}
+\umlclass[x=0,y=-4]{TaskReminderService}{本机恢复日志}{reconcile()}
+\umlclass[x=7,y=-4]{ReminderAgentManager}{一个任务一个实例}{publishReminder() \\ cancelReminder()}
+\umldep{TaskModification}{FilterTask}
+\umldep{TaskReminderService}{FilterTask}
+\umldep{TaskReminderService}{ReminderAgentManager}
+\end{tikzpicture}
+
+* 查询表达式
+
+~reminder.<interval>~ 与简写 ~r.<interval>~ 沿用 ~cr~ 的自然日条件规则，支持 ~eq~ 、 ~ne~ 、 ~lt~ 、 ~le~ 、 ~gt~ 、 ~ge~ ，省略关系时为 ~le~ 。例如 ~reminder.ge.today reminder.lt.tomorrow~ 查询当天的任务， ~reminder.none~ 查询缺失或无效的提醒时间。与既有创建日期条件一致， ~now~ 表示当前自然日，不额外引入按当前分钟比较的规则。
+
+~has.reminder~ 匹配有效提醒时间， ~.has.reminder~ 取反。排序 ~o.reminder~ / ~o.r~ 按完整毫秒时间升序，前置点号为降序；缺失值及同值的次序沿用 ~created~ 排序规则。条件与其他状态、文件和布尔条件自由组合。
+
+系统协调使用 ~it.todo has.reminder~ ，排除终态和系统废纸篓。设置列表使用 ~.it.none has.reminder o.reminder~ ，包含所有设置了有效提醒时间的任务，包括已结束与已过期记录；两者共享 Core 查询语义，不在 UI 二次过滤。
+
+* 设置入口与任务编辑
+
+设置首页“应用程序”分组提供“任务提醒”入口。进入后显示本机总开关、统一响铃时长、显式保存、系统授权状态与任务列表。总开关默认关闭；响铃时长默认 30 秒，允许 1 至 1800 秒，保存后统一更新未来系统提醒。全局设置仅影响本机，不写入任务属性、不随 WebDAV 同步。
+
+任务列表在进入子页后异步启动独立 DataSetManager，共用应用当前的 Workspace，禁用页面磁盘缓存；提供加载、空列表、错误及重试状态。按 Core 返回顺序展示标题、提醒时间与实际安排状态；点击条目打开共享日期时间选择器，可修改或清除唯一时间。修改只提交一次 ~SET_REMINDER~ ，不覆盖任务其他字段；外部变化通过原订阅刷新，清除时间后自动移出列表。离开子页关闭列表订阅与编辑窗口。
+
+任务展开卡片“更多 → 提醒…”直接打开同一日期时间选择器，不再套提醒配置窗口；不提供次数、间隔和任务级开关，不支持时间范围。清除日期后确认会取消该任务提醒，取消窗口不提交。现有时间未修改时不重复提交。
+
+* 本机状态与系统协调
+
+Preferences ~org_tasks_reminders~ 保存设备偏好 ~enabled~ 与 ~ringDuration~ 。独立 Preferences ~org_tasks_reminder_state~ 的 ~journal~ 保存版本 1 恢复日志，包括递增通知 ID，以及单个实例的 key、目标时间、内容指纹和可空系统 ID；不进入 Org、Core 同步目录或 WebDAV。
+
+系统协调只使用已确认且版本大于零的任务快照，不消费编辑草稿或版本 0 缓存。查询或系统库存读取失败不等于空任务，不误删已有提醒。总开关关闭时无需任务查询成功即可撤销本服务管理的实例。任务完成、取消、删除、改期或清除提醒时间后撤销旧实例。
+
+实例 key 使用 Core 任务逻辑身份与唯一时间，指纹包括任务标题与统一响铃时长。改名或移动使逻辑身份改变时撤销旧实例再登记新实例，不额外建立 Org ID 规则。每次协调读取系统实际记录，只管理带本服务标记的实例；发布前落盘意图，发布成功后保存系统 ID，崩溃后依据系统 key 恢复，避免重复登记。
+
+过去的提醒不补发。当前仍响铃的实例保留至响铃结束，清除时间或结束任务时立即取消。应用进程存活时清理过期实例并补位，退出后已经登记的实例继续由系统执行，尚未安排的任务和远端修改需等下次运行或文件同步后处理。
+
+* 平台条件与容量
+
+手机、平板和 PC 需要申请华为代理提醒开放能力，获批后开启能力并更新 Profile，使用手动签名。应用声明 ~ohos.permission.PUBLISH_AGENT_REMINDER~ ，复用已有前台通知授权流程，不在后台弹窗。
+
+API 24 单个普通应用最多保留 30 个有效提醒，一个任务占一个名额。扣除其他用途实例和当前响铃实例后，优先安排最近的任务；其余显示等待名额。系统拒绝创建时显示实际失败状态，不报告成功。 ~maxScreenWantAgent~ 为预留接口，不承诺系统时钟的全屏闹钟体验。
+
+* 官方依据
+
+- [[https://developer.huawei.com/consumer/cn/doc/doccenter-capabilities/agent-powered-reminder][代理提醒开发指南]]
+- [[https://developer.huawei.com/consumer/cn/doc/harmonyos-references/js-apis-reminderagentmanager][后台代理提醒 API]]
+
+* 验证记录
+
+2026-11-18 在独立 API 24 模拟器与隔离仓库验证：设置列表显示已结束与过期任务；通过 HTTP 的 ~SET_REMINDER~ 改期后，列表立即更新文字和排序；列表内清除时间后任务移出，HTTP 读到 ~reminderAt=null~ ，其他属性与正文保留且未生成 ID。统一响铃时长可保存为 45 秒，重启后仍为 45 秒，提醒成员与排序保持；超出 1 至 1800 秒的值被拒绝。验收后恢复默认 30 秒和隔离仓库原文，清空列表自动显示空态，并关闭临时 HTTP 接口。持续响铃与应用退出后的系统交付仍待代理提醒权益获批的真机验收。

@@ -40,7 +40,7 @@ export interface TaskFileNew {
   arguments?: Record<string, string>; initTasks?: TaskFileInitialTask[];
 }
 export interface TaskAddressChange { oldUri: string; newUri: string; }
-export type TaskModificationField = 'PROPERTY' | 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'CONTENT_BLOCK' | 'LINK' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
+export type TaskModificationField = 'SET_REMINDER' | 'PROPERTY' | 'TITLE' | 'BODY' | 'NOTES' | 'CHECKLIST' | 'CONTENT_BLOCK' | 'LINK' | 'TODO' | 'PRIORITY' | 'TAGS' | 'SCHEDULE' | 'SCHEDULE_REPEAT' | 'DEADLINE' | 'DEADLINE_REPEAT' | 'ADDRESS_LINK';
 export type TaskRepeatMode = 'cumulative' | 'catchUp' | 'afterCompletion';
 export type TaskRepeatUnit = 'hour' | 'day' | 'week' | 'month' | 'year';
 export interface TaskRepeatRule { mode: TaskRepeatMode; interval: number; unit: TaskRepeatUnit; }
@@ -55,7 +55,7 @@ export type TaskChecklistChange = { type: 'add'; text: string } | { type: 'edit'
 export interface ContentBlock { readonly id: string; readonly kind: 'text' | 'list' | 'table' | 'checklist'; readonly paragraph: boolean; readonly blankLinesBefore: number; readonly source: string; readonly html: string; readonly items: TaskChecklistItem[]; }
 export type ContentBlockChange = { type: 'replace'; id: string; source: string } | { type: 'link'; id: string; link: TextLink; value: LinkValue | null };
 export interface TaskPropertyChange { name: string; value: string | null; }
-export interface TaskModification { field: TaskModificationField; value: string | string[] | TaskAddressChange | TaskPropertyChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
+export interface TaskModification { field: TaskModificationField; value: number | string | string[] | TaskAddressChange | TaskPropertyChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; note?: string; }
 export interface TaskMovement { path: TaskPath; position: TaskPosition; }
 export interface TaskNoteAddition { path: TaskPath; note: string; }
@@ -84,7 +84,7 @@ export interface DataTaskRecord {
   line: number; column: number; byteOffset: number; level: number;
   state: TaskState | null; stateType: 'Todo' | 'Done' | 'None'; priority: TaskPriority | null;
   ownTags: string[]; inheritedTags: string[]; title: string; body: string; addressLinks: AddressLink[];
-  isRepeating: boolean; isHabit: boolean; properties: Record<string, string>; hasAttach: boolean;
+  isRepeating: boolean; isHabit: boolean; reminderAt: number | null; properties: Record<string, string>; hasAttach: boolean;
   scheduled: DataDateRecord | null; deadline: DataDateRecord | null;
   scheduledWarning: string | null; deadlineWarning: string | null;
   closed: DataDateRecord | null; closedAt: number | null;
@@ -213,6 +213,7 @@ export class Task {
   readonly hasText: boolean;
   readonly isRepeating: boolean;
   readonly isHabit: boolean;
+  readonly reminderAt: number | null;
   readonly properties: Readonly<Record<string, string>>;
   readonly hasAttach: boolean;
 }

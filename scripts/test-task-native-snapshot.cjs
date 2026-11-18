@@ -98,8 +98,8 @@ execFileSync('c++', ['-std=c++17', '-shared', '-undefined', 'dynamic_lookup',
   '-I', process.env.NODE_INCLUDE || '/opt/homebrew/include/node', cpp, '-o', addon]);
 const native = require(addon);
 
-function snapshot(name = 'DONE', done = false) {
-  return native.create({ id: 'task', heading: '项目任务', hasAttach: true, properties: { VISIBILITY: 'folded', EMPTY: '' }, projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
+function snapshot(name = 'DONE', done = false, reminderAt = null) {
+  return native.create({ reminderAt, id: 'task', heading: '项目任务', hasAttach: true, properties: { VISIBILITY: 'folded', EMPTY: '' }, projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
     headingParts: [{ text: '参考', href: 'https://example.com/', isLink: true, count: null,
       link: { start: 0, end: 31, source: '[[https://example.com/][参考]]', title: '参考', url: 'https://example.com/' } }],
     editContent: { ownTags: [], notes: 'https://example.com/', notesHtml: '<main><p><a class="link" href="https://example.com/">https://example.com/</a></p></main>',
@@ -119,6 +119,16 @@ function copy(value) {
   for (const key of Object.keys(value)) result[key] = copy(value[key]);
   return result;
 }
+
+test('唯一提醒时间通过真实 N-API、深拷贝及序列化保留可空毫秒时间戳', () => {
+  const original = snapshot('DONE', false, 1795136400000);
+  assert.equal(original.reminderAt, 1795136400000);
+  assert.equal(Object.getOwnPropertyDescriptor(original, 'reminderAt').writable, false);
+  const cloned = copy(original); cloned.reminderAt = null;
+  assert.equal(original.reminderAt, 1795136400000);
+  assert.equal(JSON.parse(JSON.stringify(original)).reminderAt, 1795136400000);
+  assert.equal(snapshot().reminderAt, null);
+});
 
 test('结构化日志穿过 N-API 与 ArkUI 深拷贝后保留类型和附注，快照互不影响', () => {
   const original = snapshot();

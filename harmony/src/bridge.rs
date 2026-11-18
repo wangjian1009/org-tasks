@@ -132,6 +132,7 @@ pub struct HarmonyBridgeTask {
     pub is_repeating: bool,
     pub is_habit: bool,
     pub properties: BTreeMap<String, String>,
+    pub reminder_at: Option<TimestampMs>,
     pub has_attach: bool,
 }
 
@@ -332,6 +333,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         is_repeating: task.is_repeating(),
         is_habit: task.is_habit(),
         properties: task.properties().clone(),
+        reminder_at: task.reminder_at(),
         has_attach: task.has_attach(),
     })
 }

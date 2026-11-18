@@ -825,3 +825,7 @@ TaskEditor 的 ~startNote~ 返回纯操作组，由现有控制器及 DataSet �
 * 状态日志说明
 
 ~TaskModificationOperation~ 在原 ~path~ 和 ~modifications~ 之外增加可选 ~note?: string~ ，TODO 值继续是原状态字符串。ArkTS 收集输入后将原因放入同一 Modification，C++ 和 Harmony Rust 按原对象序列化路径透传，不解析日志格式；Core 执行状态变化并写入 Emacs 格式说明。独立 Note 操作继续用于单独添加备注。
+
+* 任务提醒快照
+
+~FilterTask.reminder_at()~ 映射为只读 ~Task.reminderAt: number | null~ ，原始事件、N-API、界面快照与缓存使用相同可空毫秒时间戳。修改使用 ~SET_REMINDER~ 的数值或 ~null~ ，不向宿主暴露属性名，不要求宿主生成 Org 原文。C++ 注册只读 getter，ArkTS 透传类型；旧缓存没有新字段时恢复为空，系统协调仍只用已确认且版本大于零的快照。详见 [[file:任务提醒设计.org][任务提醒设计]]。

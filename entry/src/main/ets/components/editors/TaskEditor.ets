@@ -1,3 +1,5 @@
+import { reminderPlanning, reminderModification } from '../../ui/TaskReminderPresentation'
+import { TaskReminderService } from '../../services/TaskReminderService'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { ProjectNavigation } from '../../services/ProjectNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
@@ -132,6 +134,9 @@ export struct TaskEditor {
   private refreshRequest: number = 0
   private dateDialog: CustomDialogController | undefined = undefined
   private tagsDialog: CustomDialogController | undefined = undefined
+  private stopReminder: (() => void) | undefined = undefined
+  @State reminderRevision: number = 0
+  private reminderDialog: CustomDialogController | undefined = undefined
   private repeatDialog: CustomDialogController | undefined = undefined
   private noteDialog: CustomDialogController | undefined = undefined
   private noteFinish: ((note: string | undefined) => void) | undefined = undefined
@@ -517,13 +522,14 @@ export struct TaskEditor {
     this.continueCheck = false
     this.checkFocus.cancel()
     this.cancelCheckDrag()
-    this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()
+    this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close(); this.reminderDialog?.close()
     this.noteFinish?.(undefined); this.noteDialog?.close()
     TaskInlineSession.release(this.ownerKey)
   }
   aboutToAppear() {
     this.ownerKey = this.instanceKey || this.localDataSet().taskKey(this.taskId)
     this.appeared = true
+    this.stopReminder = TaskReminderService.subscribe((): void => { this.reminderRevision++ })
     this.controller?.bind(this)
     this.stopDataSet = this.localDataSet().watchTask(this.taskId, (change: TaskDataChange): void => {
       if (!this.appeared) return
@@ -543,6 +549,7 @@ export struct TaskEditor {
     })
   }
   aboutToDisappear() {
+    this.stopReminder?.(); this.stopReminder = undefined
     this.stopDataSet?.(); this.stopDataSet = undefined
     this.priorityOpen = false
     this.deleteConfirming = false
@@ -555,7 +562,7 @@ export struct TaskEditor {
     ++this.refreshRequest
     this.cancelCheckDrag()
     this.checkFocus.dispose()
-    this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close()
+    this.dateDialog?.close(); this.tagsDialog?.close(); this.repeatDialog?.close(); this.reminderDialog?.close()
     this.noteFinish?.(undefined); this.noteDialog?.close()
     if (this.hostWindow) this.hostWindow.off('keyboardHeightChange', this.keyboardChanged)
     TaskInlineSession.release(this.ownerKey)
@@ -840,6 +847,39 @@ export struct TaskEditor {
       if (this.pendingAction === action) this.pendingAction = undefined
       if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey)
     }
+  }
+  private async startReminder(): Promise<CoreTaskOperationGroup | undefined> {
+    if (!this.actionsAvailable() || this.value().state === null) return undefined
+    this.completing = true
+    let action: TaskEditorActionResult | undefined = undefined
+    try {
+      const source = await this.actionSource(() => this.appeared && !this.removed)
+      if (!source) return undefined
+      const result = new TaskEditorActionResult()
+      action = result; this.pendingAction = result
+      this.reminderDialog = new CustomDialogController({
+        builder: TaskDateDialog({ title: '提醒时间', allowTimeRange: false,
+          selected: reminderPlanning(source)?.date ?? '', planning: reminderPlanning(source),
+          closed: (): void => { result.finish() }, confirmed: (change: CoreTaskModification): void => {
+            if (!this.appeared || this.removed) { result.finish(); return }
+            const modification = reminderModification(source, change.value as CoreTaskPlanningEdit | null)
+            result.finish(modification.value === source.reminderAt ? undefined : taskModificationGroup(source, [modification]))
+          } }), customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
+        onWillDismiss: (dismiss: DismissDialogAction): void => { dismiss.dismiss(); result.finish() }
+      })
+      this.completing = false; this.reminderDialog.open()
+      return await result.result
+    } catch (error) { this.actionError(error as Error); return undefined }
+    finally {
+      this.completing = false
+      if (this.pendingAction === action) this.pendingAction = undefined
+      if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey)
+    }
+  }
+  reminderStatus(): string {
+    // 读取状态版本使系统安排结果独立刷新，任务快照保持由 DataSet 管理。
+    if (this.reminderRevision < 0) return ''
+    return TaskReminderService.status(this.value())
   }
   async priorities() {
     if (this.readOnly) return
@@ -1593,8 +1633,9 @@ export struct TaskEditor {
     const items: PopupMenuItem[] = []
     if (!this.readOnly) {
       items.push({ title: '备注…', icon: $r('app.media.ui_note'), action: () => { this.emitAction(this.startNote()) } },
-        { title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } },
-        { title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
+        { title: '优先级…', icon: $r('app.media.ui_priority'), action: () => { this.priorities() } })
+      if (this.value().state !== null) items.push({ title: '提醒…', icon: $r('app.media.ui_task_calendar'), action: () => { this.emitAction(this.startReminder()) } })
+      items.push({ title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
     if (this.logShowPolicy === LogShowPolicy.LogShowBySwitch && taskEventLogs(this.value().logs).length > 0) {
       items.push({ title: '日志',
@@ -1606,6 +1647,10 @@ export struct TaskEditor {
   @Builder
   attributes() {
     Column({ space: 4 }) {
+      if (this.value().reminderAt !== null && this.value().reminderAt !== undefined) {
+        Text(this.reminderStatus()).id('task_reminder_status').fontSize(12).fontColor(UiColor.secondary).width('100%')
+          .padding({ top: 4, bottom: 4 }).onClick(() => { if (!this.readOnly) this.emitAction(this.startReminder()) })
+      }
       if (this.value().editContent.scheduledRepeat?.rule) {
         this.repeatRule(false)
       }

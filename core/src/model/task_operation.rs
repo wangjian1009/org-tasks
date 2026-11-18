@@ -218,6 +218,8 @@ pub struct TaskPlanningInfo {
 )]
 pub enum TaskModification {
     Property { name: String, value: Option<String> },
+    /// 设置唯一提醒时间；毫秒时间戳按本地时区写入，精确到分钟，None 清除。
+    SetReminder(Option<crate::TimestampMs>),
     Title(Option<String>),
     Body(Option<String>),
     Notes(Option<String>),

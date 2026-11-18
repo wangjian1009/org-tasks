@@ -200,3 +200,9 @@ impl OrgWorkspace {
 ~deleted.<relation>.<interval>~ 使用与其他日期字段相同的本地自然日比较，例如 ~deleted.lt.-30d~ 查询删除日期早于 30 天边界的记录。只有自身存在非空 ~SOURCE_TRASH_ID~ 且没有子节点的记录，才从自身 ~SOURCE_TIME~ 属性读取删除时间；缺失、非法或仅有普通归档时间均不投影删除时间。~deleted_at()~ 返回可空 Unix 毫秒值，时区解释与创建时间一致，不生成或回填属性。
 
 ~o.deleted~ 与 ~.o.deleted~ 按完整删除时间升序和降序排列；缺失值在两个方向下均置末，同值按文件与源位置排序。增量查询的 ~orderKey~ 同步携带缺失值置末策略。废纸篓的文件范围仍由 ~includeFiles~ 指定，不在查询语言中引入页面含义。
+
+* 提醒条件
+
+~reminder.<interval>~ / ~r.<interval>~ 使用与 ~cr~ 相同的自然日条件，支持 ~eq/ne/lt/le/gt/ge~ 、 ~none~ 和既有相对日期单位；默认关系为 ~le~ ，~now~ 为当前自然日。~has.reminder~ 匹配有效提醒时间，~.has.reminder~ 取反，缺失或非法值均按空时间处理。~o.reminder~ / ~o.r~ 按完整时间戳升序，前置点号降序，缺失值和同值次序沿用 ~created~ 。例如 ~reminder.ge.today reminder.lt.tomorrow~ 、 ~reminder.none~ 。
+
+系统协调使用 ~it.todo has.reminder~ ，设置列表使用 ~.it.none has.reminder o.reminder~ ，由 Core 统一处理状态、冲突、忽略和文件范围；列表包含已结束与过期任务，不在 UI 再过滤。

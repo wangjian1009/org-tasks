@@ -48,6 +48,9 @@ enum FilterExpression {
     IsHabit {
         negated: bool,
     },
+    HasReminder {
+        negated: bool,
+    },
     Date {
         field: FilterDateField,
         relation: FilterRelation,
@@ -75,6 +78,7 @@ enum FilterDateField {
     Deadline,
     Closed,
     Created,
+    Reminder,
     Deleted,
 }
 
@@ -120,6 +124,7 @@ enum FilterSortField {
     Event,
     Closed,
     Created,
+    Reminder,
     Modified,
     Deleted,
     Priority,
@@ -157,6 +162,7 @@ pub struct FilterTask {
     pub(crate) is_habit: bool,
     /// 标题自身的规范化属性表；不继承父标题或文件默认值。
     properties: BTreeMap<String, String>,
+    reminder_at: Option<crate::TimestampMs>,
     /// 当前标题自身显式带有 ATTACH；不继承父标题或文件标签。
     pub(crate) has_attach: bool,
     pub(crate) scheduled: Option<FilterDate>,
@@ -315,6 +321,10 @@ impl FilterTask {
 
     pub fn properties(&self) -> &BTreeMap<String, String> {
         &self.properties
+    }
+
+    pub fn reminder_at(&self) -> Option<crate::TimestampMs> {
+        self.reminder_at
     }
 
     pub fn property(&self, name: &str) -> Option<&str> {
@@ -580,6 +590,8 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
         let edit_content = file
             .task_edit_content(&full_path)
             .expect("同一语法树生成的任务路径必须可定位");
+        let properties = crate::model::properties::own_values(&headline);
+        let reminder_at = property_time(&headline, crate::model::properties::REMINDER_PROPERTY).map(|value| value.1);
         tasks.push(FilterTask {
             file_version: file_version.clone(),
             edit_content,
@@ -605,7 +617,8 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             has_attach: headline.tags().any(|tag| tag == crate::model::ATTACH_TAG),
             is_repeating: planning_repeats(&headline),
             is_habit: crate::model::properties::own(&headline, "STYLE").as_deref() == Some("habit"),
-            properties: crate::model::properties::own_values(&headline),
+            properties,
+            reminder_at,
             scheduled: planning_date(&headline, "SCHEDULED", headline.scheduled()),
             deadline: planning_date(&headline, "DEADLINE", headline.deadline()),
             scheduled_warning: planning_warning(&headline, "SCHEDULED", headline.scheduled()),
@@ -927,6 +940,7 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             apply_negation(!task.address_links.is_empty(), *negated)
         }
         FilterExpression::IsHabit { negated } => apply_negation(task.is_habit(), *negated),
+        FilterExpression::HasReminder { negated } => apply_negation(task.reminder_at().is_some(), *negated),
         FilterExpression::Date {
             field,
             relation,
@@ -987,6 +1001,8 @@ fn dates_for_field(
         }
         FilterDateField::Closed => task.closed.into_iter().collect(),
         FilterDateField::Created => task.created.into_iter().collect(),
+        FilterDateField::Reminder => task.reminder_at.and_then(|value| Local.timestamp_millis_opt(value).single())
+            .map(|value| FilterDate { date: value.date_naive(), active: false }).into_iter().collect(),
         FilterDateField::Deleted => task.deleted.into_iter().collect(),
         FilterDateField::Event => task.events.clone(),
     }
@@ -1115,6 +1131,7 @@ fn sort_value(task: &FilterTask, field: FilterSortField) -> SortValue<'_> {
         FilterSortField::Deadline => SortValue::Date(task.deadline),
         FilterSortField::Closed => SortValue::Date(task.closed),
         FilterSortField::Created => SortValue::Time(task.created_at),
+        FilterSortField::Reminder => SortValue::Time(task.reminder_at),
         FilterSortField::Modified => SortValue::Time(task.modified_at),
         FilterSortField::Deleted => SortValue::Time(task.deleted_at),
         FilterSortField::Event => SortValue::Date(task.events.first().copied()),
@@ -1301,6 +1318,9 @@ fn parse_condition(token: &str) -> Option<FilterExpression> {
     if token == "is.habit" {
         return Some(FilterExpression::IsHabit { negated });
     }
+    if token == "has.reminder" {
+        return Some(FilterExpression::HasReminder { negated });
+    }
     for (prefix, constructor) in [
         ("it.", 0),
         ("ps.", 1),
@@ -1378,6 +1398,7 @@ fn parse_date_condition(token: &str) -> Option<FilterExpression> {
         "d" => FilterDateField::Deadline,
         "c" => FilterDateField::Closed,
         "cr" => FilterDateField::Created,
+        "r" | "reminder" => FilterDateField::Reminder,
         "deleted" => FilterDateField::Deleted,
         _ => return None,
     };
@@ -1427,6 +1448,7 @@ fn parse_sort(token: &str) -> Option<FilterSort> {
         "event" | "e" => FilterSortField::Event,
         "closed" | "close" | "c" => FilterSortField::Closed,
         "created" | "cr" => FilterSortField::Created,
+        "reminder" | "r" => FilterSortField::Reminder,
         "modified" => FilterSortField::Modified,
         "deleted" => FilterSortField::Deleted,
         "priority" | "prio" | "pri" | "p" => FilterSortField::Priority,

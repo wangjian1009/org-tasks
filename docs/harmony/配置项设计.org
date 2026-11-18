@@ -281,3 +281,9 @@ UTF-8 JSON 以一次读取、一次解析恢复显示模型；缓存恢复的数
 系统仓库运行时配置 ID 为 ~org-tasks-system~ ，目录为 ~context.filesDir/system-repository~ ，名称固定为“系统仓库”，不同步，不提供修改或删除。启动补齐缺失目录和随包 ~system/trash.org~ ，不覆盖已有文件。配置读取时追加运行时仓库，保存时排除它；设置仓库列表与普通文件目标选择器隐藏它，笔记本仍显示该仓库及废纸篓入口。恢复来源使用 Core 的持久仓库 ID。
 
 设置 → 废纸篓提供保留天数输入与“保存”。~TrashSettingsService~ 使用 Preferences ~org_tasks_config~ 的独立数字键 ~trashRetentionDays~ ，默认 30，有效范围为 1 至 3650 的整数。输入不立即写入；保存成功后生效，失败保留输入并显示错误，不重写仓库或凭据，也不重建 Workspace。打开废纸篓或笔记本时按当前值查询删除时间早于保留范围的记录并统一清除；时间缺失或非法者保留。清除应用数据后恢复默认。
+
+* 本机任务提醒
+
+设置 → 应用程序 → 任务提醒提供本机总开关和统一响铃时长，独立保存在 Preferences ~org_tasks_reminders~ 的 ~enabled~ 与 ~ringDuration~ 键，默认关闭和 30 秒，时长允许 1 至 1800 秒。显式保存成功后协调系统已有提醒；关闭会撤销本服务管理的系统提醒，保留任务 Org 配置。写入串行，失败恢复原值。
+
+另用独立 Preferences ~org_tasks_reminder_state~ 的 ~journal~ 保存版本 1 的本机恢复日志，包含递增通知 ID 和每次提醒的 key、时间、指纹、可空系统 ID；不属于 ~AppConfig~ ，不随仓库配置保存覆盖，不进入 Core 同步目录或 WebDAV。配置读取、日志读取或系统库存读取失败不会伪装为空记录。详细规则见 [[file:任务提醒设计.org][任务提醒设计]]。

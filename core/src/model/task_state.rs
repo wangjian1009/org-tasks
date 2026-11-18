@@ -540,11 +540,16 @@ pub(super) fn modify_property(
         return Err(CoreError::InvalidInput("属性名称或值无效"));
     }
     let name = name.to_ascii_uppercase();
-    if matches!(name.as_str(), "TODO" | "PRIORITY" | "TAGS" | "SCHEDULED" | "DEADLINE" | "CLOSED" | "CREATED") {
+    if matches!(name.as_str(), "TODO" | "PRIORITY" | "TAGS" | "SCHEDULED" | "DEADLINE" | "CLOSED" | "CREATED" | super::properties::REMINDER_PROPERTY) {
         return Err(CoreError::InvalidInput("该属性必须通过专用字段修改，或为只读字段"));
     }
+    write_property(file, headline, &name, value)
+}
+
+// 已通过领域接口校验的内部属性写入；属性名不暴露给宿主调用方。
+pub(super) fn write_property(file: &mut OrgFile, headline: &Headline, name: &str, value: Option<&str>) -> Result<(), CoreError> {
     if let Some(value) = value {
-        return set_property(file, headline, &name, value);
+        return set_property(file, headline, name, value);
     }
     if let Some(drawer) = metadata_node(file, headline).properties() {
         let ranges: Vec<_> = drawer.node_properties().filter_map(|entry| {

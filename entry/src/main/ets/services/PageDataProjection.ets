@@ -34,6 +34,8 @@ function modify(record: PageTaskRecord, change: TaskModification): boolean {
     value.bodyHtml = draftHtml(notes); value.bodyFirstLine = notes.split('\n').find(line => line.trim().length > 0)?.trim() ?? null
     value.hasText = notes.trim().length > 0
     value.editContent = content(value.editContent, notes)
+  } else if (change.field === 'SET_REMINDER') {
+    value.reminderAt = change.value as number | null
   } else if (change.field === 'PROPERTY') {
     const property = change.value as TaskPropertyChange
     const properties: Record<string, string> = {}
@@ -118,7 +120,7 @@ export function createPageTask(metadata: CoreOrgFileMetadata, version: string, c
       scheduledRepeat: null, deadlineRepeat: null, scheduledPlanning: null, deadlinePlanning: null },
     filePath: metadata.path, fileName: metadata.path.split('/').pop() ?? metadata.path, level: creation.position.parent.titles.length + 1,
     body: creation.body ?? '', bodyFirstLine: creation.body?.split('\n')[0] ?? null, addressLinks: [], bodyHtml: draftHtml(creation.body ?? ''), logbookHtml: '', logs: [],
-    progress: -1, hasList: false, hasText: !!creation.body, isRepeating: false, isHabit: false, properties: {}, hasAttach: false
+    progress: -1, hasList: false, hasText: !!creation.body, isRepeating: false, isHabit: false, reminderAt: null, properties: {}, hasAttach: false
   }
   return new PageTaskSnapshot({ value, done: state?.category === 'Done' || state?.category === 'Cancel', states: answers, priorities: priorityAnswers })
 }

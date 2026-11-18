@@ -1143,6 +1143,7 @@ pub struct TaskModificationOperation {
 #[serde(tag = "field", content = "value", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub enum TaskModification {
     Property { name: String, value: Option<String> },
+    SetReminder(Option<TimestampMs>),
     Title(Option<String>),
     Body(Option<String>),
     Notes(Option<String>),
@@ -2014,7 +2015,7 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 
 FilterTask 保存标题自身的规范化属性表 properties，通过 property(name) 查询单个值，properties() 借用完整属性表。名称按 ASCII 大写规范化，保留显式空值与缺失的区别，追加声明按既有 Properties 规则合并；不继承父标题或文件默认值。属性表是查询时刻的只读投影，不改变已返回快照，也不进入独立同步记录。
 
-TaskModification::Property { name, value } 表达通用 drawer 属性的设置与删除，JSON 修改字段为 PROPERTY。value 为字符串时设置，null 时删除目标名称的基础及追加声明；保留其他属性、规划、正文、后代、换行格式与未涉及字节。名称不得为空、带空白、冒号、控制字符或追加后缀，值不得带换行或 NUL；TODO、PRIORITY、TAGS、SCHEDULED、DEADLINE 使用已有专用修改项，CREATED 与 CLOSED 保持既有只读／状态维护规则。
+TaskModification::Property { name, value } 表达通用 drawer 属性的设置与删除，JSON 修改字段为 PROPERTY。value 为字符串时设置，null 时删除目标名称的基础及追加声明；保留其他属性、规划、正文、后代、换行格式与未涉及字节。名称不得为空、带空白、冒号、控制字符或追加后缀，值不得带换行或 NUL；TODO、PRIORITY、TAGS、SCHEDULED、DEADLINE 使用已有专用修改项，CREATED 与 CLOSED 保持既有只读／状态维护规则；提醒属性仅允许经 ~SetReminder~ 修改。
 
 项目子树收起只使用通用属性 VISIBILITY：folded 隐藏直属正文及后代，all 展开；属性名复用 Core 规范化，值区分大小写。children 和 content 不等于整棵子树收起，当前二态入口不解释为 folded。不增加折叠专用字段，也不将可见性放入 TaskEditContent。
 
@@ -2039,3 +2040,13 @@ TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对�
 Trash 与 Restore 的持久来源属性统一使用 ~SOURCE_~ 前缀。原节点 ~ID~ 暂存为 ~SOURCE_ID~ ，恢复时还原；祖先标签中本节点未直接声明的部分复制到节点，并以 JSON 数组记入 ~SOURCE_PARENT_TAGS~ ，恢复时移除这些复制标签。可选 ~SOURCE_BROTHER~ 为前一兄弟的完整 TaskPath，仅作插入提示，缺失或不在原父节点下时插到父节点第一个位置；父节点必须存在。 ~SOURCE_FILE_TITLE~ 与 ~SOURCE_FILE_ID~ 保存原文件标题及文件头 ID，无值时为空，当前不参与恢复定位。所有 ~SOURCE_~ 属性在恢复时按前缀清除；旧格式不兼容。完整属性说明见 [[file:废纸篓接口设计.org][废纸篓接口设计]]。
 
 ~FilterTask.deleted_at()~ 仅从没有子节点、且自身带非空 ~SOURCE_TRASH_ID~ 的记录读取自身 ~SOURCE_TIME~ ，返回可空本地 Unix 毫秒值；缺失或无效时为 ~None~ 。同一时间的日期部分用于 ~deleted.*~ 自然日筛选，完整时刻用于排序和宿主显示。读取不继承、不修改原文，普通 Org 归档条目不会被自动清理。
+
+* 任务提醒投影
+
+任务只投影 ~reminder_at: Option<TimestampMs>~ ，不保留提醒配置对象、次数、间隔或任务级开关。读取复用 ~CREATED~ 的 ~property_time~ ，不继承、不补值；缺失、无效或范围为 ~None~ ，日期无时刻按本地零点。~TaskModification::SetReminder~ 接收可空毫秒时间戳，Core 封装属性名和 Org 原文写入，不生成 ID。完整契约见 [[file:../harmony/任务提醒设计.org][任务提醒设计]]。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{FilterTask}{reminder\_at : Option<TimestampMs>}{reminder\_at()}
+\umlclass[x=7,y=0]{TaskModification}{SetReminder(Option<TimestampMs>)}{}
+\umldep{TaskModification}{FilterTask}
+\end{tikzpicture}

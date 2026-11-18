@@ -20,6 +20,8 @@ function load(relative, name, mocks) {
   } }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports){' + output + '\n})', { filename })(name => {
+    if (name.endsWith('/TaskReminderSettings')) return {TaskReminderSettings:{load:async()=>({enabled:false,ringDuration:30}),save:async()=>{}}};
+    if (name.endsWith('/TaskReminderService')) return {TaskReminderService:{start(){},stop(){},refresh:async()=>{},summary:()=>'',subscribe:()=>()=>{}}};
     if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};
     if (name.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
     if (name.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{ensure:async()=>({id:'org-tasks-system',name:'系统仓库',rootDirectory:'/app/system-repository'})}};

@@ -6,6 +6,8 @@ use orgize::{
 };
 use std::collections::BTreeMap;
 
+pub(crate) const REMINDER_PROPERTY: &str = "REMIND_AT";
+
 pub(crate) struct PropertyEntry {
     pub name: String,
     pub value: String,
