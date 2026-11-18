@@ -179,7 +179,7 @@ export class RepositorySyncService {
           (event: CoreWebDavSyncEvent) => {
             if (generation === RepositorySyncService.generation) RepositorySyncService.updateProgress(event)
           }, todoDefaults, coreSettings, triggerReason)
-        : NativeCoreService.loadWorkspace(repos, todoDefaults, coreSettings))
+        : NativeCoreService.workspaceFor(repos, todoDefaults, coreSettings))
       state.progress = 100
       state.determinate = true
       state.message = ''
@@ -192,7 +192,7 @@ export class RepositorySyncService {
       console.info(state.error ? '文件同步失败' : '文件同步完成')
       if (state.error) RepositorySyncService.failures.push(RepositorySyncService.snapshot())
       RepositorySyncService.publish()
-      try { await DeviceBadgeService.refresh(context) }
+      try { await DeviceBadgeService.refresh(context, true) }
       catch (_) { console.error('同步后刷新角标失败') }
     }
     return state.error ? { status: 'failed', message: state.message } : { status: 'succeeded' }

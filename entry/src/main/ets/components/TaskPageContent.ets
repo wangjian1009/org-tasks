@@ -1,7 +1,8 @@
+import { AppDataManager } from '../services/AppDataManager'
 import { PageNavigator } from '../services/PageNavigator'
 import { DataSetManager, DataSet, DataSetDefinition } from '../services/DataSetManager'
 import { AppConfig } from '../models/OrgTask'
-import { FileTargetService, configuredSpecialFileExclusions, systemTrashExclusions } from '../services/FileTargetService'
+import { FileTargetService, systemTrashExclusions } from '../services/FileTargetService'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -21,7 +22,7 @@ import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { RegionOrderService } from '../services/RegionOrderService'
 import { RegionOrder, OrderRegion, regionOrderCatalog, regionOrderFromDraft, orderTodaySections, todayVisibleRegionKeys } from '../ui/RegionOrderPresentation'
 import { TaskRightSwipeAction, taskPageActionPolicy } from '../ui/TaskActionPresentation'
-import { overviewTaskQuery, todayPriorityQuery, plannedRegionQuery, overviewTitle, TaskView } from '../services/TaskViewQueries'
+import { overviewTaskQuery, plannedRegionQuery, overviewTitle, TaskView } from '../services/TaskViewQueries'
 import { CoreBridgeError, CoreTask, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { TodaySection, TodayTimedTaskItem, todayLayout, anytimeSections, sameTodaySections, sameTodayTimedItems } from '../ui/TodayPresentation'
@@ -96,7 +97,7 @@ export struct TaskPageContent {
     this.orderActive = false
     for (const stop of this.stops) stop()
     this.stops = []
-    this.dataManager?.close().catch((): void => { console.error('保存页面数据失败') })
+    if (this.view !== 'today') this.dataManager?.close().catch((): void => { console.error('保存页面数据失败') })
     this.dataManager = undefined
   }
 
@@ -209,14 +210,9 @@ export struct TaskPageContent {
         { name: 'target', query: target.file, repositoryBindings: target.repositoryBindings })
     } else {
       definitions.push({ name: view === 'planned' ? 'range' : 'tasks', query: { type: 'task', query: overviewTaskQuery(view) } })
-      if (view === 'today') definitions.push({ name: 'priority', query: { type: 'task', query: todayPriorityQuery() } })
       if (view === 'planned') definitions.push({ name: 'tasks', query: region ? plannedRegionQuery(region) : { type: 'task', query: overviewTaskQuery('planned') } })
     }
     if (view !== 'someday') definitions.push({ name: 'files', query: { type: 'file', query: {} } })
-    if (view === 'today') {
-      const exclusions = configuredSpecialFileExclusions(config)
-      definitions.push({ name: 'orderFiles', query: { type: 'file', query: { excludeFiles: exclusions.files } }, repositoryBindings: exclusions.repositoryBindings })
-    }
     const trash = systemTrashExclusions(config)
     for (const definition of definitions) {
       if (trash.files.length > 0 && definition.query.type === 'task' && view !== 'memo' && view !== 'someday') {
@@ -241,14 +237,15 @@ export struct TaskPageContent {
   async loadTasks() {
     if (!this.dataManager) {
       const view = this.view
-      this.dataManager = DataSetManager.create(this.getUIContext().getHostContext()!, overviewTitle(view),
-        (config: AppConfig): DataSetDefinition[] => this.defineDataSets(config, view, null))
-      this.tasksDataSet = this.dataManager.dataSet('tasks')
+      this.dataManager = view === 'today' ? AppDataManager.shared(this.getUIContext().getHostContext()!).manager
+        : DataSetManager.create(this.getUIContext().getHostContext()!, overviewTitle(view),
+          (config: AppConfig): DataSetDefinition[] => this.defineDataSets(config, view, null))
+      this.tasksDataSet = this.dataManager.dataSet(view === 'today' ? 'todayTasks' : 'tasks')
       this.stops.push(this.tasksDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       if (view === 'today') {
         this.orderFilesDataSet = this.dataManager.dataSet('orderFiles')
         this.stops.push(this.orderFilesDataSet.subscribe((): void => { this.applyPageSnapshot() }))
-        this.priorityDataSet = this.dataManager.dataSet('priority')
+        this.priorityDataSet = this.dataManager.dataSet('todayPriority')
         this.stops.push(this.priorityDataSet.subscribe((): void => {
           const data = this.priorityDataSet?.data
           this.priorityOrder = data?.type === 'task' ? data.result.tasks.map(task => task.id) : []
@@ -269,7 +266,17 @@ export struct TaskPageContent {
         this.stops.push(this.targetDataSet.subscribe((): void => { this.applyPageSnapshot() }))
       }
     }
-    try { await this.dataManager.start() }
+    if (this.tasksDataSet?.data) {
+      const priority = this.priorityDataSet?.data
+      if (priority?.type === 'task') this.priorityOrder = priority.result.tasks.map(task => task.id)
+      this.applyPageSnapshot()
+    }
+    try {
+      await this.dataManager.start()
+      const priority = this.priorityDataSet?.data
+      if (priority?.type === 'task') this.priorityOrder = priority.result.tasks.map(task => task.id)
+      this.applyPageSnapshot()
+    }
     catch (error) { this.loading = false; this.message = (error as Error).message }
   }
 

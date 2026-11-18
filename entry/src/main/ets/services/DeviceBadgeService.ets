@@ -1,126 +1,62 @@
-import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 import { Context } from '@kit.AbilityKit'
 import { notificationManager } from '@kit.NotificationKit'
-import { AppConfigService } from './AppConfigService'
+import { AppDataManager } from './AppDataManager'
 import { NotificationManager } from './NotificationManager'
-import { FileTargetService } from './FileTargetService'
-import { CoreQuery, CoreWorkspace, NativeCoreService, taskResult } from './NativeCoreService'
 
-// 前台订阅与后台单次刷新共用；不持久化计数，不依赖页面快照。
+interface BadgeRequest { app: AppDataManager; settle: boolean }
+
+// 只向系统写角标；任务计数与外部刷新由全局 DataSet 提供。
 export class DeviceBadgeService {
   private static foreground: Context | undefined = undefined
-  private static workspace: CoreWorkspace | undefined = undefined
-  private static subscriptionId: number = 0
-  private static externalSubscriptionId: number = 0
-  private static session: number = 0
-  private static midnightTimer: number = -1
-  private static pending: Context | undefined = undefined
+  private static readonly stops: (() => void)[] = []
+  private static pending: BadgeRequest | undefined = undefined
   private static revision: number = 0
   private static running: Promise<void> | undefined = undefined
-  private static configurationChanged = (): void => {
-    if (DeviceBadgeService.foreground) DeviceBadgeService.refresh(DeviceBadgeService.foreground)
+  private static changed = (): void => {
+    const context = DeviceBadgeService.foreground
+    if (context && AppDataManager.shared(context).badgeCount() !== undefined) DeviceBadgeService.refresh(context)
   }
 
   static start(context: Context): void {
-    if (!DeviceBadgeService.foreground) AppConfigService.watchChanges(DeviceBadgeService.configurationChanged)
-    NotificationManager.watchChanges(DeviceBadgeService.configurationChanged)
+    if (!DeviceBadgeService.foreground) {
+      const app = AppDataManager.shared(context)
+      for (const name of ['badgeDeadline', 'inboxTasks', 'inboxFile']) DeviceBadgeService.stops.push(app.dataSet(name).subscribe(DeviceBadgeService.changed))
+      NotificationManager.watchChanges(DeviceBadgeService.changed)
+    }
     DeviceBadgeService.foreground = context
-    DeviceBadgeService.scheduleMidnight()
     DeviceBadgeService.refresh(context)
   }
-
   static stop(): void {
-    NotificationManager.stopWatchingChanges(DeviceBadgeService.configurationChanged)
     DeviceBadgeService.foreground = undefined
-    AppConfigService.stopWatchingChanges(DeviceBadgeService.configurationChanged)
-    DeviceBadgeService.disconnect()
-    if (DeviceBadgeService.midnightTimer !== -1) clearTimeout(DeviceBadgeService.midnightTimer)
-    DeviceBadgeService.midnightTimer = -1
+    DeviceBadgeService.pending = undefined; DeviceBadgeService.revision++
+    NotificationManager.stopWatchingChanges(DeviceBadgeService.changed)
+    for (const stop of DeviceBadgeService.stops) stop()
+    DeviceBadgeService.stops.length = 0
   }
-
-  // 合并刷新请求并串行写系统角标，查询中收到新事件时丢弃旧结果并补查。
-  static refresh(context: Context): Promise<void> {
-    DeviceBadgeService.pending = context
-    DeviceBadgeService.revision++
-    if (!DeviceBadgeService.running) {
-      DeviceBadgeService.running = DeviceBadgeService.drain().finally((): void => {
-        DeviceBadgeService.running = undefined
-      })
-    }
+  static refresh(context: Context, existingOnly: boolean = false): Promise<void> {
+    const app = existingOnly ? AppDataManager.active : AppDataManager.shared(context)
+    if (!app) return Promise.resolve()
+    DeviceBadgeService.pending = { app, settle: existingOnly }; DeviceBadgeService.revision++
+    if (!DeviceBadgeService.running) DeviceBadgeService.running = DeviceBadgeService.drain().finally((): void => { DeviceBadgeService.running = undefined })
     return DeviceBadgeService.running
   }
-
   private static async drain(): Promise<void> {
     while (DeviceBadgeService.pending) {
-      const context = DeviceBadgeService.pending
+      const request = DeviceBadgeService.pending
       DeviceBadgeService.pending = undefined
       const revision = DeviceBadgeService.revision
       try {
-        const config = await AppConfigService.load(context, false)
-        const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-        if (DeviceBadgeService.foreground) await DeviceBadgeService.connect(workspace)
-        const repos = await workspace.repos()
-        const system = config.repos.find(repo => repo.id === SYSTEM_REPOSITORY_ID)
-        const trashRepo = repos.find(repo => repo.rootDirectory === system?.rootDirectory)
-        const inbox = FileTargetService.prepare(config, repos, 'inbox')
-        const queries: CoreQuery[] = [
-          { type: 'task', query: { expression: 'it.todo d.lt.tomorrow',
-            excludeFiles: (inbox ? [inbox.reference] : []).concat(trashRepo ? [{ repoId: trashRepo.id, path: TRASH_FILE }] : []) } }
-        ]
-        if (inbox) { queries.push(inbox.task); queries.push(inbox.file) }
-        const results = await workspace.query(queries)
-        const inboxCount = inbox ? FileTargetService.result(results[1], results[2])?.tasks.length ?? 0 : 0
-        const deadlineCount = taskResult(results[0]).tasks.length
-        const conflictCount = await NotificationManager.conflictCount()
+        const app = request.app
+        await app.start()
+        if (request.settle) {
+          try { await app.manager.flush() } catch (_) { console.error('保存共享数据失败') }
+        }
+        const count = app.badgeCount()
+        if (count === undefined) continue
+        const conflicts = await NotificationManager.conflictCount()
         if (revision !== DeviceBadgeService.revision) continue
-        await notificationManager.setBadgeNumber(inboxCount + deadlineCount + conflictCount)
-      } catch (_) {
-        // 失败不清零，不影响已提交的数据或日历同步；后续触发时重试。
-        console.error('更新设备提示计数失败')
-      }
+        await notificationManager.setBadgeNumber(count + conflicts)
+      } catch (_) { console.error('更新设备提示计数失败') }
     }
-  }
-
-  private static disconnect(): void {
-    DeviceBadgeService.session++
-    if (DeviceBadgeService.workspace && DeviceBadgeService.subscriptionId !== 0) {
-      DeviceBadgeService.workspace.stopWatchingDataChanges(DeviceBadgeService.subscriptionId)
-    }
-    if (DeviceBadgeService.externalSubscriptionId) DeviceBadgeService.workspace?.stopWatchingExternalFileChanges(DeviceBadgeService.externalSubscriptionId)
-    DeviceBadgeService.externalSubscriptionId = 0
-    DeviceBadgeService.workspace = undefined
-    DeviceBadgeService.subscriptionId = 0
-  }
-
-  private static async connect(workspace: CoreWorkspace): Promise<void> {
-    if (DeviceBadgeService.workspace === workspace) return
-    DeviceBadgeService.disconnect()
-    DeviceBadgeService.workspace = workspace
-    const session = DeviceBadgeService.session
-    try {
-      const changed = (): void => {
-        if (session === DeviceBadgeService.session && DeviceBadgeService.foreground) DeviceBadgeService.refresh(DeviceBadgeService.foreground)
-      }
-      const id = await workspace.watchDataChanges(changed)
-      if (session !== DeviceBadgeService.session) { workspace.stopWatchingDataChanges(id); return }
-      DeviceBadgeService.subscriptionId = id
-      const externalId = await workspace.watchExternalFileChanges(changed)
-      if (session !== DeviceBadgeService.session) workspace.stopWatchingExternalFileChanges(externalId)
-      else DeviceBadgeService.externalSubscriptionId = externalId
-    } catch (error) {
-      if (session === DeviceBadgeService.session) DeviceBadgeService.disconnect()
-      throw error as Error
-    }
-  }
-
-  private static scheduleMidnight(): void {
-    if (DeviceBadgeService.midnightTimer !== -1) clearTimeout(DeviceBadgeService.midnightTimer)
-    const midnight = new Date()
-    midnight.setHours(24, 0, 0, 0)
-    DeviceBadgeService.midnightTimer = setTimeout((): void => {
-      if (!DeviceBadgeService.foreground) return
-      DeviceBadgeService.refresh(DeviceBadgeService.foreground)
-      DeviceBadgeService.scheduleMidnight()
-    }, midnight.getTime() - Date.now())
   }
 }

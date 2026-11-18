@@ -51,6 +51,7 @@ function fixture() {
   };
   const native = {
     NativeCoreService: {
+      async workspaceFor(){calls.push('workspace');return{query(){throw new Error('本地启动不应重新查询')}}},
       async syncWorkspaceWebDav(repos, callback, todoDefaults, coreSettings, triggerReason) {
         reasons.push(triggerReason); inputs.push(todoDefaults);
         calls.push('sync'); monitor = callback;
@@ -369,4 +370,12 @@ test('取消旧作业失败时不保存完成标记，下次启动重试', async
     stopWork() { if (++stops === 1) throw new Error('取消失败'); }
   } })).LegacySyncScheduleService;
   await service.remove(); await service.remove(); assert.equal(stops, 2);
+});
+
+
+test('纯本地启动只接入 Workspace，角标消费共享数据，不增加全量查询',async()=>{
+ const f=fixture();f.config.repos[0].webdavEnabled=false;
+ const result=f.repository.start(f.context,{triggerReason:'appStartup',policy:'Reuse'});await result.handle.completion;
+ assert.equal(f.calls.filter(value=>value==='workspace').length,1);assert.equal(f.calls.filter(value=>value==='sync').length,0);
+ assert.equal(f.calls.filter(value=>value==='badge').length,1);
 });

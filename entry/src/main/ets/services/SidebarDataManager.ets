@@ -1,15 +1,8 @@
 import { Context } from '@kit.AbilityKit'
-import { AppConfig } from '../models/OrgTask'
-import { AppConfigService } from './AppConfigService'
-import { CoreDataChangeService } from './CoreDataChangeService'
-import { FileTargetKind, FileTargetService, fileTargetRepository } from './FileTargetService'
-import { PageQueryService } from './PageQueryService'
-import { PageDataCache } from './PageDataCache'
-import { CachedDataSet, cacheDataSet, restoreDataSet } from './PageDataSnapshot'
+import { AppDataManager } from './AppDataManager'
+import { FileTargetKind } from './FileTargetService'
+import { CoreOrgFileMetadata } from './NativeCoreService'
 import { samePageMetadata } from './PageDataEquality'
-import { overviewTaskQuery, todayAttentionQuery } from './TaskViewQueries'
-import { CoreBridgeError, CoreOrgFileMetadata, CoreSettingsObject, CoreQuery, CoreQueryResult, NativeCoreService, taskResult, fileResult, coreErrorMessage } from './NativeCoreService'
-import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 
 export interface SidebarSnapshot {
   version: number
@@ -26,156 +19,57 @@ export interface SidebarSnapshot {
   projects: CoreOrgFileMetadata[]
   message: string
 }
-interface SidebarCacheRepo { id: string; rootDirectory: string; excludedDirectories: string[] }
-interface SidebarCacheScope { repositories: SidebarCacheRepo[]; todoDefaults: string; coreSettings: CoreSettingsObject; queries: CoreQuery[] }
-interface SidebarQueryPlan { queries: CoreQuery[]; positions: number[]; trashPosition: number }
-
 export function emptySidebarSnapshot(): SidebarSnapshot {
   return { version: 0, inboxCount: -1, todayCount: -1, todayAttentionCount: 0, plannedCount: -1,
     waitingCount: -1, anytimeCount: -1, somedayCount: -1, memoCount: -1, logbookCount: -1, trashCount: -1, projects: [], message: '' }
 }
 
-// 只读侧边栏数据入口：缓存不限定订阅范围，任何仓库变化均可引入新项目。
+const SIDEBAR_DATA_SETS: string[] = ['todayTasks', 'todayAttention', 'planned', 'anytime', 'waiting', 'logbook',
+  'projects', 'trash', 'inboxTasks', 'inboxFile', 'somedayTasks', 'somedayFile', 'memoTasks', 'memoFile']
+
+// 侧边栏只投影全局 DataSet；关闭抽屉不释放共享查询或缓存。
 export class SidebarDataManager {
-  private readonly context: Context
+  private readonly app: AppDataManager
   private readonly listeners: Set<(snapshot: SidebarSnapshot) => void> = new Set()
   private snapshot: SidebarSnapshot = emptySidebarSnapshot()
-  private stopEvents: (() => void) | undefined = undefined
-  private reading: Promise<void> | undefined = undefined
-  private timer: number = -1
-  private dayTimer: number = -1
-  private day: string = new Date().toDateString()
-  private revision: number = 0
-  private version: number = 0
-  private pending: boolean = true
+  private readonly stops: (() => void)[] = []
   private closed: boolean = false
-  private cacheScope: string = ''
-  private cache: PageDataCache | undefined = undefined
-  private invalidate = (): void => {
-    if (this.closed) return
-    this.revision++
-    this.pending = true
-    this.scheduleRead()
+  private timer: number = -1
+
+  constructor(context: Context) {
+    this.app = AppDataManager.shared(context)
+    for (const name of SIDEBAR_DATA_SETS) this.stops.push(this.app.dataSet(name).subscribe((): void => {
+      if (this.closed || this.timer >= 0) return
+      this.timer = setTimeout((): void => { this.timer = -1; this.publish() }, 0)
+    }))
+    this.publish()
   }
-
-  private scheduleRead(): void {
-    if (this.closed || !this.pending || this.timer >= 0 || this.reading) return
-    this.timer = setTimeout((): void => { this.timer = -1; this.start() }, 50)
-  }
-
-  constructor(context: Context) { this.context = context }
-
   subscribe(listener: (snapshot: SidebarSnapshot) => void): () => void {
-    this.listeners.add(listener)
-    listener(this.snapshot)
+    this.listeners.add(listener); listener(this.snapshot)
     return (): void => { this.listeners.delete(listener) }
   }
-
-  start(): Promise<void> {
-    if (this.closed) return Promise.resolve()
-    if (!this.stopEvents) {
-      this.stopEvents = CoreDataChangeService.watchEvents(this.invalidate)
-      AppConfigService.watchChanges(this.invalidate)
-      this.dayTimer = setInterval((): void => {
-        const day = new Date().toDateString()
-        if (day !== this.day) { this.day = day; this.invalidate() }
-      }, 60000)
-    }
-    if (this.snapshot.message) this.pending = true
-    if (!this.reading && this.pending) {
-      this.reading = this.read().finally((): void => { this.reading = undefined; this.scheduleRead() })
-    }
-    return this.reading ?? Promise.resolve()
+  async start(): Promise<void> {
+    if (this.closed) return
+    try { await this.app.start(); await this.app.retryFailed(); this.publish() }
+    catch (error) { this.publish((error as Error).message) }
   }
-
-  async targetConfigured(kind: FileTargetKind): Promise<boolean> {
-    return fileTargetRepository(await AppConfigService.load(this.context, false), kind) !== undefined
+  async targetConfigured(kind: FileTargetKind): Promise<boolean> { return await this.app.targetConfigured(kind) }
+  private count(name: string): number {
+    const data = this.app.dataSet(name).data
+    return data?.type === 'task' ? data.result.tasks.length : -1
   }
-
-  private async plan(config: AppConfig): Promise<SidebarQueryPlan> {
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-    const repos = await workspace.repos()
-    const queries: CoreQuery[] = [
-      { type: 'task', query: overviewTaskQuery('today') }, { type: 'task', query: todayAttentionQuery() },
-      { type: 'task', query: overviewTaskQuery('planned') }, { type: 'task', query: overviewTaskQuery('anytime') },
-      { type: 'task', query: overviewTaskQuery('logbook') }, { type: 'file', query: { isProject: true } },
-      { type: 'task', query: overviewTaskQuery('waiting') }
-    ]
-    const system = config.repos.find(repo => repo.id === SYSTEM_REPOSITORY_ID)
-    const trashRepo = repos.find(repo => repo.rootDirectory === system?.rootDirectory)
-    if (trashRepo) for (const request of queries) {
-      if (request.type === 'task' || request.type === 'file') request.query.excludeFiles = [{ repoId: trashRepo.id, path: TRASH_FILE }]
+  private publish(message: string = ''): void {
+    if (this.closed) return
+    const projects = this.app.dataSet('projects').data
+    const next: SidebarSnapshot = {
+      version: Math.max(...SIDEBAR_DATA_SETS.map(name => this.app.dataSet(name).version)),
+      todayCount: this.count('todayTasks'), todayAttentionCount: Math.max(0, this.count('todayAttention')),
+      plannedCount: this.count('planned'), anytimeCount: this.count('anytime'), waitingCount: this.count('waiting'),
+      logbookCount: this.count('logbook'), trashCount: Math.max(0, this.count('trash')),
+      inboxCount: this.app.targetCount('inbox'), somedayCount: this.app.targetCount('someday'), memoCount: this.app.targetCount('memo'),
+      projects: projects?.type === 'file' ? projects.result : [],
+      message: message || SIDEBAR_DATA_SETS.map(name => this.app.dataSet(name).error).find(error => !!error) || ''
     }
-    const positions: number[] = []
-    const kinds: FileTargetKind[] = ['inbox', 'someday', 'memo']
-    for (const kind of kinds) {
-      const target = FileTargetService.prepare(config, repos, kind)
-      positions.push(target ? queries.length : -1)
-      if (target) { queries.push(target.task); queries.push(target.file) }
-    }
-    const trashPosition = trashRepo ? queries.length : -1
-    if (trashRepo) queries.push({ type: 'task', query: { expression: '.o.deleted',
-      includeFiles: [{ repoId: trashRepo.id, path: TRASH_FILE }] }, repoIds: [trashRepo.id] })
-    return { queries, positions, trashPosition }
-  }
-
-  private async read(): Promise<void> {
-    while (this.pending && !this.closed) {
-      this.pending = false
-      const revision = this.revision
-      try {
-        const config = await AppConfigService.load(this.context, false)
-        const plan = await this.plan(config)
-        if (this.closed || revision !== this.revision) continue
-        const identity: SidebarCacheScope = { repositories: config.repos.map((repo): SidebarCacheRepo =>
-          ({ id: repo.id, rootDirectory: repo.rootDirectory, excludedDirectories: repo.excludedDirectories })),
-          todoDefaults: config.todoDefaults, coreSettings: config.coreSettings, queries: plan.queries }
-        const scope = JSON.stringify(identity)
-        if (scope !== this.cacheScope) {
-          this.cacheScope = scope
-          this.cache = new PageDataCache(this.context, 'sidebar', scope)
-          this.version = 0
-          this.publish(emptySidebarSnapshot())
-          try {
-            const cached = await this.cache.read()
-            if (!this.closed && revision === this.revision && cached?.length === plan.queries.length &&
-              cached.every((item, index) => item.name === `${index}` && item.type === plan.queries[index].type)) {
-              this.apply(cached.map(item => restoreDataSet(item)), plan, 0)
-            }
-          } catch (_) { /* 缓存损坏不阻止读取当前完整快照。 */ }
-        }
-        if (this.closed || revision !== this.revision) continue
-        // PageQueryService 在查询前注册整个 Workspace 的变化，缓存中没有的文件同样能触发后续刷新。
-        const results = await PageQueryService.query(config, plan.queries)
-        if (this.closed || revision !== this.revision) continue
-        this.apply(results, plan, ++this.version)
-        const cached: CachedDataSet[] = results.map((result, index) => cacheDataSet(`${index}`, result))
-        await this.cache?.write(cached, (): boolean => !this.closed && revision === this.revision)
-      } catch (error) {
-        if (!this.closed && revision === this.revision) {
-          const current = this.snapshot
-          const next: SidebarSnapshot = { version: current.version, inboxCount: current.inboxCount, todayCount: current.todayCount,
-            todayAttentionCount: current.todayAttentionCount, plannedCount: current.plannedCount, waitingCount: current.waitingCount, anytimeCount: current.anytimeCount,
-            somedayCount: current.somedayCount, memoCount: current.memoCount, logbookCount: current.logbookCount,
-            trashCount: current.trashCount, projects: current.projects,
-            message: `读取导航失败：${coreErrorMessage(error as CoreBridgeError)}` }
-          this.publish(next)
-        }
-      }
-    }
-  }
-
-  private apply(results: CoreQueryResult[], plan: SidebarQueryPlan, version: number): void {
-    const counts = plan.positions.map(position => position < 0 ? -1 :
-      FileTargetService.result(results[position], results[position + 1])?.tasks.length ?? -1)
-    this.publish({ version, todayCount: taskResult(results[0]).tasks.length, todayAttentionCount: taskResult(results[1]).tasks.length,
-      plannedCount: taskResult(results[2]).tasks.length, anytimeCount: taskResult(results[3]).tasks.length,
-      logbookCount: taskResult(results[4]).tasks.length, projects: fileResult(results[5]), waitingCount: taskResult(results[6]).tasks.length,
-      inboxCount: counts[0], somedayCount: counts[1], memoCount: counts[2],
-      trashCount: plan.trashPosition < 0 ? 0 : taskResult(results[plan.trashPosition]).tasks.length, message: '' })
-  }
-
-  private publish(next: SidebarSnapshot): void {
     const previous = this.snapshot
     const unchanged = previous.version === next.version && previous.message === next.message &&
       previous.inboxCount === next.inboxCount && previous.todayCount === next.todayCount &&
@@ -186,12 +80,9 @@ export class SidebarDataManager {
     this.snapshot = next
     if (!unchanged) for (const listener of this.listeners) listener(next)
   }
-
   close(): void {
-    this.closed = true
-    this.stopEvents?.(); this.stopEvents = undefined
-    AppConfigService.stopWatchingChanges(this.invalidate)
-    clearTimeout(this.timer); clearInterval(this.dayTimer)
+    this.closed = true; clearTimeout(this.timer)
+    for (const stop of this.stops) stop()
     this.listeners.clear()
   }
 }

@@ -489,3 +489,102 @@ test('文件删除按宿主仓库别名定位查询，完整快照由 DataSet �
   f.external([{file:{repoId:'other',path:'a.org'},kind:'updated'}]);await new Promise(resolve=>setTimeout(resolve,80));assert.equal(f.batches.length,2);
  }finally{await f.cleanup()}
 });
+
+function sharedConsumers(f) {
+ const system={SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org'};
+ const native={taskResult:value=>value.result,fileResult:value=>value.result};
+ const queries=load('entry/src/main/ets/services/TaskViewQueries.ets',{'./NativeCoreService':native});
+ const targets=load('entry/src/main/ets/services/FileTargetService.ets',{'../models/SystemRepository':system,
+  './AppConfigService':{},'./NativeCoreService':native,'./PageQueryService':{},'./TaskViewQueries':queries});
+ const shared=load('entry/src/main/ets/services/AppDataManager.ets',{'./AppConfigService':{AppConfigService:{load:async()=>f.config}},'./DataSetManager':{DataSetManager:f.DataSetManager},
+  './NativeCoreService':native,'./FileTargetService':targets,'./TaskViewQueries':queries});
+ const equality=load('entry/src/main/ets/services/PageDataEquality.ets',{'./PageDataSnapshot':f.snapshots});
+ const sidebar=load('entry/src/main/ets/services/SidebarDataManager.ets',{'./AppDataManager':shared,'./FileTargetService':targets,
+  './NativeCoreService':native,'./PageDataEquality':equality});
+ const writes=[],notices=new Set();let conflicts=0;
+ const badge=load('entry/src/main/ets/services/DeviceBadgeService.ets',{'./AppDataManager':shared,
+  '@kit.NotificationKit':{notificationManager:{async setBadgeNumber(value){writes.push(value)}}},
+  './NotificationManager':{NotificationManager:{watchChanges:fn=>notices.add(fn),stopWatchingChanges:fn=>notices.delete(fn),async conflictCount(){return conflicts}}}});
+ return{...shared,...sidebar,...badge,writes,conflicts(value){conflicts=value;for(const fn of notices)fn()}};
+}
+
+test('今天、侧边栏与角标共享唯一管理器，首次读取与反复打开抽屉只有一个查询批次',async()=>{
+ const f=await fixture();let c;try{
+  f.config.inboxRepoId='config';f.config.inboxFile='a.org';c=sharedConsumers(f);
+  const app=c.AppDataManager.shared(f.context),today=app.dataSet('todayTasks');
+  const sidebar=new c.SidebarDataManager(f.context);let snapshot;sidebar.subscribe(value=>snapshot=value);
+  c.DeviceBadgeService.start(f.context);
+  await Promise.all([app.start(),sidebar.start(),c.DeviceBadgeService.refresh(f.context)]);
+  assert.equal(f.batches.length,1);assert.equal(f.externalCallbacks.size,1);
+  assert.equal(snapshot.todayCount,today.data.result.tasks.length);assert.equal(snapshot.inboxCount,1);assert.equal(c.writes.at(-1),2);
+  assert.equal(f.batches[0].filter(request=>request.query.type==='task'&&request.query.query.expression==='.it.done (s.le.today or d.le.today)').length,1);
+  sidebar.close();const reopened=new c.SidebarDataManager(f.context);await reopened.start();reopened.close();
+  await c.DeviceBadgeService.refresh(f.context);assert.equal(f.batches.length,1);
+  assert.equal(c.AppDataManager.shared(f.context).dataSet('todayTasks'),today);
+ }finally{c?.DeviceBadgeService.stop();await c?.AppDataManager.close();await f.cleanup()}
+});
+
+test('共享快照的界面编辑同时更新侧边栏，通知变化只重写角标，外部文件变化只补一个批次',async()=>{
+ const f=await fixture();let c;try{
+  f.config.inboxRepoId='config';f.config.inboxFile='a.org';c=sharedConsumers(f);const app=c.AppDataManager.shared(f.context);
+  const sidebar=new c.SidebarDataManager(f.context);let snapshot;sidebar.subscribe(value=>snapshot=value);
+  c.DeviceBadgeService.start(f.context);await sidebar.start();
+  await app.dataSet('todayTasks').removeTask('A');await until(()=>snapshot.todayCount===0);
+  assert.equal(f.batches.length,1);assert.equal(app.dataSet('inboxTasks').data.result.tasks.length,0);
+  c.conflicts(2);await c.DeviceBadgeService.refresh(f.context);assert.equal(c.writes.at(-1),2);assert.equal(f.batches.length,1);
+  f.addRow();f.external();f.external();await until(()=>f.batches.length===2&&app.manager.isReady()&&snapshot.todayCount===1);
+  assert.equal(f.externalCallbacks.size,1);assert.equal(f.batches[1].filter(request=>request.query.type==='task'&&request.query.query.expression==='.it.done (s.le.today or d.le.today)').length,1);
+  sidebar.close();
+ }finally{c?.DeviceBadgeService.stop();await c?.AppDataManager.close();await f.cleanup()}
+});
+
+test('全局缓存由同一管理器保存，重建恢复版本0后首次批次为1，关闭释放唯一文件监控',async()=>{
+ const f=await fixture();let c;try{
+  c=sharedConsumers(f);const first=c.AppDataManager.shared(f.context);await first.start();await first.manager.flush();await c.AppDataManager.close();
+  assert.equal(f.externalCallbacks.size,0);assert.equal(JSON.parse(await fsp.readFile(f.file('app'),'utf8')).dataSets.length,c.APP_DATA_SET_NAMES.length);
+  const second=c.AppDataManager.shared(f.context),delay=f.delaySubscribe(),start=second.start();
+  await until(()=>second.dataSet('todayTasks').data&&second.dataSet('todayTasks').version===0);assert.equal(second.dataSet('todayTasks').isReady(),false);
+  delay.resolve();await start;assert.equal(second.dataSet('todayTasks').version,1);assert.equal(f.batches.length,2);
+ }finally{await c?.AppDataManager.close();await f.cleanup()}
+});
+
+
+test('首次共享批次失败时角标保留原值，不因错误通知形成自动重试循环',async()=>{
+ const f=await fixture();let c;try{
+  c=sharedConsumers(f);f.workspace.subscribeQuery=async requests=>{f.batches.push(requests);throw new Error('读取失败')};
+  c.DeviceBadgeService.start(f.context);await assert.rejects(c.AppDataManager.shared(f.context).start(),/读取失败/);
+  await new Promise(resolve=>setTimeout(resolve,80));assert.equal(f.batches.length,1);assert.deepEqual(c.writes,[]);
+ }finally{c?.DeviceBadgeService.stop();await c?.AppDataManager.close();await f.cleanup()}
+});
+
+
+test('后台同步角标等待共享文件刷新收尾，不另查任务或在全局关闭后重建实例',async()=>{
+ const f=await fixture();let c;try{
+  f.config.inboxRepoId='config';f.config.inboxFile='a.org';c=sharedConsumers(f);await c.DeviceBadgeService.refresh(f.context);
+  assert.equal(c.writes.at(-1),2);f.addRow();f.external();await c.DeviceBadgeService.refresh(f.context,true);
+  assert.equal(c.writes.at(-1),3);assert.equal(f.batches.length,2);
+  assert.equal(f.batches[1].some(request=>request.query.query.expression==='it.todo d.lt.tomorrow'),false,'收件箱变化不重查已排除该文件的截止任务');
+  await c.AppDataManager.close();const before=c.writes.length;await c.DeviceBadgeService.refresh(f.context,true);
+  assert.equal(c.writes.length,before);assert.equal(c.AppDataManager.active,undefined);
+ }finally{c?.DeviceBadgeService.stop();await c?.AppDataManager.close();await f.cleanup()}
+});
+
+
+test('侧边栏入口配置检查只读本地配置，不等待或重试全局任务查询',async()=>{
+ const f=await fixture();let c;try{
+  f.config.inboxRepoId='config';f.config.inboxFile='a.org';c=sharedConsumers(f);const sidebar=new c.SidebarDataManager(f.context);
+  assert.equal(await sidebar.targetConfigured('inbox'),true);assert.equal(f.batches.length,0);assert.equal(f.repositoryReads(),0);
+  f.config.inboxFile='';assert.equal(await sidebar.targetConfigured('inbox'),false);assert.equal(f.batches.length,0);sidebar.close();
+ }finally{await c?.AppDataManager.close();await f.cleanup()}
+});
+
+
+test('共享文件刷新失败保留侧边栏快照，重开只合批重试失败数据集',async()=>{
+ const f=await fixture();let c;try{
+  c=sharedConsumers(f);const sidebar=new c.SidebarDataManager(f.context);let snapshot;sidebar.subscribe(value=>snapshot=value);await sidebar.start();
+  const subscribe=f.workspace.subscribeQuery;let failed=true;f.workspace.subscribeQuery=async requests=>{if(failed){f.batches.push(requests);throw new Error('临时读取失败')}return subscribe(requests)};
+  f.external();await until(()=>snapshot.message.includes('临时读取失败'));assert.equal(snapshot.todayCount,1);assert.equal(f.batches.length,2);
+  failed=false;await sidebar.start();assert.equal(snapshot.message,'');assert.equal(snapshot.todayCount,1);assert.equal(f.batches.length,3);
+  await sidebar.start();assert.equal(f.batches.length,3);sidebar.close();
+ }finally{await c?.AppDataManager.close();await f.cleanup()}
+});

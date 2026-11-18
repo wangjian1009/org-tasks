@@ -27,6 +27,7 @@ function load(name, mocks, globals = {}) {
     if (name.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
     if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};
     if (name.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
+    if (name.endsWith('/AppDataManager')) return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
     if (name.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{ensure:async()=>({id:'org-tasks-system',name:'系统仓库',rootDirectory:'/app/system-repository'})}};
     if (name.endsWith('/TrashService')) return {TrashService:{perform:async()=>{throw new Error('本用例不执行删除')}}};
     if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;

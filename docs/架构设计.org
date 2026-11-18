@@ -101,7 +101,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 定时同步已移除，不注册或启动 WorkScheduler 作业。应用启动时清理旧版持久化的同步作业，已删除其扩展注册；同步间隔不再属于宿主配置。桌面卡片定时刷新只读取本地快照，不是同步策略。
 
-主界面首次加载成功且进入前台后，通过 ~RepositorySyncService.start~ 请求一次 ~appStartup~ 同步，使用 ~SyncStartPolicy.Reuse~ ；恢复前台、重复窗口回调与路由切换不重复触发。启动入口不等待同步完成、不申请后台任务、不发布同步通知。
+主界面首次加载成功且进入前台后，通过 ~RepositorySyncService.start~ 请求一次 ~appStartup~ 同步，纯本地配置只接入已有 Workspace、不再次查询；WebDAV 同步仅返回完成状态，工作文件变化由外部文件事件刷新共享数据集，结束后不查询完整任务，使用 ~SyncStartPolicy.Reuse~ ；恢复前台、重复窗口回调与路由切换不重复触发。启动入口不等待同步完成、不申请后台任务、不发布同步通知。
 
 主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主先等待页面已提交的修改与缓存处理完成，再等待 NotificationManager 的首次通知列表及当前订阅绑定完成，只有共享快照包含 ~syncRequired~ 且配置启用 WebDAV 时才新建同步。没有通知时不读取同步配置，不另建 Workspace 或额外查询；比较文件与远端基线的规则仍由 Core 实现。短时任务保护排队修改、通知归并与配置读取，数据传输长时任务保护实际同步。 ~RepositorySyncService.start~ 同步返回受理结果与会话句柄，以 ~completion~ 异步返回完成结果。启动使用 ~Reuse~ 返回当前句柄，退后台使用 ~Reject~ 拒绝新建但可继续保护已有会话，手动使用 ~Wait~ 按受理顺序逐轮执行。会话先保留再异步启动，队列轮到时重新读取配置和文件；前一轮失败不阻止后续请求。队列、句柄与进度仅在 Harmony 进程内保存，不进入 Core 或 Preferences；页面切换不取消同步，返回前台不打断当前会话。
 
@@ -121,15 +121,15 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 页面统一读取
 
-普通读取通过 CoreQuery 批次取得任务和文件元信息，按输入位置消费对应结果；已迁移任务页由各个 DataSet 维护自己的固定查询订阅，文件入口有效性和标签候选随对应元信息更新。NotificationManager 独立维护应用共享通知生命周期，列表订阅回调通过该管理类发布。侧边栏全部计数、文件入口和项目共用一个完整批次，完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。
+普通读取通过 CoreQuery 批次取得任务和文件元信息，按输入位置消费对应结果；已迁移任务页由各个 DataSet 维护自己的固定查询订阅，文件入口有效性和标签候选随对应元信息更新。NotificationManager 独立维护应用共享通知生命周期，列表订阅回调通过该管理类发布。今天页、侧边栏和角标由应用级 ~AppDataManager~ 持有同一 ~DataSetManager~ ，相同查询复用 DataSet，全部命名查询共用启动批次；完整契约见 [[file:core/统一批量查询接口设计.org][统一批量查询接口设计]]。
 
 * 页面数据管理与缓存边界
 
-每个页面通过 ~DataSetManager~ 管理命名数据集集合、共享上下文与私有缓存。管理器同步取得全局 Workspace，仅根据本地配置定义查询，先恢复只读缓存，再由管理器后台接入配置并一次提交全部查询订阅；不在缓存恢复前等待 Workspace 或单独查询仓库列表。Manager 每页持有一个外部文件监控与跨日定时器，按各查询的仓库和文件范围合并刷新。每个 ~DataSet~ 只持有一个查询，负责自己的查询定义、私有 callback、任务索引、编辑和快照比较后的变化事件；订阅 ID 由 Manager 按数据集名管理和清理；页面分别订阅需要的数据集，编辑器直接按 ID 读写目标 DataSet。原始 Core 事件不进入界面。缓存放在 ~filesDir/page-data/v1/<页面名>.json~ ，每页一个 JSON 文件，不进入仓库或 Preferences。队列全部提交且事件已归并后，才写整个页面的确认快照；缓存恢复版本为 0，首次查询为 1，后续阶段通过 ~operationId~ 关联。接口和生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
+今天页、侧边栏和角标通过 ~AppDataManager~ 共享一个 ~DataSetManager~ 、命名数据集集合与 ~app.json~ 缓存；其他页面通过自己的 ~DataSetManager~ 管理命名数据集集合、共享上下文与私有缓存。管理器同步取得全局 Workspace，仅根据本地配置定义查询，先恢复只读缓存，再由管理器后台接入配置并一次提交全部查询订阅；不在缓存恢复前等待 Workspace 或单独查询仓库列表。Manager 每页持有一个外部文件监控与跨日定时器，按各查询的仓库和文件范围合并刷新。每个 ~DataSet~ 只持有一个查询，负责自己的查询定义、私有 callback、任务索引、编辑和快照比较后的变化事件；订阅 ID 由 Manager 按数据集名管理和清理；页面分别订阅需要的数据集，编辑器直接按 ID 读写目标 DataSet。原始 Core 事件不进入界面。缓存放在 ~filesDir/page-data/v1/<页面名>.json~ ，每页一个 JSON 文件，不进入仓库或 Preferences。队列全部提交且事件已归并后，才写整个页面的确认快照；缓存恢复版本为 0，首次查询为 1，后续阶段通过 ~operationId~ 关联。接口和生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
 
-侧边栏通过只读 SidebarDataManager 统一管理计数、文件入口与项目列表，复用完整批量查询和 PageDataCache；组件只接收管理对象快照。整个 Workspace 的变化在管理层合并刷新，缓存项目较少或为空也不会限制新项目发现；完整生命周期见 [[file:harmony/页面数据集设计.org::*侧边栏：完整批次与只读缓存][侧边栏数据管理]]。
+~AppDataManager~ 位于 ~entry/src/main/ets/services/AppDataManager.ets~ ，由 EntryAbility 在初始化 Workspace 和系统仓库后启动，后台保留订阅，销毁时关闭；独立入口需要角标时可懒创建并复用同一实例。今天页直接消费共享 DataSet；SidebarDataManager 只把这些 DataSet 投影成计数、文件入口与项目列表，不查询、不持有独立缓存；DeviceBadgeService 只订阅共享收件箱、截止任务和通知快照并写系统角标，不查询或注册 Core 监控。页面离开或抽屉关闭只移除展示订阅，不能关闭全局 Manager。完整生命周期见 [[file:harmony/页面数据集设计.org::*应用级共享数据入口][应用级共享数据入口]] 。
 
-各任务页面独立声明查询定义并直接持有 DataSetManager，由管理器处理配置和缓存，由 Manager 合并底层订阅调用并管理各 ID，每个 DataSet 自己处理按 ID 访问、编辑及事件；非任务结果由 SnapshotDataManager 及 NotebookDataManager、FileDataManager、SyncLogDataManager、SyncLogDetailDataManager 发布快照。项目详情禁用 DataManager 缓存，首次查询附带的完整文件直接返回页面，管理器与 DataSet 均不持有；后续通过 Task 订阅局部更新标题与正文。AppShell 只组合界面，不监听 Core、不广播数据版本、不回调刷新正文；完整职责见 [[file:harmony/页面数据集设计.org::*全部页面退出外壳刷新机制][页面统一数据管理]]。
+今天页引用应用级共享 DataSetManager，其他任务页面独立声明查询定义并直接持有 DataSetManager，由管理器处理配置和缓存，由 Manager 合并底层订阅调用并管理各 ID，每个 DataSet 自己处理按 ID 访问、编辑及事件；非任务结果由 SnapshotDataManager 及 NotebookDataManager、FileDataManager、SyncLogDataManager、SyncLogDetailDataManager 发布快照。项目详情禁用 DataManager 缓存，首次查询附带的完整文件直接返回页面，管理器与 DataSet 均不持有；后续通过 Task 订阅局部更新标题与正文。AppShell 只组合界面，不监听 Core、不广播数据版本、不回调刷新正文；完整职责见 [[file:harmony/页面数据集设计.org::*全部页面退出外壳刷新机制][页面统一数据管理]]。
 
 * 应用共享通知管理
 

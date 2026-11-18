@@ -1,3 +1,4 @@
+import { AppDataManager } from '../services/AppDataManager'
 import { NativeCoreService } from '../services/NativeCoreService'
 import { NotificationManager } from '../services/NotificationManager'
 import { PageNavigator, primaryPage } from '../services/PageNavigator'
@@ -29,6 +30,7 @@ export default class EntryAbility extends UIAbility {
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     NativeCoreService.start()
     await SystemRepositoryService.ensure(this.context)
+    AppDataManager.shared(this.context).start().catch((error: Error): void => { console.error(`初始化共享数据失败：${error.message}`) })
     this.readDestination(want)
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
     catch (error) { console.error('设置应用深色模式失败') }
@@ -129,6 +131,8 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
+    DeviceBadgeService.stop()
+    AppDataManager.close().catch((): void => { console.error('关闭共享数据失败') })
     HttpApiService.attachWindow(undefined)
     PageNavigator.shared.close().catch((): void => { console.error('关闭页面导航失败') })
     NotificationManager.stop()
@@ -136,6 +140,5 @@ export default class EntryAbility extends UIAbility {
     this.foreground = false
     this.contentReady = false
     NotificationPermissionService.stop()
-    DeviceBadgeService.stop()
   }
 }

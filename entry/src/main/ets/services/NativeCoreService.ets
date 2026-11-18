@@ -423,18 +423,13 @@ export class NativeCoreService {
     await workspace.executeTaskOperations(group)
   }
 
-  static async loadWorkspace(repositories: RepoConfig[], todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreTask[]> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
-    return taskResult((await workspace.query([{ type: 'task', query: {} }]))[0]).tasks
-  }
-
   static async syncWorkspaceWebDav(
     repositories: RepoConfig[],
     monitor?: CoreWebDavSyncMonitor,
     todoDefaults?: string,
     coreSettings?: CoreSettings,
     triggerReason: SyncTriggerReason = 'manual'
-  ): Promise<CoreTask[]> {
+  ): Promise<void> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     const repos = await workspace.repos()
     for (const repo of repos) {
@@ -449,7 +444,6 @@ export class NativeCoreService {
         await repo.load()
       }
     }
-    return taskResult((await workspace.query([{ type: 'task', query: {} }]))[0]).tasks
   }
 
 }

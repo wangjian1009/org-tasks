@@ -304,7 +304,7 @@ class Task {
 
 * 通用查询与 UI 职责边界（固定设计原则）
 
-~Workspace.search~ 及其 FFI、N-API 和 ArkTS 封装已删除，不保留兼容入口。任务列表、后台日历与任务操作后的快照统一调用 ~Workspace.query~ 。 ~NativeCoreService.loadWorkspace~ 和 ~syncWorkspaceWebDav~ 返回 ~CoreTask[]~ ，不再返回包含 workspace 与同步摘要的聚合响应类型。
+~Workspace.search~ 及其 FFI、N-API 和 ArkTS 封装已删除，不保留兼容入口。任务列表、后台日历与任务操作后的快照统一调用 ~Workspace.query~ 。 ~NativeCoreService.loadWorkspace~ 已删除； ~syncWorkspaceWebDav~ 返回 ~Promise<void>~ ，只等待文件同步完成，不在末尾另查全量任务。今天页、侧边栏和角标由 AppDataManager 共用同一个 DataSetManager 的初始查询与外部刷新结果。
 
 界面需求由 UI 负责组装查询请求，查询逻辑统一由 Core 完成，界面不再做任务过滤。新增页面和调整交互时必须遵守该原则；分类计数可以由展示层计算或直接显示 core 摘要，但不能为任务列表在展示层复制过滤规则。
 

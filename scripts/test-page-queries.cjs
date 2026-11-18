@@ -1,11 +1,11 @@
-// 验证页面定义独立数据集与按数据集订阅；侧边栏保留混合批量读取。
+// 验证页面独立数据集与今天、侧边栏的共享数据集消费。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test, afterEach } = require('node:test');
-const sidebarInstances = [];
-afterEach(() => { for (const manager of sidebarInstances.splice(0)) manager.close(); });
+const sidebarInstances = [], appClosers = [];
+afterEach(async () => { for (const manager of sidebarInstances.splice(0)) manager.close(); await Promise.all(appClosers.splice(0).map(close=>close())); });
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log('用法: node scripts/test-page-queries.cjs\n验证页面数据集定义、独立事件、文件有效性、共享通知及侧边栏批次位置。');
   process.exit(0);
@@ -63,6 +63,7 @@ function fixture() {
         return request;
       });
       const results=await workspace.query(requests);
+      for(const result of results)if(result.type==='file')native.fileResult(result);
       if(requestSet&&sets.get(requestSet)?.request!==requestToken)return;
       definitions=nextDefinitions;
       for(let i=0;i<definitions.length;i++)data.set(definitions[i].name,{data:results[i],version:1});
@@ -72,13 +73,13 @@ function fixture() {
     const configChanged=()=>{started=undefined;manager.start()};configCallbacks.add(configChanged);
     const manager={hasValidScope:()=>true,isReady:()=>ready,get:name=>data.get(name),
       dataSet(name){if(!sets.has(name))sets.set(name,{identity:name,listeners:new Set(),error:'',isReady:()=>ready,
-        get data(){return data.get(name)?.data},get(name){return data.get(name)},getConfirmed(){return data.get(name)},taskKey:id=>id,
+        get data(){return data.get(name)?.data},get version(){return data.get(name)?.version??0},get(name){return data.get(name)},getConfirmed(){return data.get(name)},taskKey:id=>id,
         subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn)},
         async refresh(){try{await query()}catch(error){this.error=error.message;emit(name)}},
         async setQuery(value){const request=Symbol();this.request=request;overrides.set(name,value);try{await query(name,request);if(this.request===request)emit(name)}catch(error){if(this.request===request){this.error=error.message;emit(name)}}}
       });return sets.get(name)},
       async start(){if(!started)started=query();try{return await started}catch(error){started=undefined;throw error}},
-      async refresh(){return query()},async close(){for(const set of sets.values())set.listeners.clear();configCallbacks.delete(configChanged)}};
+      async refresh(){started=query();try{return await started}catch(error){for(const set of sets.values())set.error=error.message;for(const name of sets.keys())emit(name);throw error}},async close(){for(const set of sets.values())set.listeners.clear();configCallbacks.delete(configChanged)}};
     managers.push({manager,pageName,definitions});return manager;
   }}};
   let regionOrder=null; const orderCallbacks=new Set();
@@ -110,6 +111,7 @@ function fixture() {
       throw new Error('缺少替身: '+dependency);
     };
     vm.runInThisContext('(function(require,module,exports,AppStorage,setInterval){'+code+'\n})',{filename})(requireLocal,module,module.exports,storage,(fn,ms)=>{const timer=setInterval(fn,ms);timer.unref();return timer;});
+    if(name==='services/AppDataManager')appClosers.push(()=>module.exports.AppDataManager.close());
     return module.exports;
   }
   function page(name, methods) {
@@ -131,7 +133,9 @@ function fixture() {
     if (name === 'components/AppShell' && methods.includes('loadNavigation')) sidebarInstances.push(view.navigationDataManager());
     return view;
   }
-  return {disk,order(value){regionOrder=value;for(const fn of orderCallbacks)fn(value);},configChanged(){for(const fn of configCallbacks)fn();},emit(){for(const fn of dataCallbacks)fn({repoId:'core-a',operationId:'http/external'});},config,batches,writes,workspace,load,page,notificationCallbacks,dataCallbacks,inline(value){inlineActive=value;},
+  let pendingExternal;
+  const external=()=>{if(!pendingExternal)pendingExternal=new Promise(resolve=>setTimeout(async()=>{pendingExternal=undefined;await Promise.all(managers.filter(item=>item.pageName==='app').map(item=>item.manager.refresh().catch(()=>{})));resolve();},0));return pendingExternal;};
+  return {disk,order(value){regionOrder=value;for(const fn of orderCallbacks)fn(value);},configChanged(){for(const fn of configCallbacks)fn();},emit(){for(const fn of dataCallbacks)fn({repoId:'core-a',operationId:'http/external'});return external();},config,batches,writes,workspace,load,page,notificationCallbacks,dataCallbacks,inline(value){inlineActive=value;},
     missing(){missing=true;}, fail(){fail=true;}, query(fn){customQuery=fn;}};
 }
 
@@ -141,7 +145,8 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
     page.view=view; await page.loadTasks();
     assert.equal(page.message,'');
     assert.equal(f.batches.length,1);
-    assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'?['task','file']:view==='memo'?['task','file','file']:view==='today'?['task','task','file','file']:view==='planned'?['task','task','file']:['task','file']);
+    if(view==='today')assert.equal(page.dataManager,f.load('services/AppDataManager').AppDataManager.shared({}).manager);
+    else assert.deepEqual(f.batches[0].map(item=>item.type),view==='someday'?['task','file']:view==='memo'?['task','file','file']:view==='today'?['task','task','file','file']:view==='planned'?['task','task','file']:['task','file']);
     assert.equal(page.needsConfiguration,false,'有效空文件不是失效文件');
     page.applyTagFilter({tags:[],includeUntagged:false});
     assert.equal(f.batches.length,1,'展示层标签切换不增加查询');
@@ -156,7 +161,7 @@ for (const view of ['today','planned','anytime','logbook','someday','memo']) {
 test('今天排序候选通过 Core 排除三个特殊入口文件，宿主 ID 按仓库解析且同名普通文件保留',async()=>{
   const f=fixture(),page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   page.view='today';await page.loadTasks();
-  assert.deepEqual(f.batches[0][3],{type:'file',query:{excludeFiles:[
+  assert.deepEqual(f.batches[0].find(request=>request.type==='file'&&!request.query.isProject&&request.query.excludeFiles?.length),{type:'file',query:{excludeFiles:[
     {repoId:'core-a',path:'same.org'},{repoId:'core-b',path:'same.org'},{repoId:'core-a',path:'memo.org'}]}});
   const exclusions=f.load('services/FileTargetService').configuredSpecialFileExclusions;
   f.config.somedayRepoId=f.config.inboxRepoId;f.config.somedayFile=f.config.inboxFile;
@@ -306,40 +311,30 @@ test('收件箱本页、最近新增、文件元信息与通知只调用一次�
   assert.equal(page.needsConfiguration,false);
 });
 
-test('侧边栏任务、项目与入口文件合为一个批次，跨仓库同名文件保持隔离',async()=>{
-  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
-  await page.loadNavigation();
-  assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,13);
-  assert.deepEqual(f.batches[0].slice(5).map(item=>item.type),['file','task','task','file','task','file','task','file']);
-  assert.deepEqual(f.batches[0][5].query,{isProject:true});
-  assert.deepEqual(f.batches[0][4].query,{expression:'it.done'});
-  assert.deepEqual(f.batches[0][1].query,{expression:'it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)'});
-  assert.deepEqual(f.batches[0][7].repoIds,['core-a']);assert.deepEqual(f.batches[0][9].repoIds,['core-b']);
-  assert.deepEqual(f.batches[0][9].query,{expression:'it.todo',includeFiles:[{repoId:'core-b',path:'same.org'}]});
-  assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
+test('侧边栏复用全局批次与今天 DataSet，跨仓库同名入口保持隔离',async()=>{
+ const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
+ const batch=f.batches[0];assert.equal(page.navMessage,'');assert.equal(f.batches.length,1);
+ assert.equal(batch.filter(request=>request.query.expression==='.it.done (s.le.today or d.le.today)').length,1);
+ assert.deepEqual(batch.find(request=>request.query.isProject).query,{isProject:true,excludeFiles:[]});
+ assert.ok(batch.some(request=>request.query.expression==='it.done'));
+ assert.ok(batch.some(request=>request.repoIds?.[0]==='core-a'&&request.query.expression===''));
+ assert.ok(batch.some(request=>request.repoIds?.[0]==='core-b'&&request.query.includeFiles[0].path==='same.org'));
+ assert.equal(page.inboxCount,0);assert.equal(page.somedayCount,0);assert.equal(page.memoCount,0);
+ const today=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);today.view='today';await today.loadTasks();
+ assert.equal(f.batches.length,1);assert.equal(page.sidebarManager.app.dataSet('todayTasks'),today.taskDataSet());
 });
 
-test('废纸篓计数与其他导航共用批次，缓存、外部变更和失败保留使用同一快照',async()=>{
-  const f=fixture();
-  f.config.repos.push({id:'org-tasks-system',rootDirectory:'/system',webdavEnabled:false});
-  (await f.workspace.repos()).push({id:'core-system',rootDirectory:'/system'});
-  let count=3,fail=false;
-  f.query(batch=>{
-    if(fail)throw new Error('计数读取失败');
-    return batch.map(request=>request.type==='task'?{type:'task',result:{tasks:Array(request.repoIds?.[0]==='core-system'?count:0).fill({})}}:
-      {type:request.type,result:[]});
-  });
-  const page=f.page('components/AppShell',['loadNavigation']);
-  await page.loadNavigation();
-  assert.equal(page.trashCount,3);assert.equal(f.batches.length,1);assert.equal(f.batches[0].length,14);
-  assert.deepEqual(f.batches[0][13],{type:'task',query:{expression:'.o.deleted',includeFiles:[{repoId:'core-system',path:'trash.org'}]},repoIds:['core-system']});
-  page.sidebarManager.close();
-  const restored=f.page('components/AppShell',['loadNavigation']),seen=[];
-  restored.sidebarManager.subscribe(value=>seen.push([value.version,value.trashCount]));
-  await restored.loadNavigation();assert.ok(seen.some(([version,n])=>version===0&&n===3));
-  count=1;f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,1);
-  fail=true;f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,1);assert.match(restored.navMessage,/计数读取失败/);
-  fail=false;count=0;f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,0);
+test('废纸篓计数使用全局命名数据集，关闭抽屉后继续更新，失败保留确认值',async()=>{
+ const f=fixture();f.config.repos.push({id:'org-tasks-system',rootDirectory:'/system',webdavEnabled:false});
+ (await f.workspace.repos()).push({id:'core-system',rootDirectory:'/system'});let count=3,fail=false;
+ f.query(batch=>{if(fail)throw new Error('计数读取失败');return batch.map(request=>request.type==='task'?{type:'task',result:{tasks:Array(request.query.expression==='.o.deleted'?count:0).fill({})}}:{type:request.type,result:[]});});
+ const page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
+ assert.equal(page.trashCount,3);assert.equal(f.batches.length,1);
+ assert.deepEqual(f.batches[0].find(request=>request.query.expression==='.o.deleted').query.includeFiles,[{repoId:'core-system',path:'trash.org'}]);
+ page.sidebarManager.close();const restored=f.page('components/AppShell',['loadNavigation']);await restored.loadNavigation();assert.equal(restored.trashCount,3);assert.equal(f.batches.length,1);
+ count=1;await f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,1);
+ fail=true;await f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,1);assert.match(restored.navMessage,/计数读取失败/);
+ fail=false;count=0;await f.emit();await restored.sidebarManager.start();assert.equal(restored.trashCount,0);
 });
 
 test('侧边栏采用共享分区与项目顺序，保存和恢复默认不增加 Core 查询',async()=>{
@@ -363,7 +358,7 @@ test('侧边栏采用共享分区与项目顺序，保存和恢复默认不增�
 test('今天红色徽标独立消费关注任务的 Core 结果，不按今天列表重筛或改动总数',async()=>{
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
   f.query(batch=>batch.map((request,index)=>request.type==='task'
-    ? {type:'task',result:{tasks:Array(index===0?8:index===1?3:0).fill({}),categories:[]}}
+    ? {type:'task',result:{tasks:Array(request.query.expression==='.it.done (s.le.today or d.le.today)'?8:request.query.expression==='it.todo ((is.habit s.lt.tomorrow) or d.lt.tomorrow)'?3:0).fill({}),categories:[]}}
     : {type:request.type,result:[]}));
   await page.loadNavigation();
   assert.equal(page.todayCount,8);assert.equal(page.todayAttentionCount,3);
@@ -381,7 +376,7 @@ test('项目按 Core 文件结果保留顺序、空名称和同名身份，新�
     {type:'file',result:request.query.isProject?current:[]}));
   await page.loadNavigation();
   assert.equal(page.projects,current);
-  current=[];f.emit();await page.sidebarManager.start();
+  current=[];await f.emit();await page.sidebarManager.start();
   assert.deepEqual(page.projects,[]);
   assert.deepEqual(page.projectGroups,[]);
 });
@@ -530,7 +525,7 @@ test('今天编辑会话期间数据集继续更新，列表重排等会话结�
   f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
   page.view='today';await page.loadTasks();assert.equal(page.tasks,original);
   f.inline(true);page.pageInlineActive='editing';rows=[plannedTask('new','core-a','plain.org','工作'),...original];
-  await page.dataManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));assert.equal(page.dataManager.get('tasks').data.result.tasks,rows);
+  await page.dataManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));assert.equal(page.dataManager.get('todayTasks').data.result.tasks,rows);
   assert.equal(page.tasks,original);assert.equal(page.pageLayoutDeferred,true);
   f.inline(false);page.pageInlineActive='';page.pageInlineChanged();
   assert.equal(page.tasks,rows);assert.equal(page.pageLayoutDeferred,false);assert.equal(f.batches.length,2);
@@ -552,20 +547,12 @@ const sidebarResults = (batch, projects, today = 0) => batch.map((request, index
   ? {type:'task',result:{tasks:Array(index === 0 ? today : 0).fill({}),categories:[]}}
   : {type:request.type,result:request.type === 'file' && request.query.isProject ? projects : []});
 
-test('侧边栏从少量项目缓存恢复后，首次全量读取补齐项目并保存新快照',async()=>{
-  const f=fixture(),old=[{repoId:'core-a',path:'old.org',projectName:'旧项目'}];
-  f.query(batch=>sidebarResults(batch,old));
-  const first=f.page('components/AppShell',['loadNavigation']);await first.loadNavigation();first.sidebarManager.close();
-  let release;const hold=new Promise(resolve=>release=resolve);
-  const all=[...old,{repoId:'core-b',path:'new.org',projectName:'新增项目'}];
-  f.query(async batch=>{await hold;return sidebarResults(batch,all,7);});
-  const page=f.page('components/AppShell',['loadNavigation']),seen=[];
-  page.sidebarManager.subscribe(snapshot=>seen.push(snapshot));
-  const loading=page.loadNavigation();await settleSidebar();
-  assert.deepEqual(page.projects,old);assert.equal(seen.at(-1).version,0);
-  release();await loading;
-  assert.deepEqual(page.projects,all);assert.equal(page.todayCount,7);assert.equal(seen.at(-1).version,1);
-  assert.deepEqual([...f.disk.values()][0][5].result,all);
+test('侧边栏重开直接取得共享项目快照，随后全局数据变化补齐项目',async()=>{
+ const f=fixture(),old=[{repoId:'core-a',path:'old.org',projectName:'旧项目'}];f.query(batch=>sidebarResults(batch,old));
+ const first=f.page('components/AppShell',['loadNavigation']);await first.loadNavigation();first.sidebarManager.close();
+ const page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();assert.equal(page.projects,old);assert.equal(f.batches.length,1);
+ const all=[...old,{repoId:'core-b',path:'new.org',projectName:'新增项目'}];f.query(batch=>sidebarResults(batch,all,7));await f.emit();await page.loadNavigation();
+ assert.equal(page.projects,all);assert.equal(page.todayCount,7);assert.equal(f.batches.length,2);
 });
 
 async function waitSidebar(check) {
@@ -580,41 +567,35 @@ test('侧边栏订阅整个 Workspace，缓存之外文件的新项目自动出�
   projects=first;f.emit();f.emit();await waitSidebar(()=>page.projects===first);
   assert.deepEqual(page.projects,first);assert.equal(f.batches.length,2,'连续事件合并为一次查询');
   projects=[...first,{repoId:'core-b',path:'elsewhere.org',projectName:'另一仓库项目'}];
-  f.emit();await page.sidebarManager.start();assert.deepEqual(page.projects,projects);
-  projects=[];f.emit();await page.sidebarManager.start();assert.deepEqual(page.projectGroups,[]);
-  assert.ok(f.batches.every(batch=>batch[5].query.isProject && !batch[5].query.includeFiles));
+  await f.emit();await page.sidebarManager.start();assert.deepEqual(page.projects,projects);
+  projects=[];await f.emit();await page.sidebarManager.start();assert.deepEqual(page.projectGroups,[]);
+  assert.ok(f.batches.every(batch=>batch.find(request=>request.query.isProject) && !batch.find(request=>request.query.isProject).query.includeFiles));
 });
 
-test('侧边栏查询中收到新事件会丢弃迟到结果，最终项目、计数及缓存来自同一新快照',async()=>{
-  const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
-  f.query(batch=>sidebarResults(batch,[]));await page.loadNavigation();
-  let release;const hold=new Promise(resolve=>release=resolve),seen=[];
-  const stale=[{repoId:'core-a',path:'stale.org'}],latest=[{repoId:'core-b',path:'latest.org'}];
-  let calls=0;f.query(async batch=>{if(++calls===1){await hold;return sidebarResults(batch,stale,2);}return sidebarResults(batch,latest,9);});
-  page.sidebarManager.subscribe(snapshot=>seen.push(snapshot));f.emit();const loading=page.sidebarManager.start();
-  await settleSidebar();f.emit();release();await loading;
-  assert.equal(calls,2);assert.equal(seen.some(snapshot=>snapshot.projects===stale),false);
-  assert.deepEqual(page.projects,latest);assert.equal(page.todayCount,9);
-  assert.deepEqual([...f.disk.values()][0][5].result,latest);
+test('侧边栏只消费全局数据集，项目与今天计数由同批共享结果更新',async()=>{
+ const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);f.query(batch=>sidebarResults(batch,[]));await page.loadNavigation();
+ const projects=[{repoId:'core-b',path:'latest.org'}];f.query(batch=>sidebarResults(batch,projects,9));await f.emit();await page.loadNavigation();
+ const app=f.load('services/AppDataManager').AppDataManager.shared({});assert.equal(page.projects,app.dataSet('projects').data.result);
+ assert.equal(page.todayCount,app.dataSet('todayTasks').data.result.tasks.length);assert.equal(page.todayCount,9);
 });
 
-test('侧边栏读取失败保留已确认数据，后续事件恢复，关闭后不再发布或查询',async()=>{
+test('共享读取失败保留侧边栏确认数据，后续事件恢复，关闭仅停止展示订阅',async()=>{
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);
   const projects=[{repoId:'core-a',path:'keep.org'}];let fail=false;
   f.query(batch=>{if(fail)throw new Error('读取失败');return sidebarResults(batch,projects,5);});
-  await page.loadNavigation();fail=true;f.emit();await page.sidebarManager.start();
+  await page.loadNavigation();fail=true;await f.emit();await page.sidebarManager.start();
   assert.deepEqual(page.projects,projects);assert.equal(page.todayCount,5);assert.match(page.navMessage,/读取失败/);
-  fail=false;f.emit();await page.sidebarManager.start();assert.equal(page.navMessage,'');
-  const calls=f.batches.length;page.sidebarManager.close();f.emit();await page.sidebarManager.start();
-  assert.equal(f.batches.length,calls);
+  fail=false;await f.emit();await page.sidebarManager.start();assert.equal(page.navMessage,'');
+  const calls=f.batches.length;page.sidebarManager.close();await f.emit();await page.sidebarManager.start();
+  assert.equal(f.batches.length,calls+1,'关闭展示层后全局管理器继续处理变化');
 });
 
 test('侧边栏配置改变使旧查询与缓存失效，入口状态按新配置重建',async()=>{
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
   assert.equal(page.inboxCount,0);
   f.config.inboxFile='';f.configChanged();await page.sidebarManager.start();
-  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,11);
-  assert.equal(f.disk.size,2);assert.equal(await page.sidebarManager.targetConfigured('inbox'),false);
+  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,15);
+  assert.equal(f.disk.size,0,'侧边栏不再持有独立缓存');assert.equal(await page.sidebarManager.targetConfigured('inbox'),false);
 });
 
 
@@ -624,8 +605,8 @@ test('侧边栏所有非零计数按原批次位置读取，重复打开不再�
     ?{type:'task',result:{tasks:Array(index+1).fill({}),categories:[]}}
     :{type:request.type,result:request.type==='file'?[{}]:[]}));
   await page.loadNavigation();await page.loadNavigation();
-  assert.deepEqual([page.todayCount,page.todayAttentionCount,page.plannedCount,page.anytimeCount,page.logbookCount],[1,2,3,4,5]);
-  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[8,10,12]);assert.equal(page.waitingCount,7);assert.equal(f.batches.length,1);
+  assert.deepEqual([page.todayCount,page.todayAttentionCount,page.plannedCount,page.anytimeCount,page.logbookCount],[1,4,5,6,8]);
+  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[12,14,16]);assert.equal(page.waitingCount,7);assert.equal(f.batches.length,1);
 });
 
 test('侧边栏关闭后在途查询不能覆盖展示或写入缓存',async()=>{
@@ -634,4 +615,15 @@ test('侧边栏关闭后在途查询不能覆盖展示或写入缓存',async()=>
   f.query(async batch=>{await hold;return sidebarResults(batch,[{repoId:'core-a',path:'late.org'}],3);});
   const loading=page.loadNavigation();await settleSidebar();page.sidebarManager.close();release();await loading;
   assert.deepEqual(page.projects,[]);assert.equal(page.todayCount,-1);assert.equal(f.disk.size,0);
+});
+
+
+test('今天页挂载时先展示已恢复的共享缓存，不等待仍在进行的首次查询',async()=>{
+ const f=fixture(),first=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
+ const rows=[plannedTask('cached','core-a','plain.org','工作')];f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
+ first.view='today';await first.loadTasks();const manager=first.dataManager;manager.get('todayTasks').version=0;manager.dataSet('todayTasks').isReady=()=>false;
+ let release;manager.start=()=>new Promise(resolve=>release=resolve);
+ const page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);page.view='today';const loading=page.loadTasks();
+ await settleSidebar();assert.equal(page.tasks,rows);assert.equal(page.loading,false);assert.equal(page.pageReady,false);assert.equal(f.batches.length,1);
+ release();await loading;
 });
