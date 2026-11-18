@@ -70,6 +70,7 @@ export struct TaskEditor {
   private pendingAction: TaskEditorActionResult | undefined = undefined
   @Prop instanceKey: string = ''
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
+  @Prop todayFlag: boolean = true
   @Prop timeDisplay: TaskTimeDisplay = TaskTimeDisplay.None
   @Prop regionAreaPolicy: RegionAreaPolicy | undefined = undefined
   scrollHost: Scroller | undefined = undefined
@@ -1018,8 +1019,11 @@ export struct TaskEditor {
 
   leadingTime(): string { return taskTimeForDisplay(this.value(), this.timeDisplay) }
 
+  showTodayFlag(): boolean { return this.todayFlag && taskDateIsToday(this.value().scheduled, new Date(this.referenceTime)) }
+
   leadingWidth(): number {
     return (this.leadingTime() ? 54 : 0)
+      + (this.showTodayFlag() ? 26 : 0)
       + (taskDateForDisplay(this.value(), this.dateDisplay).length > 0 ? this.leadingDate().length * 7 + 18 : 0)
       + (this.value().isHabit || this.value().isRepeating ? 26 : 0)
   }
@@ -1211,6 +1215,9 @@ export struct TaskEditor {
 
   @Builder
   compactLeadingInfo() {
+    if (this.showTodayFlag()) {
+      Image($r('app.media.nav_today')).width(20).height(20).flexShrink(0).accessibilityText('计划于今天')
+    }
     if (taskDateForDisplay(this.value(), this.dateDisplay)) {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
         .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)
@@ -1401,6 +1408,9 @@ export struct TaskEditor {
     // 控件固定在首行槽位；标题留白由行高推导，后续文字只向下增长。
     Row({ space: 6 }) {
       Row() { this.stateIndicator() }.height(UiSize.taskRow)
+      if (this.showTodayFlag()) {
+        Row() { Image($r('app.media.nav_today')).width(20).height(20).accessibilityText('计划于今天') }.height(UiSize.taskRow)
+      }
       if (this.value().isHabit) {
         Row() { Image($r('app.media.ui_task_habit')).width(20).height(20).accessibilityText('习惯任务') }.height(UiSize.taskRow)
       } else if (this.value().isRepeating) {

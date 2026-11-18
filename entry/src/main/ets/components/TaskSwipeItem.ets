@@ -40,6 +40,7 @@ export struct TaskSwipeItem {
   @Prop instanceKey: string = ''
   @Prop expandOnRowClick: boolean = false
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
+  @Prop todayFlag: boolean = true
   @Prop timeDisplay: TaskTimeDisplay = TaskTimeDisplay.None
   @Prop regionAreaPolicy: RegionAreaPolicy | undefined = undefined
   @Prop referenceTime: number = Date.now()
@@ -277,7 +278,7 @@ export struct TaskSwipeItem {
       internalLinkProcessor: this.internalLinkProcessor,
       contentHidden: this.contentHidden, hiddenTags: this.hiddenTags, instanceKey: this.instanceKey,
       readOnly: this.readOnly, expandOnRowClick: this.expandOnRowClick,
-      dateDisplay: this.dateDisplay, timeDisplay: this.timeDisplay, regionAreaPolicy: this.regionAreaPolicy,
+      dateDisplay: this.dateDisplay, todayFlag: this.todayFlag, timeDisplay: this.timeDisplay, regionAreaPolicy: this.regionAreaPolicy,
       referenceTime: this.referenceTime, scrollHost: this.scrollHost, scrollHostId: this.scrollHostId })
   }
 

@@ -387,6 +387,7 @@ export struct TaskPageContent {
         } else if (this.view === 'today' || this.view === 'anytime' || this.view === 'waiting') {
           TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, singleOperations: taskPageActionPolicy(this.view).singleOperations,
             regionKeys: this.view === 'today' ? this.todayRegionKeys : [],
+            todayFlag: this.view !== 'today',
             regionPreviewLimit: (this.view === 'anytime' || this.view === 'waiting') ? 3 : 0,
             expandOnRowClick: this.view === 'today', dataSet: this.taskDataSet(),
             positionKey: this.view, readOnly: !this.pageReady })

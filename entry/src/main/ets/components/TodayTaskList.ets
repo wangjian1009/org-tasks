@@ -43,6 +43,7 @@ export struct TodayTaskList {
   @Prop timedItems: TodayTimedTaskItem[] = []
   @Prop regionKeys: string[] = []
   @Prop referenceTime: number = Date.now()
+  @Prop todayFlag: boolean = true
   @Prop expandOnRowClick: boolean = false
   @Prop regionPreviewLimit: number = 0
   @State expandedRegionKeys: string[] = []
@@ -129,7 +130,7 @@ export struct TodayTaskList {
   @Builder
   taskItem(item: TodayTaskItem) {
     TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly,
-      singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, referenceTime: this.referenceTime,
+      singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, referenceTime: this.referenceTime, todayFlag: this.todayFlag,
       expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 
@@ -137,7 +138,7 @@ export struct TodayTaskList {
   timedTaskItem(item: TodayTimedTaskItem) {
     TaskSwipeItem({ dataSet: this.taskDataSet(), taskId: this.taskDataSet().taskKey(item.task.id), readOnly: this.readOnly,
       singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule, timeDisplay: item.timeDisplay, regionAreaPolicy: RegionAreaPolicy.None,
-      referenceTime: this.referenceTime, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
+      referenceTime: this.referenceTime, todayFlag: this.todayFlag, expandOnRowClick: this.expandOnRowClick, scrollHost: this.listScroller, scrollHostId: 'today_task_list' })
   }
 
   private sectionGroups(sectionKey: string): TodayTaskGroup[] {
