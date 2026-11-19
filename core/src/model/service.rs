@@ -544,6 +544,18 @@ impl OrgRepo {
         ignore_files: &[String],
         included_files: Option<&std::collections::BTreeSet<String>>,
     ) -> Result<Vec<OrgFile>, CoreError> {
+        let reads = crate::shared_file_manager::SharedFileManager::new();
+        let result = self.load_files_with_reader_unlocked(ignore_files, included_files, &reads).await;
+        reads.finish().await?;
+        result
+    }
+
+    pub(crate) async fn load_files_with_reader_unlocked(
+        &self,
+        ignore_files: &[String],
+        included_files: Option<&std::collections::BTreeSet<String>>,
+        reads: &crate::shared_file_manager::SharedFileManager,
+    ) -> Result<Vec<OrgFile>, CoreError> {
         validate_ignored_files(ignore_files)?;
         if let Some(paths) = included_files {
             for path in paths {
@@ -553,10 +565,10 @@ impl OrgRepo {
         #[cfg(test)]
         super::test_support::record_access(Path::new(&self.root_directory), 1);
         let root = Path::new(&self.root_directory);
-        let rules = super::TaskScanRules::load(root).await?;
-        let sources = scan_org_files(root, ignore_files, included_files).await?;
+        let rules = super::TaskScanRules::load_with_reader(root, reads).await?;
+        let sources = scan_org_files(root, ignore_files, included_files, reads).await?;
         // 文件之间没有依赖关系；并发取得 SETUPFILE 和解析语法树，完成后再按路径合并，
-        // 保持调用方看到的稳定顺序。每个任务使用独立的设置缓存，避免跨文件共享可变状态。
+        // 保持调用方看到的稳定顺序。所有读取经本次 SharedFileManager 合并，递归遍历仍按源文件独立进行。
         let mut jobs = tokio::task::JoinSet::new();
         let repository = self.clone();
         let root_directory = root.to_path_buf();
@@ -564,11 +576,13 @@ impl OrgRepo {
             let repository = repository.clone();
             let root_directory = root_directory.clone();
             let ignored = rules.excludes(&source.path);
+            let reads = reads.clone();
             jobs.spawn(async move {
-                let setup = load_setup_settings(
+                let setup = load_setup_settings_shared(
                     &root_directory,
                     &source.path,
                     &source.source_bytes,
+                    &reads,
                 )
                 .await?;
                 let mut file = repository.parse_file_with_setup(
@@ -602,13 +616,20 @@ impl OrgRepo {
     }
 
     pub(crate) async fn file_unlocked(&self, path: &str) -> Result<OrgFile, CoreError> {
+        let reads = crate::shared_file_manager::SharedFileManager::new();
+        let result = self.file_with_reader_unlocked(path, &reads).await;
+        reads.finish().await?;
+        result
+    }
+
+    async fn file_with_reader_unlocked(&self, path: &str, reads: &crate::shared_file_manager::SharedFileManager) -> Result<OrgFile, CoreError> {
         let root = Path::new(&self.root_directory);
-        let source = crate::webdav::transaction::read(root, path).await?;
+        let source = reads.read(root, path).await?;
         let missing = source.is_none();
-        let source = source.unwrap_or_default();
-        let setup = load_setup_settings(root, path, &source).await?;
+        let source = source.map(|bytes| bytes.to_vec()).unwrap_or_default();
+        let setup = load_setup_settings_shared(root, path, &source, reads).await?;
         let mut file = self.parse_file_with_setup(path.into(), source, setup)?;
-        file.scan_ignored = super::TaskScanRules::load(root).await?.excludes(path);
+        file.scan_ignored = super::TaskScanRules::load_with_reader(root, reads).await?.excludes(path);
         file.modified_at = fs::metadata(root.join(path))
             .await
             .ok()
@@ -1069,6 +1090,7 @@ async fn scan_org_files(
     root: &Path,
     ignore_files: &[String],
     included_files: Option<&std::collections::BTreeSet<String>>,
+    reads: &crate::shared_file_manager::SharedFileManager,
 ) -> Result<Vec<OrgRepoSourceFile>, CoreError> {
     // 目录遍历发现一个文件就立即提交读取任务；扫描与正文读取重叠执行。
     let mut jobs = tokio::task::JoinSet::new();
@@ -1110,13 +1132,11 @@ async fn scan_org_files(
                     .modified()
                     .ok()
                     .map(|time| chrono::DateTime::<chrono::Utc>::from(time).timestamp_millis());
-                let disk = entry.path();
+                let root = root.to_path_buf();
+                let reads = reads.clone();
                 jobs.spawn(async move {
-                    #[cfg(test)]
-                    super::test_support::record_file_access(&disk, 0);
-                    let source_bytes = fs::read(disk)
-                        .await
-                        .map_err(|error| CoreError::Store(format!("无法读取 org 文件: {error}")))?;
+                    let source_bytes = reads.read(&root, &path).await?
+                        .ok_or(CoreError::InvalidState("扫描期间 Org 文件已被删除"))?.to_vec();
                     let mut file = OrgRepoSourceFile::new(path, source_bytes)?;
                     file.modified_at = modified_at;
                     Ok::<_, CoreError>(file)
@@ -1140,22 +1160,20 @@ pub(crate) async fn load_setup_settings(
     source_path: &str,
     source_bytes: &[u8],
 ) -> Result<String, CoreError> {
-    load_setup_settings_cached(root, source_path, source_bytes, &mut Default::default()).await
+    let reads = crate::shared_file_manager::SharedFileManager::new();
+    let result = load_setup_settings_shared(root, source_path, source_bytes, &reads).await;
+    reads.finish().await?;
+    result
 }
 
-pub(super) async fn load_setup_settings_cached(
+async fn load_setup_settings_shared(
     root: &Path,
     source_path: &str,
     source_bytes: &[u8],
-    cache: &mut std::collections::BTreeMap<String, Option<Vec<u8>>>,
+    reads: &crate::shared_file_manager::SharedFileManager,
 ) -> Result<String, CoreError> {
-    load_setup_settings_with_reader(source_path, source_bytes, cache, |path| {
-        let root = root.to_path_buf();
-        async move {
-            #[cfg(test)]
-            super::test_support::record_file_access(&root.join(&path), 0);
-            crate::webdav::transaction::read(&root, &path).await
-        }
+    resolve_setup_settings(source_path, source_bytes, None, |path| async move {
+        reads.read(root, &path).await.map(|bytes| bytes.map(|bytes| bytes.to_vec()))
     }).await
 }
 
@@ -1163,6 +1181,19 @@ pub(super) async fn load_setup_settings_with_reader<F, Fut>(
     source_path: &str,
     source_bytes: &[u8],
     cache: &mut std::collections::BTreeMap<String, Option<Vec<u8>>>,
+    read: F,
+) -> Result<String, CoreError>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<Vec<u8>>, CoreError>>,
+{
+    resolve_setup_settings(source_path, source_bytes, Some(cache), read).await
+}
+
+async fn resolve_setup_settings<F, Fut>(
+    source_path: &str,
+    source_bytes: &[u8],
+    mut cache: Option<&mut std::collections::BTreeMap<String, Option<Vec<u8>>>>,
     mut read: F,
 ) -> Result<String, CoreError>
 where
@@ -1213,14 +1244,16 @@ where
             {
                 continue;
             }
-            if !cache.contains_key(&normalized) {
-                let bytes = read(normalized.clone()).await?;
-                cache.insert(normalized.clone(), bytes);
-            }
-            let Some(bytes) = &cache[&normalized] else {
-                continue;
+            let bytes = if let Some(cache) = cache.as_deref_mut() {
+                if !cache.contains_key(&normalized) {
+                    let bytes = read(normalized.clone()).await?;
+                    cache.insert(normalized.clone(), bytes);
+                }
+                cache[&normalized].clone()
+            } else {
+                read(normalized).await?
             };
-            pending.push((setup_path, bytes.clone()));
+            if let Some(bytes) = bytes { pending.push((setup_path, bytes)); }
         }
     }
     Ok(settings.join("\n"))
@@ -1841,4 +1874,108 @@ pub(crate) fn file_keywords(source: &[u8]) -> Result<Vec<(String, String)>, Core
             )
         })
         .collect())
+}
+
+#[cfg(test)]
+mod shared_file_reads_tests {
+    use super::*;
+    use crate::{CoreQuery, FileQuery, OrgFileRef, OrgWorkspace, TaskQuery};
+    use crate::model::test_support::{file_accesses, repository_accesses};
+
+    async fn repo() -> (OrgRepo, PathBuf) {
+        let root = std::env::temp_dir().join(format!("setup-shared-{}", generate_repo_id().unwrap()));
+        fs::create_dir_all(root.join("settings")).await.unwrap();
+        let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
+        repo.load::<crate::webdav::WebDavSyncPolicy>().await.unwrap();
+        (repo, root)
+    }
+
+    #[tokio::test]
+    async fn shared_setup_scanning_recursion_and_aliases_read_each_file_once_per_query() {
+        let (repo, root) = repo().await;
+        fs::write(root.join(".setup.org"), b"#+SETUPFILE: settings/outer.conf\n#+TODO: OPEN | FINISHED\n").await.unwrap();
+        fs::write(root.join("settings/outer.conf"), b"#+SETUPFILE: ../common.conf\n").await.unwrap();
+        fs::write(root.join("common.conf"), b"#+SETUPFILE: settings/outer.conf\n#+PRIORITIES: A C B\n").await.unwrap();
+        let mut originals = Vec::new();
+        for index in 0..32 {
+            let path = format!("task-{index}.org");
+            let source = format!("#+SETUPFILE: settings/../.setup.org\r\n* OPEN Task {index}\r\n正文  \r\n");
+            fs::write(root.join(&path), &source).await.unwrap();
+            originals.push((path, source));
+        }
+        fs::write(root.join("local.org"), b"#+SETUPFILE: .setup.org\n#+TODO: LOCAL | CLOSED\n* LOCAL Own\n").await.unwrap();
+        let workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
+        let reference = OrgFileRef { repo_id: repo.id.clone(), path: "task-0.org".into() };
+        let queries = [CoreQuery::File { query: FileQuery::default() }, TaskQuery { full_files: vec![reference], ..Default::default() }.into()];
+        let before = repository_accesses(&repo.root_directory);
+        let results = workspace.query(&queries).await.unwrap();
+        assert_eq!(repository_accesses(&repo.root_directory)[1] - before[1], 1);
+        let task = results[1].clone().into_task().unwrap();
+        assert_eq!(task.tasks.len(), 33);
+        assert_eq!(task.tasks.iter().filter(|task| task.state().is_some_and(|state| state.name == "OPEN")).count(), 32);
+        assert_eq!(task.full_files[0].todo.initial_state.as_deref(), Some("OPEN"));
+        for path in [".setup.org", "settings/outer.conf", "common.conf", "local.org"] {
+            assert_eq!(file_accesses(&root.join(path)), [1, 0], "{path}");
+        }
+        for (path, source) in &originals {
+            assert_eq!(file_accesses(&root.join(path)), [1, 0], "{path}");
+            assert_eq!(fs::read(root.join(path)).await.unwrap(), source.as_bytes());
+        }
+        // 新 query 创建新服务，配置修改不会被上一轮快照遮蔽。
+        fs::write(root.join(".setup.org"), b"#+SETUPFILE: settings/outer.conf\n#+TODO: NEWOPEN | FINISHED\n").await.unwrap();
+        let results = workspace.query(&queries).await.unwrap();
+        assert_eq!(results[1].clone().into_task().unwrap().full_files[0].todo.initial_state.as_deref(), Some("NEWOPEN"));
+        for path in [".setup.org", "settings/outer.conf", "common.conf", "task-0.org"] {
+            assert_eq!(file_accesses(&root.join(path)), [2, 0], "{path}");
+        }
+        workspace.stop().await.unwrap();fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scoped_queries_share_unscanned_dependencies_and_keep_repositories_separate() {
+        let (a, a_root) = repo().await; let (b, b_root) = repo().await;
+        for (root, state) in [(&a_root, "ALPHA"), (&b_root, "BETA")] {
+            fs::write(root.join("settings/workflow.conf"), format!("#+TODO: {state} | FINISHED\n")).await.unwrap();
+            for path in ["one.org", "two.org"] {
+                fs::write(root.join(path), format!("#+SETUPFILE: settings/workflow.conf\n#+SETUPFILE: settings/missing.conf\n* {state} {path}\n")).await.unwrap();
+            }
+        }
+        let workspace = OrgWorkspace::start(vec![a.clone(), b.clone()]).await.unwrap();
+        let queries = [TaskQuery { include_files: [(&a,"one.org"),(&a,"two.org"),(&b,"one.org"),(&b,"two.org")].into_iter()
+            .map(|(repo,path)| OrgFileRef { repo_id: repo.id.clone(), path: path.into() }).collect(), ..Default::default() }.into()];
+        let result = workspace.query(&queries).await.unwrap().remove(0).into_task().unwrap();
+        assert_eq!(result.tasks.len(), 4);
+        for task in result.tasks {
+            assert_eq!(task.state().unwrap().name, if task.repo_id() == a.id { "ALPHA" } else { "BETA" });
+        }
+        for root in [&a_root, &b_root] {
+            assert_eq!(file_accesses(&root.join("settings/workflow.conf")), [1,0]);
+            assert_eq!(file_accesses(&root.join("settings/missing.conf")), [1,0]);
+        }
+        fs::write(a_root.join("settings/missing.conf"), b"#+PRIORITIES: X Z Y\n").await.unwrap();
+        workspace.query(&queries).await.unwrap();
+        assert_eq!(file_accesses(&a_root.join("settings/missing.conf")), [2,0]);
+        fs::remove_file(a_root.join("settings/workflow.conf")).await.unwrap();
+        workspace.query(&queries).await.unwrap();
+        assert_eq!(file_accesses(&a_root.join("settings/workflow.conf")), [3,0]);
+        workspace.stop().await.unwrap();fs::remove_dir_all(a_root).await.unwrap();fs::remove_dir_all(b_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn one_file_self_reference_reuses_source_and_failed_query_does_not_poison_the_next() {
+        let (repo, root) = repo().await;
+        fs::write(root.join("self.org"), b"#+SETUPFILE: self.org\n#+SETUPFILE: settings/workflow.conf\n* OPEN Task\n").await.unwrap();
+        fs::write(root.join("settings/workflow.conf"), [0xff]).await.unwrap();
+        let workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
+        assert!(workspace.query(&[TaskQuery::default().into()]).await.is_err());
+        fs::write(root.join("settings/workflow.conf"), b"#+TODO: OPEN | FINISHED\n").await.unwrap();
+        let file = repo.file("self.org").await.unwrap();
+        assert_eq!(file.todo.initial_state.as_deref(), Some("OPEN"));
+        assert_eq!(file_accesses(&root.join("self.org")), [2,0]);
+        assert_eq!(file_accesses(&root.join("settings/workflow.conf")), [2,0]);
+        workspace.query(&[TaskQuery::default().into()]).await.unwrap();
+        assert_eq!(file_accesses(&root.join("self.org")), [3,0]);
+        assert_eq!(file_accesses(&root.join("settings/workflow.conf")), [3,0]);
+        workspace.stop().await.unwrap();fs::remove_dir_all(root).await.unwrap();
+    }
 }

@@ -32,6 +32,7 @@ impl std::error::Error for CoreError {}
 mod file_state;
 mod filter;
 mod merge;
+mod shared_file_manager;
 pub mod model;
 pub mod query;
 pub mod http_server;

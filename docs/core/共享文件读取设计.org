@@ -1,0 +1,65 @@
+#+TITLE: 共享文件读取设计
+#+LANGUAGE: zh-CN
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
+
+* 范围与生命周期
+
+~core::shared_file_manager::SharedFileManager~ 是 Core 内部的单次操作文件读取服务。每次非空且参数有效的批量 query 在取得仓库锁、完成恢复后创建一个实例，所有仓库的加载任务共用；一次批次中的 Task 与 File 查询、正文扫描及 SETUPFILE 引用统一通过它读取文件内容。缓存属于该实例的 ~process~ 局部状态，不放进 Workspace、OrgRepo、全局静态表或句柄内的 mutex。
+
+同一查询中的所有文件加载结束后，query 等待 ~finish~ 清空缓存和等待者，再继续计算和返回独立查询结果。失败或取消时，最后一个句柄释放会中止 process，其内部读取 task 与缓存随之释放。下一次 query 创建新实例，不复用上次的字节、错误或不存在状态，不依赖 mtime 或持久化失效记录。
+
+独立 ~load_files~ 、单文件读取与冲突预览的设置读取也创建本次专用实例。同步的下载准备和合并分别调用独立文件加载，各自使用新实例；不能跨网络阶段复用旧快照。修改操作组继续使用带文件身份与依赖记录的既有读取上下文，提交前真实磁盘校验不经过本服务。
+
+* 内部接口与消息
+
+#+begin_src rust
+type ReadResult = Result<Option<Arc<[u8]>>, CoreError>;
+
+impl SharedFileManager {
+    fn new() -> Self;
+    async fn read(&self, root: &Path, path: &str) -> ReadResult;
+    async fn finish(&self) -> Result<(), CoreError>;
+}
+
+enum Command {
+    Read { key: (PathBuf, String), reply: oneshot::Sender<ReadResult> },
+    Finish(oneshot::Sender<()>),
+}
+#+end_src
+
+句柄克隆只共享 channel 入口及 process 的停止资源。process 独占两张表：已完成读取的结果缓存，以及同一路径正在等待的 reply 集合。命中缓存直接返回相同的不可变字节引用；已有读取在途时只追加等待者；首次读取启动一个独立 Tokio task，完成后把结果缓存并交付全部等待者。不同路径的读取可以并发，process 不串行等待某个文件的 I/O。
+
+成功内容、文件不存在及错误都按路径合并，直到该次操作结束。真实空文件是存在的空字节，区别于 ~None~ 。等待某次 read 的调用方被取消不影响其他等待者；整个管理器释放则停止仍在途的读取。~finish~ 返回前缓存已经清空，结束后的句柄不再受理读取。
+
+缓存键同时包含仓库根目录与归一化后的相对路径。同仓库的路径别名合并，不同仓库的同名设置独立。拒绝绝对路径、越界、空目标和 .sync 控制目录；实际磁盘读取复用原有安全路径检查，不跟随符号链接。管理器不自行取得仓库锁，读取业务负责持锁及完成身份检查和恢复。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{Query}{本次 SharedFileManager}{加载仓库 / finish}
+\umlclass[x=8,y=0]{FileTasks}{独立解析与 visited}{扫描正文 / 解析 SETUPFILE}
+\umlclass[x=0,y=-4]{SharedFileManager}{sender / process lifetime}{read(root, path) / finish()}
+\umlclass[x=8,y=-4]{ReadProcess}{cache / pending / read tasks}{process()}
+\umldep{Query}{FileTasks}
+\umldep{FileTasks}{SharedFileManager}
+\umluniassoc{Query}{SharedFileManager}
+\umlcompo{SharedFileManager}{ReadProcess}
+\end{tikzpicture}
+
+* SETUPFILE 与正文复用
+
+目录扫描发现 Org 文件后通过 ~read~ 取得字节，再交给各文件 task 解析。扫描取得的内容已经在 process 缓存中；随后作为其他文件的 SETUPFILE 被引用时，直接复用，不需要额外预填缓存或再次读盘。即使 SETUPFILE 没有被本次文件范围包含，也能按正常引用路径读取；首次依赖读取由 process 合并。
+
+每个源文件继续独立维护递归待处理队列、visited 与设置组合结果。只共享原始字节，不共享递归展开后的设置，保留现有引用顺序和文件自身声明的优先级。循环引用不会形成两个文件 task 互相等待，因为缓存的对象是原始字节，不是递归解析结果。
+
+同次文件加载的 .orgzlyignore 内容也经管理器读取，保留原有普通文件与 UTF-8 校验。读取共享不会额外加载未被查询使用且没有被引用的文件，不改变任务筛选、原文字节、通知范围或文件版本算法。
+
+* 验证边界
+
+文件访问计数覆盖并发同路径、路径别名、已扫描 SETUPFILE、未扫描的嵌套设置、循环引用、缺失与读取错误、跨仓库隔离，以及下一次查询发现修改、创建和删除。另核对最后句柄释放后缓存字节确实释放，并验证查询失败不会污染下一次读取。
+
+验证数据使用独立临时仓库，设置与正文均通过既有解析器组合；修改操作组的设置依赖和提交前版本检查继续由现有回归验证。本次没有新增公开 Workspace 接口、宿主协议或持久化格式。
+
+2026-11-19 验证结果：32 份任务正文、1 份自定义状态正文共同引用已参与扫描的 .setup.org，连同嵌套与循环引用的配置，每个路径在一次 query 中均只读取一次；第二次 query 能取得更新后的设置，跨仓库的同名配置和缺失路径各自独立。七项新增专项、Rust workspace 的 656 项测试及 59 项合并场景全部通过，Debug 包构建成功，无编译告警。

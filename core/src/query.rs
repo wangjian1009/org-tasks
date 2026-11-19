@@ -151,6 +151,7 @@ impl WorkspaceState {
         for (root, repo) in &roots {
             crate::model::access::recover(root, &repo.id).await?;
         }
+        let reads = crate::shared_file_manager::SharedFileManager::new();
         let expected = roots.len();
         let (sender, mut receiver) = tokio::sync::mpsc::channel(expected.max(1));
         let mut jobs = Vec::with_capacity(expected);
@@ -199,11 +200,12 @@ impl WorkspaceState {
             let repo_id = repo.id.clone();
             let sender = sender.clone();
             let activity = activity.clone();
+            let reads = reads.clone();
             jobs.push(tokio::spawn(async move {
                 let _activity = activity;
                 let result = async {
                     let files = repo
-                        .load_files_in_unlocked(&ignored, included.as_ref())
+                        .load_files_with_reader_unlocked(&ignored, included.as_ref(), &reads)
                         .await?;
                     for file in files {
                         if need_tasks {
@@ -294,6 +296,7 @@ impl WorkspaceState {
             merge_job
                 .await
                 .map_err(|error| CoreError::Store(format!("查询合并任务失败: {error}")))??;
+        reads.finish().await?;
         let repository_order = self
             .repos()
             .iter()

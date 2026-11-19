@@ -15,6 +15,7 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 | 文件状态服务与通知增量 | [[file:core/文件状态与通知重构设计.org][文件状态与通知实现]] |
 | 仓库按需访问、跨进程锁与同步阶段 | [[file:core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]] |
 | 普通仓库目录与任务扫描 | [[file:core/目录结构设计.org][目录结构设计]] |
+| 单次查询共享文件与 SETUPFILE 读取 | [[file:core/共享文件读取设计.org][共享文件读取设计]] |
 | 通用查询与 UI 过滤边界 | [[file:core/查询语言设计.org][查询语言设计]] |
 | AI 框架、工具与 agent（设计中） | [[file:AI接入设计.org][AI 接入设计]] |
 | Rust、C++ 与 ArkTS 接口 | [[file:harmony/Rust bridge设计.org][Rust bridge 设计]] |
@@ -34,6 +35,7 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 | ~core::http_server~ | APP 进程内的查询与批量修改 REST 适配；由 Workspace 提供启停，启动策略属于 APP，不新增独立宿主。 |
 | ~core::query_subscription~ | 独立的查询成员维护与事件过滤模块，只保留 ID、文件版本与数值摘要；不引用 Workspace，model 与 editor 不引用它。 |
 | ~core::model~ | 本地 ~OrgRepo~ 目录扫描、Org 文件解析、保真编辑、任务查询与同步记录数据维护。 |
+| ~core::shared_file_manager~ | 单次查询的文件内容读取服务，process 独占缓存并合并同路径在途读取，查询完成释放。 |
 | ~core::webdav~ | 实现 ~SyncPolicy~ ，执行 WebDAV 文件传输、下载写回、条件写入与同步记录生成。 |
 | ~core/src/bin/org-tasks/~ | 操作本地 ~OrgRepo~ 的命令行入口，使用 Tokio 运行时。 |
 | ~harmony/~ | Harmony 宿主的 Rust bridge，处理请求转换、跨语言参数编组、异步边界、结果投影与资源释放。 |

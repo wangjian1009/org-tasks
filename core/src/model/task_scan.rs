@@ -57,7 +57,18 @@ impl TaskScanRules {
             .is_ignore()
     }
 
+    #[cfg(test)]
     pub(crate) async fn load(root: &Path) -> Result<Self, CoreError> {
+        let reads = crate::shared_file_manager::SharedFileManager::new();
+        let result = Self::load_with_reader(root, &reads).await;
+        reads.finish().await?;
+        result
+    }
+
+    pub(crate) async fn load_with_reader(
+        root: &Path,
+        reads: &crate::shared_file_manager::SharedFileManager,
+    ) -> Result<Self, CoreError> {
         let path = root.join(TASK_SCAN_RULES_PATH);
         match fs::symlink_metadata(&path).await {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -73,10 +84,11 @@ impl TaskScanRules {
             }
             Ok(_) => {}
         }
-        let source = fs::read_to_string(path)
-            .await
-            .map_err(|error| CoreError::Store(format!("无法读取 .orgzlyignore: {error}")))?;
-        Self::parse(&source)
+        let source = reads.read(root, TASK_SCAN_RULES_PATH).await?
+            .ok_or(CoreError::InvalidState("读取期间 .orgzlyignore 已被删除"))?;
+        let source = std::str::from_utf8(&source)
+            .map_err(|_| CoreError::Store(".orgzlyignore 必须是 UTF-8".into()))?;
+        Self::parse(source)
     }
 }
 
