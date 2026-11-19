@@ -24,6 +24,7 @@ const { configuredFileTarget } = load('entry/src/main/ets/services/FileTargetSer
 });
 function fixture() {
   const writes = [], reads = [], queries = [];
+  let sharedFiles;
   let failure, readFailure, repos = [{ id:'core-source',rootDirectory:'/source' },{id:'core-target',rootDirectory:'/target'}];
   const config = {repos:[{id:'host-source',name:'源仓库',rootDirectory:'/source'},{id:'host-target',name:'目标仓库',rootDirectory:'/target'}]};
   const files = [{repoId:'core-source',path:'work.org',category:'工作',isIgnore:false},{repoId:'core-source',path:'life.org',category:'生活',isIgnore:false},{repoId:'core-source',path:'other.org',category:'工作',isIgnore:false},{repoId:'core-target',path:'research.org',category:'研究',isIgnore:false},{repoId:'core-target',path:'hidden.org',category:'隐藏',isIgnore:true}];
@@ -32,31 +33,29 @@ function fixture() {
     '@kit.ArkTS':{util:{TextDecoder:{create:()=>({decodeToString:value=>Buffer.from(value).toString('utf8')})}}},
     './AppConfigService':{AppConfigService:{async load(){return config}}},
     './FileTargetService':{configuredFileTarget},
+    './AppDataManager':{AppDataManager:{shared:()=>({start:async()=>{},configuration:config,manager:{get repositoryInfo(){return repos}},dataSet:name=>{assert.equal(name,'categories');return{isReady:()=>true,error:'',data:{type:'file',result:sharedFiles??files}}}})}},
     './NativeCoreService':{fileResult:value=>value.result,NativeCoreService:{async workspaceFor(){return workspace}}},
     '../ui/ProjectCreatePresentation':presentation
   });
   const context={resourceManager:{async getRawFileContent(file){reads.push(file);if(readFailure)throw readFailure;return fs.readFileSync(path.join('entry/src/main/resources/rawfile',file))}}};
   const source={id:'task',repoId:'core-source',filePath:'inbox.org',fileVersion:'source-version',category:'工作',fullPath:{repoId:'core-source',file:'inbox.org',titles:['草稿'],occurrence:2}};
-  return {ProjectCreateService,context,source,writes,reads,queries,config,files,fail(error){failure=error},failRead(){readFailure=new Error('raw')},removeRepos(){repos=[]}};
+  return {ProjectCreateService,context,source,writes,reads,queries,config,files,setCategories(value){sharedFiles=value},fail(error){failure=error},failRead(){readFailure=new Error('raw')},removeRepos(){repos=[]}};
 }
 test('仓库候选使用真实 Core ID，展示名称按宿主目录映射',async()=>{
   const f=fixture();assert.deepEqual(await f.ProjectCreateService.repositories(f.context),[{repoId:'core-source',name:'源仓库',regions:['工作','生活']},{repoId:'core-target',name:'目标仓库',regions:['研究']}]);
 });
-test('分类候选通过 Core 排除三种配置用途文件，按真实仓库与路径匹配并保留普通文件的同名分类',async()=>{
-  const f=fixture();Object.assign(f.config,{inboxRepoId:'host-source',inboxFile:'inbox.org',somedayRepoId:'host-target',somedayFile:'someday.org',memoRepoId:'host-source',memoFile:'memo.org'});
-  f.files.push({repoId:'core-source',path:'inbox.org',category:'收件分类'},
-    {repoId:'core-target',path:'someday.org',category:'某天分类'},
-    {repoId:'core-source',path:'memo.org',category:'工作'},
-    {repoId:'core-target',path:'inbox.org',category:'同名普通文件'});
+test('分类候选直接消费全局已筛选的元信息，不再查询仓库',async()=>{
+  const f=fixture();f.setCategories([{repoId:'core-source',path:'other.org',category:'工作',isIgnore:false},
+    {repoId:'core-target',path:'inbox.org',category:'同名普通文件',isIgnore:false},
+    {repoId:'core-target',path:'hidden.org',category:'隐藏',isIgnore:true}]);
   const options=await f.ProjectCreateService.repositories(f.context);
-  assert.deepEqual(f.queries[0],[{type:'file',query:{excludeFiles:[{repoId:'core-source',path:'inbox.org'},{repoId:'core-target',path:'someday.org'},{repoId:'core-source',path:'memo.org'}]}}]);
-  assert.deepEqual(options[0].regions,['工作','生活']);
-  assert.deepEqual(options[1].regions,['同名普通文件','研究']);
+  assert.equal(f.queries.length,0);assert.deepEqual(options[0].regions,['工作']);assert.deepEqual(options[1].regions,['同名普通文件']);
 });
-test('用途配置缺失、路径为空或仓库失效时不误排除普通文件',async()=>{
-  const f=fixture();Object.assign(f.config,{inboxRepoId:'removed',inboxFile:'work.org',somedayRepoId:'host-source',somedayFile:'',memoFile:'life.org'});
+test('每次打开面板读取全局当前快照，分类变化不会保留上次候选',async()=>{
+  const f=fixture();await f.ProjectCreateService.repositories(f.context);
+  f.setCategories([{repoId:'core-source',path:'new.org',category:'新分类',isIgnore:false}]);
   const options=await f.ProjectCreateService.repositories(f.context);
-  assert.deepEqual(f.queries[0][0].query.excludeFiles,[]);assert.deepEqual(options[0].regions,['工作','生活']);
+  assert.deepEqual(options[0].regions,['新分类']);assert.deepEqual(options[1].regions,[]);assert.equal(f.queries.length,0);
 });
 test('项目面板生成 FileNew 和 Movement，保留源版本与重名序号且不执行写入',async()=>{
   const f=fixture();const group=await f.ProjectCreateService.operationGroup(f.context,f.source,{repoId:'core-target',region:'新 Region'},' 新项目 ','自选文件');

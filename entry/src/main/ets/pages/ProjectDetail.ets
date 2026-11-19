@@ -12,8 +12,7 @@ import { ProjectReadingSection, projectReadingSections, reconcileProjectSections
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { projectHeaderTitle, projectTagExpression } from '../ui/ProjectHeaderPresentation'
 import { toggleTaskTag, reconcileTaskTags } from '../ui/TaskTagFilterPresentation'
-import { AppConfig } from '../models/OrgTask'
-import { configuredSpecialFileExclusions } from '../services/FileTargetService'
+import { AppDataManager } from '../services/AppDataManager'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 
 interface ProjectFileState { snapshot?: ProjectFileSnapshot; message: string }
@@ -129,17 +128,14 @@ struct ProjectDetail {
       this.stopFile?.(); this.dataManager?.close().catch((): void => {})
       if (this.repoId !== repoId || this.path !== path) { this.selectedTags = []; this.selectedCategory = '' }
       this.repoId = repoId; this.path = path
-      this.dataManager = DataManager.create(this.getUIContext().getHostContext()!, 'project', (config: AppConfig) => {
-        const exclusions = configuredSpecialFileExclusions(config)
-        return [{
+      const context = this.getUIContext().getHostContext()!
+      this.dataManager = DataManager.create(context, 'project', [{
           name: 'tasks', query: { type: 'task', repoIds: [repoId], query: { expression: '',
             includeFiles: [{ repoId, path }], fullFiles: [{ repoId, path }], includeIgnored: true } }
         }, { name: 'matches', query: { type: 'task', repoIds: [repoId], query: {
           expression: this.tagExpression(), categories: this.categoryQuery(), includeFiles: [{ repoId, path }], includeIgnored: true
-        } } }, { name: 'metadata', query: { type: 'file', query: { includeFiles: [{ repoId, path }], includeIgnored: true } } },
-          { name: 'categories', query: { type: 'file', query: { excludeFiles: exclusions.files } },
-            repositoryBindings: exclusions.repositoryBindings }]
-      }, { cache: false })
+        } } }, { name: 'metadata', query: { type: 'file', query: { includeFiles: [{ repoId, path }], includeIgnored: true } } }],
+        { cache: false, parent: AppDataManager.shared(context).manager })
       const manager = this.dataManager
       const fileDataSet = manager.dataSet('tasks')
       this.fileDataSet = fileDataSet
@@ -201,6 +197,9 @@ struct ProjectDetail {
       this.headerEntries = file.headerEntries
       this.headerVersion = file.fileVersion
     }
+    const categories = this.dataManager?.dataSet('categories').data
+    if (categories?.type === 'file') this.categoryOptions = Array.from(new Set<string>(categories.result
+      .filter(file => file.repoId === this.repoId && !!file.category).map(file => file.category!))).sort()
     if (TaskInlineSession.active()) return
     if (metadata?.type === 'file' && metadata.result[0]) {
       const file = metadata.result[0]
@@ -215,9 +214,6 @@ struct ProjectDetail {
       this.selectedTags = reconcileTaskTags({ tags: this.selectedTags, includeUntagged: false }, this.tagOptions, this.tagGroups).tags
       if (expression !== this.tagExpression() || selectedCategory !== this.selectedCategory) { this.updateTagQuery(); return }
     }
-    const categories = this.dataManager?.dataSet('categories').data
-    if (categories?.type === 'file') this.categoryOptions = Array.from(new Set<string>(categories.result
-      .filter(file => file.repoId === this.repoId && !!file.category).map(file => file.category!))).sort()
     const matches = this.dataManager?.dataSet('matches').data
     if (matches?.type === 'task' && !this.filtering && !this.filterMessage) this.matchedIds = matches.result.tasks.map(task => task.id)
     const data = this.fileDataSet?.data

@@ -1,24 +1,22 @@
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfigService } from './AppConfigService'
-import { configuredFileTarget } from './FileTargetService'
+import { AppDataManager } from './AppDataManager'
 import { isSystemRepository } from '../models/SystemRepository'
-import { CoreOrgFileRef, CoreRepo, CoreTask, CoreTaskFileNew, CoreTaskOperationGroup, NativeCoreService, fileResult } from './NativeCoreService'
+import { CoreRepo, CoreTask, CoreTaskFileNew, CoreTaskOperationGroup, NativeCoreService } from './NativeCoreService'
 import { ProjectRepositoryOption, ProjectLocation, projectFileName, projectInputError } from '../ui/ProjectCreatePresentation'
 
 // 模板替换、SETUPFILE、文件创建与原记录移动全部交给 Core 的同一个操作组。
 export class ProjectCreateService {
   static async repositories(context: Context): Promise<ProjectRepositoryOption[]> {
-    const config = await AppConfigService.load(context, false)
-    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
-    const repos = await workspace.repos()
-    const excludeFiles: CoreOrgFileRef[] = []
-    for (const target of [configuredFileTarget(config, 'inbox'), configuredFileTarget(config, 'someday'), configuredFileTarget(config, 'memo')]) {
-      const configured = config.repos.find(item => item.id === target.repoId)
-      const repo = repos.find(item => item.rootDirectory === configured?.rootDirectory)
-      if (repo && target.path) excludeFiles.push({ repoId: repo.id, path: target.path })
-    }
-    const files = fileResult((await workspace.query([{ type: 'file', query: { excludeFiles } }]))[0])
+    const app = AppDataManager.shared(context)
+    await app.start()
+    const categories = app.dataSet('categories')
+    if (categories.error) throw new Error(categories.error)
+    if (!categories.isReady() || categories.data?.type !== 'file') throw new Error('分类候选尚未读取完成，请稍后重试')
+    const config = app.configuration!
+    const repos = app.manager.repositoryInfo
+    const files = categories.data.result
     return repos.filter(repo => !config.repos.some(item => item.rootDirectory === repo.rootDirectory && isSystemRepository(item))).map((repo: CoreRepo): ProjectRepositoryOption => ({ repoId: repo.id,
       name: config.repos.find(item => item.rootDirectory === repo.rootDirectory)?.name || '未命名存储库',
       regions: Array.from(new Set(files.filter(file => file.repoId === repo.id && !file.isIgnore && !!file.category)

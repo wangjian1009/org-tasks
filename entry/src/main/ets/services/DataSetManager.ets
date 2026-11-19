@@ -9,7 +9,7 @@ import { DataSet, DataSetDefinition, DataSetDefinitionFactory, UserOperationQueu
 
 export { DataSet, DataSetDefinition, DataSetDefinitionFactory, DataSetQuery, DataSetEvent, TaskDataChange, DataSetWriteError } from './DataSet'
 
-export interface DataManagerOptions { cache?: boolean }
+export interface DataManagerOptions { cache?: boolean; parent?: DataSetManager }
 export interface DataLoadResult { name: string; fullFiles: CoreOrgFile[] }
 
 interface DataSetCacheRepository { id: string; rootDirectory: string; excludedDirectories: string[] }
@@ -42,6 +42,7 @@ export class DataSetManager {
   private cache: PageDataCache | undefined = undefined
   private running: Promise<DataLoadResult[]> | undefined = undefined
   private readonly cacheEnabled: boolean
+  private readonly parent: DataSetManager | undefined
   private initialFilesDelivered: boolean = false
   private captureFiles: ((result: DataLoadResult) => void) | undefined = undefined
   private initialized: boolean = false
@@ -90,20 +91,26 @@ export class DataSetManager {
   }
   private constructor(context: Context, pageName: string, source: DataSetDefinition[] | DataSetDefinitionFactory, options: DataManagerOptions) {
     this.cacheEnabled = options.cache !== false
+    this.parent = options.parent
     this.context = context; this.pageName = pageName; this.source = typeof source === 'function' ? source : JSON.parse(JSON.stringify(source)) as DataSetDefinition[]
     if (typeof source !== 'function') {
       this.validate(source)
-      for (const definition of source) this.dataSet(definition.name)
+      for (const definition of source) this.ownDataSet(definition.name)
     }
     this.stopIdle = UserOperationQueue.watchIdle((): void => this.scheduleSave())
     AppConfigService.watchChanges(this.configChanged)
     DataSetManager.active.add(this)
   }
   private validate(definitions: DataSetDefinition[]): void {
-    if ((!definitions.length && !this.sets.size) || new Set(definitions.map(item => item.name)).size !== definitions.length ||
+    if ((!definitions.length && !this.sets.size && !this.parent) || new Set(definitions.map(item => item.name)).size !== definitions.length ||
       definitions.some(item => !item.name || !item.query || (item.query.type !== 'task' && item.query.type !== 'file'))) throw new Error('页面数据集定义无效')
   }
   dataSet(name: string): DataSet {
+    const own = this.sets.get(name)
+    if (own) return own
+    return this.parent ? this.parent.dataSet(name) : this.ownDataSet(name)
+  }
+  private ownDataSet(name: string): DataSet {
     let dataSet = this.sets.get(name)
     if (!dataSet) {
       if (this.initialized) throw new Error(`未定义数据集：${name}`)
@@ -121,6 +128,7 @@ export class DataSetManager {
   async setQuery(name: string, query: DataSetQuery | undefined, repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<void> {
     await this.start()
     if (this.closed || this.closing) return
+    if (!this.sets.has(name) && this.parent) return await this.parent.setQuery(name, query, repositoryBindings)
     const dataSet = this.dataSet(name)
     const request = (this.queryRequests.get(name) ?? 0) + 1
     this.queryRequests.set(name, request)
@@ -166,8 +174,9 @@ export class DataSetManager {
     for (const definition of this.overrides.values()) {
       if (definition && !definitions.some(item => item.name === definition.name)) resolved.push(definition)
     }
-    for (const definition of resolved) this.dataSet(definition.name)
+    for (const definition of resolved) this.ownDataSet(definition.name)
     this.config = config; this.workspace = workspace; this.definitions = resolved
+    if (!this.sets.size) { this.initialized = true; return [] }
     this.resetCache()
     const names = Array.from(this.sets.keys())
     const scope = this.scope

@@ -423,8 +423,9 @@ function projectPageFixture() {
   const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
     nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'todo', 'work'], headerEntries: () => [], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
   const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
+    '../services/AppDataManager': { AppDataManager: { shared: () => ({ manager: {} }) } },
     '../services/DataManager': { DataManager: class {
-      static create(context,page,definitions,options){definitions=definitions({repos:[],inboxRepoId:'',inboxFile:'',somedayRepoId:'',somedayFile:'',memoRepoId:'',memoFile:''});assert.equal(options.cache,false);assert.equal(definitions[0].query.type,'task');assert.deepEqual(definitions[0].query.query.fullFiles,[{repoId:'core',path:'project.org'}]);return new this();}
+      static create(context,page,definitions,options){assert.equal(definitions.length,3);assert.ok(options.parent);assert.ok(definitions.every(item=>item.query.query.includeFiles?.[0]?.path==='project.org'));assert.equal(options.cache,false);assert.equal(definitions[0].query.type,'task');assert.deepEqual(definitions[0].query.query.fullFiles,[{repoId:'core',path:'project.org'}]);return new this();}
       dataSet(){return this;}
       get document(){return this.file?{file:this.file,tasks:this.file.nodes()}:undefined;}
       get data(){return this.getConfirmed().data;}
@@ -974,4 +975,14 @@ test('加号只建立原位输入草稿，切换声明先收起前一标签，�
  header.startTag('b');header.setNewTag('b','new');await header.submitEditor();
  assert.deepEqual(calls,[[[{entryId:'a',value:{type:'tags',value:['A','B']}},{entryId:'b',value:{type:'tags',value:['project','new']}}],'v1']]);
  assert.equal(header.creatingTagId,'');
+});
+
+
+test('项目属性编辑期间父级分类候选继续更新，不覆盖本地编辑状态或触发查询',()=>{
+ const f=projectPageFixture();f.page.fileVersion='v1';f.page.repoId='core';f.setActive(true);
+ f.page.dataManager={dataSet:name=>({data:name==='categories'?{type:'file',result:[
+  {repoId:'core',category:'新增分类'},{repoId:'core',category:'新增分类'},{repoId:'other',category:'其他仓库'}
+ ]}:{type:'file',result:[]}})};
+ const sections=f.page.sections;f.page.refreshDocument();assert.deepEqual(f.page.categoryOptions,['新增分类']);
+ assert.equal(f.page.sections,sections);assert.equal(f.page.title,'');
 });

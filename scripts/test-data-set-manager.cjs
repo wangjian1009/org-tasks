@@ -60,7 +60,7 @@ async function fixture(){const directory=await fsp.mkdtemp(path.join(os.tmpdir()
  const trash=load('entry/src/main/ets/services/TrashService.ets',{'../models/SystemRepository':{SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org'},'./AppConfigService':configService,'./NativeCoreService':service});
  const dataSets=load('entry/src/main/ets/services/DataSet.ets',{'./TrashService':trash,'../ui/QueryOrderPresentation':load('entry/src/main/ets/ui/QueryOrderPresentation.ets',{}),'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataEquality':equality,'./PageDataSnapshot':snapshots,'./PageDataProjection':projection,'./MoveToTargetService':{MoveToTargetService:{targets:async()=>[]}}});
  const {DataSetManager}=load('entry/src/main/ets/services/DataSetManager.ets',{'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataCache':cache,'./PageDataSnapshot':snapshots,'./DataSet':dataSets});
- const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{Queue:dataSets.UserOperationQueue,holdWorkspace:()=>{workspaceDelay=gate();gates.push(workspaceDelay);return workspaceDelay},repositoryReads:()=>repositoryReads,fileReads:()=>fileReads,workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:(changeFiles=[{file:{repoId:'repo',path:'a.org'},kind:'updated'}])=>{for(const callback of externalCallbacks.values())callback({type:'externalFileChanged',changeFiles})},externalCallbacks,ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,batches,groups,subscriptions,config,manager:(page='今天',defs=definitions)=>{const manager=DataSetManager.create({filesDir:directory},page,defs,{cache:page!=='project'});managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
+ const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{Queue:dataSets.UserOperationQueue,holdWorkspace:()=>{workspaceDelay=gate();gates.push(workspaceDelay);return workspaceDelay},repositoryReads:()=>repositoryReads,fileReads:()=>fileReads,workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:(changeFiles=[{file:{repoId:'repo',path:'a.org'},kind:'updated'}])=>{for(const callback of externalCallbacks.values())callback({type:'externalFileChanged',changeFiles})},externalCallbacks,ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,batches,groups,subscriptions,config,manager:(page='今天',defs=definitions,options={})=>{const manager=DataSetManager.create({filesDir:directory},page,defs,{cache:page!=='project',...options});managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
 
 test('每页一个 JSON 文件，缓存恢复版本为0、首次查询为1，原生方法恢复为只读模型方法',async()=>{const f=await fixture();try{const first=f.manager();await first.start();assert.equal(first.dataSet('tasks').snapshot().version,1);await first.close();const file=f.file('今天');const envelope=JSON.parse(await fsp.readFile(file,'utf8'));assert.equal(envelope.dataSets.length,1);assert.equal(typeof envelope.dataSets[0].tasks,'object');assert.equal((await fsp.readFile(file,'utf8')).includes('PRIVATE_PASSWORD_MARKER'),false);const second=f.manager();const versions=[];second.dataSet('tasks').subscribe(event=>versions.push(event.version));const delay=f.delaySubscribe();const start=second.start();await until(()=>second.dataSet('tasks').snapshot()?.version===0&&f.calls.length===2);assert.equal(second.dataSet('tasks').snapshot().version,0);assert.equal(second.dataSet('tasks').getTask('A').isDone(),false);assert.equal(second.dataSet('tasks').getTask('A').taskStateOf('Done').name,'DONE');delay.resolve();await start;assert.equal(second.dataSet('tasks').snapshot().version,1);assert.deepEqual([...new Set(versions)],[0,1]);assert.deepEqual(await fsp.readdir(path.dirname(file)),['今天.json']);}finally{await f.cleanup()}});
 
@@ -648,5 +648,47 @@ test('App 按需筛选仅新增一项订阅，取消释放该项并保留基础�
   assert.equal(f.calls.length,reads);assert.equal(filtered.query,undefined);assert.equal(filtered.data.result.tasks.length,0);
   assert.equal(f.subscriptions.size,2);assert.equal(planned.taskKey('A'),key);
   await manager.flush();const envelope=JSON.parse(await fsp.readFile(f.file('app'),'utf8'));assert.deepEqual(envelope.dataSets.map(item=>item.name),['planned','files','filtered']);
+ }finally{await f.cleanup()}
+});
+
+test('子 Manager 按名字透传父数据集，启动刷新与关闭只管理本地订阅',async()=>{
+ const f=await fixture();try{
+  const parent=f.manager('父管理器',[{name:'categories',query:{type:'file',query:{}}}]);await parent.start();
+  const shared=parent.dataSet('categories');
+  const child=f.manager('project',[{name:'tasks',query:{type:'task',query:{includeFiles:[{repoId:'repo',path:'a.org'}]}}}],{parent});
+  assert.equal(child.dataSet('categories'),shared);await child.start();
+  assert.equal(f.batches.length,2);assert.equal(f.batches[1].length,1);assert.equal(f.batches[1][0].query.type,'task');
+  const changed={...metadata(),category:'新分类',fileVersion:'file-2'};
+  const parentSubscription=[...f.subscriptions.values()].find(entry=>entry.query.type==='file');
+  parentSubscription.callback({type:'notificationEvent',repoId:'repo',operationId:'http/category-change',files:[{before:metadata(),after:changed,beforeVersion:'file-1',afterVersion:'file-2',afterView:changed}],changes:[]});
+  assert.equal(child.dataSet('categories').data.result[0].category,'新分类');assert.equal(f.batches.length,2);
+  const sharedVersion=shared.version;
+  await child.refresh();assert.equal(f.batches[2].length,1);assert.equal(shared.version,sharedVersion);
+  f.external([{file:{repoId:'repo',path:'other.org'},kind:'updated'}]);await until(()=>f.batches.length===4);
+  assert.equal(f.batches[3].length,1);assert.equal(f.batches[3][0].query.type,'file');
+  const activeParent=[...f.subscriptions].find(([,entry])=>entry.query.type==='file')[0];
+  await child.close();assert.equal(f.subscriptions.size,1);assert.ok(f.subscriptions.has(activeParent));assert.ok(shared.isReady());
+  await parent.refresh();assert.equal(f.subscriptions.size,1);assert.equal(child.dataSet('categories'),shared);
+ }finally{await f.cleanup()}
+});
+
+test('同名本地数据集优先，纯透传 Manager 不启动或重查父级',async()=>{
+ const f=await fixture();try{
+  const parent=f.manager('父管理器',[{name:'tasks',query:{type:'task',query:{}}}]);
+  const proxy=f.manager('纯透传',[],{parent,cache:false});assert.equal(proxy.dataSet('tasks'),parent.dataSet('tasks'));
+  await proxy.start();assert.equal(f.batches.length,0);await proxy.refresh();assert.equal(f.batches.length,0);
+  const child=f.manager('project',[{name:'tasks',query:{type:'task',query:{expression:'it.todo'}}}],{parent:proxy});
+  assert.notEqual(child.dataSet('tasks'),parent.dataSet('tasks'));await child.start();assert.equal(f.batches.length,1);
+  await child.close();await proxy.close();await parent.start();assert.equal(f.batches.length,2);
+ }finally{await f.cleanup()}
+});
+
+test('通过子 Manager 更换继承查询交给所属父级，子级缓存只保存自己的数据集',async()=>{
+ const f=await fixture();try{
+  const parent=f.manager('父级',[{name:'categories',query:{type:'file',query:{}}}]);await parent.start();
+  const child=f.manager('子级',[{name:'tasks',query:{type:'task',query:{}}}],{parent});await child.start();
+  await child.setQuery('categories',{type:'file',query:{isProject:true}});assert.equal(parent.dataSet('categories').query.query.isProject,true);
+  assert.equal(f.batches.at(-1).length,1);assert.equal(f.batches.at(-1)[0].query.type,'file');
+  await child.flush();assert.deepEqual(JSON.parse(await fsp.readFile(f.file('子级'),'utf8')).dataSets.map(item=>item.name),['tasks']);
  }finally{await f.cleanup()}
 });

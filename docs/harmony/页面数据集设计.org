@@ -13,6 +13,10 @@
 
 DataManager 与原导出名 DataSetManager 共用实现，不提供总事件订阅；它收集各数据集的独立订阅项，一次调用 Workspace.subscribeQuery，并按数据集名保存和清理各订阅 ID。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅共享的 todayTasks 和 todayPriority，收件箱分别订阅 inboxTasks、inboxRecent 和 inboxFile。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
 
+管理器可通过 ~options.parent~ 指定父 Manager。~dataSet(name)~ 先返回本地同名对象，未定义的名称原样透传父级，继承对象保持原身份、查询订阅与变化通知。父级由创建它的宿主负责启动与关闭；子级的启动、刷新、同步文件事件处理、跨日检查、缓存保存和关闭仅遍历本地数据集，不递归操作父级。通过继承 DataSet 发起编辑或更换查询时，由原所属 Manager 处理。
+
+带父级的页面使用定义数组在构造时声明本地数据集，确保首次按名读取即可区分本地和继承对象；定义函数在 start 取得配置后注册自己的名称。纯透传 Manager 可声明空数组，启动与刷新不查询父级。项目页本地仅声明 ~tasks~ 、 ~matches~ 和 ~metadata~ ，查询范围均限定当前文件；~categories~ 按相同名称从应用级父 Manager 获取，不进入项目首次查询批次，不阻塞项目正文初始化。项目每次打开仍按需读取，禁用页面缓存。
+
 DataSetDefinition 必须声明一个任务或文件元信息 CoreQuery，不再提供宿主 document 查询。管理器将完整文件作为首次加载的一次性返回值交给页面，DataSet 只维护记录与属性。需要配置文件入口时，页面提供纯定义函数；仓库别名通过 ~repositoryBindings~ 在工作线程映射。
 
 收件箱的 inboxTasks、inboxRecent、inboxFile 与文件元信息随 App 的启动批次加载，组件出现和页面显示只复用初始化 Promise。首屏等三项数据集都取得快照或明确失败后统一发布界面；最近新增等待主列表首次测量完成后整段显示。缓存恢复为版本 0 后按相同边界只读展示，首次查询完成后开放编辑。
@@ -53,7 +57,7 @@ DataSetDefinition 必须声明一个任务或文件元信息 CoreQuery，不再�
 
 #+begin_src typescript
 type DataSetQuery = CoreQuery
-interface DataManagerOptions { cache?: boolean }
+interface DataManagerOptions { cache?: boolean; parent?: DataSetManager }
 interface DataLoadResult { name: string; fullFiles: CoreOrgFile[] }
 interface DataSetDefinition { name: string; query: DataSetQuery; repositoryBindings?: CoreQueryRepositoryBinding[] }
 type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[]
@@ -101,7 +105,7 @@ DataSetEvent 包含 insert、remove、update、refresh、ready、complete与 err
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{Page}{named definitions}{render() \\ onUserEdit()}
-\umlclass[x=6,y=0]{DataSetManager}{context \\ dataSets \\ subscription IDs \\ page cache}{start() \\ dataSet(name) \\ flush() \\ close()}
+\umlclass[x=6,y=0]{DataSetManager}{context \\ dataSets \\ subscription IDs \\ page cache \\ optional parent}{start() \\ dataSet(name) \\ flush() \\ close()}
 \umlclass[x=0,y=-5]{DataSet}{one query \\ task index \\ private callback}{subscribe() \\ getTask(id) \\ updateTaskFields()}
 \umlclass[x=6,y=-5]{CoreWorkspace}{existing rules}{subscribeQuery() \\ executeTaskOperations()}
 \umlcompo{DataSetManager}{DataSet}
@@ -468,7 +472,8 @@ Core 回归同时验证 reset 先更新通知列表再分发文件事件，文�
 | 共享数据集 | 消费方 |
 |-
 | ~todayTasks~ | 今天页任务及编辑、侧边栏今天数量 |
-| ~todayPriority~ 、 ~files~ 、 ~orderFiles~ | 今天页排序与所有任务页的文件上下文 |
+| ~todayPriority~ 、 ~files~ | 今天页排序与所有任务页的文件上下文 |
+| ~categories~ | 今天页排序、项目属性编辑和转换项目的分类候选，按仓库投影共享文件元信息 |
 | ~todayAttention~ | 侧边栏今天提醒 |
 | ~planned~ 、 ~anytime~ 、 ~waiting~ 、 ~logbook~ 、 ~trash~ | 对应任务页与侧边栏计数 |
 | ~plannedFiltered~ | 按需启用的计划分类／项目筛选 |
@@ -479,6 +484,8 @@ Core 回归同时验证 reset 先更新通知列表再分发文件事件，文�
 | ~inboxTasks~ 、 ~inboxFile~ | 收件箱页面、侧边栏计数、导航返回判断与系统角标 |
 | ~somedayTasks~ 、 ~somedayFile~ 、 ~memoTasks~ 、 ~memoFile~ | 某天、备忘页面及侧边栏文件入口与数量，备忘外部入口定位 |
 | ~badgeDeadline~ | 系统角标截止任务数量 |
+
+~categories~ 复用原 ~orderFiles~ 的文件范围，按配置仓库与路径排除收件箱、某天、备忘和系统废纸篓等特殊用途文件。首次随全局批次读取，运行期间由原查询订阅直接维护文件增删、分类变更和配置范围；每个消费者只投影所属仓库的分类名称，不另行扫描。项目页通过父级透传访问该 DataSet，转换项目服务也读取相同的当前快照。
 
 相同查询仅保留一个 DataSet。todayAttention 与 badgeDeadline 条件不同，后者保持排除收件箱和废纸篓的截止任务条件，不从今天任务再次过滤取得。尚未配置的文件入口保留稳定 DataSet 对象，返回只读空结果而不发送无范围查询；配置恢复后由同一 Manager 重新配置对象。所有有效查询一次批量订阅，每仓库共享一次扫描；外部文件变化和跨日变化只由该 Manager 合并刷新。
 

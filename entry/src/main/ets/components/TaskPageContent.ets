@@ -241,7 +241,7 @@ export struct TaskPageContent {
           this.listScroller, (): void => { this.applyPageSnapshot() })
       }
       if (view === 'today') {
-        this.orderFilesDataSet = this.dataManager.dataSet('orderFiles')
+        this.orderFilesDataSet = this.dataManager.dataSet('categories')
         this.stops.push(this.orderFilesDataSet.subscribe((): void => { this.applyPageSnapshot() }))
         this.priorityDataSet = this.dataManager.dataSet('todayPriority')
         this.stops.push(this.priorityDataSet.subscribe((): void => {

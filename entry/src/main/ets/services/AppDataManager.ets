@@ -9,7 +9,7 @@ import { CoreQuery, CoreQueryResult } from './NativeCoreService'
 import { FileTargetKind, FileTargetService, configuredSpecialFileExclusions, fileTargetRepository, systemTrashExclusions } from './FileTargetService'
 import { TaskView, overviewTaskQuery, plannedRegionQuery, todayAttentionQuery, todayPriorityQuery } from './TaskViewQueries'
 
-export const APP_DATA_SET_NAMES: string[] = ['todayTasks', 'todayPriority', 'files', 'orderFiles', 'todayAttention',
+export const APP_DATA_SET_NAMES: string[] = ['todayTasks', 'todayPriority', 'files', 'categories', 'todayAttention',
   'planned', 'anytime', 'waiting', 'logbook', 'projects', 'trash', 'badgeDeadline',
   'inboxTasks', 'inboxFile', 'somedayTasks', 'somedayFile', 'memoTasks', 'memoFile', 'inboxRecent', 'plannedFiltered', 'trashExpired', 'notebookFiles', 'reminderTasks']
 
@@ -33,7 +33,7 @@ export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
     { name: 'projects', query: { type: 'file', query: { isProject: true, excludeFiles: trash.files } }, repositoryBindings: trash.repositoryBindings }
   ]
   const special = configuredSpecialFileExclusions(config)
-  definitions.push({ name: 'orderFiles', query: { type: 'file', query: { excludeFiles: special.files } }, repositoryBindings: special.repositoryBindings })
+  definitions.push({ name: 'categories', query: { type: 'file', query: { excludeFiles: special.files } }, repositoryBindings: special.repositoryBindings })
   if (trash.files.length) definitions.push({ name: 'trash', query: { type: 'task', query: { expression: '.o.deleted', includeFiles: trash.files } }, repositoryBindings: trash.repositoryBindings })
   const inbox = FileTargetService.prepareConfigured(config, 'inbox')
   definitions.push({ name: 'badgeDeadline', query: { type: 'task', query: { expression: 'it.todo d.lt.tomorrow',
