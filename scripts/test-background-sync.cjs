@@ -211,6 +211,7 @@ test('主界面首次显示且在前台时同步一次，恢复前台和重新�
       };
       if (name === '../services/NotificationManager') return { NotificationManager: { async start(){},async refresh(){},stop(){} } };
       if (name === '../services/DeviceBadgeService') return { DeviceBadgeService: { start() {}, stop() {} } };
+      if (name === '../services/TaskReminderService') return { TaskReminderService: { start() {}, refresh() {}, stop() {} } };
       if (name === '../services/NotificationPermissionService') return { NotificationPermissionService: { async start() {}, stop() {} } };
       if (name === '../services/BackgroundRepositorySyncService') return { BackgroundRepositorySyncService: { async start() { backgroundRequests++; } } };
       if (name === '../ui/Theme') return { UiColor: {} };

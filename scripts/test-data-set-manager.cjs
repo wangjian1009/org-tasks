@@ -13,6 +13,26 @@ const ts=require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmo
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function until(condition){const limit=Date.now()+2000;while(!condition()){if(Date.now()>limit)throw new Error('等待异步状态超时');await new Promise(resolve=>setTimeout(resolve,1))}}
 function gate(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return{promise,resolve,reject}}
+// 编辑 Promise 只确认受理；持久化断言等待对应阶段的公开完成/错误事件。
+function confirmedEdit(dataSet, method, ...args) {
+ const events=[];
+ const stop=dataSet.subscribe(event=>events.push(event));
+ let accepted;
+ try { accepted=dataSet[method](...args); } catch(error) { stop();throw error; }
+ const version=dataSet.snapshot()?.version;
+ return (async()=>{
+  try {
+   const value=await accepted;
+   await dataSet.settle();
+   const complete=events.find(event=>event.type==='complete'&&event.version===version);
+   assert.ok(complete,`缺少版本 ${version} 的完成事件`);
+   const error=events.find(event=>event.type==='error'&&event.operationId===complete.operationId);
+   if(error) throw new Error(error.message);
+   assert.equal(complete.succeeded,true);
+   return value;
+  } finally { stop(); }
+ })();
+}
 function load(file,mocks){const module={exports:{}};const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;vm.runInThisContext('(function(require,module,exports){'+code+'\n})',{filename:file})(name=>{assert.ok(Object.hasOwn(mocks,name),name);return mocks[name]},module,module.exports);return module.exports}
 function task(id='A', overrides={}){const states={Todo:{name:'TODO',category:'Todo'},Doing:{name:'NEXT',category:'Doing'},Wait:null,Done:{name:'DONE',category:'Done'},Cancel:null};const priority={name:'B',category:'Middle'};const value={entity:crypto.randomUUID(),id,taskId:id,fullPath:{repoId:'repo',file:'a.org',titles:[id],occurrence:1},fileVersion:'file-1',repoId:'repo',heading:id,projectName:null,category:'Work',headingParts:[{text:id,href:null,isLink:false,count:null,link:null}],state:states.Todo,createdAt:null,closedAt:null,modifiedAt:null,priority:null,priorityOptions:[{name:'A',category:'Hight'},priority],defaultPriority:priority,scheduled:'',deadline:'',tags:[],ownTags:[],inheritedTags:[],supportTags:null,editContent:{ownTags:[],notes:'old',notesHtml:'<p>old</p>',checklist:[],blocks:[],scheduledRepeat:null,deadlineRepeat:null,scheduledPlanning:null,deadlinePlanning:null},filePath:'a.org',fileName:'a.org',level:1,body:'old',bodyFirstLine:'old',addressLinks:[],bodyHtml:'<p>old</p>',logbookHtml:'',logs:[],progress:-1,hasList:false,hasText:true,isRepeating:false,isHabit:false,hasAttach:false,properties:{},...overrides};value.property=name=>value.properties[name.toUpperCase()]??null;value.isDone=()=>['Done','Cancel'].includes(value.state?.category);value.project=()=>value.projectName;value.taskStateOf=category=>states[category];value.taskPriorityOf=category=>value.priorityOptions.find(p=>p.category===category)??null;return value}
 function metadata(){const base=task();return{repoId:'repo',path:'a.org',title:'A',titleParts:[],projectName:null,category:'Work',priorityOptions:base.priorityOptions,defaultPriority:base.defaultPriority,tagOptions:[],tagGroups:[],isIgnore:false,hasConflict:false,taskStateCounts:[],byteLength:20,modifiedAt:null,project:()=>null,taskStateOf:base.taskStateOf,taskPriorityOf:base.taskPriorityOf}}
@@ -48,20 +68,58 @@ test('多个数据集保存到页面的同一文件，定义在创建后固定',
 
 test('连续字段增量依次提交为版本2和3，事件关联更新后仍保留下一阶段字段，不回查',async()=>{const f=await fixture();try{f.addRow();f.related();const manager=f.manager();const events=[];manager.dataSet('tasks').subscribe(event=>events.push(event));await manager.start();await manager.flush();const delay=f.delay();const first=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'draft'}]);const second=manager.dataSet('tasks').updateTask('A',[{field:'PRIORITY',value:'A'}]);assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'draft');assert.equal(manager.dataSet('tasks').getTask('A').priority.name,'A');assert.equal(manager.dataSet('tasks').getTask('B').body,'old');let saved=false;const save=manager.flush().then(()=>{saved=true});await tick();assert.equal(saved,false);assert.equal(JSON.parse(await fsp.readFile(f.file('今天'),'utf8')).dataSets[0].tasks[0].value.editContent.notes,'old');assert.equal(f.groups.length,1);delay.resolve();await Promise.all([first,second,save]);assert.equal(f.groups.length,2);assert.deepEqual(f.groups.map(group=>group.operations[0].data.modifications),[[{field:'NOTES',value:'draft'}],[{field:'PRIORITY',value:'A'}]]);assert.match(f.groups[0].operationId,/\/2\/update(?:\/|$)/);assert.match(f.groups[1].operationId,/\/3\/update(?:\/|$)/);assert.equal(f.groups[1].fileVersions[0].version,'file-2');assert.equal(manager.dataSet('tasks').snapshot().confirmedVersion,3);assert.equal(manager.dataSet('tasks').getTask('B').body,'CORE RELATED');assert.equal(f.calls.length,1);assert.deepEqual(events.filter(event=>event.type==='complete').map(event=>event.version),[2,3]);assert.equal(events.find(event=>event.type==='complete'&&event.version===2).result.data.result.tasks[0].priority,null);}finally{await f.cleanup()}});
 
-test('前一次改名后，已排队字段修改使用事件提供的新身份和最新文件版本',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();const delay=f.delay();const first=manager.dataSet('tasks').updateTask('A',[{field:'TITLE',value:'Renamed'}]);const second=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'next'}]);await tick();delay.resolve();await Promise.all([first,second]);assert.deepEqual(f.groups[1].operations[0].data.path.titles,['Renamed']);assert.equal(manager.dataSet('tasks').getTask('renamed-Renamed').editContent.notes,'next');}finally{await f.cleanup()}});
+test('前一次改名后，已排队字段修改使用事件提供的新身份和最新文件版本',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();const delay=f.delay();const first=confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'TITLE',value:'Renamed'}]);const second=confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'NOTES',value:'next'}]);await tick();delay.resolve();await Promise.all([first,second]);assert.deepEqual(f.groups[1].operations[0].data.path.titles,['Renamed']);assert.equal(manager.dataSet('tasks').getTask('renamed-Renamed').editContent.notes,'next');}finally{await f.cleanup()}});
 
-test('失败只撤销对应阶段，后续排队字段继续提交，不生成刷新查询',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();const delay=f.delay();f.fail();const first=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'failed'}]);const rejected=assert.rejects(first,/提交失败/);const second=manager.dataSet('tasks').updateTask('A',[{field:'PRIORITY',value:'A'}]);await tick();delay.resolve();await rejected;await second;assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'old');assert.equal(manager.dataSet('tasks').getTask('A').priority.name,'A');assert.equal(f.calls.length,1);await manager.flush();assert.equal(JSON.parse(await fsp.readFile(f.file('今天'),'utf8')).dataSets[0].tasks[0].value.editContent.notes,'old');}finally{await f.cleanup()}});
+test('失败只撤销对应阶段，后续排队字段继续提交，不生成刷新查询',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();const delay=f.delay();f.fail();const first=confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'NOTES',value:'failed'}]);const rejected=assert.rejects(first,/提交失败/);const second=confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'PRIORITY',value:'A'}]);await tick();delay.resolve();await rejected;await second;assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'old');assert.equal(manager.dataSet('tasks').getTask('A').priority.name,'A');assert.equal(f.calls.length,1);await manager.flush();assert.equal(JSON.parse(await fsp.readFile(f.file('今天'),'utf8')).dataSets[0].tasks[0].value.editContent.notes,'old');}finally{await f.cleanup()}});
 
-test('显式刷新使用带版本的operationId，旧订阅事件不能覆盖新一代结果',async()=>{const f=await fixture();try{const manager=f.manager();const events=[];manager.dataSet('tasks').subscribe(event=>events.push(event));await manager.start();const old=Array.from(f.subscriptions.values())[0].callback;await manager.refresh();assert.equal(manager.dataSet('tasks').snapshot().version,2);assert.match(events.at(-1).operationId,/\/2\/refresh(?:\/|$)/);old({type:'notificationEvent',repoId:'repo',operationId:null,files:[],changes:[{kind:'deleted',before:{task:{id:'A',fullPath:{repoId:'repo'}}},after:null}]});assert.ok(manager.dataSet('tasks').getTask('A'));await manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'third'}]);assert.match(f.groups[0].operationId,/\/3\/update(?:\/|$)/);assert.equal(f.calls.length,2);}finally{await f.cleanup()}});
+test('显式刷新使用带版本的operationId，旧订阅事件不能覆盖新一代结果',async()=>{const f=await fixture();try{const manager=f.manager();const events=[];manager.dataSet('tasks').subscribe(event=>events.push(event));await manager.start();const old=Array.from(f.subscriptions.values())[0].callback;await manager.refresh();assert.equal(manager.dataSet('tasks').snapshot().version,2);assert.match(events.at(-1).operationId,/\/2\/refresh(?:\/|$)/);old({type:'notificationEvent',repoId:'repo',operationId:null,files:[],changes:[{kind:'deleted',before:{task:{id:'A',fullPath:{repoId:'repo'}}},after:null}]});assert.ok(manager.dataSet('tasks').getTask('A'));await confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'NOTES',value:'third'}]);assert.match(f.groups[0].operationId,/\/3\/update(?:\/|$)/);assert.equal(f.calls.length,2);}finally{await f.cleanup()}});
 
-test('创建只在指定数据集中立即显示，确认后替换临时行；删除也只提交一次',async()=>{const f=await fixture();try{const manager=f.manager('今天',[{name:'tasks',query:{type:'task',query:{}}},{name:'files',query:{type:'file',query:{}}}]);await manager.start();const delay=f.delay();const create=manager.dataSet('tasks').createTask({position:{parent:{repoId:'repo',file:'a.org',titles:[]}},title:'New',state:'TODO'});assert.ok(manager.dataSet('tasks').snapshot().data.result.tasks.some(task=>task.id.startsWith('$pending:')));await tick();delay.resolve();await create;assert.equal(manager.dataSet('tasks').snapshot().data.result.tasks.filter(task=>task.heading==='New').length,1);assert.equal(manager.dataSet('tasks').snapshot().data.result.tasks[0].heading,'New');assert.equal(manager.dataSet('tasks').snapshot().data.result.tasks.some(task=>task.id.startsWith('$pending:')),false);await manager.dataSet('tasks').removeTask('New');assert.equal(manager.dataSet('tasks').getTask('New'),undefined);assert.deepEqual(f.groups.map(group=>group.operations[0].type),['Creation','Trash']);}finally{await f.cleanup()}});
+test('创建只在指定数据集中立即显示，确认后替换临时行；删除也只提交一次',async()=>{const f=await fixture();try{const manager=f.manager('今天',[{name:'tasks',query:{type:'task',query:{}}},{name:'files',query:{type:'file',query:{}}}]);await manager.start();const delay=f.delay();const create=confirmedEdit(manager.dataSet('tasks'), 'createTask', {position:{parent:{repoId:'repo',file:'a.org',titles:[]}},title:'New',state:'TODO'});assert.ok(manager.dataSet('tasks').snapshot().data.result.tasks.some(task=>task.id.startsWith('$pending:')));await tick();delay.resolve();await create;assert.equal(manager.dataSet('tasks').snapshot().data.result.tasks.filter(task=>task.heading==='New').length,1);assert.equal(manager.dataSet('tasks').snapshot().data.result.tasks[0].heading,'New');assert.equal(manager.dataSet('tasks').snapshot().data.result.tasks.some(task=>task.id.startsWith('$pending:')),false);await confirmedEdit(manager.dataSet('tasks'), 'removeTask', 'New');assert.equal(manager.dataSet('tasks').getTask('New'),undefined);assert.deepEqual(f.groups.map(group=>group.operations[0].type),['Creation','Trash']);}finally{await f.cleanup()}});
 
 test('短写循环完整保存；保存失败保留旧文件且不泄露临时文件',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();f.partial(7);await manager.flush();const before=await fsp.readFile(f.file('今天'),'utf8');f.failDisk(true);await assert.rejects(manager.flush(),/写盘失败/);assert.equal(await fsp.readFile(f.file('今天'),'utf8'),before);assert.deepEqual(await fsp.readdir(path.dirname(f.file('今天'))),['今天.json']);f.failDisk(false);}finally{await f.cleanup()}});
 
 test('新实例拥有页面缓存写入权，旧页面关闭不会覆盖新实例缓存；损坏缓存回退到一次初始查询',async()=>{const f=await fixture();try{const old=f.manager();await old.start();const newer=f.manager();await newer.start();await newer.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'newer'}]);await newer.flush();await old.close();assert.equal(JSON.parse(await fsp.readFile(f.file('今天'),'utf8')).dataSets[0].tasks[0].value.editContent.notes,'newer');assert.equal(JSON.parse(await fsp.readFile(f.file('今天'),'utf8')).dataSets[0].version,2);await newer.close();await fsp.writeFile(f.file('今天'),'{broken');const before=f.calls.length;const third=f.manager();await third.start();assert.equal(third.dataSet('tasks').snapshot().version,1);assert.equal(f.calls.length,before+1);}finally{await f.cleanup()}});
 
 
-test('位置引用操作保留编辑控件的原始版本，不能在前一阶段完成后静默套用到新文件',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();const delay=f.delay();const first=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'new notes'}]);const second=manager.dataSet('tasks').updateTask('A',[{field:'CHECKLIST',value:{type:'setChecked',id:'old-item',checked:true}}],'file-1');const failure=assert.rejects(second,/版本冲突/);await tick();delay.resolve();await first;await failure;assert.equal(f.groups[1].fileVersions[0].version,'file-1');assert.equal(manager.dataSet('tasks').getConfirmed().version,2);assert.equal(f.calls.length,1);}finally{await f.cleanup()}});
+test('没有前序排队修改时，位置操作保留控件源版本并拒绝过期提交',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager();await manager.start();const set=manager.dataSet('tasks');
+  await confirmedEdit(set,'updateTask','A',[{field:'NOTES',value:'new notes'}]);
+  await assert.rejects(confirmedEdit(set,'updateTask','A',[
+   {field:'CHECKLIST',value:{type:'setChecked',id:'old-item',checked:true}}
+  ],'file-1'),/版本冲突/);
+  assert.equal(f.groups[1].fileVersions[0].version,'file-1');
+  assert.equal(set.getConfirmed().version,2);assert.equal(f.calls.length,1);
+ }finally{await f.cleanup()}
+});
+
+test('同文件排队的位置操作使用前一提交确认后的版本',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager();await manager.start();const set=manager.dataSet('tasks'),hold=f.delay();
+  const first=confirmedEdit(set,'updateTask','A',[{field:'NOTES',value:'new notes'}]);
+  const second=confirmedEdit(set,'updateTask','A',[
+   {field:'CHECKLIST',value:{type:'setChecked',id:'old-item',checked:true}}
+  ],'file-1');
+  await until(()=>f.groups.length===1);hold.resolve();await Promise.all([first,second]);
+  assert.equal(f.groups[1].fileVersions[0].version,'file-2');
+  assert.equal(set.getConfirmed().version,3);assert.equal(f.calls.length,1);
+ }finally{await f.cleanup()}
+});
+
+test('编辑受理先返回乐观快照，失败通过原操作事件回滚而不拒绝受理',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager();await manager.start();const set=manager.dataSet('tasks'),hold=f.delay();
+  const events=[];set.subscribe(event=>events.push(event));f.fail();
+  const accepted=await set.updateTask('A',[{field:'NOTES',value:'先显示草稿'}]);
+  assert.equal(accepted.editContent.notes,'先显示草稿');assert.equal(set.getConfirmed().version,1);
+  await until(()=>f.groups.length===1);assert.equal(events.some(event=>event.type==='complete'),false);
+  hold.resolve();await set.settle();
+  const complete=events.find(event=>event.type==='complete'),error=events.find(event=>event.type==='error');
+  assert.equal(complete.succeeded,false);assert.equal(error.operationId,f.groups[0].operationId);
+  assert.equal(complete.operationId,error.operationId);assert.match(error.message,/提交失败/);
+  assert.equal(set.getTask('A').editContent.notes,'old');assert.equal(set.getConfirmed().version,1);
+ }finally{await f.cleanup()}
+});
 
 test('页面缓存只读取并解析一次，范围不同的缓存不恢复',async()=>{const f=await fixture();try{const cache=new f.PageDataCache(f.context,'解析','scope-A');await cache.write([f.snapshots.cacheDataSet('tasks',{type:'task',result:{tasks:[task()],categories:[]}})]);const original=JSON.parse;let parses=0;JSON.parse=function(...args){parses++;return original(...args)};let data;try{data=await cache.read()}finally{JSON.parse=original}assert.equal(parses,1);assert.equal(data.length,1);const other=new f.PageDataCache(f.context,'解析','scope-B');assert.equal(await other.read(),undefined);}finally{await f.cleanup()}});
 
@@ -72,7 +130,7 @@ test('创建重名节点后，临时行排队修改跟随新建节点，不误�
 test('临时缓存写入期间出现新修改时，不替换旧缓存，等待全部提交及事件完成后重取快照',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();await manager.flush();const before=await fsp.readFile(f.file('今天'),'utf8');const disk=f.delayDisk();let saved=false;const saving=manager.flush().then(()=>{saved=true});await disk.entered.promise;const mutation=f.delay();const update=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'最后阶段'}]);await until(()=>f.groups.length===1);disk.resolve();await until(()=>f.discarded()===1);assert.equal(saved,false);assert.equal(await fsp.readFile(f.file('今天'),'utf8'),before);mutation.resolve();await Promise.all([update,saving]);assert.equal(JSON.parse(await fsp.readFile(f.file('今天'),'utf8')).dataSets[0].tasks[0].value.editContent.notes,'最后阶段');}finally{await f.cleanup()}});
 
 
-test('清单只乐观修改用户选择的条目，不预测父项统计；失败后恢复确认字段',async()=>{const f=await fixture();try{const base=task();const items=[{id:'one',siblingGroup:'group',text:'First',checked:false,partial:false,depth:0},{id:'two',siblingGroup:'group',text:'Second',checked:false,partial:false,depth:0}];f.setRows([task('A',{editContent:{...base.editContent,checklist:items,blocks:[{id:'block',kind:'checklist',paragraph:false,blankLinesBefore:0,source:'',html:'',items}]}})]);const manager=f.manager();await manager.start();const delay=f.delay();f.fail();const work=manager.dataSet('tasks').updateTask('A',[{field:'CHECKLIST',value:{type:'setChecked',id:'one',checked:true}}],'file-1');const failure=assert.rejects(work,/提交失败/);const optimistic=manager.dataSet('tasks').getTask('A');assert.equal(optimistic.editContent.checklist[0].checked,true);assert.equal(optimistic.editContent.checklist[1].checked,false);assert.equal(optimistic.editContent.blocks[0].items[0].checked,true);assert.equal(optimistic.heading,'A');await tick();delay.resolve();await failure;assert.equal(manager.dataSet('tasks').getTask('A').editContent.checklist[0].checked,false);assert.equal(f.calls.length,1);}finally{await f.cleanup()}});
+test('清单只乐观修改用户选择的条目，不预测父项统计；失败后恢复确认字段',async()=>{const f=await fixture();try{const base=task();const items=[{id:'one',siblingGroup:'group',text:'First',checked:false,partial:false,depth:0},{id:'two',siblingGroup:'group',text:'Second',checked:false,partial:false,depth:0}];f.setRows([task('A',{editContent:{...base.editContent,checklist:items,blocks:[{id:'block',kind:'checklist',paragraph:false,blankLinesBefore:0,source:'',html:'',items}]}})]);const manager=f.manager();await manager.start();const delay=f.delay();f.fail();const work=confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'CHECKLIST',value:{type:'setChecked',id:'one',checked:true}}],'file-1');const failure=assert.rejects(work,/提交失败/);const optimistic=manager.dataSet('tasks').getTask('A');assert.equal(optimistic.editContent.checklist[0].checked,true);assert.equal(optimistic.editContent.checklist[1].checked,false);assert.equal(optimistic.editContent.blocks[0].items[0].checked,true);assert.equal(optimistic.heading,'A');await tick();delay.resolve();await failure;assert.equal(manager.dataSet('tasks').getTask('A').editContent.checklist[0].checked,false);assert.equal(f.calls.length,1);}finally{await f.cleanup()}});
 
 
 test('配置变化由管理器重新装载，数据集对象与订阅保持，旧行 ID 不承接新范围',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();const dataSet=manager.dataSet('tasks'),key=dataSet.taskKey('A');f.configurationChanged();await assert.rejects(dataSet.updateTask(key,[{field:'NOTES',value:'旧范围'}]),/不可编辑|变化|不在/);await manager.start();assert.equal(manager.dataSet('tasks'),dataSet);assert.ok(dataSet.getTask('A'));assert.equal(dataSet.getTask(key),undefined);assert.equal(f.groups.length,0);}finally{await f.cleanup()}});
@@ -99,7 +157,7 @@ test('增量按 Core 给出的标量键排序，保留降序与缺失值策略�
 
 test('外部更新由管理类合并通知并启动刷新，本实例修改完成不回查',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();await manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'own'}]);await new Promise(resolve=>setTimeout(resolve,80));assert.equal(f.calls.length,1);f.external();f.external();await until(()=>f.calls.length===2&&manager.isReady());assert.equal(manager.dataSet('tasks').snapshot().version,3);}finally{await f.cleanup()}});
 
-test('提交错误标明目标记录，回滚后保留其他行的确认数据',async()=>{const f=await fixture();try{f.addRow();const manager=f.manager();await manager.start();const events=[];manager.dataSet('tasks').subscribe(event=>events.push(event));f.fail();await assert.rejects(manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'failed'}]),/提交失败/);const error=events.find(event=>event.type==='error');assert.equal(error.targetKey,JSON.stringify(['repo','A']));assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'old');assert.equal(manager.dataSet('tasks').getTask('B').heading,'B');}finally{await f.cleanup()}});
+test('提交错误标明目标记录，回滚后保留其他行的确认数据',async()=>{const f=await fixture();try{f.addRow();const manager=f.manager();await manager.start();const events=[];manager.dataSet('tasks').subscribe(event=>events.push(event));f.fail();await assert.rejects(confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'NOTES',value:'failed'}]),/提交失败/);const error=events.find(event=>event.type==='error');assert.equal(error.targetKey,JSON.stringify(['repo','A']));assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'old');assert.equal(manager.dataSet('tasks').getTask('B').heading,'B');}finally{await f.cleanup()}});
 
 test('已有确认快照在刷新过程中保持可编辑，避免只读切换触发输入框失焦提交',async()=>{const f=await fixture();try{const manager=f.manager();await manager.start();const row=manager.dataSet('tasks').taskKey('A');const delay=f.delaySubscribe();const refreshing=manager.refresh();await until(()=>f.calls.length===2);assert.equal(manager.isReady(),true);assert.equal(manager.dataSet('tasks').taskKey('A'),row);delay.resolve();await refreshing;assert.equal(manager.isReady(),true);}finally{await f.cleanup()}});
 
@@ -153,7 +211,7 @@ test('受管理的批量操作使用同一阶段编号，通过查询事件确�
 test('批量操作与字段编辑共用队列，改名事件将排队字段映射到新身份',async()=>{
  const f=await fixture();try{const manager=f.manager();await manager.start();const hold=f.delay();
  const first=manager.dataSet('tasks').operate(async operationId=>{await f.workspace.executeTaskOperations({operationId,operations:[{type:'Modification',data:{path:f.rows()[0].fullPath,modifications:[{field:'TITLE',value:'New'}]}}]});});
- await until(()=>f.groups.length===1);const second=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'排队备注'}]);hold.resolve();await Promise.all([first,second]);
+ await until(()=>f.groups.length===1);const second=confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'NOTES',value:'排队备注'}]);hold.resolve();await Promise.all([first,second]);
  assert.equal(f.groups.length,2);assert.equal(f.groups[1].operations[0].data.path.titles[0],'New');assert.equal(manager.dataSet('tasks').getTask('renamed-New').editContent.notes,'排队备注');assert.equal(f.calls.length,1);
  }finally{await f.cleanup()}
 });
@@ -168,17 +226,17 @@ test('按 Core ID、Org ID 与稳定行 ID 直接读取，订阅只通知目标�
  const f=await fixture();try{f.setRows([task('A',{taskId:'org-a'}),task('B')]);const manager=f.manager();await manager.start();const key=manager.dataSet('tasks').taskKey('A');
  assert.equal(manager.dataSet('tasks').getTask('org-a').id,'A');assert.equal(manager.dataSet('tasks').getTask(key).id,'A');
  const a=[],b=[];const stop=manager.dataSet('tasks').watchTask(key,event=>a.push(event));manager.dataSet('tasks').watchTask('B',event=>b.push(event));
- assert.equal(a.length,1);await manager.dataSet('tasks').updateTask(key,[{field:'NOTES',value:'新备注'}]);assert.equal(manager.dataSet('tasks').getTask(key).editContent.notes,'新备注');assert.equal(b.length,1);
- f.fail();await assert.rejects(manager.dataSet('tasks').updateTask(key,[{field:'PRIORITY',value:'A'}]),/提交失败/);assert.equal(b.some(event=>event.error),false);assert.match(a.at(-1).error,/提交失败/);stop();
- const before=a.length;await manager.dataSet('tasks').updateTask(key,[{field:'NOTES',value:'结束监听'}]);assert.equal(a.length,before);
+ assert.equal(a.length,1);await confirmedEdit(manager.dataSet('tasks'), 'updateTask', key,[{field:'NOTES',value:'新备注'}]);assert.equal(manager.dataSet('tasks').getTask(key).editContent.notes,'新备注');assert.equal(b.length,1);
+ f.fail();await assert.rejects(confirmedEdit(manager.dataSet('tasks'), 'updateTask', key,[{field:'PRIORITY',value:'A'}]),/提交失败/);assert.equal(b.some(event=>event.error),false);assert.match(a.at(-1).error,/提交失败/);stop();
+ const before=a.length;await confirmedEdit(manager.dataSet('tasks'), 'updateTask', key,[{field:'NOTES',value:'结束监听'}]);assert.equal(a.length,before);
  }finally{await f.cleanup()}
 });
 test('文件数据集一次取得全部节点，不使用缓存，编辑和文档确认共用 DataSetManager',async()=>{
  const f=await fixture();try{f.setRows([task('A'),task('Done',{state:{name:'DONE',category:'Done'}}),task('Plain',{state:null,taskId:null})]);
  const manager=f.manager('project',[{name:'tasks',query:{type:'task',query:{includeFiles:[{repoId:'repo',path:'a.org'}],fullFiles:[{repoId:'repo',path:'a.org'}],includeIgnored:true}}}]);await manager.start();assert.equal(f.calls.length,1);assert.equal(f.fileReads(),0);assert.equal(manager.dataSet('tasks').snapshot().data.result.tasks.length,3);assert.ok(manager.dataSet('tasks').getTask('Plain'));assert.ok(manager.dataSet('tasks').getTask('Done'));
  const key=manager.dataSet('tasks').taskKey('A'),values=[];manager.dataSet('tasks').watchTask(key,event=>values.push(event));
- await manager.dataSet('tasks').updateTask(key,[{field:'TITLE',value:'Renamed'}]);assert.equal(manager.dataSet('tasks').getTask(key).heading,'Renamed');assert.equal(manager.dataSet('tasks').getTask(key).fileVersion,'file-2');assert.equal(f.fileReads(),0);
- await manager.dataSet('tasks').updateTask(key,[{field:'NOTES',value:'正文'}]);assert.equal(manager.dataSet('tasks').getTask(key).editContent.notes,'正文');assert.equal(f.calls.length,1);await manager.close();assert.equal(fs.existsSync(f.file('project')),false);
+ await confirmedEdit(manager.dataSet('tasks'), 'updateTask', key,[{field:'TITLE',value:'Renamed'}]);assert.equal(manager.dataSet('tasks').getTask(key).heading,'Renamed');assert.equal(manager.dataSet('tasks').getTask(key).fileVersion,'file-2');assert.equal(f.fileReads(),0);
+ await confirmedEdit(manager.dataSet('tasks'), 'updateTask', key,[{field:'NOTES',value:'正文'}]);assert.equal(manager.dataSet('tasks').getTask(key).editContent.notes,'正文');assert.equal(f.calls.length,1);await manager.close();assert.equal(fs.existsSync(f.file('project')),false);
  }finally{await f.cleanup()}
 });
 test('文件节点删除后同名重建不复用旧行绑定，旧 ID 不能修改新节点',async()=>{
@@ -191,7 +249,7 @@ test('文件节点删除后同名重建不复用旧行绑定，旧 ID 不能修�
 
 test('文件数据集改名后排队修改使用真实事件的新路径，记录订阅保持同一行',async()=>{
  const f=await fixture();try{const manager=f.manager('project',[{name:'tasks',query:{type:'task',query:{includeFiles:[{repoId:'repo',path:'a.org'}],fullFiles:[{repoId:'repo',path:'a.org'}],includeIgnored:true}}}]);await manager.start();const key=manager.dataSet('tasks').taskKey('A'),values=[];manager.dataSet('tasks').watchTask(key,event=>values.push(event));const hold=f.delay();
- const first=manager.dataSet('tasks').updateTask(key,[{field:'TITLE',value:'New'}]);await until(()=>f.groups.length===1);const second=manager.dataSet('tasks').updateTask(key,[{field:'NOTES',value:'后续备注'}]);hold.resolve();await Promise.all([first,second]);
+ const first=confirmedEdit(manager.dataSet('tasks'), 'updateTask', key,[{field:'TITLE',value:'New'}]);await until(()=>f.groups.length===1);const second=confirmedEdit(manager.dataSet('tasks'), 'updateTask', key,[{field:'NOTES',value:'后续备注'}]);hold.resolve();await Promise.all([first,second]);
  assert.equal(f.groups[1].operations[0].data.path.titles[0],'New');assert.equal(manager.dataSet('tasks').getTask(key).editContent.notes,'后续备注');assert.equal(values.some(value=>value.removed),false);assert.equal(f.calls.length,1);
  }finally{await f.cleanup()}
 });
@@ -288,7 +346,7 @@ test('其他页面有排队修改时，新页面仍先恢复缓存',async()=>{
   const cached=f.manager('缓存页');await cached.start();await cached.close();
   const editor=f.manager('编辑页');await editor.start();
   const write=f.delay();let committed=false;
-  const editing=editor.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'排队修改'}]).then(()=>{committed=true});
+  const editing=confirmedEdit(editor.dataSet('tasks'), 'updateTask', 'A',[{field:'NOTES',value:'排队修改'}]).then(()=>{committed=true});
   await until(()=>f.groups.length===1);
   const backend=f.holdWorkspace(),page=f.manager('缓存页'),start=page.start();
   await until(()=>page.dataSet('tasks').version===0&&!!page.dataSet('tasks').data);
@@ -328,7 +386,7 @@ test('刷新期间同文件编辑等待新订阅就绪，再使用最新确认�
  const f=await fixture();try{
   const manager=f.manager();await manager.start();const held=f.delaySubscribe();
   const refresh=manager.refresh();await until(()=>f.calls.length===2);
-  const write=manager.dataSet('tasks').updateTask('A',[{field:'NOTES',value:'刷新之后的编辑'}]);
+  const write=confirmedEdit(manager.dataSet('tasks'), 'updateTask', 'A',[{field:'NOTES',value:'刷新之后的编辑'}]);
   await tick();assert.equal(f.groups.length,0);held.resolve();await Promise.all([refresh,write]);
   assert.equal(f.groups.length,1);assert.equal(manager.dataSet('tasks').getTask('A').editContent.notes,'刷新之后的编辑');
  }finally{await f.cleanup()}
@@ -412,14 +470,14 @@ test('批量刷新等待在途编辑完成后再更换订阅，不丢失前一�
 test('通用属性修改保留其他字段，失败回滚属性快照，成功后可通过 property 读取和删除',async()=>{
  const f=await fixture();try{
   const manager=f.manager();await manager.start();const set=manager.dataSet('tasks');
-  const delay=f.delay();const pending=set.updateTask('A',[{field:'PROPERTY',value:{name:'VISIBILITY',value:'folded'}}]);
+  const delay=f.delay();const pending=confirmedEdit(set, 'updateTask', 'A',[{field:'PROPERTY',value:{name:'VISIBILITY',value:'folded'}}]);
   assert.equal(set.getTask('A').property('visibility'),'folded');
   await tick();f.fail();delay.resolve();await assert.rejects(pending,/提交失败/);
   assert.equal(set.getTask('A').property('VISIBILITY'),null);
-  await set.updateTask('A',[{field:'PROPERTY',value:{name:'VISIBILITY',value:'folded'}}]);
+  await confirmedEdit(set, 'updateTask', 'A',[{field:'PROPERTY',value:{name:'VISIBILITY',value:'folded'}}]);
   assert.equal(set.getTask('A').property('VISIBILITY'),'folded');
   assert.equal(set.getTask('A').editContent.notes,'old');
-  await set.updateTask('A',[{field:'PROPERTY',value:{name:'VISIBILITY',value:null}}]);
+  await confirmedEdit(set, 'updateTask', 'A',[{field:'PROPERTY',value:{name:'VISIBILITY',value:null}}]);
   assert.equal(set.getTask('A').property('VISIBILITY'),null);
  }finally{await f.cleanup()}
 });
@@ -444,7 +502,7 @@ test('删除事件推进同文件未修改任务的确认版本，立即继续�
    changes:[{kind:'deleted',before:{task:{id:'A',fullPath:{repoId:'repo',file:'a.org',titles:['A']}}},after:null}]});
   await manager.dataSet('tasks').settle();
   assert.equal(manager.dataSet('tasks').getTask('B').fileVersion,'file-2');
-  await manager.dataSet('tasks').removeTask('B');
+  await confirmedEdit(manager.dataSet('tasks'), 'removeTask', 'B');
   assert.equal(f.groups[0].fileVersions[0].version,'file-2');assert.equal(f.calls.length,1);
  } finally {await f.cleanup()}
 });
