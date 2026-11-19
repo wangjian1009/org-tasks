@@ -8,7 +8,10 @@ if (process.argv.includes('-h') || process.argv.includes('--help')) {
   process.exit(0);
 }
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
+const FIXED_NOW = new Date(2026,10,18,12).getTime();
+class TestDate extends Date { constructor(...args) { if(args.length) super(...args); else super(FIXED_NOW); } static now(){return FIXED_NOW;} }
 function compile(source, bindings = {}) {
+  bindings = { Date: TestDate, ...bindings };
   const module = { exports: {} };
   const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   vm.runInThisContext('(function(module,exports,' + Object.keys(bindings).join(',') + '){' + code + '\n})')(module, module.exports, ...Object.values(bindings));
@@ -36,7 +39,7 @@ function task(category = 'Todo', target = 'INPROGRESS') {
 }
 function fixture(category = 'Todo', target = 'INPROGRESS') {
   const events = [], dialogs = [], messages = [], dates = [], emitted = [], planned = [];
-  let save = async () => true, settle = async () => {};
+  let save = async () => true, draft = async () => {};
   class Missing extends Error {}
   class Dialog { constructor(options) { this.options = options; } open() { dialogs.push(this.options); } close() { this.options.onWillDismiss?.({ dismiss() {} }); } }
   const { Editor } = compile('export class Editor {' + methods + '}', { ...groupBuilders, TaskEditorActionResult, refileSections: values => [{ targets: values }],
@@ -51,28 +54,29 @@ function fixture(category = 'Todo', target = 'INPROGRESS') {
     readOnly: false, allowDeletion: false, completing: false, working: false, moveBusy: false, moveOpen: false,
     snapshotBlocked: false, removed: false, typing: false, checklistTouch: false, draggingCheck: false, deleteConfirming: false,
     expanded: true, ownerKey: 'owner', value() { return this.task; },
-    async prepare() { return true; }, async finish(collapse) { events.push(['save', collapse]); return save(); },
+    async prepare() { return true; }, async finish(collapse) { events.push(['save', collapse]); const saved=await save(); if(saved){events.push('draft-ready');await draft();} return saved; },
     removeDeletedTask() { this.removed = true; }, applySnapshot(value) { this.task = value; }, moveRequest: 0, refreshRequest: 0, moveSections: [],
     cancelCheckDrag() {}, checkFocus: { dispose() {} },
     getUIContext: () => ({ showAlertDialog: options => dialogs.push(options), getHostContext: () => ({}),
       getPromptAction: () => ({ showToast: options => messages.push(options.message) }) }) });
   state.dataSet = { name: 'tasks', getTask(key) { assert.equal(key, 'key'); return state.task; },
-    async settle() { events.push('settle'); await settle(); }, async moveTargets() { return []; },
+    async settle() { assert.fail('生成操作不能等待后台确认'); }, async moveTargets() { return []; },
     async update() { assert.fail('编辑器不能直接提交任务字段修改'); }, async removeTask() { assert.fail('编辑器不能直接提交删除'); },
     async moveTask() { assert.fail('编辑器不能直接提交移动'); }, async operate() { assert.fail('编辑器不能直接执行操作组'); } };
+  state.dataSet.taskSource = () => ({ rowId:'key', get task() { return state.dataSet.getTask('key'); } });
   state.controller = { emitOperation(group) { emitted.push(group); }, release() {} };
   return { state, events, dialogs, messages, dates, emitted, planned,
-    saveWith: fn => save = fn, settleWith: fn => settle = fn };
+    saveWith: fn => save = fn, draftWith: fn => draft = fn };
 }
 test('start／stop 返回保存后版本的 TODO 修改组，生成阶段不执行任务动作', async () => {
   for (const [category, action, expected] of [['Todo', 'start', 'INPROGRESS'], ['Wait', 'start', 'INPROGRESS'], ['Doing', 'stop', 'TODO']]) {
-    const f = fixture(category); f.settleWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
+    const f = fixture(category); f.draftWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
     const group = await f.state[action]();
     const expectedChanges = category === 'Doing' ? [{ field: 'TODO', value: expected }] :
       [{ field: 'TODO', value: expected }, { field: 'SCHEDULE', value: { date: '2026-11-18' } }];
     assert.deepEqual(group.operations[0].data.modifications, expectedChanges);
     assert.equal(group.fileVersions[0].version, 'saved'); assert.equal(group.operationId, undefined);
-    assert.deepEqual(f.events, [['save', false], 'settle']); assert.equal(f.emitted.length, 0); assert.equal(f.state.completing, false);
+    assert.deepEqual(f.events, [['save', false], 'draft-ready']); assert.equal(f.emitted.length, 0); assert.equal(f.state.completing, false);
   }
 });
 test('启动时仅为缺少计划或未来计划的任务设置今天，过去和今天保持原计划', async () => {
@@ -89,14 +93,14 @@ test('启动时仅为缺少计划或未来计划的任务设置今天，过去�
 test('保存失败、状态已变化、目标缺失和失效回调不产生修改组，读取错误向宿主抛出', async () => {
   const failed = fixture(); failed.saveWith(async () => false); assert.equal(await failed.state.start(), undefined);
   for (const change of [f => { f.state.task = task('Doing'); }, f => { f.state.task = task('Todo', null); }, f => { f.state.appeared = false; }]) {
-    const f = fixture(); f.settleWith(async () => change(f)); assert.equal(await f.state.start(), undefined); assert.equal(f.emitted.length, 0);
+    const f = fixture(); f.draftWith(async () => change(f)); assert.equal(await f.state.start(), undefined); assert.equal(f.emitted.length, 0);
   }
-  const gone = fixture(); gone.settleWith(async () => { gone.state.task = undefined; }); await assert.rejects(gone.state.start());
-  const error = fixture(); error.settleWith(async () => { error.state.dataSet.error = '保存失败'; }); await assert.rejects(error.state.start(), /保存失败/);
+  const gone = fixture(); gone.draftWith(async () => { gone.state.task = undefined; }); await assert.rejects(gone.state.start());
+  const error = fixture(); error.draftWith(async () => { error.state.dataSet.error = '保存失败'; }); await assert.rejects(error.state.start(), /保存失败/);
 });
 test('生成阶段锁定编辑器，等待期间撤销启用或离开页面不会返回旧修改组', async () => {
   const f = fixture(); let enabled = true, finish;
-  f.settleWith(() => new Promise(resolve => { finish = resolve; }));
+  f.draftWith(() => new Promise(resolve => { finish = resolve; }));
   const pending = f.state.start(() => enabled); await new Promise(resolve => setImmediate(resolve));
   assert.equal(await f.state.start(), undefined); enabled = false; finish(); assert.equal(await pending, undefined);
   assert.equal(f.emitted.length, 0); assert.equal(f.state.completing, false);
@@ -151,7 +155,7 @@ test('只读日志可返回删除数据，不开放状态与其他编辑', async
 });
 test('整理接口只返回修改组，不执行请求', async () => {
   for (const [method, destination] of [['moveToSomeday', 'someday'], ['convertToMemo', 'memo']]) {
-    const f = fixture(); f.settleWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
+    const f = fixture(); f.draftWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
     const group = await f.state[method](); assert.deepEqual(f.planned, [['saved', destination]]); assert.equal(group.fileVersions[0].version, 'saved'); assert.equal(f.emitted.length, 0);
   }
 });
@@ -190,7 +194,7 @@ test('移动目标读取期间取消会忽略迟到结果，显式刷新更新�
 
 test('等待仅返回文件有效 Wait 状态修改，使用保存后的版本，其他字段由 Core 保留',async()=>{
   for(const category of ['Todo','Doing']){
-    const f=fixture(category);f.settleWith(async()=>{f.state.task={...f.state.task,fileVersion:'saved'};});
+    const f=fixture(category);f.draftWith(async()=>{f.state.task={...f.state.task,fileVersion:'saved'};});
     const group=await f.state.wait();assert.deepEqual(group.operations[0].data.modifications,[{field:'TODO',value:'HOLD'}]);
     assert.equal(group.fileVersions[0].version,'saved');assert.equal(f.emitted.length,0);assert.equal(f.dialogs.length,0);
   }
@@ -199,7 +203,7 @@ test('等待仅返回文件有效 Wait 状态修改，使用保存后的版本�
 });
 test('等待与恢复共用 toggleWait 接口，根据当前状态返回对应 TODO 修改', async () => {
   for (const [category, expected] of [['Todo', 'HOLD'], ['Doing', 'HOLD'], ['Wait', 'TODO']]) {
-    const f = fixture(category); f.settleWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
+    const f = fixture(category); f.draftWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
     const group = await f.state.toggleWait();
     assert.deepEqual(group.operations[0].data.modifications, [{ field: 'TODO', value: expected }]);
     assert.equal(group.fileVersions[0].version, 'saved'); assert.equal(f.emitted.length, 0);
@@ -210,10 +214,10 @@ test('等待与恢复共用 toggleWait 接口，根据当前状态返回对应 T
 test('等待在保存失败、菜单撤销、页面离开或任务消失后不生成操作组',async()=>{
   const failed=fixture();failed.saveWith(async()=>false);assert.equal(await failed.state.wait(),undefined);
   for(const mode of ['policy','leave']){
-    const f=fixture();let allowed=true;f.settleWith(async()=>{if(mode==='policy')allowed=false;else f.state.appeared=false;});
+    const f=fixture();let allowed=true;f.draftWith(async()=>{if(mode==='policy')allowed=false;else f.state.appeared=false;});
     assert.equal(await f.state.wait(()=>allowed),undefined);assert.equal(f.state.completing,false);
   }
-  const gone=fixture();gone.settleWith(async()=>{gone.state.task=undefined;});await assert.rejects(gone.state.wait());
+  const gone=fixture();gone.draftWith(async()=>{gone.state.task=undefined;});await assert.rejects(gone.state.wait());
 });
 
 test('提醒不可用的设置入口先保存当前编辑，单次跳转提醒子页，保存失败或页面失效不跳转', async () => {
@@ -225,22 +229,22 @@ test('提醒不可用的设置入口先保存当前编辑，单次跳转提醒�
   const state = Object.assign(new ReminderNavigation(), {
     appeared: true, removed: false, working: false, completing: false, moveBusy: false, snapshotBlocked: false,
     async finish(collapse) { assert.equal(collapse, false); calls.push('finish'); return finish(); },
-    localDataSet() { return { error: '', async settle() { calls.push('settle'); await settle(); } }; },
+    localDataSet() { return { error: '', async settle() { calls.push('draft-ready'); await settle(); } }; },
     getUIContext: () => ({}), actionError: error => errors.push(error.message)
   });
   await state.openReminderSettings();
-  assert.deepEqual(calls, ['finish', 'settle', 'navigate']);
+  assert.deepEqual(calls, ['finish', 'draft-ready', 'navigate']);
   assert.deepEqual(route, { url: 'pages/Settings', params: { section: '任务提醒' } });
   calls.length = 0; finish = async () => false; await state.openReminderSettings();
   assert.deepEqual(calls, ['finish']); assert.equal(state.completing, false);
   calls.length = 0; finish = async () => true; settle = async () => { state.appeared = false; };
-  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'settle']);
+  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'draft-ready']);
   state.appeared = true; calls.length = 0;
   let release; settle = () => new Promise(done => { release = done; });
   const waiting = state.openReminderSettings(); await tick();
-  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'settle']);
+  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'draft-ready']);
   release(); await waiting; assert.equal(calls.filter(call => call === 'navigate').length, 1);
   calls.length = 0; settle = async () => { throw new Error('保存失败'); };
-  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'settle']);
+  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'draft-ready']);
   assert.deepEqual(errors, ['保存失败']); assert.equal(state.completing, false);
 });

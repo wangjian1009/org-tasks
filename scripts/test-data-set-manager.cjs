@@ -58,7 +58,8 @@ async function fixture(){const directory=await fsp.mkdtemp(path.join(os.tmpdir()
  const cache=load('entry/src/main/ets/services/PageDataCache.ets',{'@kit.CoreFileKit':{fileIo:io},'@kit.ArkTS':{util}});
  const configService={AppConfigService:{load:async()=>config,watchChanges:listener=>configListeners.add(listener),stopWatchingChanges:listener=>configListeners.delete(listener)}};
  const trash=load('entry/src/main/ets/services/TrashService.ets',{'../models/SystemRepository':{SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org'},'./AppConfigService':configService,'./NativeCoreService':service});
- const dataSets=load('entry/src/main/ets/services/DataSet.ets',{'./TrashService':trash,'../ui/QueryOrderPresentation':load('entry/src/main/ets/ui/QueryOrderPresentation.ets',{}),'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataEquality':equality,'./PageDataSnapshot':snapshots,'./PageDataProjection':projection,'./MoveToTargetService':{MoveToTargetService:{targets:async()=>[]}}});
+ const taskSources=load('entry/src/main/ets/services/TaskDataSource.ets',{});
+ const dataSets=load('entry/src/main/ets/services/DataSet.ets',{'./TaskDataSource':taskSources,'./TrashService':trash,'../ui/QueryOrderPresentation':load('entry/src/main/ets/ui/QueryOrderPresentation.ets',{}),'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataEquality':equality,'./PageDataSnapshot':snapshots,'./PageDataProjection':projection,'./MoveToTargetService':{MoveToTargetService:{targets:async()=>[]}}});
  const {DataSetManager}=load('entry/src/main/ets/services/DataSetManager.ets',{'@kit.ArkTS':{util},'./AppConfigService':configService,'./NativeCoreService':service,'./PageDataCache':cache,'./PageDataSnapshot':snapshots,'./DataSet':dataSets});
  const managers=[];const definitions=[{name:'tasks',query:{type:'task',query:{}}}];return{Queue:dataSets.UserOperationQueue,holdWorkspace:()=>{workspaceDelay=gate();gates.push(workspaceDelay);return workspaceDelay},repositoryReads:()=>repositoryReads,fileReads:()=>fileReads,workspace:native,directory,context:{filesDir:directory},DataSetManager,PageDataCache:cache.PageDataCache,snapshots,external:(changeFiles=[{file:{repoId:'repo',path:'a.org'},kind:'updated'}])=>{for(const callback of externalCallbacks.values())callback({type:'externalFileChanged',changeFiles})},externalCallbacks,ordering:value=>{keyPolicy=value},configurationChanged:()=>{for(const listener of configListeners)listener()},setRows:value=>{rows=value},rows:()=>rows,calls,batches,groups,subscriptions,config,manager:(page='今天',defs=definitions,options={})=>{const manager=DataSetManager.create({filesDir:directory},page,defs,{cache:page!=='project',...options});managers.push(manager);return manager},delay:()=>{delay=gate();gates.push(delay);return delay},delaySubscribe:()=>{subDelay=gate();gates.push(subDelay);return subDelay},fail:()=>{failNext=true},addRow:()=>{rows.push(task('B'))},related:()=>{sideEffect=true},partial:n=>{partial=n},failDisk:value=>{writeFailure=value},delayDisk:()=>{diskDelay=gate();diskDelay.entered=gate();gates.push(diskDelay);return diskDelay},discarded:()=>discarded,file:page=>path.join(directory,'page-data/v1/'+page+'.json'),cleanup:async()=>{for(const pending of gates)pending.resolve();for(const manager of managers)await manager.close().catch(()=>{});await fsp.rm(directory,{recursive:true,force:true})}}}
 
@@ -690,5 +691,103 @@ test('通过子 Manager 更换继承查询交给所属父级，子级缓存只�
   await child.setQuery('categories',{type:'file',query:{isProject:true}});assert.equal(parent.dataSet('categories').query.query.isProject,true);
   assert.equal(f.batches.at(-1).length,1);assert.equal(f.batches.at(-1)[0].query.type,'file');
   await child.flush();assert.deepEqual(JSON.parse(await fsp.readFile(f.file('子级'),'utf8')).dataSets.map(item=>item.name),['tasks']);
+ }finally{await f.cleanup()}
+});
+
+test('每项来源直接分发变化，确认只推进版本，不查找记录或通知其他项',async()=>{
+ const f=await fixture();try{
+  f.addRow();const manager=f.manager();await manager.start();const set=manager.dataSet('tasks');
+  const a=set.taskSource('A'),b=set.taskSource('B'),updates=[],other=[];
+  assert.equal(set.taskSource(set.taskKey('A')),a);
+  a.monitor(change=>updates.push(change));b.monitor(change=>other.push(change));
+  const originalGet=set.getTask;set.getTask=()=>{throw new Error('Monitor 不得定位记录')};
+  set.updateTaskFields('A',[{field:'PRIORITY',value:'A'}]);await set.settle();
+  assert.equal(updates.length,2);assert.equal(other.length,1);
+  assert.equal(a.task.fileVersion,'file-2');assert.equal(b.task.fileVersion,'file-2');
+  assert.equal(a.task.priority.name,'A');assert.equal(f.calls.length,1);
+  set.getTask=originalGet;
+ }finally{await f.cleanup()}
+});
+
+test('连续修改三个字段时，逐项确认保留全部后续乐观值且不重复刷新',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager();await manager.start();const set=manager.dataSet('tasks'),source=set.taskSource('A');
+  const visible=[],completed=[];source.monitor(change=>{if(change.task&&!change.error)visible.push({...change.task.properties})});
+  set.subscribe(event=>{if(event.type==='complete')completed.push(event.version)});
+  const first=f.delay();
+  await set.updateTask('A',[{field:'PROPERTY',value:{name:'ONE',value:'一'}}]);
+  await set.updateTask('A',[{field:'PROPERTY',value:{name:'TWO',value:'二'}}]);
+  await set.updateTask('A',[{field:'PROPERTY',value:{name:'THREE',value:'三'}}]);
+  const expected={ONE:'一',TWO:'二',THREE:'三'};
+  assert.deepEqual(source.task.properties,expected);assert.equal(visible.length,4);
+  await until(()=>f.groups.length===1);const second=f.delay();first.resolve();
+  await until(()=>f.groups.length===2);assert.deepEqual(source.task.properties,expected);
+  assert.equal(source.task.fileVersion,'file-2');assert.equal(visible.length,4);assert.deepEqual(completed,[2]);
+  const third=f.delay();second.resolve();await until(()=>f.groups.length===3);
+  assert.deepEqual(source.task.properties,expected);assert.equal(source.task.fileVersion,'file-3');assert.equal(visible.length,4);
+  third.resolve();await set.settle();
+  assert.deepEqual(source.task.properties,expected);assert.equal(source.task.fileVersion,'file-4');assert.equal(visible.length,4);
+  assert.deepEqual(completed,[2,3,4]);assert.equal(f.calls.length,1);
+ }finally{await f.cleanup()}
+});
+
+test('首个字段失败只回滚自身，后两个字段在失败及后续确认期间保持可见',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager();await manager.start();const set=manager.dataSet('tasks'),source=set.taskSource('A');
+  const visible=[],errors=[];source.monitor(change=>{if(change.error)errors.push(change);else if(change.task)visible.push({...change.task.properties})});
+  const first=f.delay();f.fail();
+  for(const [name,value] of [['ONE','一'],['TWO','二'],['THREE','三']])await set.updateTask('A',[{field:'PROPERTY',value:{name,value}}]);
+  assert.equal(visible.length,4);await until(()=>f.groups.length===1);const second=f.delay();first.resolve();
+  await until(()=>f.groups.length===2);assert.deepEqual(source.task.properties,{TWO:'二',THREE:'三'});
+  assert.equal(errors.length,1);assert.equal(visible.length,5);assert.equal(errors[0].task.property('THREE'),'三');
+  second.resolve();await set.settle();assert.deepEqual(source.task.properties,{TWO:'二',THREE:'三'});
+  assert.equal(visible.length,5);assert.equal(source.task.fileVersion,'file-3');
+ }finally{await f.cleanup()}
+});
+
+test('每项来源跟随改名，删除失败恢复，真实删除后同名新建使用新来源',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager('今天',[{name:'tasks',query:{type:'task',query:{}}},{name:'files',query:{type:'file',query:{}}}]);await manager.start();
+  const set=manager.dataSet('tasks'),source=set.taskSource('A'),values=[];source.monitor(change=>values.push(change));
+  await confirmedEdit(set,'updateTask','A',[{field:'TITLE',value:'Renamed'}]);assert.equal(source.task.heading,'Renamed');
+  assert.equal(set.taskSource('renamed-Renamed'),source);assert.equal(source.rowId,set.taskKey('renamed-Renamed'));
+  f.fail();await assert.rejects(confirmedEdit(set,'removeTask',source.rowId),/提交失败/);
+  assert.ok(values.some(change=>change.removed));assert.equal(source.task.heading,'Renamed');
+  await confirmedEdit(set,'removeTask',source.rowId);assert.equal(source.task,undefined);
+  const afterDelete=values.length;
+  await confirmedEdit(set,'createTask',{position:{parent:{repoId:'repo',file:'a.org',titles:[]}},title:'Renamed',state:'TODO'});
+  assert.notEqual(set.taskSource('Renamed'),source);assert.equal(source.task,undefined);assert.equal(values.length,afterDelete);
+ }finally{await f.cleanup()}
+});
+
+test('来源取消与配置换代不接受迟到事件，通知整批状态已更新后再交付',async()=>{
+ const f=await fixture();try{
+  f.addRow();const manager=f.manager();await manager.start();const set=manager.dataSet('tasks'),a=set.taskSource('A'),b=set.taskSource('B');
+  let calls=0;const stop=a.monitor(()=>{calls++});stop();
+  await confirmedEdit(set,'updateTask','A',[{field:'PRIORITY',value:'A'}]);assert.equal(calls,1);
+  let seenVersion;const cancel=b.monitor(change=>{if(change.task?.priority?.name==='A')seenVersion=a.task.fileVersion});
+  await f.workspace.executeTaskOperations({operationId:'http/two-records',operations:[
+    {type:'Modification',data:{path:f.rows()[0].fullPath,modifications:[{field:'PRIORITY',value:'B'}]}},
+    {type:'Modification',data:{path:f.rows()[1].fullPath,modifications:[{field:'PRIORITY',value:'A'}]}}
+  ]});
+  assert.equal(seenVersion,a.task.fileVersion);cancel();
+  const old=Array.from(f.subscriptions.values())[0].callback;
+  f.configurationChanged();await manager.start();assert.equal(a.task,undefined);assert.notEqual(set.taskSource('A'),a);
+  old({type:'notificationEvent',repoId:'repo',operationId:null,files:[],changes:[]});assert.equal(a.task,undefined);
+ }finally{await f.cleanup()}
+});
+
+test('Monitor 回调中继续编辑时，后续接收者不会被外层旧快照覆盖',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager();await manager.start();const set=manager.dataSet('tasks'),source=set.taskSource('A');
+  const seen=[];
+  source.monitor(change=>{
+   if(change.task?.property('ONE')&&!change.task.property('TWO'))set.updateTaskFields('A',[{field:'PROPERTY',value:{name:'TWO',value:'回调内编辑'}}]);
+  });
+  source.monitor(change=>{if(change.task&&!change.error)seen.push({...change.task.properties})});
+  await set.updateTask('A',[{field:'PROPERTY',value:{name:'ONE',value:'外层编辑'}}]);
+  assert.deepEqual(seen,[{}, {ONE:'外层编辑',TWO:'回调内编辑'}]);
+  await set.settle();assert.deepEqual(source.task.properties,{ONE:'外层编辑',TWO:'回调内编辑'});
+  assert.deepEqual(seen,[{}, {ONE:'外层编辑',TWO:'回调内编辑'}]);
  }finally{await f.cleanup()}
 });

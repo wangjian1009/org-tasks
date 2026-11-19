@@ -10,7 +10,7 @@ import { TaskEditorActionResult } from '../../ui/TaskEditorActionResult'
 import { TaskStateCategory, taskStateCategoryLabel } from '../../ui/TaskStatePresentation'
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskModificationOperation, CoreTaskPlanningEdit, CoreTaskOperationGroup, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { TaskInlineSession } from '../../services/TaskInlineService'
-import { DataSet, TaskDataChange } from '../../services/DataSet'
+import { DataSet, TaskDataChange, TaskDataSource } from '../../services/DataSet'
 import { InboxService } from '../../services/InboxService'
 import { taskModificationGroup, taskMovementGroup } from '../../services/TaskOperationGroups'
 import { TaskInlineMissingError } from '../../services/TaskInlineService'
@@ -61,6 +61,7 @@ export struct TaskEditor {
   taskId: string = ''
   controller: TaskEditorController | undefined = undefined
   private stopDataSet: (() => void) | undefined = undefined
+  private recordSource: TaskDataSource | undefined = undefined
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
@@ -177,18 +178,19 @@ export struct TaskEditor {
     return this.appeared && !this.readOnly && !this.completing && !this.working && !this.moveBusy && !this.moveOpen &&
       !this.snapshotBlocked && !this.removed && !this.typing && !this.checklistTouch && !this.draggingCheck && !this.deleteConfirming && !this.pendingAction
   }
-  value(): CoreTask { return this.editTask ?? this.localDataSet().getTask(this.taskId)! }
+  value(): CoreTask { return this.editTask ?? this.recordSource?.task! }
   private localDataSet(): DataSet {
     if (!this.dataSet) throw new Error('未提供任务数据管理对象')
     return this.dataSet
   }
   private async currentTask(): Promise<CoreTask> {
-    const task = this.localDataSet().getTask(this.taskId)
+    if (!this.recordSource) this.recordSource = this.localDataSet().taskSource(this.taskId)
+    const task = this.recordSource.task
     if (!task) throw new TaskInlineMissingError()
     return task
   }
   private async modifyTask(task: CoreTask, changes: CoreTaskModification[]): Promise<void> {
-    await this.localDataSet().updateTaskFields(this.taskId, changes, task.fileVersion)
+    await this.localDataSet().updateTaskFields(this.recordSource?.rowId ?? this.taskId, changes, task.fileVersion)
   }
 
   deletionAvailable(): boolean {
@@ -475,7 +477,7 @@ export struct TaskEditor {
       const group = await this.withStateNote(source, taskModificationGroup(source, [{ field: 'TODO', value: state.name }]), () => this.appeared && !this.removed)
       if (!group) return
       await this.localDataSet().submitOperationGroup(group, () => this.appeared && !this.removed)
-      const current = this.localDataSet().getTask(this.taskId)
+      const current = this.recordSource?.task
       if (current) this.applySnapshot(current)
       else this.removeDeletedTask()
       this.expanded = false
@@ -525,11 +527,13 @@ export struct TaskEditor {
     TaskInlineSession.release(this.ownerKey)
   }
   aboutToAppear() {
-    this.ownerKey = this.instanceKey || this.localDataSet().taskKey(this.taskId)
+    this.stopDataSet?.()
+    this.recordSource = this.localDataSet().taskSource(this.taskId)
+    this.ownerKey = this.instanceKey || this.recordSource.rowId
     this.appeared = true
     this.stopReminder = TaskEventManager.subscribe((): void => { this.reminderRevision++ })
     this.controller?.bind(this)
-    this.stopDataSet = this.localDataSet().watchTask(this.taskId, (change: TaskDataChange): void => {
+    this.stopDataSet = this.recordSource.monitor((change: TaskDataChange): void => {
       if (!this.appeared) return
       ++this.refreshRequest
       if (change.removed) { this.removeDeletedTask(); return }
@@ -548,7 +552,7 @@ export struct TaskEditor {
   }
   aboutToDisappear() {
     this.stopReminder?.(); this.stopReminder = undefined
-    this.stopDataSet?.(); this.stopDataSet = undefined
+    this.stopDataSet?.(); this.stopDataSet = undefined; this.recordSource = undefined
     this.priorityOpen = false
     this.deleteConfirming = false
     this.appeared = false
@@ -567,11 +571,16 @@ export struct TaskEditor {
   }
   async prepare(): Promise<boolean> {
     if (this.removed) return false
-    if (!this.ownerKey) this.ownerKey = this.instanceKey || this.localDataSet().taskKey(this.taskId)
+    if (!this.recordSource) this.recordSource = this.localDataSet().taskSource(this.taskId)
+    if (!this.ownerKey) this.ownerKey = this.instanceKey || this.recordSource.rowId
     if (!await TaskInlineSession.begin(this.ownerKey, async (collapse: boolean) => await this.finish(collapse))) return false
-    if (!this.editTask) { this.editTask = this.localDataSet().getTask(this.taskId)!; this.heading = this.editTask.heading; this.notes = this.editTask.editContent.notes.trimEnd() }
+    if (!this.editTask) {
+      const task = this.recordSource.task
+      if (!task) return false
+      this.editTask = task; this.heading = task.heading; this.notes = task.editContent.notes.trimEnd()
+    }
     if (this.readOnly) return true
-    this.applySnapshot(this.localDataSet().getTask(this.taskId))
+    this.applySnapshot(this.recordSource.task)
     if (!this.hostWindow) {
       try {
         this.hostWindow = await window.getLastWindow(this.getUIContext().getHostContext()!)

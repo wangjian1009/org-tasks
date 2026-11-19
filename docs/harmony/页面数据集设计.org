@@ -541,3 +541,28 @@ Core 回归同时验证 reset 先更新通知列表再分发文件事件，文�
 ~TaskEventManager~ 作为独立的应用级事件管理器，拥有唯一 ~events/tasks~ DataSet，查询 ~it.todo has.reminder o.reminder~ 并复用现有 Workspace；不再在 AppDataManager 中重复注册 reminderTasks，也不持久化此数据集缓存。事件同步与设置页任务列表消费同一个实例，列表离开不释放全局查询。
 
 首次已确认快照加载后执行一次系统日历库存核对。之后确认事件驱动任务新增、修改与移出的增量维护，complete 阶段同样用于接收最终确认，不消费乐观写入或版本零缓存。日历层不重复查询或过滤 Core 任务，只比较已经加载的来源快照与上次已应用状态；系统日历仅在启动、授权恢复或失败恢复时重新遍历。来源失败或换代期间不执行删除。应用销毁时由全局事件管理器关闭自己的 DataSetManager。
+
+* 稳定行的 TaskDataSource 与 Monitor
+
+每个 TaskEditor 在出现时取得所属 DataSet 的 ~taskSource(rowId)~ ，向返回的 ~TaskDataSource~ 注册一个 Monitor，消失时取消。DataSet 以稳定行 ID 保存来源对象；Core 增量先更新数据索引、合并所有待提交修改，再将新快照直接交给对应来源，不再向每个编辑器广播 DataSetEvent 后分别定位记录。
+
+来源对象保存当前可编辑快照。首次注册交付一次快照；新增或删除通过列表事件创建、移除行，已有记录来源独立处理新增后的恢复、更新、移除及定向错误。改名或移动后，Core 前后身份映射保留稳定行和来源对象；确认删除或离开查询范围后关闭旧来源，同名重建使用新来源，不承接旧编辑。~watchTask~ 作为兼容入口委托同一个来源，不增加底层订阅。
+
+来源先更新本批全部记录的指针，再交付可见变化。只有文件版本或编辑上下文变化时，来源仍取得新快照，后续操作直接读取最新路径和版本；可见字段相同则不调用 Monitor，不触发编辑器重绘。读取、保存确认和其他记录的变动不再让当前项回查 DataSet。数据集列表排序、成员关系和全量查询比较仍由 DataSet 维护，不声称已消除这些处理。
+
+界面连续修改三个字段时，来源保存“确认值 + 所有在途与排队修改”的最终视图。第一项确认只替换底层确认值，后两项继续叠加并保持可见；最终视图未变化不重复通知。失败只撤销对应操作的覆盖层，保留后续修改；错误通过同一操作的目标来源交付，编辑器继续保留用户未提交的文字草稿。
+
+Monitor 回调允许继续发起编辑。嵌套更新发生后，来源不再向后续接收者交付外层旧快照；取消后不接收迟到回调，新注册者只接收当时的最新快照。配置换代关闭旧来源，关闭数据集解除全部记录 Monitor，不产生新的 Core 查询。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{DataSet}{row IDs / task index \\ task sources / pending edits}{合并 Core 增量与乐观视图}
+\umlclass[x=8,y=0]{TaskDataSource}{rowId / current task \\ monitors}{monitor() / replace() / notify()}
+\umlclass[x=8,y=-4]{TaskEditor}{source / draft / unsubscribe}{接收变化 / 读取当前操作快照}
+\umlclass[x=0,y=-4]{TaskList}{成员与顺序}{新增行 / 移除行}
+\umlcompo{DataSet}{TaskDataSource}
+\umluniassoc{TaskEditor}{TaskDataSource}
+\umldep{TaskList}{DataSet}
+\end{tikzpicture}
+
+2026-11-19 已完成 187 项相关宿主回归及独立模拟器实时验收，覆盖连续三字段编辑、逐项确认不重绘、失败保留后续值、外部更新时保留草稿，以及改名、删除、同名重建和冷启动。详细结果及环境限制见 [[file:任务记录Monitor模拟器验收.org][任务记录 Monitor 验收报告]]。

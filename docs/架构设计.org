@@ -153,3 +153,7 @@ APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共�
 * 任务提醒平台接入
 
 Core 使用与创建时间相同的属性解析投影 ~reminder_at~ ，并以 ~SetReminder~ 封装底层属性名、时间戳序列化与保真写入。表达式支持 ~reminder~ / ~r~ 的自然日条件和完整时间排序。Harmony 的全局 ~TaskEventManager~ 持有唯一提醒 DataSet，启动首次确认后由 ~CalendarSync~ 核对应用专用日历，之后按增删改维护事件。设置列表直接使用同一数据集。事件身份和内容指纹存于系统日历的 identifier，本机只保存开关；无响铃秒数、间隔或手动同步按钮，设备状态不进入 Core 同步记录。详见 [[file:harmony/任务提醒设计.org][任务提醒设计]]。
+
+* 任务记录的直接分发
+
+DataSet 将 Core 增量与乐观修改合并为稳定行快照，通过 ~TaskDataSource~ 按 rowId 直接分发给 TaskEditor 的 Monitor。编辑器不再接收整批数据事件后查找自己；文件版本变化只推进来源快照，可见内容变化才通知界面。三字段连续编辑、失败回滚、改名身份和订阅生命周期见 [[file:harmony/页面数据集设计.org::*稳定行的 TaskDataSource 与 Monitor][TaskDataSource 与 Monitor]]。

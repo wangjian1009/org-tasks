@@ -9,10 +9,11 @@ import { PageTaskSnapshot, PageMetadataSnapshot, cacheDataSet, restoreDataSet, t
 import { createPageTask, projectTaskFields } from './PageDataProjection'
 import { MoveToTargetService } from './MoveToTargetService'
 import { TrashService } from './TrashService'
+import { TaskDataSource, TaskDataChange } from './TaskDataSource'
+export { TaskDataSource, TaskDataChange } from './TaskDataSource'
 
 export type DataSetQuery = CoreQuery
 export interface DataSetDefinition { name: string; query: DataSetQuery; repositoryBindings?: CoreQueryRepositoryBinding[] }
-export interface TaskDataChange { task?: CoreTask; removed?: boolean; blocked?: boolean; error?: string; rejectedChanges?: TaskModification[] }
 export class DataSetWriteError extends Error {
   readonly committed: boolean
   constructor(message: string, committed: boolean) { super(message); this.committed = committed }
@@ -54,6 +55,7 @@ interface PendingEdit {
   target?: CoreRefileTarget; group?: CoreTaskOperationGroup; sourceVersion: string; rebaseVersion?: boolean; observed: Set<string>; identityFrames: Set<string>; missingFrames: Set<string>
 }
 interface TaskPathOperation { path: CoreTaskPath }
+interface TaskSourceUpdate { source: TaskDataSource; change: TaskDataChange }
 
 // 按文件衔接用户编辑意图；真实查询、修改与同步的执行顺序由 Core 调度。
 export class UserOperationQueue {
@@ -90,7 +92,8 @@ export class DataSet {
   private owner: string = util.generateRandomUUID()
   private epoch: string = util.generateRandomUUID()
   private readonly clock: DataSetClock | undefined
-  private readonly taskListeners: Set<(event: DataSetEvent) => void> = new Set()
+  private readonly taskSources: Map<string, Map<string, TaskDataSource>> = new Map()
+  private readonly taskRows: Map<string, Map<string, CoreTask>> = new Map()
   private readonly listeners: Set<(event: DataSetEvent) => void> = new Set()
   private readonly confirmed: Map<string, CoreQueryResult> = new Map()
   private readonly versions: Map<string, number> = new Map()
@@ -135,7 +138,8 @@ export class DataSet {
     await Promise.all(Array.from(this.writes).map(work => work.catch((): void => {})))
     if (this.connection) await UserOperationQueue.whenIdle()
     if (request !== this.configureRequest || this.closed) return
-    this.confirmed.clear(); this.versions.clear(); this.views.clear(); this.taskIndex.clear(); this.rowIds.clear()
+    this.releaseTaskSources(true)
+    this.confirmed.clear(); this.versions.clear(); this.views.clear(); this.taskIndex.clear(); this.rowIds.clear(); this.taskRows.clear()
     this.closed = false; this.closing = false; this.shutdown = undefined; this.scopeChanged = false
     this.epoch = util.generateRandomUUID(); this.sequence = 0
     this.initialization = undefined; this.config = config; this.connection = workspace
@@ -232,6 +236,18 @@ export class DataSet {
     return this.taskIndex.get(name)?.get(key)
   }
   getTask(id: string, name: string = this.name): CoreTask | undefined { return this.findTask(name, id) }
+  taskSource(id: string, name: string = this.name): TaskDataSource {
+    const rowId = this.itemKey(name, id)
+    let sources = this.taskSources.get(name)
+    if (!sources) { sources = new Map(); this.taskSources.set(name, sources) }
+    let source = sources.get(rowId)
+    if (!source) {
+      source = new TaskDataSource(rowId, this.taskRows.get(name)?.get(rowId))
+      sources.set(rowId, source)
+      if (this.closed) source.close()
+    }
+    return source
+  }
   updateTaskFields(id: string, changes: TaskModification[], sourceVersion?: string, name: string = this.name): CoreTask {
     return this.updateFields(name, id, changes, sourceVersion)
   }
@@ -243,27 +259,7 @@ export class DataSet {
     return task
   }
   watchTask(id: string, listener: (change: TaskDataChange) => void, name: string = this.name): () => void {
-    const key = this.itemKey(name, id)
-    let previous = this.getTask(key, name)
-    const receive = (event: DataSetEvent): void => {
-      if (event.name !== name) return
-      const current = this.getTask(key, name)
-      const recordKey = previous ? taskKey(previous) : ''
-      if (event.type === 'error') {
-        if (!event.targetKey || event.targetKey === recordKey) listener({ task: current, error: event.message ?? '修改失败',
-          blocked: event.committed === true || !!event.message && ['版本', '失效', '已变化'].some(value => event.message!.includes(value)), rejectedChanges: event.rejectedChanges })
-        return
-      }
-      if (event.type === 'ready' || event.type === 'complete') return
-      if (!current && previous) { previous = undefined; listener({ removed: true }); return }
-      if (current && (!previous || event.updated.includes(taskKey(current)) || event.added.includes(taskKey(current)) ||
-        event.identities?.some(identity => identity.before === recordKey && identity.after !== recordKey))) {
-        previous = current; listener({ task: current })
-      }
-    }
-    this.taskListeners.add(receive)
-    listener(previous ? { task: previous } : { removed: true })
-    return (): void => { this.taskListeners.delete(receive) }
+    return this.taskSource(id, name).monitor(listener)
   }
   private operationId(version: number, kind: string): string { return `dataset/${this.owner}/${version}/${kind}/${this.epoch}` }
   private eventVersion(id: string | null): number | undefined {
@@ -662,10 +658,15 @@ export class DataSet {
     for (const key of retained) if (!ids.has(key)) ids.set(key, util.generateRandomUUID())
     for (const key of Array.from(ids.keys())) if (!retained.has(key)) ids.delete(key)
     this.rowIds.set(name, ids)
+    const previousRows = this.taskRows.get(name) ?? new Map<string, CoreTask>()
+    const rows = new Map<string, CoreTask>()
     if (data.type === 'task') for (const task of data.result.tasks) {
       const rowId = ids.get(taskKey(task))
-      if (rowId) this.taskIndex.get(name)?.set(rowId, task)
+      if (rowId) { this.taskIndex.get(name)?.set(rowId, task); rows.set(rowId, task) }
     }
+    this.taskRows.set(name, rows)
+    const sources = this.taskSources.get(name)
+    const sourceUpdates: TaskSourceUpdate[] = []
     const added = Array.from(new Set(Array.from(after.keys()).filter(key => !before.has(key)).concat(addedRecords)))
     const removed = Array.from(new Set(Array.from(before.keys()).filter(key => !after.has(key)).concat(removedRecords)))
     const updated = Array.from(after.keys()).filter(key => {
@@ -674,22 +675,60 @@ export class DataSet {
       return data.type === 'task' ? !samePageTask(old as CoreTask, current as CoreTask) :
         !samePageMetadata(old as CoreOrgFileMetadata, current as CoreOrgFileMetadata)
     })
-    if (added.length || removed.length || updated.length || !samePageValue(previous?.data.type === 'task' ? previous.data.result.categories : [], data.type === 'task' ? data.result.categories : []) || !previous) {
+    const changedKeys = new Set(updated)
+    for (const rowId of new Set(Array.from(previousRows.keys()).concat(Array.from(rows.keys())))) {
+      if (previousRows.get(rowId) === rows.get(rowId)) continue
+      const source = sources?.get(rowId)
+      const task = rows.get(rowId)
+      const beforeTask = previousRows.get(rowId)
+      const visibleChanged = !!task && (!beforeTask || taskKey(beforeTask) !== taskKey(task) || changedKeys.has(taskKey(task)))
+      const change = source?.replace(task, visibleChanged)
+      if (source && change) sourceUpdates.push({ source, change })
+    }
+    const changed = added.length > 0 || removed.length > 0 || updated.length > 0 || !samePageValue(previous?.data.type === 'task' ? previous.data.result.categories : [], data.type === 'task' ? data.result.categories : []) || !previous
+    if (changed) {
       const view = this.views.get(name)!
       this.views.set(name, { name, revision: (previous?.revision ?? 0) + 1, version: view.version,
         confirmedVersion: view.confirmedVersion, data: view.data, optimistic: view.optimistic })
+    }
+    for (const update of sourceUpdates) update.source.notify(update.change)
+    // 乐观删除仍保留确认行以便失败恢复；真实离开集合后关闭旧来源，重建同 ID 不接管旧编辑。
+    const retainedRows = new Set(ids.values())
+    const cleanupRows = new Set(Array.from(previousRows.keys()).concat(removedRecords.length ? Array.from(sources?.keys() ?? []) : []))
+    for (const rowId of cleanupRows) if (!retainedRows.has(rowId)) {
+      sources?.get(rowId)?.close(); sources?.delete(rowId)
+    }
+    if (changed) {
       this.publish({ name, type: added.length && !removed.length && !updated.length ? 'insert' : removed.length && !added.length && !updated.length ? 'remove' : updated.length && !added.length && !removed.length ? 'update' : 'refresh',
         version: this.eventVersion(operationId) ?? version, dataVersion: version, operationId, optimistic, added, removed, updated, identities })
     }
   }
   private publish(event: DataSetEvent): void {
-    for (const listener of this.taskListeners) { try { listener(event) } catch (_) { console.error('任务记录监听处理失败') } }
     for (const listener of this.listeners) { try { listener(event) } catch (_) { console.error('页面数据监听处理失败') } }
   }
   private emitError(name: string, id: string, error: Error, targetKey?: string, rejectedChanges?: TaskModification[], committed: boolean = false): void {
     if (!targetKey) this.loadError = error.message
+    const sources = this.taskSources.get(name)
+    const notify = (source: TaskDataSource): void => {
+      source.notify({ task: source.task, error: error.message,
+        blocked: committed || ['版本', '失效', '已变化'].some(value => error.message.includes(value)), rejectedChanges })
+    }
+    if (!targetKey) { if (sources) for (const source of sources.values()) notify(source) }
+    else {
+      const rowId = this.rowIds.get(name)?.get(targetKey)
+      const source = rowId ? sources?.get(rowId) : undefined
+      if (source) notify(source)
+    }
     this.publish({ name, type: 'error', version: this.eventVersion(id) ?? this.sequence, operationId: id,
       optimistic: false, added: [], removed: [], updated: [], message: error.message, targetKey, rejectedChanges, committed })
+  }
+  private releaseTaskSources(removed: boolean): void {
+    for (const sources of this.taskSources.values()) for (const source of sources.values()) {
+      const change = source.replace(undefined)
+      if (removed && change) source.notify(change)
+      source.close()
+    }
+    this.taskSources.clear()
   }
 
   close(): Promise<void> {
@@ -708,7 +747,7 @@ export class DataSet {
       this.closed = true
     } finally {
       this.closed = true
-      this.clock?.unsubscribe(this.name); this.listeners.clear(); this.taskListeners.clear();
+      this.clock?.unsubscribe(this.name); this.listeners.clear(); this.releaseTaskSources(false); this.taskRows.clear();
     }
   }
 }
