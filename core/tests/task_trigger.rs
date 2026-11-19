@@ -1,4 +1,5 @@
 use org_tasks_core::{webdav::WebDavSyncPolicy, *};
+use chrono::TimeZone;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
@@ -238,7 +239,7 @@ async fn loki_spawn_increments_the_target_title_suffix_and_preserves_tags() {
 
 #[tokio::test]
 async fn loki_spawn_commits_one_created_event_and_keeps_original_subtree_bytes() {
-    let source = "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00> DEADLINE: <2026-12-01 Tue>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:CUSTOM: retained\n:END:\n正文  \n** DONE Child\n子任务  \n* Tail\n末尾保留  \n";
+    let source = "* TODO Task\nSCHEDULED: <2026-11-13 Fri 09:00> DEADLINE: <2026-12-01 Tue>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(source mon wed fri)\n:REMIND_AT: [2026-11-13 Fri 08:30]\n:CUSTOM: retained\n:END:\n正文  \n** DONE Child\n子任务  \n* Tail\n末尾保留  \n";
     let f = Fixture::new(&[("tasks.org", source)]).await;
     let changes = Arc::new(std::sync::Mutex::new(Vec::new()));
     let observed = changes.clone();
@@ -261,6 +262,8 @@ async fn loki_spawn_commits_one_created_event_and_keeps_original_subtree_bytes()
     assert_eq!(created.len(), 1);
     assert!(created[0].before.is_none());
     assert_eq!(created[0].after.as_ref().unwrap().task.title(), "Task");
+    let expected = chrono::Local.with_ymd_and_hms(2026, 11, 16, 8, 30, 0).earliest().unwrap().timestamp_millis();
+    assert_eq!(created[0].after.as_ref().unwrap().task.reminder_at(), Some(expected));
     drop(changes);
     f.assert_one_commit(source).await;
     let snapshot = f.snapshot();
@@ -296,11 +299,57 @@ async fn loki_insert_before_source_preserves_later_fields_in_the_same_modificati
 }
 
 #[tokio::test]
+async fn loki_spawn_reminder_failure_rolls_back_completion_creation_and_notifications() {
+    for (planning, reminder, trigger) in [
+        ("<9999-12-30 Thu 10:00>", "[9999-12-31 Fri 11:00]", "self loki-spawn-next!(source \"+1d\")"),
+        ("<2026-11-13 Fri 10:00>", "[2026-11-13 Fri 09:30]", "self loki-spawn-next!(source mon wed fri) set-property!(\"COUNT\" inc)"),
+    ] {
+        let source = format!("* TODO Task\nSCHEDULED: {planning}\n:PROPERTIES:\n:REMIND_AT: {reminder}\n:COUNT: bad\n:TRIGGER: {trigger}\n:END:\n正文\n");
+        let mut f = Fixture::new(&[("tasks.org", &source)]).await;
+        let group = f.group().await;
+        f.assert_rollback(&group, if planning.contains("9999") { "提醒时间超出" } else { "数值" }).await;
+    }
+}
+
+#[tokio::test]
+async fn loki_spawn_today_plus_six_months_creates_a_versioned_successor() {
+    use chrono::{Datelike, Duration, Local, Months};
+    let source = "* TODO Task\r\n:PROPERTIES:\r\n:TRIGGER: self loki-spawn-next!(today \"+6m\")\r\n:KEEP: source\r\n:END:\r\n正文  \r\n** DONE Child\r\n子任务  \r\n* Tail\r\n保留  \r\n";
+    let f = Fixture::new(&[("tasks.org", source)]).await;
+    let today = Local::now().date_naive();
+    let expected = today.with_day(1).unwrap().checked_add_months(Months::new(6)).unwrap()
+        + Duration::days(i64::from(today.day() - 1));
+    let group = f.group().await;
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    let after = f.source();
+    assert!(after.starts_with("* DONE Task\r\n"));
+    assert!(after.contains(&format!("子任务  \r\n* TODO Task\r\nSCHEDULED: <{}>\r\n", expected.format("%Y-%m-%d %a"))));
+    assert!(after.ends_with("* Tail\r\n保留  \r\n"));
+    assert_eq!(after.matches("self loki-spawn-next!(today \"+6m\")").count(), 2);
+    assert_eq!(after.matches(":KEEP: source").count(), 1);
+    assert!(!after.contains(":ID:"));
+    f.assert_one_commit(source).await;
+    let snapshot = f.snapshot();
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(f.snapshot(), snapshot);
+}
+
+#[tokio::test]
 async fn loki_failures_rollback_state_dates_creation_and_links() {
     for (trigger, planning, targets, expected) in [
         ("self loki-spawn-next!()", "", "", "日期基准"),
         ("self loki-spawn-next!(source)", "", "", "星期集合"),
         ("self loki-spawn-next!(source monday)", "", "", "星期必须"),
+        ("self loki-spawn-next!(today \"+0m\")", "", "", "正整数"),
+        ("self loki-spawn-next!(today \"-6m\")", "", "", "日期间隔"),
+        ("self loki-spawn-next!(today \"+6M\")", "", "", "单位"),
+        ("self loki-spawn-next!(today \"+6m extra\")", "", "", "单位"),
+        ("self loki-spawn-next!(today \"+6m\" mon)", "", "", "星期必须"),
+        ("self loki-spawn-next!(today +6m)", "", "", "星期必须"),
+        ("self loki-spawn-next!(source \"+6m\")", "", "", "没有对应规划"),
+        ("self loki-spawn-next!(source \"+6m\")", "SCHEDULED: <9999-12-31 Fri>\n", "", "日期超出"),
+        ("self loki-spawn-next!(today \"+6m\") loki-scheduled-next!(today invalid)", "", "", "星期必须"),
+        ("self loki-scheduled-next!(today \"+6m\")", "", "", "星期必须"),
         ("self loki-scheduled-next!(\"today\" mon)", "", "", "日期基准"),
         ("self loki-deadline-next!(source mon)", "", "", "没有对应规划"),
         ("self loki-spawn-next!(source mon)", "SCHEDULED: <9999-12-31 Fri>\n", "", "日期超出"),

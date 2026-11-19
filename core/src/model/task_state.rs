@@ -913,7 +913,7 @@ fn repeat_timestamps(headline: &Headline) -> BTreeMap<usize, (usize, String)> {
 }
 
 // 复用规划投影和属性时间解析；只以带重复器的规划起始时刻计算固定时间差。
-fn planning_start_time(file: &OrgFile, headline: &Headline, kind: SyntaxKind) -> Option<i64> {
+pub(super) fn planning_start_time(file: &OrgFile, headline: &Headline, kind: SyntaxKind) -> Option<i64> {
     let info = super::task_repeat::planning_info(file, headline, kind)?;
     let date = NaiveDate::parse_from_str(&info.date, "%Y-%m-%d").ok()?;
     let time = info.time.map(|time| NaiveTime::parse_from_str(&time.start, "%H:%M")).transpose().ok()?

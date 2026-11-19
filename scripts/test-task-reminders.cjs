@@ -188,3 +188,15 @@ test('重复完成后的已确认提醒时间更新会取消旧响铃实例并�
   await f.refresh(); assert.equal(f.system.size, 0);
   f.service.stop();
 });
+
+test('Loki 后继的已确认提醒进入订阅后取消完成来源的实例，只为新节点安排一次', async () => {
+  const f = fixture(), source = f.task('source', 60000); f.tasks([source]); f.service.start({}); await f.refresh();
+  const successor = f.task('successor', 6 * 30 * 86400000);
+  successor.heading = '后继任务'; f.tasks([successor]);
+  for (const listener of f.listeners) listener({ optimistic: false });
+  await f.refresh();
+  assert.equal(f.cancelled.length, 1); assert.equal(f.writes.length, 2); assert.equal(f.system.size, 1);
+  assert.equal(f.writes[1].content, '后继任务'); assert.equal(f.service.status(successor), '提醒已安排');
+  await f.refresh(); assert.equal(f.writes.length, 2);
+  f.service.stop();
+});

@@ -58,6 +58,94 @@ fn loki_triggers_match_emacs_extension() {
     check_reference(include_str!("../../../tests/data/loki_trigger_emacs.json"));
 }
 
+#[test]
+fn loki_spawn_accepts_relative_intervals_and_preserves_the_selected_clock() {
+    for (base, offset, planning, expected) in [
+        ("today", "+6m", "", "<2027-05-19 Wed>"),
+        ("today", "+6m", "SCHEDULED: <2026-08-31 Mon 09:00-10:30 -2d>\n", "<2027-05-19 Wed 09:00-10:30>"),
+        ("source", "+6m", "SCHEDULED: <2026-08-31 Mon 09:00>\n", "<2027-03-03 Wed 09:00>"),
+        ("target", "+1m", "SCHEDULED: <2026-12-31 Thu>\n", "<2027-01-31 Sun>"),
+        ("today", "+2w", "", "<2026-12-03 Thu>"),
+        ("today", "+3d", "", "<2026-11-22 Sun>"),
+        ("source", "+1y", "SCHEDULED: <2024-02-29 Thu>\n", "<2025-03-01 Sat>"),
+    ] {
+        let rule = format!("self loki-spawn-next!({base} \"{offset}\")");
+        let source = format!("* TODO Task\n{planning}:PROPERTIES:\n:TRIGGER: {rule}\n:KEEP: source\n:END:\n正文  \n* Tail\n保留  \n");
+        let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+        let now = NaiveDateTime::parse_from_str("2026-11-19 12:34", "%Y-%m-%d %H:%M").unwrap();
+        Context::new(&mut file, now, 0).todo(0, Some("DONE")).unwrap();
+        let nodes = file.nodes();
+        assert_eq!(nodes.len(), 3);
+        assert!(nodes[0].is_done(), "{}", std::str::from_utf8(file.source_bytes()).unwrap());
+        assert!(!nodes[1].is_done());
+        assert_eq!(nodes[1].property("TRIGGER"), Some(rule.as_str()));
+        assert_eq!(nodes[1].property("KEEP"), None);
+        assert_eq!(nodes[1].property("ID"), None);
+        let after = std::str::from_utf8(file.source_bytes()).unwrap();
+        assert!(after.contains(&format!("正文  \n* TODO Task\nSCHEDULED: {expected}\n")), "{rule}\n{after}");
+        assert!(after.ends_with("* Tail\n保留  \n"));
+        assert_eq!(after.matches("正文").count(), 1);
+    }
+}
+
+#[test]
+fn loki_spawn_transfers_the_targets_reminder_offset_to_the_new_schedule() {
+    for (trigger, planning, reminder, expected) in [
+        ("self loki-spawn-next!(today \"+6m\")", "<2026-11-10 Tue 10:00>", "[2026-11-10 Tue 09:00]", "[2027-05-19 Wed 09:00]"),
+        ("self loki-spawn-next!(source mon wed fri)", "<2026-11-13 Fri 10:00>", "[2026-11-13 Fri 09:30]", "[2026-11-16 Mon 09:30]"),
+        ("self loki-spawn-next!(target \"+1d\")", "<2026-11-13 Fri 10:00-11:00>", "[2026-11-13 Fri 11:30]", "[2026-11-14 Sat 11:30]"),
+        ("self loki-spawn-next!(target \"+1d\")", "<2026-11-13 Fri>", "[2026-11-12 Thu 23:30]", "[2026-11-13 Fri 23:30]"),
+    ] {
+        let source = format!("* TODO Task\r\nSCHEDULED: {planning}\r\n:PROPERTIES:\r\n:TRIGGER: {trigger}\r\n:REMIND_AT: {reminder}\r\n:KEEP: source\r\n:END:\r\n正文  \r\n* Tail\r\n");
+        let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+        let now = NaiveDateTime::parse_from_str("2026-11-19 12:34", "%Y-%m-%d %H:%M").unwrap();
+        Context::new(&mut file, now, 0).todo(0, Some("DONE")).unwrap();
+        let nodes = file.nodes();
+        assert_eq!(nodes[0].property("REMIND_AT"), Some(reminder));
+        assert_eq!(nodes[1].property("REMIND_AT"), Some(expected), "{trigger}");
+        assert_eq!(nodes[1].property("KEEP"), None);
+        assert_eq!(nodes[1].property("ID"), None);
+        assert!(std::str::from_utf8(file.source_bytes()).unwrap().ends_with("* Tail\r\n"));
+    }
+}
+
+#[test]
+fn loki_spawn_source_base_uses_the_targets_reminder_not_the_sources() {
+    let source = "* TODO Task\nSCHEDULED: <2026-11-01 Sun 15:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-spawn-next!(source \"+6m\")\n:REMIND_AT: [2026-11-01 Sun 04:00]\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 10:00>\n:PROPERTIES:\n:REMIND_AT: [2026-11-10 Tue 09:00]\n:END:\n* Tail\n";
+    let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+    let now = NaiveDateTime::parse_from_str("2026-11-19 12:34", "%Y-%m-%d %H:%M").unwrap();
+    Context::new(&mut file, now, 0).todo(0, Some("DONE")).unwrap();
+    let nodes = file.nodes();
+    assert_eq!(nodes[2].property("REMIND_AT"), Some("[2027-05-01 Sat 14:00]"));
+    assert_eq!(nodes[1].property("REMIND_AT"), Some("[2026-11-10 Tue 09:00]"));
+}
+
+#[test]
+fn loki_spawn_does_not_invent_invalid_or_missing_reminders() {
+    let now = NaiveDateTime::parse_from_str("2026-11-19 12:34", "%Y-%m-%d %H:%M").unwrap();
+    for property in ["", ":REMIND_AT: wrong\n", ":REMIND_AT: [2026-11-19]--[2026-11-20]\n"] {
+        let source = format!("* TODO Task\nSCHEDULED: <2026-11-19 Thu 10:00>\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(today \"+6m\")\n{property}:END:\n");
+        let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+        Context::new(&mut file, now, 0).todo(0, Some("DONE")).unwrap();
+        assert_eq!(file.nodes()[1].reminder_at(), None);
+        assert_eq!(file.nodes()[1].property("REMIND_AT"), None);
+    }
+}
+
+#[test]
+fn loki_spawn_without_a_schedule_keeps_the_reminders_offset_from_the_rule_base() {
+    let now = NaiveDateTime::parse_from_str("2026-11-19 12:34", "%Y-%m-%d %H:%M").unwrap();
+    let source = "* TODO Task\n:PROPERTIES:\n:TRIGGER: self loki-spawn-next!(today \"+6m\")\n:REMIND_AT: [2026-11-19 Thu 09:00]\n:END:\n";
+    let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+    Context::new(&mut file, now, 0).todo(0, Some("DONE")).unwrap();
+    assert_eq!(file.nodes()[1].property("REMIND_AT"), Some("[2027-05-19 Wed 09:00]"));
+
+    let source = "* TODO Task\nSCHEDULED: <2026-11-13 Fri 10:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-spawn-next!(source \"+6m\")\n:REMIND_AT: [2026-11-13 Fri 03:00]\n:END:\n* TODO Target\n:PROPERTIES:\n:REMIND_AT: [2026-11-13 Fri 09:30]\n:END:\n";
+    let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+    Context::new(&mut file, now, 0).todo(0, Some("DONE")).unwrap();
+    assert_eq!(file.nodes()[2].property("REMIND_AT"), Some("[2027-05-13 Thu 09:30]"));
+}
+
 fn check_reference(json: &str) {
     let data: serde_json::Value = serde_json::from_str(json).unwrap();
     let now =

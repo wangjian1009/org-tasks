@@ -23,7 +23,7 @@
 | 状态、标签与优先级 | 已实现 | ~todo!~ 、 ~tag!~ 、 ~set-priority!~ ；状态动作继续执行目标自己的日志、重复调度及 TRIGGER。 |
 | 普通属性与工作量 | 已实现 | ~set-property!~ 的字符串、inc、dec、next、prev／previous， ~delete-property!~ 、 ~chain!~ 、 ~set-effort!~ 的显式值、序号与 increment。循环值来自有效 ~PROPERTY_ALL~ 。 |
 | 日期 | 部分实现 | ~scheduled!~ 、 ~deadline!~ 支持删除、复制、明确日期与可选时刻、星期、今天／明天／昨天、相对日期与落点、float；不实现完整 ~org-read-date~ 自然语言输入。 |
-| Loki 排程与后继 | 已实现 | ~loki-scheduled-next!~ 、 ~loki-deadline-next!~ 和 ~loki-spawn-next!~ ；严格选择基准日期之后的允许星期，支持同文件后继创建。 |
+| Loki 排程与后继 | 已实现 | ~loki-scheduled-next!~ 、 ~loki-deadline-next!~ 和 ~loki-spawn-next!~ ；严格选择基准日期之后的允许星期，支持同文件后继创建；后继动作另支持字符串日期间隔，例如 ~today "+6m"~ 。 |
 | 跨文件 | 静默跳过 | ~file~ 、 ~org-file~ 、跨文件 ~olp~ 、其他文件 ID，以及 agenda 等跨文件 scope 不产生目标，不打开目标文件。 |
 | 宿主与扩展动作 | 静默跳过 | ~clock-in!~ 、 ~clock-out!~ 、 ~archive!~ 、未知动作和依赖交互输入的未支持形式；不提示，也不阻断后续动作。 |
 | Lisp 条件与扩展 | 静默跳过 | ~variable-set?~ 、未知条件与自定义 Lisp skip；未支持条件所在 if 分支整体跳过，后续独立动作继续执行。 |
@@ -46,9 +46,10 @@
 :TRIGGER: next-sibling loki-scheduled-next!(source mon wed fri) chain!("TRIGGER")
 :TRIGGER: next-sibling loki-deadline-next!(today mon wed fri)
 :TRIGGER: self loki-spawn-next!(source mon wed fri)
+:TRIGGER: self loki-spawn-next!(today "+6m")
 #+end_src
 
-三个动作的参数均为 ~BASE DAY...~ 。参数只接受符号； ~BASE~ 为 ~source~ 、 ~target~ 或 ~today~ ，星期为 ~mon~ 、 ~tue~ 、 ~wed~ 、 ~thu~ 、 ~fri~ 、 ~sat~ 、 ~sun~ 的非空集合。星期顺序不影响结果，重复项去重；字符串、未知星期、缺失基准及空集合均报错。
+三个动作的星期集合形式均为 ~BASE DAY...~ 。该形式的参数只接受符号； ~BASE~ 为 ~source~ 、 ~target~ 或 ~today~ ，星期为 ~mon~ 、 ~tue~ 、 ~wed~ 、 ~thu~ 、 ~fri~ 、 ~sat~ 、 ~sun~ 的非空集合。星期顺序不影响结果，重复项去重；字符串、未知星期、缺失基准及空集合均报错。
 
 | 基准 | 日期来源 | 时刻来源 |
 |-
@@ -60,17 +61,30 @@
 
 两个日期动作保留目标原有重复器与预警，不复制来源的重复器。 跨日期范围只从首个时间戳读取基准和时刻，写入时保留目标范围尾部的原始字节；首端没有时刻时不借用末端时刻。输出首个时间戳的日期、英文星期和选定时刻，其他规划与正文不变；小时重复器不能因切换到无时刻来源而失去时刻。
 
+** 后继的日期间隔形式
+
+~loki-spawn-next!~ 还接受 ~BASE "+Nunit"~ ，例如 ~self loki-spawn-next!(today "+6m")~ ：完成当前任务后，以本次状态操作的本地日期加六个月作为新兄弟任务的 SCHEDULED。~today~ 不要求原任务已有计划日期；原任务有计划时刻或同日时刻范围时保留，没有则输出纯日期。~source~ 与 ~target~ 分别使用来源和目标的首个 SCHEDULED；缺失时仍报错。
+
+间隔必须是单个双引号字符串，正号后为正整数及单位，支持 ~d~ 、 ~w~ 、 ~m~ 、 ~y~ ，分别为日、周、月、年；小写 ~m~ 表示月。月份与年份复用既有 Org 日期溢出归一化，例如 2026-08-31 加六个月为 2027-03-03，不按固定 180 天计算。该形式不与星期集合混用，零、负数、额外参数、未知单位或日期越界均使整组回滚；两个 Loki 日期修改动作继续只支持星期集合形式。
+
 ** 后继创建
 
 ~loki-spawn-next!~ 在动作目标的整个子树之后插入同层级兄弟，来源基准仍指最初触发本条规则的任务。后续动作继续作用于原先捕获的目标，不隐式转向新节点。新节点不执行创建触发器；只有以后从待办进入完成时，才执行自己携带的规则。
 
 新节点复制目标自身标签、显式优先级和自身 ~TRIGGER~ 。标题末尾的连续 ASCII 数字串 (0 至 9) 自动加一，其他标题文字保持原样；没有数字后缀时直接复制标题。保留前导零和原位数，进位超出时扩展位数，例如 ~练习009~ 生成 ~练习010~ 、 ~练习99~ 生成 ~练习100~ ；数字串不受固定宽度整数限制。编号只来自目标标题，不读取标签中的数字，也不扫描兄弟任务的最大编号。每次执行均按当前目标标题计算新后继标题。状态选取目标当前流程的首个有效待办状态；流程中没有待办时使用文件首个有效待办，全部缺失则失败。规划仅写入计算后的 ~SCHEDULED~ ，不复制 ~DEADLINE~ 、重复器或预警；不复制正文、清单、子任务、普通属性、历史 drawer、关闭时间或旧 ID。新节点记录当前 ~CREATED~ ，不生成或复制 ~ID~ 属性。祖先恢复与标题统计和普通状态修改共用规则。
 
+
+后继创建也处理目标自身的有效 reminder：目标已有 SCHEDULED 时，以“目标提醒时间减目标计划开始时刻”为偏移，新节点提醒为新 SCHEDULED 开始时刻加该偏移。日期范围使用首端、同日时刻范围使用开始时刻，纯日期按本地零点；提前与延后提醒均保留。提醒属于复制目标，~source~ 只决定日期及其时刻来源，不改变提醒读取对象；不读取父级或文件级提醒。
+
+目标没有计划日期时，使用本次动作的日期基准：~today~ 按本次完成自然日零点，~source~ 使用来源计划开始时刻。例如本次完成日期为 2026-11-19，原目标提醒为 2026-11-19 09:00，执行 ~self loki-spawn-next!(today "+6m")~ 后，新 SCHEDULED 为 2027-05-19，新提醒为 2027-05-19 09:00。缺失或无效提醒不创建属性；旧任务保留原提醒作为历史，新节点不直接复制旧提醒时刻。新提醒越界或后续动作失败时，完成、创建与提醒写入整体回滚。
+
+计算仅在 Core 内部完成，写入复用 ~SetReminder~ ，不新增创建参数或公开结构。新节点的同次 Created 事件即携带 reminderAt；Harmony 的已确认提醒查询移出已完成来源并纳入后继，现有协调器取消旧系统实例、安排新实例，不由 UI 再次拼接写入。
+
 每次执行 ~loki-spawn-next!~ 都创建一个新的兄弟节点，不读取或写入后继关联属性，也不根据 ID 查找并复用已有后继。重新打开任务再完成会再次创建；同一规则显式多次调用也逐次创建。文件版本过期的请求仍按原事务规则拒绝，避免同一旧请求重复落盘。
 
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TargetTask}{}{loki-spawn-next!()}
-\umlclass[x=7,y=0]{SuccessorTask}{CREATED : Timestamp\\TRIGGER : String?}{}
+\umlclass[x=7,y=0]{SuccessorTask}{CREATED : Timestamp\\TRIGGER : String?\\reminder\_at : TimestampMs?}{}
 \umldep[arg=创建]{TargetTask}{SuccessorTask}
 \end{tikzpicture}
 
@@ -80,7 +94,7 @@
 
 Emacs 使用 ~org-edna-action/loki-scheduled-next!~ 、 ~org-edna-action/loki-deadline-next!~ 与 ~org-edna-action/loki-spawn-next!~ 接入。辅助函数、变量与 feature 统一使用 ~loki-assistant-edna-~ 前缀，Edna 动作关键字保持 ~loki-~ 前缀，ID 查找只扫描当前缓冲区，不查询全局 ID 数据库或打开外部文件。finder 返回的 marker 在标题起点插入时跟随原标题，避免后续动作落到新建节点。外层 ~org-todo~ 事务包装在 Loki 动作发生错误或 Edna 报告阻塞时，回滚本次状态变化及同缓冲区联动；嵌套状态修改复用外层事务。
 
-两端核对相同输入的逐步状态、日期时刻、继承规则、后继创建、标题结构与父级统计。属性 drawer 的排列与对齐不作为行为差异。Core 自定义的额外状态分类和原有 Edna finder 的明确差异仍遵循既有范围约定。
+现有星期集合形式继续与 Emacs 扩展对照；字符串日期间隔是 Core 新增的后继形式，不以原星期形式的 Emacs 样例证明其行为。两端核对相同输入的逐步状态、日期时刻、继承规则、后继创建、标题结构与父级统计。属性 drawer 的排列与对齐不作为行为差异。Core 自定义的额外状态分类和原有 Edna finder 的明确差异仍遵循既有范围约定。
 
 * 事务、定位与错误
 
@@ -110,3 +124,13 @@ Emacs 使用 ~org-edna-action/loki-scheduled-next!~ 、 ~org-edna-action/loki-de
 | 黑盒保真 | 本文件级联、重复后调度、条件作用域、来源偏移、SETUP 状态配置与默认 TRIGGER 不继承；成功输出按字节核对，失败比较全部普通文件和同步控制数据。 |
 
 Emacs 参考端拒绝 agenda 和外部文件访问，ID 只在当前样例查找。缺失 ID 返回空目标、本地 match 默认范围及顶层环绕的有界行为是本应用的明确约定，由仓库回归验证，不把参考插件的空 marker 或无限循环行为当作正确输出。
+
+* 字符串间隔后继验收
+
+2026-11-19 已在专用模拟器的隔离仓库中，通过 APP 内嵌 HTTP 接口创建没有 SCHEDULED 的测试任务并设置 ~self loki-spawn-next!(today "+6m")~ ，真实点击界面完成任务后，原节点变为 DONE，新兄弟任务为 TODO，SCHEDULED 为 2027-05-19，标题编号由 009 递增为 010，新节点保留相同 TRIGGER 且未生成 ID。清理验收任务后关闭临时服务。
+
+340 项 Core 单元和 18 项触发器集成检查通过，Debug 构建无告警。新增检查覆盖没有计划日期的 today、来源／目标基准、月末与闰年溢出、时刻范围保留、非法间隔、创建后续失败回滚和旧版本请求重试。
+
+2026-11-19 在专用模拟器隔离仓库中，用 ~self loki-spawn-next!(today "+6m")~ 验证带计划与无计划两种任务。带计划任务在真实界面完成后，新节点计划为 2027-05-19 10:00，提醒为 09:30，保留提前半小时；只有当天 09:00 提醒的任务完成后，新节点计划为 2027-05-19，提醒为当天 09:00。API 与任务提醒配置页均读到新节点时间，原节点为 DONE、新节点为 TODO，TRIGGER 保留，正文未复制，未生成 ID。系统实例替换由提醒服务检查验证；实际投递仍受既有代理提醒能力限制。
+
+344 项 Core 单元、46 项状态／触发器／提醒集成和 14 项宿主提醒检查通过，Debug 构建无告警。提醒越界与创建后续失败均验证整组回滚；验收后清理四条来源／后继记录并停止临时接口。

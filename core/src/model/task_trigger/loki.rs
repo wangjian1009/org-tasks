@@ -1,11 +1,13 @@
-//! Loki 星期排程与同文件后继创建；与普通修改共用日期编辑和创建原语。
+//! Loki 星期排程、相对日期后继创建；与普通修改共用日期编辑和创建原语。
 use super::{Call, Context, Result, Value, error, start, time};
 use crate::model::{TaskCreation, TaskPlanningEdit, TaskPlanningTime, TaskPosition};
-use chrono::Datelike;
+use chrono::{Datelike, Local, NaiveTime, TimeZone};
+use orgize::SyntaxKind;
 
 struct Rule<'a> {
     base: &'a str,
     weekdays: Vec<u32>,
+    offset: Option<(i64, &'a str)>,
 }
 
 fn first_timestamp(raw: &str) -> (&str, &str) {
@@ -49,12 +51,23 @@ fn stamp(date: TaskPlanningEdit) -> String {
 }
 
 impl<'a> Rule<'a> {
-    fn parse(args: &'a [Value]) -> Result<Self> {
+    fn parse(args: &'a [Value], allow_offset: bool) -> Result<Self> {
         let base = args
             .first()
             .and_then(Value::symbol)
             .filter(|base| ["source", "target", "today"].contains(base))
             .ok_or(error("Loki 日期基准必须为 source、target 或 today"))?;
+        if allow_offset && let [_, Value::String(offset)] = args {
+            let raw = offset.strip_prefix('+').ok_or(error("Loki 日期间隔必须为 +正整数及 d、w、m 或 y"))?;
+            let digits = raw.bytes().take_while(u8::is_ascii_digit).count();
+            let count = raw[..digits].parse::<i64>().ok().filter(|count| *count > 0)
+                .ok_or(error("Loki 日期间隔必须为正整数"))?;
+            let unit = &raw[digits..];
+            if !["d", "w", "m", "y"].contains(&unit) {
+                return Err(error("Loki 日期间隔单位必须为 d、w、m 或 y"));
+            }
+            return Ok(Self { base, weekdays: Vec::new(), offset: Some((count, unit)) });
+        }
         let mut weekdays = Vec::new();
         for arg in &args[1..] {
             let day =
@@ -72,7 +85,7 @@ impl<'a> Rule<'a> {
         if weekdays.is_empty() {
             return Err(error("Loki 星期集合不能为空"));
         }
-        Ok(Self { base, weekdays })
+        Ok(Self { base, weekdays, offset: None })
     }
 }
 
@@ -99,13 +112,15 @@ impl Context<'_> {
         } else {
             time::read(first.ok_or(error("Loki 日期基准没有对应规划时间戳"))?)?.0
         };
-        let mut next = time::add(base, 1, "d")?;
-        while !rule
-            .weekdays
-            .contains(&next.weekday().num_days_from_sunday())
-        {
-            next = time::add(next, 1, "d")?;
-        }
+        let next = if let Some((count, unit)) = rule.offset {
+            time::add(base, count, unit)?
+        } else {
+            let mut next = time::add(base, 1, "d")?;
+            while !rule.weekdays.contains(&next.weekday().num_days_from_sunday()) {
+                next = time::add(next, 1, "d")?;
+            }
+            next
+        };
         let clock = first
             .and_then(|raw| {
                 raw.trim_end_matches(['>', ']'])
@@ -123,7 +138,7 @@ impl Context<'_> {
     }
 
     pub(super) fn loki_action(&mut self, call: &Call, source: usize, target: usize) -> Result<()> {
-        let rule = Rule::parse(&call.args)?;
+        let rule = Rule::parse(&call.args, call.name == "loki-spawn-next!")?;
         if call.name == "loki-spawn-next!" {
             return self.loki_spawn(&rule, source, target);
         }
@@ -158,6 +173,24 @@ impl Context<'_> {
     fn loki_spawn(&mut self, rule: &Rule<'_>, source: usize, target: usize) -> Result<()> {
         let date = self.loki_date(rule, source, target, "SCHEDULED")?;
         let node = self.node(target)?;
+        let reminder = crate::filter::property_time(
+            &super::metadata_node(self.file, &node), crate::model::properties::REMINDER_PROPERTY,
+        );
+        let reminder_offset = if let Some((_, reminder)) = reminder {
+            // 提醒属于复制目标；目标没有计划时，以动作的自然日／来源计划作为基准。
+            let base = crate::model::task_state::planning_start_time(self.file, &node, SyntaxKind::PLANNING_SCHEDULED)
+                .or_else(|| {
+                    if rule.base == "today" {
+                        Local.from_local_datetime(&self.now.date().and_time(NaiveTime::MIN)).earliest()
+                            .map(|time| time.timestamp_millis())
+                    } else {
+                        self.node(source).ok().and_then(|source| {
+                            crate::model::task_state::planning_start_time(self.file, &source, SyntaxKind::PLANNING_SCHEDULED)
+                        })
+                    }
+                }).ok_or(error("Loki 后继提醒缺少有效日期基准"))?;
+            Some(reminder.checked_sub(base).ok_or(error("Loki 后继提醒时间超出有效日期范围"))?)
+        } else { None };
         let state = node.todo_keyword();
         let state = self
             .file
@@ -221,6 +254,13 @@ impl Context<'_> {
         self.ordinals.push(ordinal);
         if let Some(trigger) = trigger {
             self.set_property(next, "TRIGGER", &trigger)?;
+        }
+        if let Some(offset) = reminder_offset {
+            let node = self.node(next)?;
+            let reminder = crate::model::task_state::planning_start_time(self.file, &node, SyntaxKind::PLANNING_SCHEDULED)
+                .and_then(|base| base.checked_add(offset))
+                .ok_or(error("Loki 后继提醒时间超出有效日期范围"))?;
+            self.modify(next, super::TaskModification::SetReminder(Some(reminder)))?;
         }
         // 新增待办后，完成的祖先必须恢复，统计与其他状态修改遵循同一规则。
         self.reopen_ancestors(next)
