@@ -422,16 +422,9 @@ async fn trigger_reason_is_persisted_for_success_failure_and_cancellation() {
             .unwrap();
         assert_eq!(record.result, Some(expected));
         assert_eq!(record.trigger_reason, Some(trigger_reason));
-        let stored: serde_json::Value = serde_json::from_slice(
-            &tokio::fs::read(root.join(format!(".sync/history/{time}.json")))
-                .await
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            stored["trigger_reason"],
-            serde_json::to_value(trigger_reason).unwrap()
-        );
+        let stored = tokio::fs::read_to_string(root.join(format!(".sync/history/{time}/summary"))).await.unwrap();
+        assert!(stored.starts_with(&format!("started_at={time}\n")));
+        assert!(stored.contains(&format!("trigger_reason={}\n", serde_json::to_value(trigger_reason).unwrap().as_str().unwrap())));
         let summary = repo
             .history_summaries()
             .await
@@ -902,13 +895,7 @@ async fn history_persists_file_results_and_keeps_deleted_bytes_out_of_remote_bas
         ("new-local.org", Outcome::Created),
         ("new-remote.org", Outcome::Created),
     ];
-    let persisted: OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail> =
-        serde_json::from_slice(
-            &tokio::fs::read(root.join(".sync/history/2.json"))
-                .await
-                .unwrap(),
-        )
-        .unwrap();
+    let persisted = repo.webdav_history().await.unwrap().into_iter().find(|record| record.started_at == 2).unwrap();
     for (path, outcome) in expected {
         assert_eq!(
             persisted
@@ -1497,9 +1484,6 @@ async fn ordinary_upload_needs_no_archive_and_remote_modification_overrides_loca
     tokio::fs::write(root.join("a.org"), b"* TODO Local\n")
         .await
         .unwrap();
-    tokio::fs::write(root.join(".sync/history/2"), b"not a directory")
-        .await
-        .unwrap();
     let count = state.lock().unwrap().requests.len();
     let upload = sync(&mut repo, &policy, 2).await;
     assert_eq!(upload.files[0].state, OrgRepoSyncFileState::Synchronized);
@@ -1508,9 +1492,8 @@ async fn ordinary_upload_needs_no_archive_and_remote_modification_overrides_loca
             .iter()
             .any(|r| r.starts_with("PUT"))
     );
-    tokio::fs::remove_file(root.join(".sync/history/2"))
-        .await
-        .unwrap();
+    assert!(root.join(".sync/history/2/summary").exists());
+    assert!(!root.join(".sync/history/2/conflicts").exists());
     tokio::fs::remove_file(root.join("a.org")).await.unwrap();
     {
         let mut dav = state.lock().unwrap();
@@ -1651,17 +1634,11 @@ async fn successful_finish_observes_committed_files_baseline_conflicts_and_histo
             let revision = index["payload"]["entries"]["a.org"]["revision"]
                 .as_str()
                 .unwrap_or("missing");
-            let history: serde_json::Value =
-                serde_json::from_slice(&read(".sync/history/2.json".into())).unwrap_or_default();
             self.snapshots.lock().unwrap().push(vec![
                 read("a.org".into()),
                 read(format!(".sync/remote_base/generations/{revision}/files/a.org")),
                 read(".sync/history/2/conflicts/a.org/a.org".into()),
-                history["files"][0]["detail"]["synced_source"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .as_bytes()
-                    .to_vec(),
+                read(format!(".sync/history/2/files/{}/a.org", crate::model::sync_log::file_key("a.org"))),
             ]);
         }
     }
@@ -1718,6 +1695,7 @@ async fn history_persist_failure_preserves_working_files_and_confirmed_remote_ba
     impl WebDavSyncMonitor for RejectHistory {
         fn on_event(&self, event: WebDavSyncEvent) {
             if matches!(event, WebDavSyncEvent::FileProcessed { .. }) {
+                std::fs::create_dir_all(self.target.parent().unwrap()).unwrap();
                 std::fs::write(&self.target, b"occupied").unwrap();
             }
             if let WebDavSyncEvent::Finished { result, .. } = event {
@@ -1817,7 +1795,7 @@ async fn executing_a_stale_snapshot_never_overwrites_an_external_local_edit() {
     );
     assert!(baseline_source(&root, "a.org", false).await.is_some());
     assert!(baseline_source(&root, "a.org", true).await.is_none());
-    assert!(!root.join(".sync/history/1.json").exists());
+    assert!(!root.join(".sync/history/1/summary").exists());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -2116,7 +2094,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     let remote = String::from_utf8(base.to_vec()).unwrap().replace("base", "remote");
     state.lock().unwrap().files.insert("a.org".into(), Remote {data:remote.as_bytes().to_vec(),etag:"\"remote\"".into()});
     let conflict = sync(&mut repo, &policy, 2).await;
-    let original_history = tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap();
+    let original_history = tokio::fs::read(root.join(".sync/history/2/summary")).await.unwrap();
     let original_base = tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap();
     assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().notification_snapshot().await.iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
     let file = repo.file("a.org").await.unwrap();
@@ -2130,7 +2108,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     workspace.execute_task_operations(&group).await.unwrap();
     assert_eq!(state.lock().unwrap().requests.len(),count);
     assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(),remote.as_bytes());
-    assert_eq!(tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap(),original_history);
+    assert_eq!(tokio::fs::read(root.join(".sync/history/2/summary")).await.unwrap(),original_history);
     assert_eq!(tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap(),original_base);
     let notices=workspace.notification_snapshot().await;
     assert_eq!(notices,vec![crate::CoreNotification::SyncRequired]);
@@ -2142,7 +2120,7 @@ async fn discard_operations_preserve_fixed_history_and_require_sync_until_baseli
     sync(&mut repo,&policy,3).await;
     assert!(!crate::OrgWorkspace::start(vec![repo.clone()]).await.unwrap().notification_snapshot().await.iter().any(|notice| matches!(notice, crate::CoreNotification::SyncRequired)));
     assert!(crate::OrgWorkspace::start(vec![repo]).await.unwrap().notification_snapshot().await.is_empty());
-    assert_eq!(tokio::fs::read(root.join(".sync/history/2.json")).await.unwrap(),original_history);
+    assert_eq!(tokio::fs::read(root.join(".sync/history/2/summary")).await.unwrap(),original_history);
     worker.abort();tokio::fs::remove_dir_all(root).await.unwrap();
 }
 
@@ -2259,7 +2237,7 @@ async fn uploads_release_repository_lock_and_never_overwrite_newer_local_version
     assert_eq!(baseline_index(&root).await["local"], before["payload"]["local"]);
     assert_eq!(baseline_source(&root, "a.org", true).await.unwrap(), b"* TODO Original\n");
     assert_eq!(baseline_source(&root, "a.org", false).await.unwrap(), b"* TODO Upload this\n");
-    assert!(!root.join(".sync/history/2.json").exists());
+    assert!(!root.join(".sync/history/2/summary").exists());
     assert_eq!(state.lock().unwrap().files["a.org"].data, b"* TODO Upload this\n");
     let mut reader = OrgRepo::new(root.to_string_lossy().into_owned()).unwrap();
     reader.load::<WebDavSyncPolicy>().await.unwrap();

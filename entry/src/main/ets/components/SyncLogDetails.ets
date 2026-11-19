@@ -37,7 +37,7 @@ export struct SyncLogDetails {
 
   async openFile(file: CoreSyncFileRecord) {
     try {
-      if (!file.backup || file.outcome !== 'deleted') throw new Error('此记录没有可阅读的删除备份')
+      if (!file.path || !file.backup || file.outcome !== 'deleted') throw new Error('此记录没有可阅读的删除备份')
       await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/FileDetail',
         params: { repoId: this.repoId, syncId: this.syncId, path: file.path,
           repositoryName: this.repositoryName, backupTime: file.backup.modifiedAt, backupPath: file.backup.path } })
@@ -58,18 +58,18 @@ export struct SyncLogDetails {
   fileRow(file: CoreSyncFileRecord) {
     Row({ space: 8 }) {
       Column({ space: 3 }) {
-        Text(file.backup?.title || file.path).fontSize(15).fontColor(UiColor.text).maxLines(1)
+        Text(file.backup?.title || file.path || '文件路径未知').fontSize(15).fontColor(UiColor.text).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-        Text(file.path).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+        Text(file.path || '文件路径未知').fontSize(12).fontColor(UiColor.secondary).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
       }.layoutWeight(1)
       Text(syncLogFileOutcomeLabel(file)).fontSize(12).fontColor(this.color(file)).flexShrink(0)
-      if (file.backup && file.outcome === 'deleted') {
+      if (file.path && file.backup && file.outcome === 'deleted') {
         Image($r('app.media.ui_next')).width(16).height(16)
       }
     }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: 8, right: 8, top: 6, bottom: 6 })
       .accessibilityText(`${file.path}，${syncLogFileOutcomeLabel(file)}${file.backup && file.outcome === 'deleted' ? '，点击查看删除备份' : ''}`)
-      .onClick((): void => { if (file.backup && file.outcome === 'deleted') this.openFile(file) })
+      .onClick((): void => { if (file.path && file.backup && file.outcome === 'deleted') this.openFile(file) })
   }
 
   build() {

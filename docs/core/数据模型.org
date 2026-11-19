@@ -571,7 +571,7 @@ pub struct OrgRepoWriteIntent {
 
 ~OrgRepoSyncRecord.trigger_reason~ 保存本轮调用的触发原因，独立于策略和执行结果；新完成记录均由仓库服务写入 ~Some~ ，失败、取消和中断记录同样保留。旧 JSON 缺失该字段时读取为 ~None~ ，不推断或补写原因，列表摘要与详情保持一致。
 
-~OrgRepoSyncFileRecord~ 记录一次同步中一个相对路径的结果。WebDAV 成功文件在 ~detail.synced_source~ 中保存完整同步后文件快照；其他元数据、错误摘要与 outbox 不保存正文，所有记录均不保存绝对路径、远端 URL、认证 header 或配置凭据。
+~OrgRepoSyncFileRecord~ 记录一次同步中一个相对路径的结果。WebDAV 运行结果通过 ~detail.synced_source~ 携带完整同步后文件快照；新历史写入时提取为独立原文并保存 source_hash，显式完整读取时才重新装配；其他元数据、错误摘要与 outbox 不保存正文，所有记录均不保存绝对路径、远端 URL、认证 header 或配置凭据。
 
 #+begin_src rust
 pub struct OrgRepoSyncRecord<C, F> {
@@ -2080,4 +2080,21 @@ Trash 与 Restore 的持久来源属性统一使用 ~SOURCE_~ 前缀。原节点
 \umlclass[x=0,y=0]{FilterTask}{reminder\_at : Option<TimestampMs>}{reminder\_at()}
 \umlclass[x=7,y=0]{TaskModification}{SetReminder(Option<TimestampMs>)}{}
 \umldep{TaskModification}{FilterTask}
+\end{tikzpicture}
+
+* 容错同步日志模型
+
+运行中 ~OrgRepoSyncRecord~ 仍保持严格类型。持久化读取使用 ~SyncLogData~ ，各个 JSON 字段独立转为 Option；字符串原因不复用请求枚举，旧来源不会让其他字段失效。summary 的名值对也装入同一结构。 ~SyncLogRecord.key~ 是记录定位身份，内部 time 是目录时间，不冒充已校验的 started_at； ~issues~ 保存来源路径、可选字段名与中文诊断。 ~SyncLogDetail~ 保存摘要及独立文件结果，不包含原文。详细字段与限制见 [[file:同步历史兼容与恢复方案.org][同步日志拆分与容错读取方案]]。
+
+~SyncLogData~ 的 id/kind/result/execution_result/trigger_reason/event、relative_path/action/state/outcome/source_hash 为可选文本；started_at/finished_at 为可选毫秒时间；file_count/downloaded_count/uploaded_count/conflict_count 为可选 usize；conflicts 为可选路径数组；local_version 为可选 LocalFileVersion；detail/error/context_detail 为可选 JSON 值。未知业务枚举值记为不可用并产生诊断，非必要来源保留原值。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{SyncLogRecord}{key: String \\ data: SyncLogData \\ issues: SyncLogIssue[]}{ }
+\umlclass[x=8,y=0]{SyncLogData}{times / results / counts: Option \\ reason / event / file fields: Option \\ detail / error / context: Option}{from json() \\ file outcome()}
+\umlclass[x=0,y=-4]{SyncLogIssue}{path: String \\ field: Option of String \\ message: String}{ }
+\umlclass[x=8,y=-4]{SyncLogDetail}{summary: SyncLogRecord \\ files: SyncLogRecord[]}{ }
+\umlcompo{SyncLogRecord}{SyncLogData}
+\umlcompo{SyncLogRecord}{SyncLogIssue}
+\umlcompo{SyncLogDetail}{SyncLogRecord}
 \end{tikzpicture}

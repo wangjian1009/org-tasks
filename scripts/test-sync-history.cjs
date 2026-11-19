@@ -125,3 +125,27 @@ test('展示六类持久化文件状态及本地上传状态', () => {
     assert.equal(presentation.syncLogFileOutcomeLabel({ outcome }), label);
   }
 });
+
+
+test('旧来源和不完整字段按未知展示，不伪造成功、零值或无变化', () => {
+  const incomplete = { id: 'broken', started_at: null, executionResult: null, transfer: null,
+    files: null, downloadedFiles: null, uploadedFiles: null, conflicts: [], conflictCount: null,
+    incomplete: true, triggerReason: 'futureReason' };
+  assert.equal(presentation.syncLogTimeLabel(null), '时间未知');
+  assert.equal(presentation.syncLogResultLabel(incomplete), '执行结果未知');
+  assert.equal(presentation.syncLogTransferLabel(incomplete), '传输信息未知');
+  assert.equal(presentation.syncLogErrorLabel(incomplete), '日志记录不完整');
+  assert.equal(presentation.syncLogConflictLabel(incomplete), '冲突数量未知');
+  assert.equal(presentation.syncLogTriggerLabel(incomplete), '未知触发原因');
+  assert.equal(presentation.syncLogTriggerLabel({ triggerReason: 'appStartup' }), '应用启动');
+  assert.equal(presentation.syncLogTriggerLabel({ triggerReason: 'appBackground' }), '退到后台');
+  assert.equal(presentation.syncLogFileOutcomeLabel({ outcome: null }), '状态未知');
+  assert.deepEqual(presentation.visibleSyncLogs([{ ...incomplete, transfer: 'unchanged', executionResult: 'succeeded' }], false).map(item => item.id), ['broken']);
+});
+
+test('历史缺少安全文件路径时禁止打开备份', async () => {
+  const f = fixture('SyncLogDetails');
+  await f.view.openFile({ path: null, outcome: 'deleted', backup: { path: 'a.org' } });
+  assert.equal(f.routes.length, 0);
+  assert.equal(f.toasts.length, 1);
+});

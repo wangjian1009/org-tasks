@@ -2,14 +2,15 @@ import { CoreSyncRecord, CoreSyncFileRecord } from '../services/NativeCoreServic
 
 export function syncLogTransferLabel(record: CoreSyncRecord): string {
   switch (record.transfer) {
-    case 'download': return record.downloadedFiles > 0 ? `下载${record.downloadedFiles}个文件` : '有下载'
-    case 'upload': return record.uploadedFiles > 0 ? `上传${record.uploadedFiles}个文件` : '有上传'
+    case 'download': return (record.downloadedFiles ?? 0) > 0 ? `下载${record.downloadedFiles}个文件` : '有下载'
+    case 'upload': return (record.uploadedFiles ?? 0) > 0 ? `上传${record.uploadedFiles}个文件` : '有上传'
     case 'bidirectional': {
-      const download = record.downloadedFiles > 0 ? `下载${record.downloadedFiles}` : '有下载'
-      const upload = record.uploadedFiles > 0 ? `上传${record.uploadedFiles}` : '有上传'
+      const download = (record.downloadedFiles ?? 0) > 0 ? `下载${record.downloadedFiles}` : '有下载'
+      const upload = (record.uploadedFiles ?? 0) > 0 ? `上传${record.uploadedFiles}` : '有上传'
       return `${download}/${upload}`
     }
-    default: return record.files > 0 ? `${record.files}个文件无变化` : '无变化'
+    case 'unchanged': return record.files === null ? '文件数量未知' : record.files > 0 ? `${record.files}个文件无变化` : '无变化'
+    default: return '传输信息未知'
   }
 }
 
@@ -18,17 +19,20 @@ export function syncLogResultLabel(record: CoreSyncRecord): string {
     case 'succeeded': return '执行成功'
     case 'failed': return '执行失败'
     case 'cancelled': return '已取消'
-    default: return '已中断'
+    case 'interrupted': return '已中断'
+    default: return '执行结果未知'
   }
 }
 
 export function syncLogConflictLabel(record: CoreSyncRecord): string {
-  if (record.conflicts.length > 0) return `冲突 ${record.conflicts.length}`
-  return ''
+  const count = record.conflictCount ?? record.conflicts.length
+  if (count > 0) return `冲突 ${count}`
+  return record.conflictCount === null ? '冲突数量未知' : ''
 }
 
 export function syncLogErrorLabel(record: CoreSyncRecord): string {
   if (record.errorMessage && record.errorMessage.trim().length > 0) return record.errorMessage.trim()
+  if (record.incomplete) return '日志记录不完整'
   if (record.executionResult !== 'failed') return ''
   switch (record.errorCategory) {
     case 'Network': return '网络失败'
@@ -40,7 +44,8 @@ export function syncLogErrorLabel(record: CoreSyncRecord): string {
   }
 }
 
-export function syncLogTimeLabel(timestamp: number, compact: boolean = false): string {
+export function syncLogTimeLabel(timestamp: number | null, compact: boolean = false): string {
+  if (timestamp === null || timestamp === undefined) return '时间未知'
   const date = new Date(timestamp)
   if (isNaN(date.getTime())) return '时间未知'
   const pad = (value: number): string => value.toString().padStart(2, '0')
@@ -50,7 +55,7 @@ export function syncLogTimeLabel(timestamp: number, compact: boolean = false): s
 
 export function visibleSyncLogs(records: CoreSyncRecord[], showUnchanged: boolean): CoreSyncRecord[] {
   return showUnchanged ? records : records.filter((record: CoreSyncRecord) =>
-    record.transfer !== 'unchanged' || record.executionResult !== 'succeeded' || record.conflicts.length > 0)
+    record.transfer !== 'unchanged' || record.executionResult !== 'succeeded' || record.conflicts.length > 0 || record.incomplete || record.conflictCount === null)
 }
 
 export function syncLogRenderKey(record: CoreSyncRecord): string {
@@ -62,7 +67,9 @@ export function syncLogTriggerLabel(record: CoreSyncRecord): string {
     case 'remoteChanged': return '远端变化'
     case 'localChanged': return '本地变化'
     case 'manual': return '手动同步'
-    default: return '未记录触发原因'
+    case 'appStartup': return '应用启动'
+    case 'appBackground': return '退到后台'
+    default: return record.triggerReason ? '未知触发原因' : '未记录触发原因'
   }
 }
 
@@ -84,6 +91,7 @@ export function syncLogFileOutcomeLabel(file: CoreSyncFileRecord): string {
     case 'conflict': return '冲突'
     case 'failed': return '执行失败'
     case 'skipped': return '已跳过'
-    default: return '无变化'
+    case 'unchanged': return '无变化'
+    default: return '状态未知'
   }
 }

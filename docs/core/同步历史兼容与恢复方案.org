@@ -1,0 +1,166 @@
+#+TITLE: 同步日志拆分与容错读取方案
+#+DATE: 2026-11-19
+#+LANGUAGE: zh-CN
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
+
+* 范围与当前问题
+
+本文定义已实施的日志存储与读取契约：拆分整轮与单文件同步日志；每轮保存一个按行读取的 summary，第一行是时间；日志使用独立的可选字段结构加载，业务兼容非必要字段；执行新同步不解析完整旧历史。
+
+当前真机日志确认同步失败，但尚未取得具体历史文件，不能断言现场文件损坏。代码已发现并复现兼容缺口：提交 ~0e0a0df7~ 将请求原因从 ~AppStartup / AppBackground / Manual~ 改为 ~RemoteChanged / LocalChanged / Manual~ ，历史字段仍直接复用这个枚举。JSON 语法完全合法的旧 appStartup、appBackground 也会反序列化失败，并统一显示“同步历史 JSON 无效”。
+
+当前同步入口为选择开始时间和检查重复 ID，会在网络处理前加载全部历史，因此一个旧展示字段就可能阻断整个仓库。新方案将日志展示与同步状态明确分开：remote_base、工作文件、outbox 和必要事务恢复继续决定同步，历史日志不作为状态基线。
+
+* 分开存储整轮摘要与文件结果
+
+#+begin_example
+.sync/history/
+├── <started-at>/
+│   ├── summary
+│   ├── context.json               # 策略上下文，完整导出时按需读取
+│   ├── conflicts/path/to/A.org/A.org
+│   ├── deleted/path/to/A.org/A.org
+│   └── files/<file-key>/
+│       ├── record.json
+│       └── A.org
+└── <legacy-started-at>.json        # 旧记录保留兼容只读
+#+end_example
+
+每轮的 summary 只保存时间、实际执行结果、传输数量及必要的整轮错误，不包含所有文件的记录数组或正文。每个文件的结果和原文独立保存，按需打开；文件损坏仅产生该文件记录的问题，不抹去其他文件或整轮仍可读取的字段。
+
+~file-key~ 使用安全相对路径原始 UTF-8 字节的 SHA-256，record.json 内保留原相对路径，读取时核对目录键与记录路径。这样源文件名不会与 record.json 等控制文件名冲突，真实原文仍保留 A.org 的原始文件名。冲突与删除备份继续使用原有 conflicts／deleted 布局，新写入和旧读取均不移动这些快照。普通已同步正文从 record.json 的 detail.synced_source 提取为独立原文，source_hash 用于校验；context.json 保留泛型策略上下文，不参与日志列表读取。
+
+零文件、远端列举失败或处理前取消时也保存 summary，不能因为没有文件结果就丢失整轮事件。摘要中的计数由本轮实际处理结果计算，只表示已确认的数量，不从文件总数猜测传输方向。
+
+* summary 格式
+
+summary 使用 UTF-8，每个逻辑字段独占一行。第一行固定是 ~started_at=<Unix 毫秒时间戳>~ ，保证首先可以取得本轮时间；第二行声明格式版本，其余名值对顺序固定写入、读取时按名称识别。
+
+#+begin_example
+started_at=1795100400000
+format_version=1
+sync_id=webdav-<repo-id>-1795100400000
+kind=webdav
+finished_at=1795100401250
+result=succeeded
+file_count=4
+downloaded_count=1
+uploaded_count=0
+conflict_count=0
+trigger_reason=remoteChanged
+#+end_example
+
+失败可以追加 ~error_category=network~ 与脱敏的 ~error_message~ 。启动事件、启动原因等元数据可以作为独立可选字段，不能成为读取整条日志或执行同步的前提；没有实际值时省略，不能以空字符串代替缺失数字或执行结果。
+
+具体编码规则如下：
+
+- 每行按第一个 ASCII 等号拆分名称和值，值内的其他等号保持原样。
+- 字段名使用小写 ASCII 与下划线。空行忽略，未知字段保留为扩展数据或略过，不使整个摘要失败。
+- 值中反斜线、换行、回车、制表符分别编码为 ~\\~ 、 ~\n~ 、 ~\r~ 、 ~\t~ ，不允许真实换行把一条消息拆成其他字段。此格式不调用 JSON 反序列化。
+- 写入采用 LF 并保留末尾换行；读取接受 LF 与 CRLF。每行只解析一次，限制单行长度和摘要总大小，避免异常日志占用过多内存。
+- 同一已知字段重复时记为歧义，该字段取 ~None~ ，不猜测取第一项或最后一项。错误的转义、类型或范围也只使对应字段不可用。
+- 第一行时间缺失、非法或与目录时间不一致时生成诊断；其他行仍继续读取。列表可用已校验的目录时间排序，但必须区分“目录定位时间”和“日志字段已验证时间”，不静默改写原文件。
+
+逐行读取采用按换行字节分割后分别校验 UTF-8，使某一行非法编码不会让后续合法行也无法读取。超限行跳过并继续消耗到下一换行，不把半行当作有效字段。字段级损坏需要明确标记；这种容错用于日志展示，不用于事务 journal 或基线读取。
+
+* 统一的数据结构与字段级容错
+
+定义独立的日志数据结构 ~SyncLogData~ ，不直接反序列化为本次请求或运行中的严格领域对象。summary 的名值对和单文件 JSON 均加载到这个结构，各自使用需要的字段：
+
+#+begin_src rust
+pub struct SyncLogData {
+    pub id: Option<String>,
+    pub kind: Option<String>,
+    pub started_at: Option<TimestampMs>,
+    pub finished_at: Option<TimestampMs>,
+    pub result: Option<String>,
+    pub file_count: Option<usize>,
+    pub downloaded_count: Option<usize>,
+    pub uploaded_count: Option<usize>,
+    pub conflict_count: Option<usize>,
+    pub trigger_reason: Option<String>,
+    pub event: Option<String>,
+    pub relative_path: Option<String>,
+    pub action: Option<String>,
+    pub state: Option<String>,
+    pub outcome: Option<String>,
+    pub local_version: Option<LocalFileVersion>,
+    pub detail: Option<serde_json::Value>,
+    pub error: Option<serde_json::Value>,
+}
+#+end_src
+
+字段不存在、为 null、类型不符或无法解析时，读取结果均可为 ~None~ ，同时记录对应字段的问题。业务层负责判断某项展示或操作是否仍然有足够数据，不能由一个字段反序列化失败拒绝全部兄弟字段。读取诊断另带仓库、来源路径、行号或字段路径与错误代码；不把“缺失”与“损坏”都静默掩盖成空值。
+
+仅把现有字段改成 Option 并加 serde default 不足以实现这一点：字段存在但类型错误时，普通派生 Deserialize 仍会失败。JSON 加载必须先取得语法树，再逐字段进行独立转换，或使用等价的自定义字段解码器，将转换错误收集为诊断而非向整份文档传播。
+
+单文件 JSON 的 detail/error 进一步使用容错访问器逐个读取业务字段；无效的局部值不能使已读取的路径、动作等字段消失。旧整体 JSON 的 files 先作为原始数组读取，再逐项加载；一个元素错误不能丢掉其他合法文件记录。
+
+非法或截断的 JSON 在语法层面没有完整结构，不能承诺恢复全部字段。此时保留原件，将该文档标记为不可读；其他独立文件仍可展示，新同步不因此读取或解释它。不得通过补括号等方式猜测并写回损坏日志。
+
+* 业务字段分级
+
+| 字段或能力 | 不可用时的处理 |
+|-
+| 启动事件、trigger_reason 等展示元数据 | 省略来源或显示未知来源，不阻断同步或其他日志字段 |
+| 旧 appStartup / appBackground 字符串 | 可显示应用启动／退到后台的旧含义，不映射为确有远端／本地修改 |
+| result、结束时间、传输数量 | 分别显示未知／未记录，不伪造成功、零文件或零传输 |
+| 文件路径、原文定位、hash | 仍展示可读元数据，但禁止执行依赖该字段的原文打开或校验，返回准确原因 |
+| 新请求的原因、必需输入 | 继续严格校验，不因历史容错而接受未知请求语义 |
+| remote_base、sync 标记、事务恢复材料 | 沿用严格校验，不能套用日志字段 Optional 策略 |
+
+持久化原因按原始字符串读取，当前三个原因与已知旧原因由业务展示层映射，未知字符串只影响来源说明。无需为了兼容一个非必要的历史原因去放宽 SyncOptions，也不需要把旧历史改写成新的原因。
+
+新写入仍由已经验证的本轮结果生成，必需字段要齐全；读取侧的 Optional 不意味着允许新版本主动写入缺少关键结果的日志。
+
+* 新同步不读取完整历史
+
+同步受理只执行以下必要步骤：
+
+1. 取得仓库和同步存活锁，完成现有恢复与身份校验。
+2. 通过 history 的文件名／目录名取得已占用的时间戳；兼容旧的时间戳 JSON 文件及新的每轮目录，不解析其正文。
+3. 在仓库锁内检查时间占用并创建带独占存活租约的本轮会话；正式发布前再次确认目标不存在。Core 按 kind、仓库 ID、时间生成完成记录 ID；时间冲突时拒绝显式时间，自动时间在最大占用时间之后分配，不覆盖旧日志。
+4. 加载当前基线、工作文件及 outbox，执行本轮同步。
+5. 将本轮文件日志、摘要和必要原文可靠落盘；读取旧历史失败不进入这条执行依赖链。
+
+第一行时间用于按需快速取得摘要时间、校验和展示，不要求每次同步打开所有旧 summary。当前方案只扫描已占用的目录名；因此每次同步仍有一次 history 目录枚举，复杂度随轮次数量增长；若以后历史数量很大，再评估独立的运行身份分配状态，不能让可损坏的展示日志重新成为同步前提。
+
+同步期间仍需读取现存事务 journal、会话状态与基线，它们是恢复和合并依据，不属于可选历史日志。历史损坏不阻断新同步，与本轮历史写入失败的处理不同：要求原子提交的本轮日志写入失败仍需按事务边界返回失败，不能先报告成功。
+
+* 查询、发布与兼容
+
+日志列表逐轮按需读取 summary；展开某轮时枚举其文件日志，打开原文时再取得对应快照。单字段或单文件存在问题时返回可读数据及诊断，UI 可标记记录不完整，不能隐藏问题或把未知计数算作零。整轮真实执行结果来自 summary 的已记录值，不从几个可读文件猜测整轮成功。
+
+summary 和文件日志在正式发布后不可变。成功的工作文件、本地合并进度、outbox、文件结果与 summary 继续统一事务提交；失败、取消等无工作文件提交的记录也使用同一可恢复事务发布 context.json、文件记录及 summary。未完成的同步由会话恢复决定，不能把半写摘要当成已完成业务事实。
+
+旧 ~history/<started-at>.json~ 不要求启动时全量迁移。打开旧历史时经容错结构只读加载；合法旧字段得到兼容，无法解析的文档返回诊断。本轮新日志直接使用新布局，旧文件和原文快照保留。不得为了恢复同步而重置仓库、删除全部历史、基线或 outbox。
+
+此方案替代此前“先给历史原因增加严格枚举，再增加隔离接口”的提案。第一目标是让日志可选字段不再阻断同步，显式的日志导出／隔离可以后续独立设计，不作为正常升级后的前置操作。
+
+* 验收与接口影响
+
+- 旧 appStartup、appBackground 和未知来源字符串均能读取其他字段，不改写旧 JSON。
+- JSON 任一字段类型错误只影响该字段，files 内一个元素无效不影响其他元素；语法损坏产生文档诊断。
+- summary 第一行时间固定，转义、CRLF、超限、重复字段、非法 UTF-8 行及未知字段均有明确行为。
+- 只有一个历史文档损坏时，新同步仍可受理；开始时间／ID 不覆盖已有记录。
+- 零文件、列举失败与取消仍发布 summary，历史文件数不再等价于实际传输数。
+- 摘要或单文件历史损坏不影响当前基线；必要恢复材料损坏仍阻断，不能绕过。
+- 原文定位或 hash 缺失时拒绝打开对应原文，不用其他版本冒充。
+- 模拟器与真机验证同步恢复、旧历史可读、新布局完整以及重启后的不可变记录。
+
+Core 已提供 sync_log_summaries 与 sync_log_detail，Harmony 历史接口已切换到这两个容错入口；原有完整 sync_history／webdav_history 保留为显式严格读取能力。运行中同步结果与请求仍由严格类型表达。UI 在现有日志行和错误区域显示未知值、记录不完整及字段诊断，不增加页面或阅读入口。现场数据只通过兼容读取使用，不执行批量迁移或重置。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{SyncExecution}{baseline / working / outbox}{分配本轮身份 / 同步 / 提交}
+\umlclass[x=8,y=0]{Summary}{首行时间 / 名值对}{逐行加载}
+\umlclass[x=0,y=-4]{FileLog}{每文件结果与原文}{按需读取}
+\umlclass[x=8,y=-4]{SyncLogData}{optional fields / issues}{业务分级处理}
+\umldep{SyncExecution}{Summary}
+\umldep{SyncExecution}{FileLog}
+\umluniassoc{Summary}{SyncLogData}
+\umluniassoc{FileLog}{SyncLogData}
+\end{tikzpicture}

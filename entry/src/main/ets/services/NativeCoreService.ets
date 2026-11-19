@@ -149,6 +149,7 @@ export type CoreTaskQuery = NativeTaskQuery
 // fullFiles 只随单次查询或订阅初始结果返回，由调用方消费。
 export type CoreTaskQueryResult = NativeTaskQueryResult
 
+// 历史可选字段和读取诊断原样传递，由展示层区分未知与零值。
 export type CoreSyncRecord = NativeSyncRecord
 export type CoreSyncRecordDetail = NativeSyncRecordDetail
 export type CoreNotificationUpdateMonitor = NativeNotificationUpdateMonitor

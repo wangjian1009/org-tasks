@@ -1253,6 +1253,7 @@ void ExecuteRepoSnapshot(napi_env, void* data)
             work->response = TakeRustString(org_tasks_harmony_repo_load_files(
                 work->workspace_handle, work->root_directory.c_str(), work->task_json.c_str()));
             break;
+        // 保留 Core 历史容错投影中的 null 与 issues，不在 bridge 重建严格日志。
         case RepoSnapshotWork::Operation::History:
             // 透传 Core 的执行结果、传输方向与冲突摘要，继续在 worker 内读取历史。
             work->response = TakeRustString(org_tasks_harmony_repo_history(

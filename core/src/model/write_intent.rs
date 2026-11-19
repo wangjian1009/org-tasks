@@ -273,7 +273,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(root.join(".sync/history/2.json").exists());
+        assert!(root.join(".sync/history/2/summary").exists());
         assert!(repo.pending_writes().await.unwrap().is_empty());
         fs::remove_dir_all(root).await.unwrap();
     }

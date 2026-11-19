@@ -23,7 +23,8 @@ export struct SyncLogItem {
       case 'download': return $r('app.media.ui_sync_download')
       case 'upload': return $r('app.media.ui_sync_upload')
       case 'bidirectional': return $r('app.media.ui_sync_bidirectional')
-      default: return $r('app.media.ui_sync_unchanged')
+      case 'unchanged': return $r('app.media.ui_sync_unchanged')
+      default: return $r('app.media.ui_sync_stopped')
     }
   }
 

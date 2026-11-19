@@ -33,9 +33,15 @@
     │           ├── A.org               # 完整正文；删除时不存在
     │           └── A.org.meta.json     # 同级保存 ETag、hash、长度与删除状态
     ├── history/
-    │   ├── <started-at>.json
-    │   └── <started-at>/conflicts/path/to/A.org/
-    │       └── A.org                    # 本轮实际上传的完整结果，不再追加解决结果
+    │   ├── <legacy-started-at>.json      # 旧记录只读兼容
+    │   └── <started-at>/
+    │       ├── summary                  # 首行 started_at，逐行名值对
+    │       ├── context.json
+    │       ├── files/<path-sha256>/
+    │       │   ├── record.json
+    │       │   └── A.org
+    │       ├── conflicts/path/to/A.org/A.org
+    │       └── deleted/path/to/A.org/A.org
     ├── outbox/<uuid>.json
     ├── transactions/<uuid>/
     │   ├── journal.json
@@ -202,9 +208,11 @@
 
 * 历史记录与恢复
 
-~history/<started-at>.json~ 是不可变完成记录，包含执行结果、文件动作、状态、脱敏错误及实际确认的完整 ~synced_source~ 。版本 4 的 Conflict 文件同样可能已经上传，应按实际动作计入传输数量。普通文件通过历史正文阅读；含冲突的文件额外保存目录快照，正文 hash 与记录相符。
+每轮日志由 ~history/<started-at>/summary~ 、 ~context.json~ 和 ~files/<path-sha256>/record.json~ 组成，原文独立保存。summary 第一行固定为 ~started_at=<Unix 毫秒时间戳>~ ，其后按行保存名值对。成功、失败与取消均通过事务发布，零文件也有摘要。格式、字段独立解码及兼容细节见 [[file:同步历史兼容与恢复方案.org][同步日志拆分与容错读取方案]]。
 
-读取只接受正式普通 JSON，校验开始时间、记录 ID 唯一性、类型与版本；不能跳过损坏记录后猜测当前状态。当前基线由 remote_base 决定，历史不与索引争夺优先级。
+新同步只枚举历史文件／目录名分配时间，不读取旧正文；Core 完成记录 ID 由 kind、仓库 ID 和本轮时间确定。列表读取 summary，展开后读取对应文件记录，打开原文只校验对应路径和 hash。单个旧字段或文档损坏产生读取诊断，不阻断新同步，不改写旧日志。旧 ~history/<started-at>.json~ 按需容错读取；显式完整导出仍严格要求操作必需字段。
+
+日志加载使用独立的 ~SyncLogData~ 可选字段，不复用请求原因枚举；旧 appStartup、appBackground 及未知原因可保留。基线、事务 journal、会话状态和恢复材料继续严格校验，当前版本由 remote_base 决定。普通正文按独立 source_hash 校验；冲突及删除备份保持原有目录与 hash 契约。
 
 ** 历史直接保存文件结果
 

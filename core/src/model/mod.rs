@@ -27,6 +27,8 @@ mod render;
 pub(crate) mod reset;
 pub(crate) mod service;
 pub(crate) mod sync_events;
+pub(crate) mod sync_log;
+pub use sync_log::{SyncLogData, SyncLogRecord, SyncLogDetail, SyncLogIssue};
 mod tags;
 pub(crate) mod task_identity;
 mod task_inline;

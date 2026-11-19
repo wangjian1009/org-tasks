@@ -479,7 +479,7 @@ pub fn serialize_file(file: &OrgFile) -> &[u8];
 
 *** SyncPolicy 与本地同步历史
 
-~SyncPolicy~ 是同步策略接口，使用 ~KIND~ 标识历史所属策略，并包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现该接口。 ~OrgRepo.load::<P>~ 从 ~.sync/history/~ 恢复并返回完成记录，拒绝 ~kind~ 与 ~P::KIND~ 不一致的记录； ~OrgRepo.sync~ 在接受策略返回的完成记录后，将其原子写入 ~.sync/history/<started-at>.json~ 。历史归 ~OrgRepo~ 管理； ~sync~ 每次自行从本仓库恢复最新历史，控制器不缓存历史，宿主不向两者传递历史。 ~SyncPolicy.synchronize~ 只接收 ~SyncContext~ 、取消信号和进度对象；策略需要历史时通过上下文仓库的内部历史接口读取。远端正文和对应 ETag 先保存到不可变基线目录，再原子发布；本地工作文件由后续合并事务提交。
+~SyncPolicy~ 使用 ~KIND~ 标识策略，包含 ~ContextDetail~ 与 ~FileDetail~ 两个关联类型； ~core::webdav::WebDavSyncPolicy~ 实现此接口。 ~OrgRepo.load::<P>~ 只恢复稳定身份，不读历史。 ~OrgRepo.sync~ 在锁内枚举占用时间、创建本轮会话，接受策略完成结果后由 Core 统一分配记录 ID，通过事务发布 summary、context 与逐文件记录。控制器不缓存历史，宿主不传入历史。策略需要历史时仍可显式调用上下文仓库的严格读取能力；WebDAV 的版本与合并使用 remote_base，不依赖历史展示字段。远端正文及对应 ETag 先独立发布，本地工作文件由后续合并事务提交。
 
 ~synchronize~ 返回的是交由仓库提交的结果，不能提前发布持久化完成事件。 ~OrgRepo.sync~ 在完成记录及对应本地事务持久化、仓库锁释放后更新 ~Finished~ 进度，再调用默认无操作的 ~on_record_persisted~ 。WebDAV 在该回调中发送完成事件；回调只接收不可变记录，不返回提交错误。提交失败不调用此回调、不发布成功事件。
 
@@ -935,6 +935,14 @@ pub struct TaskRestore { pub path: TaskPath }
 ~TaskQuery.include_files~ 与 ~exclude_files~ 均为 ~Vec<OrgFileRef>~ ，每项包含 Core 稳定仓库 ID 与安全相对 ~path~ 。非空包含集合限定可读取文件，空包含集合表示不限制，然后减去排除集合；同时配置合法，排除优先。空 ID、未知仓库或非法路径返回输入错误。旧 ~excludedFiles~ 字段和表达式 ~b.文件~ 、 ~.b.文件~ 不再支持，返回输入错误；查询文件必须使用 JSON 的 ~includeFiles~ 与 ~excludeFiles~ 。扫描阶段只读取同批至少一个查询需要的文件，不读取无关文件正文，也不解析其 UTF-8 或 Org。
 
 创建日期筛选通过 ~TaskQuery.expression~ 表达，不新增时间范围字段。 ~FilterTask.created()~ 与 ~created_at()~ 从任务自身的 ~CREATED~ 属性投影；缺失或非法值不匹配 ~cr.ge.-2d cr.le.today~ 。该表达式覆盖今天及前两个本地自然日，而非滚动 72 小时。完整时刻排序通过 ~o.created~ 或 ~.o.created~ 取得；日内时间用于排序和展示投影，不改变自然日筛选边界。所有能力继续通过 ~OrgWorkspace.query~ 暴露。
+
+* 容错同步日志读取
+
+~OrgRepo.sync_log_summaries().await -> Result<Vec<SyncLogRecord>, CoreError>~ 按目录时间升序返回历史摘要；新日志仅读取逐行 summary，不加载 context、文件 JSON 或原文。旧整体 JSON 只在查询旧日志时解析。 ~sync_log_detail(id).await -> Result<SyncLogDetail, CoreError>~ 返回该轮摘要和独立文件记录，文件字段／语法损坏返回诊断与可读兄弟字段。两者通过既有仓库访问锁完成必要恢复。
+
+~SyncLogRecord { key, data, issues }~ 的 key 为可验证的记录身份；缺失原 ID 时采用 ~history-<目录时间>~ 定位。 ~SyncLogData~ 将时间、结果、数量、原因、文件路径、动作、状态及 detail/error 等字段独立加载为 Option；缺失和无效值不能当作成功或零数量。 ~SyncLogIssue { path, field, message }~ 标识读取问题。 ~SyncLogData.file_outcome()~ 由 Core 兼容旧动作和状态，必要字段不可用时返回 None。具体模型与内嵌 UML 见 [[file:数据模型.org::*容错同步日志模型][容错同步日志模型]]。
+
+~OrgRepo.history_file(sync_id, path, resolved).await~ 直接定位并验证对应文件原文，不要求其他文件日志完整；缺少安全路径、原文或必要 hash 时拒绝读取。 ~history_file_metadata(sync_id, path).await -> Result<OrgFileMetadata, CoreError>~ 读取同一已校验原文的元信息，修改时间取本轮完成时间，供删除备份展示。旧显式完整 ~sync_history~ 、 ~webdav_history~ 及严格摘要接口仍要求必需字段完整，不是新同步的前置依赖。新历史布局及不可变边界见 [[file:同步历史兼容与恢复方案.org][日志存储契约]]。
 
 * WebDAV 同步历史摘要
 

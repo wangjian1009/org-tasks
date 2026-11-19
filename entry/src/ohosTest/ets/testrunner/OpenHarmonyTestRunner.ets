@@ -118,6 +118,20 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     if (pageData) { config.memoRepoId = 'today-simulator-qa'; config.memoFile = 'memo.org' }
     if (notificationWebDav || projectData) config.todoDefaults = '#+TODO: TODO INPROGRESS | DONE'
     await AppConfigService.save(context, config)
+    if (abilityDelegatorRegistry.getArguments().parameters['-s syncHistory'] === 'true') {
+      if (!notificationWebDav) throw new Error('同步历史验收需要隔离的 WebDAV 仓库')
+      const history = `${directory}/.sync/history`
+      await fs.mkdir(history, true)
+      const fixtures = [
+        '{"id":"legacy-startup","kind":"webdav","started_at":1795100400000,"finished_at":1795100401000,"result":"Succeeded","trigger_reason":"appStartup","context_detail":{},"files":[]}',
+        '{"id":"legacy-background","kind":"webdav","started_at":1795100402000,"finished_at":"bad","result":"Succeeded","trigger_reason":"appBackground","event":42,"files":[{"relative_path":"good.org","state":"Synchronized","action":"Downloaded"},{"relative_path":"bad.org","action":42}]}',
+        '{'
+      ]
+      for (let index = 0; index < fixtures.length; index++) {
+        const fixture = await fs.open(`${history}/${1795100400000 + index * 2000}.json`, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
+        try { await fs.write(fixture.fd, fixtures[index]); await fs.fsync(fixture.fd) } finally { await fs.close(fixture) }
+      }
+    }
     if (notificationWebDav) {
       const request = RepositorySyncService.start(context, { source: 'manual', policy: SyncStartPolicy.Wait })
       if (request.kind === 'rejected') throw new Error('数据准备同步未被接受')

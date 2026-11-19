@@ -139,23 +139,27 @@ pub struct HarmonyBridgeTask {
 pub struct HarmonyBridgeSync {
     pub id: String,
     #[serde(rename = "triggerReason")]
-    pub trigger_reason: Option<org_tasks_core::SyncTriggerReason>,
-    pub result: String,
-    pub started_at: TimestampMs,
+    pub trigger_reason: Option<String>,
+    pub result: Option<String>,
+    pub started_at: Option<TimestampMs>,
     pub finished_at: Option<TimestampMs>,
-    pub files: usize,
+    pub files: Option<usize>,
     #[serde(rename = "downloadedFiles")]
-    pub downloaded_files: usize,
+    pub downloaded_files: Option<usize>,
     #[serde(rename = "uploadedFiles")]
-    pub uploaded_files: usize,
+    pub uploaded_files: Option<usize>,
     pub conflicts: Vec<String>,
     #[serde(rename = "executionResult")]
-    pub execution_result: String,
-    pub transfer: org_tasks_core::webdav::WebDavSyncTransfer,
+    pub execution_result: Option<String>,
+    pub transfer: Option<org_tasks_core::webdav::WebDavSyncTransfer>,
     #[serde(rename = "errorCategory")]
     pub error_category: Option<org_tasks_core::OrgRepoSyncErrorCategory>,
     #[serde(rename = "errorMessage")]
     pub error_message: Option<String>,
+    #[serde(rename = "conflictCount")]
+    pub conflict_count: Option<usize>,
+    pub incomplete: bool,
+    pub issues: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -470,10 +474,16 @@ pub fn repo_reset(handle: u64, root_directory: String) -> Result<(), CoreError> 
 /// 读取仓库已完成的同步记录。历史由 core 从 `.sync/history` 恢复，宿主只接收展示投影。
 pub fn repo_history_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
-    let records = runtime(handle)?.block_on(workspace.read_repo(&root_directory, |repo| async move {
-        repo.history_summaries().await
-    }))?;
-    encode(&records.into_iter().map(bridge_sync_summary).collect::<Result<Vec<_>, CoreError>>()?)
+    let records =
+        runtime(handle)?.block_on(workspace.read_repo(&root_directory, |repo| async move {
+            repo.sync_log_summaries().await
+        }))?;
+    encode(
+        &records
+            .into_iter()
+            .map(bridge_log_summary)
+            .collect::<Vec<_>>(),
+    )
 }
 
 pub fn repo_history_detail_json(
@@ -483,21 +493,107 @@ pub fn repo_history_detail_json(
 ) -> Result<String, CoreError> {
     let workspace = workspace_for_handle(handle)?;
     let detail = runtime(handle)?.block_on(workspace.read_repo(&root_directory, move |repo| async move {
-        repo.history_detail(&sync_id).await
-    }))?;
-    encode(&HarmonyBridgeSyncDetail {
-        summary: bridge_sync_summary(detail.summary)?,
-        files: detail.files.into_iter().map(|file| {
-            let mut value = serde_json::to_value(&file).map_err(|_| CoreError::InvalidState("无法编码同步文件摘要"))?;
-            if let Some(backup) = file.backup {
-                value["backup"] = serde_json::to_value(file_metadata_snapshot(backup)).map_err(|_| CoreError::InvalidState("无法编码备份元信息"))?;
+        let detail = repo.sync_log_detail(&sync_id).await?;
+        let mut files = Vec::new();
+        let mut errors = Vec::new();
+        for entry in detail.files {
+            errors.extend(entry.issues.iter().map(bridge_log_issue));
+            let data = &entry.data;
+            let outcome = data.file_outcome();
+            if let Some(error) = &data.error {
+                if error["category"] != "Conflict" && let Some(message) = error["message"].as_str() {
+                    errors.push(org_tasks_core::webdav::WebDavSyncHistoryError {
+                        path: data.relative_path.clone(), message: message.into(),
+                    });
+                }
             }
-            Ok(value)
-        }).collect::<Result<Vec<_>, CoreError>>()?,
-        errors: detail.errors,
-    })
+            let mut backup = None;
+            if outcome == Some("deleted") && let Some(path) = &data.relative_path {
+                match repo.history_file_metadata(&sync_id, path).await {
+                    Ok(metadata) => backup = Some(file_metadata_snapshot(metadata)),
+                    Err(error) => errors.push(org_tasks_core::webdav::WebDavSyncHistoryError {
+                        path: Some(path.clone()), message: error.to_string(),
+                    }),
+                }
+            }
+            files.push(serde_json::json!({"path":data.relative_path,"outcome":outcome,"section":null,"backup":backup}));
+        }
+        errors.extend(detail.summary.issues.iter().map(bridge_log_issue));
+        let mut seen = std::collections::BTreeSet::new();
+        errors.retain(|error| seen.insert((error.path.clone(),error.message.clone())));
+        Ok(HarmonyBridgeSyncDetail {summary: bridge_log_summary(detail.summary),files,errors})
+    }))?;
+    encode(&detail)
 }
 
+fn bridge_log_issue(issue: &org_tasks_core::SyncLogIssue) -> org_tasks_core::webdav::WebDavSyncHistoryError {
+    org_tasks_core::webdav::WebDavSyncHistoryError {
+        path: Some(issue.path.clone()),
+        message: issue.field.as_ref().map(|field|format!("[{field}] {}",issue.message)).unwrap_or_else(||issue.message.clone()),
+    }
+}
+
+fn bridge_log_summary(entry: org_tasks_core::SyncLogRecord) -> HarmonyBridgeSync {
+    use org_tasks_core::webdav::WebDavSyncTransfer;
+    let data = entry.data;
+    let transfer = match (data.downloaded_count, data.uploaded_count) {
+        (Some(0), Some(0)) => Some(WebDavSyncTransfer::Unchanged),
+        (Some(0), Some(_)) => Some(WebDavSyncTransfer::Upload),
+        (Some(_), Some(0)) => Some(WebDavSyncTransfer::Download),
+        (Some(_), Some(_)) => Some(WebDavSyncTransfer::Bidirectional),
+        _ => None,
+    };
+    let incomplete = !entry.issues.is_empty()
+        || data.started_at.is_none()
+        || data.result.is_none()
+        || data.file_count.is_none()
+        || transfer.is_none();
+    let issues = entry
+        .issues
+        .into_iter()
+        .map(|issue| {
+            format!(
+                "{}{}: {}",
+                issue.path,
+                issue
+                    .field
+                    .map(|field| format!(" [{field}]"))
+                    .unwrap_or_default(),
+                issue.message
+            )
+        })
+        .collect();
+    let error_category = data
+        .error
+        .as_ref()
+        .and_then(|value| value.get("category"))
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok());
+    let error_message = data
+        .error
+        .as_ref()
+        .and_then(|value| value.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    HarmonyBridgeSync {
+        id: entry.key,
+        trigger_reason: data.trigger_reason,
+        result: data.result.clone(),
+        execution_result: data.execution_result.or(data.result),
+        started_at: data.started_at,
+        finished_at: data.finished_at,
+        files: data.file_count,
+        downloaded_files: data.downloaded_count,
+        uploaded_files: data.uploaded_count,
+        conflicts: data.conflicts.unwrap_or_default(),
+        conflict_count: data.conflict_count,
+        transfer,
+        error_category,
+        error_message,
+        incomplete,
+        issues,
+    }
+}
 pub fn repo_full_path_json(handle: u64, root_directory: String) -> Result<String, CoreError> {
     let session = workspace_for_handle(handle)?;
     let workspace = session;
@@ -750,16 +846,19 @@ fn bridge_sync_summary(
 ) -> Result<HarmonyBridgeSync, CoreError> {
     Ok(HarmonyBridgeSync {
         id: summary.id,
-        trigger_reason: summary.trigger_reason,
-        result: sync_result_label(Some(summary.result))?,
-        execution_result: sync_result_label(Some(summary.execution_result))?,
-        started_at: summary.started_at,
+        trigger_reason: summary.trigger_reason.map(|reason|serde_json::to_value(reason).expect("原因可序列化").as_str().unwrap().to_owned()),
+        result: Some(sync_result_label(Some(summary.result))?),
+        execution_result: Some(sync_result_label(Some(summary.execution_result))?),
+        started_at: Some(summary.started_at),
         finished_at: summary.finished_at,
-        files: summary.files,
-        downloaded_files: summary.downloaded_files,
-        uploaded_files: summary.uploaded_files,
+        files: Some(summary.files),
+        downloaded_files: Some(summary.downloaded_files),
+        uploaded_files: Some(summary.uploaded_files),
+        conflict_count: Some(summary.conflicts.len()),
         conflicts: summary.conflicts,
-        transfer: summary.transfer,
+        transfer: Some(summary.transfer),
+        incomplete: false,
+        issues: Vec::new(),
         error_category: summary.error_category,
         error_message: summary.error_message,
     })
@@ -1350,6 +1449,40 @@ mod tests {
             serde_json::from_str(&subscribed_notifications_json(handle).unwrap()).unwrap();
         assert_eq!(current.as_array().unwrap().len(), 2);
         assert_eq!(current, notices);
+        release_workspace(handle);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_history_preserves_legacy_reasons_and_nullable_fields_with_diagnostics() {
+        let root = std::env::temp_dir().join(format!("org-history-tolerant-{}", std::process::id()));
+        std::fs::create_dir_all(root.join(".sync/history")).unwrap();
+        let directory = root.to_string_lossy().to_string();
+        let handle = create_workspace().unwrap();
+        workspace_add_repo(handle, directory.clone()).unwrap();
+        let original = serde_json::to_vec(&serde_json::json!({
+            "id":"legacy", "kind":"webdav", "started_at":10, "finished_at":"bad",
+            "result":"Succeeded", "trigger_reason":"appStartup", "event":42,
+            "files":[{"relative_path":"good.org","action":"Downloaded","state":"Synchronized"},
+                     {"relative_path":"bad.org","action":false}]
+        })).unwrap();
+        std::fs::write(root.join(".sync/history/10.json"), &original).unwrap();
+        std::fs::write(root.join(".sync/history/20.json"), b"{").unwrap();
+        let history: serde_json::Value = serde_json::from_str(&repo_history_json(handle,directory.clone()).unwrap()).unwrap();
+        assert_eq!(history[0]["triggerReason"], "appStartup");
+        assert_eq!(history[0]["result"], "succeeded");
+        assert_eq!(history[0]["started_at"], 10);
+        for field in ["finished_at","files","downloadedFiles","uploadedFiles","conflictCount","transfer"] {
+            assert!(history[0][field].is_null(), "{field}");
+        }
+        assert_eq!(history[0]["incomplete"], true);
+        assert!(history[1]["result"].is_null());
+        assert_eq!(history[1]["id"], "history-20");
+        let detail: serde_json::Value = serde_json::from_str(&repo_history_detail_json(handle,directory,"legacy".into()).unwrap()).unwrap();
+        assert_eq!(detail["files"][0]["outcome"], "downloaded");
+        assert!(detail["files"][1]["outcome"].is_null());
+        assert!(detail["errors"].as_array().unwrap().iter().any(|error|error["message"].as_str().unwrap().contains("[finished_at]")));
+        assert_eq!(std::fs::read(root.join(".sync/history/10.json")).unwrap(), original);
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

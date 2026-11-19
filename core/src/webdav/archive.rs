@@ -253,24 +253,78 @@ impl OrgRepo {
         resolved: bool,
     ) -> Result<OrgFile, CoreError> {
         validate_path(path)?;
-        let history = self.webdav_history().await?;
-        let record = history
-            .iter()
-            .find(|r| r.id == sync_id)
-            .ok_or(CoreError::InvalidInput("同步记录不存在"))?;
-        let file = record
-            .files
-            .iter()
-            .find(|f| f.relative_path == path)
-            .ok_or(CoreError::InvalidInput("同步文件不存在"))?;
-        let bytes =
-            self.archive_bytes(record, file, resolved)
-                .await?
-                .ok_or(CoreError::InvalidState(
-                    "该日志未保存文件备份，无法打开历史内容",
-                ))?;
-        self.parse_file(archive_name(path, resolved)?, bytes)
+        let root = Path::new(&self.root_directory);
+        let _guard = crate::model::access::enter(root, &self.id).await?;
+        let record = crate::model::sync_log::locate(root, sync_id).await?;
+        let entry = crate::model::sync_log::selected_file(root, &record, path).await?;
+        let data = &entry.data;
+        let detail = data.detail.as_ref();
+        let deleted = detail
+            .and_then(|detail| detail.get("deleted_archive"))
+            .and_then(|value| value.get("content_hash"))
+            .and_then(serde_json::Value::as_str);
+        let archived = detail
+            .and_then(|detail| detail.get("archive"))
+            .and_then(|value| value.get("content_hash"))
+            .and_then(serde_json::Value::as_str);
+        let (bytes, hash) = if !resolved && deleted.is_some() {
+            let directory = safe_directory(
+                self,
+                &format!(".sync/history/{}/deleted/{path}", record.time),
+                false,
+            )
+            .await?;
+            let target = checked_file(directory.join(archive_name(path, false)?)).await?;
+            (optional_bytes(&target).await?, deleted.map(str::to_owned))
+        } else if !resolved && data.source_hash.is_some() {
+            let relative = format!(
+                "{}/{}",
+                crate::model::sync_log::file_root(record.time, path),
+                archive_name(path, false)?
+            );
+            (
+                crate::webdav::transaction::read(root, &relative).await?,
+                data.source_hash.clone(),
+            )
+        } else if archived.is_some() {
+            let target = archive_path(self, record.time, path, resolved).await?;
+            (optional_bytes(&target).await?, archived.map(str::to_owned))
+        } else if !resolved {
+            let source = detail
+                .and_then(|detail| detail.get("synced_source"))
+                .and_then(serde_json::Value::as_str);
+            (
+                source.map(|source| source.as_bytes().to_vec()),
+                data.local_version
+                    .as_ref()
+                    .map(|version| version.content_hash.clone()),
+            )
+        } else {
+            (None, None)
+        };
+        let bytes = bytes.ok_or(CoreError::InvalidState("该日志未保存可验证的文件原文"))?;
+        let hash = hash.ok_or(CoreError::InvalidState("历史原文缺少有效 hash"))?;
+        if LocalFileVersion::from_bytes(&bytes).content_hash != hash {
+            return Err(CoreError::Store("历史原文与记录版本不一致".into()));
+        }
+
+        let mut file = self.parse_file(archive_name(path, resolved)?, bytes)?;
+        file.modified_at = record.data.finished_at;
+        Ok(file)
     }
+
+    /// 按需读取并校验对应原文，只投影删除备份等历史文件的元信息。
+    pub async fn history_file_metadata(
+        &self,
+        sync_id: &str,
+        path: &str,
+    ) -> Result<OrgFileMetadata, CoreError> {
+        Ok(self
+            .history_file(sync_id, path, false)
+            .await?
+            .metadata(false))
+    }
+
 }
 
 fn snapshot_metadata(file: &OrgFile) -> OrgFileMetadata {

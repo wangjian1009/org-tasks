@@ -220,23 +220,26 @@ export class Task {
 
 export interface SyncRecord {
   id: string;
-  triggerReason: SyncTriggerReason | null;
-  result: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
-  started_at: number;
+  triggerReason: string | null;
+  result: 'succeeded' | 'failed' | 'cancelled' | 'interrupted' | null;
+  started_at: number | null;
   finished_at: number | null;
-  files: number;
-  downloadedFiles: number;
-  uploadedFiles: number;
+  files: number | null;
+  downloadedFiles: number | null;
+  uploadedFiles: number | null;
   conflicts: string[];
-  executionResult: 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
-  transfer: 'unchanged' | 'download' | 'upload' | 'bidirectional';
+  conflictCount: number | null;
+  incomplete: boolean;
+  issues: string[];
+  executionResult: 'succeeded' | 'failed' | 'cancelled' | 'interrupted' | null;
+  transfer: 'unchanged' | 'download' | 'upload' | 'bidirectional' | null;
   errorCategory: 'Network' | 'Authentication' | 'Tls' | 'Validation' | 'LocalStorage' | 'Conflict' | null;
   errorMessage: string | null;
 }
 
 export interface SyncFileRecord {
-  path: string;
-  outcome: 'unchanged' | 'downloaded' | 'uploaded' | 'created' | 'deleted' | 'updated' | 'merged' | 'conflict' | 'failed' | 'skipped';
+  path: string | null;
+  outcome: 'unchanged' | 'downloaded' | 'uploaded' | 'created' | 'deleted' | 'updated' | 'merged' | 'conflict' | 'failed' | 'skipped' | null;
   section: 'upload' | 'download' | 'merge' | 'unchanged' | 'conflict' | null;
   backup: OrgFileMetadata | null;
 }

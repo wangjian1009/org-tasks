@@ -179,7 +179,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 这些适配差异不改变所属对象或领域规则；跨语言类型与同步/异步边界不要求逐字符一致。
 
-~SyncRecord.triggerReason~ 为 ~SyncTriggerReason | null~ ，同步返回值、历史和详情透传 Core 的原因。当前只定义 ~remoteChanged~ （远端变化）、 ~localChanged~ （本地变化）和 ~manual~ （手动同步），不保留旧原因的映射或展示分支。 ~RepositorySyncService.start(context, options)~ 通过 ~options.source~ 接受 ~startup~ 、 ~background~ 或 ~manual~ 的上层入口信息；启动检查后选中仓库使用 ~remoteChanged~ ，退后台已检测到本地变化后使用 ~localChanged~ ，手动入口使用 ~manual~ 。复用会话保持原入口，不改写已有同步原因；入口信息只保存在 Harmony 会话中，不传给 Core 或写入历史。
+~SyncRecord.triggerReason~ 为 ~string | null~ ，历史保留旧 appStartup／appBackground 与未知来源；当前同步请求的 ~SyncTriggerReason~ 仍严格限定 remoteChanged、localChanged 和 manual。历史的结果、时间、数量与 transfer 均可为空，新增 ~conflictCount: number | null~ 、 ~incomplete: boolean~ 与 ~issues: string[]~ 。Rust 将 Core 容错结构投影为展示值，C++ 原样编组，ArkTS 不把缺失当作成功或零值。 ~RepositorySyncService.start(context, options)~ 通过 ~options.source~ 接受 ~startup~ 、 ~background~ 或 ~manual~ 的上层入口信息；启动检查后选中仓库使用 ~remoteChanged~ ，退后台已检测到本地变化后使用 ~localChanged~ ，手动入口使用 ~manual~ 。复用会话保持原入口，不改写已有同步原因；入口信息只保存在 Harmony 会话中，不传给 Core 或写入历史。
 
 Harmony 共享同步入口同步返回受理结果，Core 的单仓库接口不承载应用会话队列。接口为：
 
@@ -463,7 +463,7 @@ interface TitleCount {
 
 * 同步详情投影
 
-~Repo.historyDetail(syncId)~ 在工作线程重新加载所选仓库的历史，返回 ~SyncRecordDetail~ 的 ~summary~ 、 ~files~ 和 ~errors~ 。 ~files~ 每项包含 ~path~ 、 ~outcome~ 、Core 提供的 ~section~ 与可空备份元信息 ~backup~ ；结果枚举为 ~unchanged~ 、 ~downloaded~ 、 ~uploaded~ 、 ~created~ 、 ~deleted~ 、 ~updated~ 、 ~merged~ 、 ~conflict~ 、  ~failed~ 或 ~skipped~ 。 ~errors~ 中每项只含关联的相对 ~path~ 与原记录已有的 ~message~ 。JSON 编组仍位于 bridge 内部，C++ 通过原有 async work 生命周期完整透传， ~CoreRepo.historyDetail~ 不解释文件状态。
+~Repo.historyDetail(syncId)~ 在工作线程通过 sync_log_detail 按需读取所选轮次，返回 ~SyncRecordDetail~ 的 ~summary~ 、 ~files~ 和 ~errors~ 。 ~files~ 每项包含 ~path~ 、 ~outcome~ 、Core 提供的 ~section~ 与可空备份元信息 ~backup~ ；结果枚举为 ~unchanged~ 、 ~downloaded~ 、 ~uploaded~ 、 ~created~ 、 ~deleted~ 、 ~updated~ 、 ~merged~ 、 ~conflict~ 、  ~failed~ 或 ~skipped~ 。 ~path~ 和 ~outcome~ 可为空；缺少安全路径时不提供备份导航。 ~errors~ 保留原记录的业务错误并附带字段／文件读取诊断 。JSON 编组仍位于 bridge 内部，C++ 通过原有 async work 生命周期完整透传， ~CoreRepo.historyDetail~ 不解释文件状态。
 
 日志列表展开项传配置仓库 ID 与同步 ID， ~SyncLogDetails~ 重新取得当前投影；不存在的仓库或历史应明确失败，不能退回其他记录。摘要不包含源内容快照，正常、冲突和失败记录均使用同一个同步详情接口。
 
@@ -848,3 +848,7 @@ TaskEditor 的 ~startNote~ 返回纯操作组，由现有控制器及 DataSet �
 * 文件状态推送与基线异常
 
 文件服务与通知 monitor 的完整 Rust 接口见 [[file:../core/文件状态与通知重构设计.org][文件状态与通知实现]]。 ~NotificationSnapshot~ 带 revision 与完整 notifications， ~NotificationDelta~ 带 fromRevision、revision 与 changes。 ~CoreNotification~ 增加 ~syncBaselineUnavailable~ ，包含 repoId、reason 及 bridge 附加的 rootDirectory；宿主不读取或修复索引，只展示共享异常提示。
+
+* 同步日志拆分读取
+
+~Repo.history()~ 使用 Core 的 sync_log_summaries，现代列表只读 summary；展开时读取该轮文件 JSON，删除备份按需校验原文再投影元信息。未知结果／传输／时间分别显示未知，损坏记录在原有行和错误区域标记“日志记录不完整”，默认隐藏无变化时仍可见。旧原因显示“应用启动”或“退到后台”，未知字符串显示“未知触发原因”。没有新增页面、控件布局或日志阅读入口。

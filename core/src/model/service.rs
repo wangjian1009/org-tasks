@@ -760,20 +760,20 @@ impl OrgRepo {
         }
         self.id = id;
         super::access::recover(Path::new(&root_directory), &self.id).await?;
-        let history = self.sync_history::<P>().await?;
-        // 在取得仓库锁并恢复历史后取时；同毫秒或时钟回退时推进，避免覆盖历史。
+        let occupied = super::sync_log::occupied_times(Path::new(&root_directory)).await?;
+        // 只读占用的目录名，旧日志的字段或语法问题不再阻断新同步。
         let started_at = match started_at {
             Some(value) => value,
             None => {
                 let now = chrono::Utc::now().timestamp_millis();
-                match history.iter().map(|record| record.started_at).max() {
+                match occupied.iter().copied().max() {
                     Some(last) if last >= now => last.checked_add(1)
                         .ok_or(CoreError::InvalidState("同步开始时间超出支持范围"))?,
                     _ => now,
                 }
             }
         };
-        if history.iter().any(|record| record.started_at == started_at) {
+        if occupied.contains(&started_at) {
             return Err(CoreError::InvalidInput("同步开始时间已有同步记录"));
         }
         let session = crate::webdav::session::Session::begin(
@@ -814,31 +814,16 @@ impl OrgRepo {
                 "同步策略必须返回当前仓库已完成的同步记录",
             ));
         }
-        if history.iter().any(|existing| existing.id == record.id) {
-            return Err(CoreError::InvalidState("同步记录 ID 已存在"));
-        }
+        if record.started_at != started_at { return Err(CoreError::InvalidState("同步策略改变了本轮开始时间")); }
+        // Core 分配的身份由策略、仓库和独占时间槽决定，不依赖旧历史载荷。
+        record.id = format!("{}-{}-{started_at}", P::KIND, self.id);
         let root = Path::new(&self.root_directory);
         let committed_transaction = pending_commit.is_some();
         if let Some(mut plan) = pending_commit {
             if record.result != Some(super::OrgRepoSyncResult::Succeeded) {
                 return Err(CoreError::InvalidState("失败同步不能包含本地提交"));
             }
-            let history_path = format!(".sync/history/{}.json", record.started_at);
-            if crate::webdav::transaction::read(root, &history_path)
-                .await?
-                .is_some()
-            {
-                return Err(CoreError::InvalidState("同步历史开始时间已存在"));
-            }
-            plan.set(
-                root,
-                history_path,
-                Some(
-                    serde_json::to_vec(&record)
-                        .map_err(|_| CoreError::InvalidState("无法编码同步记录"))?,
-                ),
-            )
-            .await?;
+            super::sync_log::stage(root, &record, &mut plan).await?;
             let committed_changes = plan.external_file_changes(&self.id);
             let observations = plan.changes.iter().filter(|change| !change.path.starts_with(".sync/"))
                 .map(|change| match &change.after {
@@ -943,100 +928,16 @@ pub(crate) async fn read_repo_id(path: &Path) -> Result<OrgRepoId, std::io::Erro
 async fn load_sync_history<P: SyncPolicy>(
     root: &Path,
 ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
-    let history_directory = root.join(".sync/history");
-    fs::create_dir_all(&history_directory)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法创建 .sync/history 目录: {error}")))?;
-    let mut entries = fs::read_dir(&history_directory)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法读取 .sync/history 目录: {error}")))?;
-    let mut records = Vec::new();
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|error| CoreError::Store(format!("无法读取同步历史目录项: {error}")))?
-    {
-        let path = entry.path();
-        let metadata = entry
-            .metadata()
-            .await
-            .map_err(|error| CoreError::Store(format!("无法读取同步历史文件属性: {error}")))?;
-        if !metadata.is_file() || path.extension().and_then(|value| value.to_str()) != Some("json")
-        {
-            continue;
-        }
-        let started_at = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .and_then(|value| value.parse::<TimestampMs>().ok())
-            .ok_or_else(|| CoreError::Store("同步历史文件名必须是开始时间戳".into()))?;
-        let source = fs::read(&path)
-            .await
-            .map_err(|error| CoreError::Store(format!("无法读取同步历史文件: {error}")))?;
-        let record: OrgRepoSyncRecord<P::ContextDetail, P::FileDetail> =
-            serde_json::from_slice(&source)
-                .map_err(|_| CoreError::Store("同步历史 JSON 无效".into()))?;
-        if record.kind != P::KIND {
-            return Err(CoreError::Store("同步历史 kind 与策略不一致".into()));
-        }
-        if record.started_at != started_at
-            || record.finished_at.is_none()
-            || record.result.is_none()
-            || records.iter().any(
-                |existing: &OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>| {
-                    existing.id == record.id || existing.started_at == record.started_at
-                },
-            )
-        {
-            return Err(CoreError::Store("同步历史记录无效或重复".into()));
-        }
-        records.push(record);
-    }
-    records.sort_by_key(|record| record.started_at);
-    Ok(records)
+    super::sync_log::strict_records::<P>(root).await
 }
 
-async fn persist_sync_record<C, F>(
+async fn persist_sync_record<C: SyncContextDetail, F: SyncFileDetail>(
     root: &Path,
     record: &OrgRepoSyncRecord<C, F>,
-) -> Result<(), CoreError>
-where
-    C: SyncContextDetail,
-    F: SyncFileDetail,
-{
-    if record.finished_at.is_none() || record.result.is_none() {
-        return Err(CoreError::InvalidState("未完成的同步记录不能持久化"));
-    }
-    let history_directory = root.join(".sync/history");
-    fs::create_dir_all(&history_directory)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法创建 .sync/history 目录: {error}")))?;
-    let target = history_directory.join(format!("{}.json", record.started_at));
-    if fs::try_exists(&target)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法检查同步历史文件: {error}")))?
-    {
-        return Err(CoreError::Store("同步历史开始时间戳已存在".into()));
-    }
-    let temporary = history_directory.join(format!(".{}.tmp", generate_repo_id()?));
-    let source = serde_json::to_vec(record)
-        .map_err(|_| CoreError::Store("无法序列化同步历史记录".into()))?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法创建同步历史临时文件: {error}")))?;
-    file.write_all(&source)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法写入同步历史临时文件: {error}")))?;
-    file.sync_all()
-        .await
-        .map_err(|error| CoreError::Store(format!("无法刷新同步历史临时文件: {error}")))?;
-    fs::rename(&temporary, &target)
-        .await
-        .map_err(|error| CoreError::Store(format!("无法提交同步历史记录: {error}")))?;
-    Ok(())
+) -> Result<(), CoreError> {
+    let mut plan = crate::webdav::transaction::Plan::default();
+    super::sync_log::stage(root, record, &mut plan).await?;
+    plan.commit(root).await
 }
 
 pub(crate) fn generate_repo_id() -> Result<OrgRepoId, CoreError> {
@@ -1612,7 +1513,7 @@ mod tests {
         assert_eq!(record.result, Some(OrgRepoSyncResult::Succeeded));
         assert_eq!(record.trigger_reason, Some(SyncTriggerReason::Manual));
         assert!(
-            tokio::fs::try_exists(root.join(".sync/history/10.json"))
+            tokio::fs::try_exists(root.join(".sync/history/10/summary"))
                 .await
                 .unwrap()
         );
@@ -1704,7 +1605,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn repo_rejects_history_kind_mismatch() {
+    async fn history_kind_mismatch_does_not_block_new_sync() {
         let root = test_root("kind-mismatch");
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<CompletedSync>().await.unwrap();
@@ -1727,7 +1628,7 @@ mod tests {
 
         let mut reloaded = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         reloaded.load::<CompletedSync>().await.unwrap();
-        let error = reloaded
+        let record = reloaded
             .sync_at(
                 &CompletedSync,
                 20,
@@ -1735,8 +1636,9 @@ mod tests {
                 &SyncProgressReporter::default(),
             )
             .await
-            .unwrap_err();
-        assert!(error.to_string().contains("kind 与策略不一致"));
+            .unwrap();
+        assert_eq!(record.started_at, 20);
+        assert!(reloaded.sync_history::<CompletedSync>().await.unwrap_err().to_string().contains("kind 与策略不一致"));
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
 
@@ -1777,7 +1679,7 @@ mod tests {
                     context.repo.load_files(&[]).await.unwrap()[0].source_bytes(),
                     b"* TODO External edit\n"
                 );
-                assert_eq!(history[0].id, "history-0");
+                assert_eq!(history[0].id, format!("test-{}-{}", context.repo.id, history[0].started_at));
             }
             let mut record = OrgRepoSyncRecord::new(
                 format!("history-{round}"),
@@ -1805,10 +1707,8 @@ mod tests {
             while tokio::time::Instant::now() < deadline {
                 let snapshot = controller.snapshot();
                 if snapshot.lifecycle == OrgRepoSyncLifecycle::Succeeded {
-                    assert_eq!(
-                        snapshot.latest_record.unwrap().id,
-                        format!("history-{time}")
-                    );
+                    let record = snapshot.latest_record.unwrap();
+                    assert_eq!(record.id, format!("test-{}-{}", controller.repo().unwrap().id, record.started_at));
                     completed = true;
                     break;
                 }

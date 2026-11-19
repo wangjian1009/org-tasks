@@ -74,7 +74,7 @@ export class SyncLogDataManager extends SnapshotDataManager<SyncLogSnapshot> {
       const repository = config.repos.find(repo => repo.id === repoId)
       if (!repository) throw new Error('此存储库已不存在，请返回存储库列表')
       const items = await NativeCoreService.repositoryHistory(config.repos, repository, config.todoDefaults, config.coreSettings)
-      items.sort((left: CoreSyncRecord, right: CoreSyncRecord): number => right.started_at - left.started_at)
+      items.sort((left: CoreSyncRecord, right: CoreSyncRecord): number => (right.started_at ?? -1) - (left.started_at ?? -1))
       return { items, repositoryName: repositoryLabel(repository), repoId: repository.id }
     })
   }
