@@ -380,6 +380,7 @@ export class Repo {
   historyFile(target: HistoryFileTarget): Promise<OrgFile>;
   conflicts(): Promise<ConflictSync[]>;
   sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
+  hasRemoteChanges(policy: WebDavSyncPolicy, options?: SyncOptions): Promise<boolean>;
 }
 
 export interface OrgFileMetadata {

@@ -286,6 +286,10 @@ export class CoreRepo {
     const effective = options ?? await defaultSyncOptions()
     return await this.native.sync(policy.nativePolicy(), monitor, effective) as NativeSyncRecord
   }
+
+  async hasRemoteChanges(policy: CoreWebDavSyncPolicy, options?: SyncOptions): Promise<boolean> {
+    return await this.native.hasRemoteChanges(policy.nativePolicy(), options ?? await defaultSyncOptions())
+  }
 }
 
 export class CoreWorkspace {
@@ -443,7 +447,9 @@ export class NativeCoreService {
       const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
-        const sync = await repo.sync(policy, monitor, { excludedDirectories: config.excludedDirectories, triggerReason })
+        const options: SyncOptions = { excludedDirectories: config.excludedDirectories, triggerReason }
+        if (triggerReason === 'appStartup' && !await repo.hasRemoteChanges(policy, options)) continue
+        const sync = await repo.sync(policy, monitor, options)
         if (sync.result !== 'succeeded') {
           throw new Error('WebDAV 同步未完成，请重试')
         }

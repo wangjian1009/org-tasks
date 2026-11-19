@@ -61,6 +61,8 @@ extern "C" char* org_tasks_harmony_workspace_task_merge_operations(uint64_t hand
 extern "C" char* org_tasks_harmony_repo_sync(uint64_t workspace_handle, const char* repo_id,
     const char* webdav_url, const char* username, const char* password, const char* options_json, uint64_t monitor_handle,
     int64_t started_at);
+extern "C" char* org_tasks_harmony_repo_has_remote_changes(uint64_t workspace_handle, const char* root,
+    const char* webdav_url, const char* username, const char* password, const char* options_json);
 extern "C" char* org_tasks_harmony_repo_snapshot(uint64_t workspace_handle, const char* repo_id);
 extern "C" char* org_tasks_harmony_repo_load_files(uint64_t workspace_handle, const char* root, const char* ignore_files_json);
 extern "C" int32_t org_tasks_harmony_webdav_test_connection(
@@ -195,7 +197,7 @@ struct RepoSnapshotWork {
     std::string task_json;
     napi_ref owner = nullptr;
     napi_ref related_owner = nullptr;
-    enum class Operation { Snapshot, Sync, Load, Reset, History, HistoryDetail, Conflicts, File, HistoryFile, LastEffectSync } operation = Operation::Snapshot;
+    enum class Operation { Snapshot, Sync, HasRemoteChanges, Load, Reset, History, HistoryDetail, Conflicts, File, HistoryFile, LastEffectSync } operation = Operation::Snapshot;
     napi_deferred deferred = nullptr;
     napi_async_work work = nullptr;
 };
@@ -1253,6 +1255,11 @@ void ExecuteRepoSnapshot(napi_env, void* data)
             work->response = TakeRustString(org_tasks_harmony_repo_history_detail(
                 work->workspace_handle, work->root_directory.c_str(), work->task_path.c_str()));
             break;
+        case RepoSnapshotWork::Operation::HasRemoteChanges:
+            work->response = TakeRustString(org_tasks_harmony_repo_has_remote_changes(work->workspace_handle,
+                work->root_directory.c_str(), work->webdav_url.c_str(), work->username.c_str(), work->password.c_str(),
+                work->sync_options_json.c_str()));
+            break;
         case RepoSnapshotWork::Operation::Sync:
             work->response = TakeRustString(org_tasks_harmony_repo_sync(work->workspace_handle,
                 work->root_directory.c_str(), work->webdav_url.c_str(), work->username.c_str(), work->password.c_str(),
@@ -1282,6 +1289,7 @@ void CompleteRepoSnapshot(napi_env env, napi_status status, void* data)
         RejectCoreError(env, work->deferred, work->error,
             work->operation == RepoSnapshotWork::Operation::Snapshot ? "读取 Repo 快照失败" :
             work->operation == RepoSnapshotWork::Operation::Sync ? "Repo 同步失败" :
+            work->operation == RepoSnapshotWork::Operation::HasRemoteChanges ? "检查远端变化失败" :
             work->operation == RepoSnapshotWork::Operation::Load ? "Repo.load 失败" :
             work->operation == RepoSnapshotWork::Operation::Reset ? "Repo.reset 失败" :
             work->operation == RepoSnapshotWork::Operation::History ? "读取同步历史失败" :
@@ -2244,6 +2252,37 @@ napi_value RepoHistoryDetail(napi_env env, napi_callback_info info)
     return QueueMergeWork(env, self, work);
 }
 
+napi_value RepoHasRemoteChanges(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2] = {nullptr, nullptr};
+    napi_value self;
+    RepoWrap* repo = nullptr;
+    WebDavSyncPolicyWrap* policy = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc < 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&repo)) != napi_ok || repo == nullptr || repo->workspace_handle == 0 ||
+        !UnwrapWebDavSyncPolicy(env, args[0], &policy)) {
+        napi_throw_error(env, nullptr, "Repo.hasRemoteChanges 参数无效");
+        return nullptr;
+    }
+    auto* work = new RepoSnapshotWork();
+    work->workspace_handle = repo->workspace_handle;
+    work->root_directory = repo->root_directory;
+    work->webdav_url = policy->webdav_url;
+    work->username = policy->username;
+    work->password = policy->password;
+    work->operation = RepoSnapshotWork::Operation::HasRemoteChanges;
+    napi_valuetype options_type = napi_undefined;
+    if (argc == 2 && (napi_typeof(env, args[1], &options_type) != napi_ok ||
+        (options_type != napi_undefined && (options_type != napi_object ||
+            !EncodeJson(env, args[1], &work->sync_options_json))))) {
+        delete work;
+        napi_throw_error(env, nullptr, "Repo.hasRemoteChanges 同步参数无效");
+        return nullptr;
+    }
+    return QueueMergeWork(env, self, work);
+}
+
 napi_value RepoSync(napi_env env, napi_callback_info info)
 {
     size_t argc = 3;
@@ -2496,6 +2535,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"historyDetail", nullptr, RepoHistoryDetail, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"loadFiles", nullptr, RepoLoadFiles, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"sync", nullptr, RepoSync, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"hasRemoteChanges", nullptr, RepoHasRemoteChanges, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"conflicts", nullptr, RepoConflicts, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_value repo_class;

@@ -682,6 +682,27 @@ fn query_result_value(result: org_tasks_core::CoreQueryResult, _roots: &BTreeMap
     })
 }
 
+pub fn repo_has_remote_changes_json(
+    workspace_handle: u64,
+    root_directory: String,
+    webdav_url: String,
+    username: String,
+    password: String,
+    options_json: String,
+) -> Result<String, CoreError> {
+    let workspace = workspace_for_handle(workspace_handle)?;
+    // 直接取得配置快照，不经过 read_repo 的同步屏障或仓库文件锁。
+    let repo = workspace.repos().into_iter()
+        .find(|repo| repo.root_directory == root_directory)
+        .ok_or(CoreError::InvalidInput("仓库不在当前 Workspace 中"))?;
+    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
+    let options = if options_json.trim().is_empty() { SyncOptions::default() } else {
+        serde_json::from_str::<SyncOptions>(&options_json)
+            .map_err(|_| CoreError::InvalidInput("同步参数无效"))?
+    };
+    encode(&runtime(workspace_handle)?.block_on(policy.has_remote_changes(&repo, &options))?)
+}
+
 pub fn repo_sync_json(
     workspace_handle: u64,
     root_directory: String,
@@ -2855,6 +2876,7 @@ mod sync_concurrency_tests {
                 }
             }
         });
+        let check_endpoint = endpoint.clone();
         let sync_directory = directory.clone();
         let syncing = std::thread::spawn(move || {
             repo_sync_json(
@@ -2879,6 +2901,15 @@ mod sync_concurrency_tests {
         assert!(matches!(reading.recv_timeout(Duration::from_millis(100)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
         // 配置快照不等待网络，业务查询按同步屏障等待。
         assert_eq!(workspace_repo_roots(handle).unwrap(), vec![directory.clone()]);
+        // 远端检查使用配置快照；即使同步屏障已建立，也应直接返回首次同步判定。
+        let (checked, checking) = std::sync::mpsc::channel();
+        let check_directory = directory.clone();
+        let checker = std::thread::spawn(move || {
+            checked.send(repo_has_remote_changes_json(handle, check_directory, check_endpoint,
+                "user".into(), "secret".into(), String::new())).unwrap();
+        });
+        assert_eq!(checking.recv_timeout(Duration::from_secs(2)).unwrap().unwrap(), "true");
+        checker.join().unwrap();
         resume.send(()).unwrap();
         let snapshot = reading.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
         assert!(snapshot.contains("Edited during network"));

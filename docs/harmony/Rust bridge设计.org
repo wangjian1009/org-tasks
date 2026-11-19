@@ -161,6 +161,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~FilterTask.created_at()~ 、 ~closed_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.closedAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，关闭时间来自标题自身的真实 ~CLOSED~ 规划节点，修改时间仅来自当前标题自身的 ~LAST_MODIFIED~ 属性；缺失或无效为 ~null~ ，不读取文件 mtime。 |
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
+| ~WebDavSyncPolicy.has_remote_changes(repo, options)~ | ~await repo.hasRemoteChanges(policy, options)~ | 只读检查远端变化，返回布尔值；不获取仓库文件锁或执行同步，规则与错误语义由 Core 定义。 |
 | ~OrgWorkspace.query(&[CoreQuery])~ | ~workspace.query(queries)~ | 结构化请求数组在一次 worker 调用中透传 Core，按输入顺序返回任务及分类统计数组。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
 | ~OrgRepo.load()~ | ~repo.load()~ | 仅恢复稳定 ID；Core 原泛型返回类型保留为空集合，TS 只等待完成。 |
@@ -248,6 +249,10 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 旧 Repo.createTask、Repo.updateTaskLocation、Repo.updateTask、Repo.deleteTask 与 Workspace.editTask 均已删除，native 导出、类型声明和宿主 wrapper 不保留兼容入口。
 
 ~Repo.sync~ 接收策略和 ~SyncOptions~ 对象。C++ 在工作线程临时构造 core policy，并调用 ~OrgRepo.sync_with_options~ 。历史由仓库内部恢复，不传给 TS 或 ~SyncPolicy.synchronize~ 。省略参数使用 Rust 默认值，显式空列表关闭目录过滤； ~monitor~ 可为 ~undefined~ ，后台调用仍能传入 options。事件通过 N-API thread-safe function 回到 ArkTS，包含相对路径、处理结果与 HTTP 状态，不包含凭据或正文。
+
+~Repo.hasRemoteChanges(policy, options?) -> Promise<boolean>~ 经 C ABI ~org_tasks_harmony_repo_has_remote_changes~ 在工作线程执行。Rust 从 Workspace 已发布配置快照取得仓库，直接调用 ~WebDavSyncPolicy.has_remote_changes~ ，不经过 ~read_repo~ 或 ~sync_repo~ 命令。参数沿用结构化 ~SyncOptions~ ，默认值、基线比较、目录过滤和不可靠版本的保守处理均由 Core 负责；C++ 与 ArkTS 只透传布尔值和错误。
+
+~NativeCoreService.syncWorkspaceWebDav~ 仅对 ~appStartup~ 在每个启用 WebDAV 的仓库同步前调用检查，返回 ~false~ 时跳过该仓库，不产生本轮历史或文件事件；返回 ~true~ 时按原参数和原因执行 ~Repo.sync~ ，检查失败沿用现有失败反馈。手动和退后台同步直接进入原同步流程。本地独有修改不触发启动同步，仍由手动或既有退后台入口上传。
 
 ~defaultSyncOptions~ 读取 Rust 默认配置； ~normalizeSyncOptions~ 接受数据对象，由 Rust 验证并返回规范化对象。Preferences 只保存外部配置，core 不读取宿主配置存储。
 

@@ -118,6 +118,10 @@ async fn validate_index(root: &Path, index: &Index, repo_id: &str) -> Result<(),
     Ok(())
 }
 async fn read_index(root: &Path) -> Result<(Option<Vec<u8>>, Index), CoreError> {
+    read_index_with_repair(root, true).await
+}
+
+async fn read_index_with_repair(root: &Path, repair: bool) -> Result<(Option<Vec<u8>>, Index), CoreError> {
     let primary = transaction::read(root, INDEX).await?;
     let backup = transaction::read(root, BACKUP).await?;
     let repo_id = crate::model::service::read_repo_id(&root.join(".sync/id")).await
@@ -147,13 +151,31 @@ async fn read_index(root: &Path) -> Result<(Option<Vec<u8>>, Index), CoreError> 
     if valid.iter().any(|other| other != &index) { return Err(invalid("远端基线主索引与副本不一致")); }
     index.repo_id = repo_id;
     let encoded = encode_index(&index)?;
-    if primary.as_ref() != Some(&encoded) || backup.as_ref() != Some(&encoded) {
+    if repair && (primary.as_ref() != Some(&encoded) || backup.as_ref() != Some(&encoded)) {
         let mut plan = Plan::default();
         plan.set(root, INDEX.into(), Some(encoded.clone())).await?;
         plan.set(root, BACKUP.into(), Some(encoded.clone())).await?;
         plan.commit(root).await?;
     }
     Ok((Some(encoded), index))
+}
+
+/// 仅校验索引和清单，不修复副本、不加载正文，也不获取仓库锁。
+pub(crate) async fn remote_versions(
+    root: &Path,
+    origin: &str,
+) -> Result<Option<BTreeMap<String, RemoteFileVersion>>, CoreError> {
+    let (original, index) = read_index_with_repair(root, false).await?;
+    if original.is_none() {
+        return Ok(None);
+    }
+    if index.origin != origin {
+        return Err(CoreError::InvalidState("仓库远端地址或账号已改变，不能继续使用原远端基线"));
+    }
+    Ok(Some(index.entries.into_iter()
+        .filter(|(_, entry)| entry.hash.is_some())
+        .map(|(path, entry)| (path, entry.version))
+        .collect()))
 }
 
 async fn manifest(root: &Path, id: &str, origin: &str) -> Result<Manifest, CoreError> {

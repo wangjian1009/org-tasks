@@ -35,7 +35,7 @@ fn core_error(error: CoreError) -> OrgRepoSyncErrorSummary {
     )
     .unwrap()
 }
-fn strong(etag: Option<&str>) -> Option<&str> {
+pub(super) fn strong(etag: Option<&str>) -> Option<&str> {
     etag.filter(|s| !s.trim().is_empty() && !s.starts_with("W/"))
 }
 
@@ -91,14 +91,7 @@ impl WebDavSyncPolicy {
         let download_guard = super::session::enter(root, &repo.id, context.started_at,
             super::session::Phase::Downloading).await?;
         let mut files = repo.load_files_unlocked(&[]).await?;
-        let origin = LocalFileVersion::from_bytes(
-            &serde_json::to_vec(&(
-                &self.endpoint.base_url.trim_end_matches('/'),
-                &self.username,
-            ))
-            .unwrap(),
-        )
-        .content_hash;
+        let origin = self.origin();
         let mut bases = Store::load(root, &origin).await?;
         bases.cleanup(root).await?;
         let mut paths = files.iter()

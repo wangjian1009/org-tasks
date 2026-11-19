@@ -594,6 +594,20 @@ impl WebDavSyncPolicy {
 
 策略内部的列举映射 ~PROPFIND~ ，下载映射 ~GET~ ，上传的 ~CreateOnly~ 映射 ~If-None-Match: *~ ， ~Match~ 映射 ~If-Match~ 。策略不得把认证材料放入领域记录。
 
+** 只读检查远端变化
+
+#+begin_src rust
+impl WebDavSyncPolicy {
+    pub async fn has_remote_changes(
+        &self, repo: &OrgRepo, options: &SyncOptions,
+    ) -> Result<bool, CoreError>;
+}
+#+end_src
+
+~repo~ 是已加载稳定身份的仓库。该接口直接读取已保存远端基线的索引和清单，并用与同步相同的 ~SyncOptions~ 逐层列举远端；比较有效文件路径集合、强 ETag 与双方都有的长度信息，包含根目录 ~.orgzlyignore~ ，忽略已确认的删除标记。 ~false~ 表示检查时远端与基线一致；新增、删除、版本不同、首次尚无基线，以及缺少强 ETag 时均返回 ~true~ ，表示应进入正常同步以确认和处理。基线来源身份改变、基线不可用或远端列举失败返回错误，不转换成无变化。
+
+检查不获取仓库锁或同步锁，不进入 Workspace 的同步屏障，不执行恢复、索引修复、工作文件读取、正文下载、合并、上传或 outbox 确认，不生成同步历史、生命周期事件或文件通知。单份索引失效时可使用有效副本，但不修复磁盘。并发发布基线造成不一致时允许返回错误；结果只描述本次观察，不提供后续同步的版本保证，实际同步仍重新列举并沿用条件传输校验。本地独有修改不影响结果。
+
 * 旧接口
 
 旧的全局作业接口已移除。宿主不读取、不转换也不写入旧作业状态；使用旧版本数据时，应清理数据后按当前接口重新配置和同步。

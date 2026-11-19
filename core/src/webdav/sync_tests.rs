@@ -248,6 +248,132 @@ async fn offline(repo: &mut OrgRepo, path: &str) {
         .unwrap();
 }
 
+fn disk_snapshot(root: &std::path::Path) -> BTreeMap<std::path::PathBuf, Vec<u8>> {
+    let mut result = BTreeMap::new();
+    let mut directories = vec![root.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                directories.push(entry.path());
+            } else {
+                result.insert(entry.path().strip_prefix(root).unwrap().to_path_buf(), std::fs::read(entry.path()).unwrap());
+            }
+        }
+    }
+    result
+}
+
+#[tokio::test]
+async fn remote_change_check_is_readonly_even_with_active_locks_and_broken_working_files() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* TODO Task\n")]).await;
+    assert!(policy.has_remote_changes(&repo, &crate::SyncOptions::default()).await.unwrap());
+    assert!(!root.join(".sync/remote_base").exists());
+    assert_eq!(sync(&mut repo, &policy, 1).await.result, Some(OrgRepoSyncResult::Succeeded));
+    // 单份索引损坏可读取有效副本，但检查不能执行修复。
+    tokio::fs::write(root.join(".sync/remote_base/current.json"), b"invalid").await.unwrap();
+    tokio::fs::write(root.join("a.org"), [0xff]).await.unwrap();
+    let guard = transaction::lock(&root).await.unwrap();
+    let session = session::Session::begin(&root, &repo.id, 2).await.unwrap();
+    let before = disk_snapshot(&root);
+    let accesses = crate::model::test_support::repository_accesses(&repo.root_directory);
+    state.lock().unwrap().requests.clear();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2),
+        policy.has_remote_changes(&repo, &crate::SyncOptions::default())).await.unwrap().unwrap();
+    assert!(!result);
+    assert_eq!(crate::model::test_support::repository_accesses(&repo.root_directory), accesses);
+    assert_eq!(disk_snapshot(&root), before);
+    assert!(state.lock().unwrap().requests.iter().all(|request| request.starts_with("PROPFIND ")));
+    drop(guard);
+    session.finish().await.unwrap();
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn remote_change_check_detects_modified_added_deleted_and_unreliable_versions() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("nested/a.org", b"* TODO Task\n")]).await;
+    state.lock().unwrap().hierarchical = true;
+    sync(&mut repo, &policy, 1).await;
+    let options = crate::SyncOptions::default();
+    assert!(!policy.has_remote_changes(&repo, &options).await.unwrap());
+    let before = disk_snapshot(&root);
+    // 同长度内容也必须通过 ETag 发现变化；弱版本和缺失版本不能确认未变化。
+    for etag in ["\"v2\"", "W/\"v1\"", ""] {
+        state.lock().unwrap().files.get_mut("nested/a.org").unwrap().etag = etag.into();
+        assert!(policy.has_remote_changes(&repo, &options).await.unwrap(), "{etag}");
+    }
+    state.lock().unwrap().files.get_mut("nested/a.org").unwrap().etag = "\"v1\"".into();
+    state.lock().unwrap().files.insert("new.org".into(), Remote { data: b"* New\n".to_vec(), etag: "\"new\"".into() });
+    assert!(policy.has_remote_changes(&repo, &options).await.unwrap());
+    state.lock().unwrap().files.remove("new.org");
+    state.lock().unwrap().files.remove("nested/a.org");
+    assert!(policy.has_remote_changes(&repo, &options).await.unwrap());
+    assert_eq!(disk_snapshot(&root), before);
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn remote_change_check_respects_filters_and_includes_root_scan_rules() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[
+        ("a.org", b"* TODO Task\n"), (".orgzlyignore", b"# rules\n"),
+        ("archive/old.org", b"* Old\n"),
+    ]).await;
+    state.lock().unwrap().hierarchical = true;
+    sync(&mut repo, &policy, 1).await;
+    let options = crate::SyncOptions::default();
+    assert!(!policy.has_remote_changes(&repo, &options).await.unwrap());
+    state.lock().unwrap().files.get_mut("archive/old.org").unwrap().etag = "\"changed\"".into();
+    assert!(!policy.has_remote_changes(&repo, &options).await.unwrap());
+    let all = crate::SyncOptions { excluded_directories: vec![], ..Default::default() };
+    assert!(policy.has_remote_changes(&repo, &all).await.unwrap());
+    state.lock().unwrap().files.get_mut(".orgzlyignore").unwrap().etag = "\"rules2\"".into();
+    assert!(policy.has_remote_changes(&repo, &options).await.unwrap());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn remote_change_check_ignores_confirmed_tombstones_but_detects_reappearance() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* TODO Task\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    state.lock().unwrap().files.remove("a.org");
+    sync(&mut repo, &policy, 2).await;
+    assert!(!policy.has_remote_changes(&repo, &crate::SyncOptions::default()).await.unwrap());
+    state.lock().unwrap().files.insert("a.org".into(), Remote { data: b"* New\n".to_vec(), etag: "\"new\"".into() });
+    assert!(policy.has_remote_changes(&repo, &crate::SyncOptions::default()).await.unwrap());
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn remote_change_check_propagates_listing_origin_and_baseline_failures_without_writes() {
+    let (mut repo, root) = repo().await;
+    let (policy, state, worker) = server(&[("a.org", b"* TODO Task\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    let options = crate::SyncOptions::default();
+    let before = disk_snapshot(&root);
+    state.lock().unwrap().invalid_listing = true;
+    assert!(policy.has_remote_changes(&repo, &options).await.is_err());
+    state.lock().unwrap().invalid_listing = false;
+    let other = WebDavSyncPolicy::new(policy.endpoint.clone(), "other".into(), "password".into()).unwrap();
+    assert!(other.has_remote_changes(&repo, &options).await.is_err());
+    assert_eq!(disk_snapshot(&root), before);
+    for path in ["current.json", "current.backup.json"] {
+        tokio::fs::write(root.join(".sync/remote_base").join(path), b"invalid").await.unwrap();
+    }
+    let before = disk_snapshot(&root);
+    assert!(policy.has_remote_changes(&repo, &options).await.is_err());
+    assert_eq!(disk_snapshot(&root), before);
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
 #[tokio::test]
 async fn trigger_reason_is_persisted_for_success_failure_and_cancellation() {
     let (mut repo, root) = repo().await;

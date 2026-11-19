@@ -251,6 +251,50 @@ impl WebDavSyncPolicy {
         runtime::test_connection(&self.client, &self.username, &self.password, &self.endpoint).await
     }
 
+    /// 只读比较远端路径与强 ETag；无基线或版本不足以确认时返回 true。
+    /// 不获取仓库锁、不读取工作文件、不修复基线，也不创建同步记录。
+    pub async fn has_remote_changes(
+        &self,
+        repo: &OrgRepo,
+        options: &crate::SyncOptions,
+    ) -> Result<bool, CoreError> {
+        let Some(mut baseline) = remote_base::remote_versions(
+            std::path::Path::new(&repo.root_directory), &self.origin(),
+        ).await? else {
+            return Ok(true);
+        };
+        baseline.retain(|path, _| !options.excludes_path(path));
+        let remotes = runtime::list_remote_tree(
+            &self.client, &self.username, &self.password, &self.endpoint, options,
+            &SyncProgressReporter::default(), &NoopWebDavSyncMonitor,
+        ).await.map_err(|error| CoreError::Store(error.summary().message))?;
+        let mut listed = BTreeMap::new();
+        for remote in remotes {
+            if listed.insert(remote.path, remote.version).is_some() {
+                return Err(CoreError::InvalidState("WebDAV 列举返回重复文件"));
+            }
+        }
+        if baseline.len() != listed.len() {
+            return Ok(true);
+        }
+        for (path, version) in listed {
+            let Some(previous) = baseline.get(&path) else { return Ok(true) };
+            let etag = synchronize::strong(version.etag.as_deref());
+            if etag.is_none() || etag != synchronize::strong(previous.etag.as_deref())
+                || version.size.zip(previous.size).is_some_and(|(a, b)| a != b)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn origin(&self) -> String {
+        LocalFileVersion::from_bytes(&serde_json::to_vec(&(
+            self.endpoint.base_url.trim_end_matches('/'), &self.username,
+        )).expect("远端身份必须可序列化")).content_hash
+    }
+
     fn report(&self, event: WebDavSyncEvent) {
         self.monitor.on_event(event);
     }

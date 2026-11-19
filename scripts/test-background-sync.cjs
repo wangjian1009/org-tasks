@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
-  console.log('用法: node scripts/test-background-sync.cjs\n验证同步启动策略、非阻塞队列、退后台共享通知判断、系统实况窗、资源释放与失败重试。');
+  console.log('用法: node scripts/test-background-sync.cjs\n验证同步启动策略、启动远端变化检查、非阻塞队列、退后台共享通知判断、系统实况窗、资源释放与失败重试。');
   process.exit(0);
 }
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
@@ -379,4 +379,57 @@ test('纯本地启动只接入 Workspace，角标消费共享数据，不增加�
  const result=f.repository.start(f.context,{triggerReason:'appStartup',policy:'Reuse'});await result.handle.completion;
  assert.equal(f.calls.filter(value=>value==='workspace').length,1);assert.equal(f.calls.filter(value=>value==='sync').length,0);
  assert.equal(f.calls.filter(value=>value==='badge').length,1);
+});
+
+function remoteCheckFixture(states) {
+  const calls = [], policies = [];
+  const { NativeCoreService } = compile('NativeCoreService', dependency => {
+    assert.equal(dependency, 'liborg_tasks_harmony.so');
+    return { WebDavSyncPolicy: class {
+      constructor(url, username, password) { policies.push([url, username, password]); }
+    } };
+  });
+  const configs = states.map((_, index) => ({ rootDirectory: `/repo-${index}`, webdavEnabled: true,
+    webdavUrl: `https://example.test/${index}`, webdavUsername: 'user', webdavPassword: 'secret',
+    excludedDirectories: ['archive'] }));
+  const repos = configs.map((config, index) => ({
+    rootDirectory: config.rootDirectory,
+    async hasRemoteChanges(policy, options) {
+      calls.push(['check', index, options]);
+      if (states[index] instanceof Error) throw states[index];
+      return states[index];
+    },
+    async sync(policy, monitor, options) { calls.push(['sync', index, options]); return { result: 'succeeded' }; }
+  }));
+  NativeCoreService.workspaceFor = async () => ({ async repos() { return repos; } });
+  return { calls, policies, run: reason => NativeCoreService.syncWorkspaceWebDav(configs, undefined, '', undefined, reason) };
+}
+
+test('启动按仓库检查远端，未变化跳过，有变化才执行原同步', async () => {
+  const f = remoteCheckFixture([false, true, false]);
+  await f.run('appStartup');
+  assert.deepEqual(f.calls.map(([kind, index]) => [kind, index]), [['check', 0], ['check', 1], ['sync', 1], ['check', 2]]);
+  for (const [, , options] of f.calls) {
+    assert.equal(options.triggerReason, 'appStartup');
+    assert.deepEqual(Array.from(options.excludedDirectories), ['archive']);
+  }
+  assert.equal(f.policies.length, 3);
+});
+
+test('启动远端无变化时没有实际同步，检查失败沿用失败反馈', async () => {
+  const unchanged = remoteCheckFixture([false]);
+  await unchanged.run('appStartup');
+  assert.deepEqual(unchanged.calls.map(([kind]) => kind), ['check']);
+  const failed = remoteCheckFixture([new Error('远端检查失败')]);
+  await assert.rejects(failed.run('appStartup'), /远端检查失败/);
+  assert.deepEqual(failed.calls.map(([kind]) => kind), ['check']);
+});
+
+test('手动与退后台同步直接执行，不受远端变化检查影响', async () => {
+  for (const reason of ['manual', 'appBackground']) {
+    const f = remoteCheckFixture([false]);
+    await f.run(reason);
+    assert.deepEqual(f.calls.map(([kind]) => kind), ['sync']);
+    assert.equal(f.calls[0][2].triggerReason, reason);
+  }
 });

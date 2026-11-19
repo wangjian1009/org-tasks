@@ -26,6 +26,12 @@ WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料
 
 网络请求和响应正文读取使用 15 秒总超时。失败沿用 ~WebDavError~ 分类，错误不包含认证参数、完整 URL 或响应正文。连接检查不创建 ~OrgRepoSyncRecord~ ，不发送同步生命周期事件，也不加载仓库、修改文件或消费 outbox；检查成功不保证条件写入权限。
 
+* 只读远端变化检查
+
+~WebDavSyncPolicy.has_remote_changes(repo, options)~ 读取受保护远端索引与清单的元数据，按远端地址和账号核对来源，并复用 ~Depth: 1~ 递归列举与同步目录过滤；不扫描或下载正文。现存路径集合和强 ETag 相同，且双方提供的长度没有矛盾时返回 ~false~ 。新增、删除、版本不同、首次未建立基线或缺少强 ETag 时返回 ~true~ ；基线异常、来源变化和列举失败返回错误。根目录 ~.orgzlyignore~ 属于检查范围，删除标记不作为现存文件比较。
+
+该接口不获取文件锁、不等待同步屏障、不执行恢复或基线副本修复、不写盘，也不产生同步生命周期事件、历史或通知。有效副本可供只读检查使用，并发读到不一致时返回错误，不能据此推断远端删除。检查结果只供宿主决定是否发起实际同步，实际同步仍重新确认远端快照；检查本身不确认本地已合并进度或待上传状态。
+
 * Adapter 契约
 
 ~WebDavSyncPolicy~ 实现 ~SyncPolicy~ 。它接收可变 ~OrgRepo~ ，按 ~WebDavEndpoint~ 使用 Tokio runtime 上的异步 HTTP client 处理仓库文件，并在结束时返回带有全局 ~kind: "webdav"~ 和 ~WebDavSyncFileDetail~ 的完整 ~OrgRepoSyncRecord~ 。取得正文后使用 Core 的 Org 解析与统一提交能力，不自行规定历史目录或冲突状态。协议细节包含远端版本，每个文件的 action/state 和脱敏错误由同步记录表达；成功内容按统一历史契约保存。

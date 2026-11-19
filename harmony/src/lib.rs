@@ -236,6 +236,27 @@ pub extern "C" fn org_tasks_harmony_webdav_test_connection(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_repo_has_remote_changes(
+    workspace_handle: u64,
+    root_directory: *const c_char,
+    webdav_url: *const c_char,
+    username: *const c_char,
+    password: *const c_char,
+    options_json: *const c_char,
+) -> *mut c_char {
+    string_result((|| {
+        bridge::repo_has_remote_changes_json(
+            workspace_handle,
+            read_c_string(root_directory)?,
+            read_c_string(webdav_url)?,
+            read_c_string(username)?,
+            read_c_string(password)?,
+            read_c_string(options_json)?,
+        )
+    })())
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_repo_sync(
     workspace_handle: u64,
     root_directory: *const c_char,
