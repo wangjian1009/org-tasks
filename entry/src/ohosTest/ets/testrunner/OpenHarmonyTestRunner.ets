@@ -3,7 +3,7 @@ import { fileIo as fs } from '@kit.CoreFileKit'
 import { RepositorySyncService, SyncStartPolicy } from '../../../main/ets/services/RepositorySyncService'
 import { AppConfigService } from '../../../main/ets/services/AppConfigService'
 import { localDate } from '../../../main/ets/ui/Theme'
-import { probeReminders } from './ReminderProbe'
+import { probeCalendarReminders } from './CalendarReminderProbe'
 
 interface EntryMonitor { abilityName: string }
 
@@ -12,12 +12,33 @@ export default class OpenHarmonyTestRunner implements TestRunner {
   onPrepare(): void {}
   onRun(): void {
     const page = abilityDelegatorRegistry.getArguments().parameters['-s loadingPage']
-    const operation = typeof page === 'string' ? this.launchLoadingPage(page) : this.seed()
+    const calendarProbe = abilityDelegatorRegistry.getArguments().parameters['-s calendarProbe']
+    const operation = typeof calendarProbe === 'string'
+      ? this.probeCalendar(calendarProbe)
+      : typeof page === 'string' ? this.launchLoadingPage(page) : this.seed()
     operation.then(async (): Promise<void> => {
       await abilityDelegatorRegistry.getAbilityDelegator().finishTest('专用模拟器数据准备完成', 0)
     }).catch(async (error: Error): Promise<void> => {
       await abilityDelegatorRegistry.getAbilityDelegator().finishTest(`数据准备失败：${error.message}`, 1)
     })
+  }
+  private async probeCalendar(mode: string): Promise<void> {
+    try {
+      const delegator = abilityDelegatorRegistry.getAbilityDelegator()
+      const monitor: EntryMonitor = { abilityName: 'EntryAbility' }
+      await delegator.addAbilityMonitor(monitor)
+      await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility',
+        parameters: { httpApiEnabled: true } })
+      const ability = await delegator.waitAbilityMonitor(monitor, 10000)
+      if (mode === 'watch') {
+        const stop = `${ability.context.filesDir}/calendar-probe-stop`
+        if (await fs.access(stop)) await fs.unlink(stop)
+        for (let count = 0; count < 480 && !await fs.access(stop); count++) {
+          await probeCalendarReminders(ability.context, 'events')
+          await new Promise<void>((resolve): void => { setTimeout(resolve, 500) })
+        }
+      } else await probeCalendarReminders(ability.context, mode)
+    } catch (error) { throw error as Error }
   }
   private async launchLoadingPage(page: string): Promise<void> {
     try {
@@ -58,10 +79,6 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility' })
     const ability = await delegator.waitAbilityMonitor(monitor, 10000)
     const context = ability.context
-    if (abilityDelegatorRegistry.getArguments().parameters['-s reminderProbe'] === 'true') {
-      await probeReminders(context)
-      return
-    }
     const projectData = abilityDelegatorRegistry.getArguments().parameters['-s projectData'] === 'true'
     const pageData = abilityDelegatorRegistry.getArguments().parameters['-s pageData'] === 'true'
     const notificationWebDav = abilityDelegatorRegistry.getArguments().parameters['-s notificationWebDav'] === 'true'

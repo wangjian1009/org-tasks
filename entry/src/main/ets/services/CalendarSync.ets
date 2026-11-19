@@ -1,284 +1,180 @@
-// 日历同步服务
-// 将 org 任务同步到 HarmonyOS 系统日历
-
 import { Context } from '@kit.AbilityKit'
 import { calendarManager } from '@kit.CalendarKit'
-import { PreferencesStore } from './PreferencesStore'
-import { OrgTask, SyncResult } from '../models/OrgTask'
+import { cryptoFramework } from '@kit.CryptoArchitectureKit'
+import { util } from '@kit.ArkTS'
+import { CoreTask } from './NativeCoreService'
 
-const PREF_NAME = 'org_tasks_config'
-const SYNC_STATE_KEY = 'calendar_sync_state'
+const OWNER = 'org-tasks'
+const ACCOUNT = 'org-tasks.reminders'
+const DISPLAY_NAME = '小清单提醒'
+const EVENT_DURATION = 60 * 1000
 
-interface SyncEventRecord {
-  taskId: string
-  eventId: number
-  fingerprint: string
+interface EventMarker { owner: string; taskKey: string; contentHash: string }
+interface MarkedEvent { event: calendarManager.Event; marker?: EventMarker }
+interface DesiredEvent { task: CoreTask; marker: EventMarker; event: calendarManager.Event }
+
+async function sha256(value: string): Promise<string> {
+  try {
+    const digest = cryptoFramework.createMd('SHA256')
+    await digest.update({ data: new util.TextEncoder().encodeInto(value) })
+    const bytes = (await digest.digest()).data
+    return Array.from(bytes).map((byte: number): string => byte.toString(16).padStart(2, '0')).join('')
+
+  } catch (error) { throw error as Error }
 }
 
-interface StoredSyncState {
-  calendarName: string
-  records: SyncEventRecord[]
-}
-
-export class CalendarSync {
-  private calendar: calendarManager.Calendar | undefined = undefined
-  private readonly calendarName: string
-  private readonly context: Context
-
-  constructor(context: Context, calendarName: string) {
-    this.context = context
-    this.calendarName = calendarName
+function readMarker(event: calendarManager.Event): EventMarker | undefined {
+  if (!event.identifier) return undefined
+  let marker: EventMarker
+  try { marker = JSON.parse(event.identifier) as EventMarker }
+  catch (_) { return undefined }
+  if (!marker || marker.owner !== OWNER) return undefined
+  if (typeof marker.taskKey !== 'string' || typeof marker.contentHash !== 'string' || !/^[a-f0-9]{64}$/.test(marker.taskKey) || !/^[a-f0-9]{64}$/.test(marker.contentHash) || event.id === undefined) {
+    throw new Error('应用日历事件标记无效，已保留现有事件')
   }
+  return marker
+}
 
-  /** 初始化或创建应用专用的本地日历。 */
-  async init(): Promise<boolean> {
+function sameEvent(actual: calendarManager.Event, expected: calendarManager.Event): boolean {
+  return actual.title === expected.title && actual.startTime === expected.startTime && actual.endTime === expected.endTime &&
+    actual.isAllDay === false && actual.type === expected.type &&
+    actual.reminderTime?.length === 1 && actual.reminderTime[0] === 0 && actual.identifier === expected.identifier
+}
+
+// 独立的日历同步过程；只在启动或恢复时遍历系统事件，平时按任务增删改维护内存索引。
+export class CalendarSync {
+  private readonly context: Context
+  private calendar: calendarManager.Calendar | undefined = undefined
+  private events: Map<string, calendarManager.Event> = new Map()
+  private initialized: boolean = false
+  private inventoryLoaded: boolean = false
+  private duplicates: calendarManager.Event[] = []
+
+  constructor(context: Context) { this.context = context }
+  isReady(): boolean { return this.initialized }
+  invalidate(): void { this.initialized = false; this.inventoryLoaded = false }
+
+  private async open(create: boolean): Promise<calendarManager.Calendar | undefined> {
     try {
       const manager = calendarManager.getCalendarManager(this.context)
-      const account: calendarManager.CalendarAccount = {
-        name: this.calendarName,
-        type: calendarManager.CalendarType.LOCAL,
-        displayName: this.calendarName
+      const calendars = await manager.getAllCalendars()
+      for (const calendar of calendars) {
+        const account = calendar.getAccount()
+        if (account.type === calendarManager.CalendarType.LOCAL && account.name === ACCOUNT) return calendar
       }
+      if (!create) return undefined
+      const calendar = await manager.createCalendar({ name: ACCOUNT, type: calendarManager.CalendarType.LOCAL, displayName: DISPLAY_NAME })
+      await calendar.setConfig({ enableReminder: true, color: '#58C2B5' })
+      return calendar
 
-      try {
-        this.calendar = await manager.getCalendar(account)
-      } catch {
-        this.calendar = await manager.createCalendar(account)
-        await this.calendar.setConfig({ color: '#4CAF50', enableReminder: true })
-      }
-      return true
-    } catch (error) {
-      console.error('初始化日历失败:', JSON.stringify(error))
-      return false
-    }
+    } catch (error) { throw error as Error }
   }
 
-  async syncTasks(tasks: OrgTask[]): Promise<SyncResult> {
-    const result: SyncResult = {
-      total: tasks.length,
-      synced: 0,
-      created: 0,
-      updated: 0,
-      deleted: 0,
-      unchanged: 0,
-      skipped: 0,
-      errors: [],
-      timestamp: Date.now()
-    }
+  private async desired(task: CoreTask): Promise<DesiredEvent> {
+    const when = task.reminderAt
+    if (when === null || when === undefined || !Number.isFinite(when)) throw new Error('任务提醒时间无效')
+    const marker: EventMarker = { owner: OWNER, taskKey: await sha256(task.id), contentHash: await sha256(JSON.stringify([task.heading, when])) }
+    const event: calendarManager.Event = { type: calendarManager.EventType.NORMAL, title: task.heading,
+      description: '由小清单创建的任务提醒', startTime: when, endTime: when + EVENT_DURATION,
+      isAllDay: false, reminderTime: [0], identifier: JSON.stringify(marker) }
+    return { task, marker, event }
+  }
 
-    if (!this.calendar && !await this.init()) {
-      result.errors.push('无法初始化日历')
-      return result
-    }
-
-    const calendar = this.calendar
-    if (!calendar) {
-      result.errors.push('无法获取日历')
-      return result
-    }
-
-    const records = await this.loadSyncRecords()
-    const recordByTaskId = new Map<string, SyncEventRecord>()
-    for (const record of records) {
-      recordByTaskId.set(record.taskId, record)
-    }
-
-    const calendarEvents = await this.getExistingEvents(calendar)
-    const activeTaskIds = new Set<string>()
-
-    for (const task of tasks) {
-      if (!task.scheduled && !task.deadline) {
-        result.skipped++
-        continue
+  async synchronize(tasks: CoreTask[], enabled: boolean, current: () => boolean): Promise<boolean> {
+    try {
+      this.initialized = false
+      const desired: Map<string, DesiredEvent> = new Map()
+      for (const task of enabled ? tasks : []) {
+        const item = await this.desired(task)
+        if (desired.has(item.marker.taskKey)) throw new Error('提醒任务身份重复')
+        desired.set(item.marker.taskKey, item)
       }
-
-      activeTaskIds.add(task.id)
-      try {
-        const fingerprint = this.taskFingerprint(task)
-        let record = recordByTaskId.get(task.id)
-
-        // 日历被手动清空或重新创建后，丢弃失效的事件记录。
-        if (record && calendarEvents && !calendarEvents.has(record.eventId)) {
-          recordByTaskId.delete(task.id)
-          record = undefined
-        }
-
-        if (!record && calendarEvents) {
-          const existingEventId = this.findEventByIdentifier(calendarEvents, task.id)
-          if (existingEventId !== undefined) {
-            record = { taskId: task.id, eventId: existingEventId, fingerprint: '' }
-            recordByTaskId.set(task.id, record)
+      if (!current()) return false
+      if (!this.inventoryLoaded) {
+        this.calendar = await this.open(enabled)
+        if (!current()) return false
+        if (this.calendar) {
+          const inventory = await this.calendar.getEvents()
+          const marked = inventory.map((event: calendarManager.Event): MarkedEvent => ({ event, marker: readMarker(event) }))
+          const recovered: Map<string, calendarManager.Event> = new Map()
+          const duplicates: calendarManager.Event[] = []
+          for (const item of marked) {
+            if (!item.marker) continue
+            if (recovered.has(item.marker.taskKey)) duplicates.push(item.event)
+            else recovered.set(item.marker.taskKey, item.event)
           }
-        }
-
-        if (!record) {
-          const eventId = await calendar.addEvent(this.taskToEvent(task))
-          recordByTaskId.set(task.id, { taskId: task.id, eventId, fingerprint })
-          result.created++
-        } else if (record.fingerprint !== fingerprint) {
-          const event = this.taskToEvent(task)
-          event.id = record.eventId
-          await calendar.updateEvent(event)
-          record.fingerprint = fingerprint
-          result.updated++
-        } else {
-          result.unchanged++
-        }
-        result.synced++
-      } catch (error) {
-        result.errors.push(`${task.heading}: ${JSON.stringify(error)}`)
+          // 库存独立于来源版本；来源换代时保留已读取库存，继续用内存索引收尾。
+          this.events = recovered; this.duplicates = duplicates
+        } else { this.events.clear(); this.duplicates = [] }
+        this.inventoryLoaded = true
       }
-    }
-
-    for (const record of records) {
-      if (activeTaskIds.has(record.taskId)) {
-        continue
+      if (!current()) return false
+      for (const item of desired.values()) {
+        if (!current()) return false
+        await this.upsertDesired(item, current)
       }
-
-      try {
-        // 如果用户已手动删除日历事件，只清除本地记录。
-        if (!calendarEvents || calendarEvents.has(record.eventId)) {
-          await calendar.deleteEvent(record.eventId)
-          result.deleted++
-        }
-        recordByTaskId.delete(record.taskId)
-      } catch (error) {
-        result.errors.push(`删除日历事件失败: ${JSON.stringify(error)}`)
+      for (const entry of Array.from(this.events.entries())) {
+        if (!current()) return false
+        if (!desired.has(entry[0])) await this.delete(entry[0])
       }
-    }
-
-    await this.saveSyncRecords(Array.from(recordByTaskId.values()))
-
-    return result
+      while (this.duplicates.length) {
+        if (!current()) return false
+        await this.calendar!.deleteEvent(this.duplicates[0].id!)
+        this.duplicates.shift()
+      }
+      this.initialized = current()
+      return this.initialized
+    } catch (error) { this.invalidate(); throw error as Error }
   }
 
-  private async getExistingEvents(calendar: calendarManager.Calendar): Promise<Map<number, calendarManager.Event> | undefined> {
+  async apply(removed: CoreTask[], changed: CoreTask[], current: () => boolean): Promise<boolean> {
     try {
-      const events = await calendar.getEvents()
-      const eventMap = new Map<number, calendarManager.Event>()
-      for (const event of events) {
-        if (event.id !== undefined) {
-          eventMap.set(event.id, event)
-        }
+      if (!this.initialized) throw new Error('日历事件尚未完成初次同步')
+      const prepared: DesiredEvent[] = []
+      for (const task of changed) prepared.push(await this.desired(task))
+      const removedKeys: string[] = []
+      for (const task of removed) removedKeys.push(await sha256(task.id))
+      for (const item of prepared) {
+        if (!current()) { this.initialized = false; return false }
+        await this.upsertDesired(item, current)
       }
-      return eventMap
-    } catch (error) {
-      console.warn('读取现有日历事件失败，将仅使用本地同步记录:', JSON.stringify(error))
-      return undefined
-    }
-  }
-
-  private findEventByIdentifier(events: Map<number, calendarManager.Event>, taskId: string): number | undefined {
-    for (const entry of events.entries()) {
-      const eventId = entry[0]
-      const event = entry[1]
-      if (event.identifier === taskId) {
-        return eventId
+      for (const taskKey of removedKeys) {
+        if (!current()) { this.initialized = false; return false }
+        await this.delete(taskKey)
       }
-    }
-    return undefined
+      this.initialized = current()
+      return this.initialized
+    } catch (error) { this.invalidate(); throw error as Error }
   }
 
-  private taskFingerprint(task: OrgTask): string {
-    return JSON.stringify([
-      task.heading,
-      (task.state?.name || ''),
-      task.priority?.name ?? null,
-      task.scheduled,
-      task.deadline,
-      task.tags,
-      task.fileName,
-      task.body,
-      task.progress
-    ])
-  }
-
-  private async loadSyncRecords(): Promise<SyncEventRecord[]> {
+  private async upsertDesired(item: DesiredEvent, current: () => boolean): Promise<void> {
     try {
-      const store = await PreferencesStore.open(this.context, PREF_NAME)
-      const rawState = await store.get(SYNC_STATE_KEY, '') as string
-      if (!rawState) {
-        return []
+      const existing = this.events.get(item.marker.taskKey)
+      if (item.event.startTime <= Date.now()) {
+        // 已触发的同一事件保留到任务结束；不新建过去的提醒，也不把改期到过去的事件补发。
+        if (existing && (existing.startTime > Date.now() || existing.identifier !== item.event.identifier)) await this.delete(item.marker.taskKey)
+        return
       }
+      if (!current()) return
+      if (!this.calendar) throw new Error('应用提醒日历不可用')
+      if (this.calendar.getConfig().enableReminder === false) throw new Error('请在系统日历中开启“小清单提醒”的提醒')
+      if (existing && sameEvent(existing, item.event)) return
+      if (existing) { item.event.id = existing.id; await this.calendar.updateEvent(item.event) }
+      else item.event.id = await this.calendar.addEvent(item.event)
+      // 即使等待系统写入期间来源换代，也记录已成功的实际 ID，供下一批增量继续处理。
+      this.events.set(item.marker.taskKey, item.event)
 
-      const state = JSON.parse(rawState) as StoredSyncState
-      if (state.calendarName !== this.calendarName || !Array.isArray(state.records)) {
-        return []
-      }
-      return state.records.filter((record) => record.taskId && record.eventId > 0)
-    } catch (error) {
-      console.warn('读取同步状态失败:', JSON.stringify(error))
-      return []
-    }
+    } catch (error) { throw error as Error }
   }
 
-  private async saveSyncRecords(records: SyncEventRecord[]): Promise<void> {
-    const store = await PreferencesStore.open(this.context, PREF_NAME)
-    const state: StoredSyncState = { calendarName: this.calendarName, records }
-    await store.put(SYNC_STATE_KEY, JSON.stringify(state))
-    await store.flush()
-  }
-
-  private taskToEvent(task: OrgTask): calendarManager.Event {
-    const dateStr = task.scheduled || task.deadline || ''
-    const isAllDay = !dateStr.includes('T')
-    const parsedDate = new Date(dateStr)
-    const startTime = isAllDay
-      ? new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate()).getTime()
-      : parsedDate.getTime()
-    const endTime = startTime + (isAllDay ? 24 : 1) * 60 * 60 * 1000
-    const title = task.priority ? `[#${task.priority.name}] ${task.heading}` : task.heading
-    const description = this.taskDescription(task)
-    const reminderTime = task.deadline
-      ? [startTime - 24 * 60 * 60 * 1000, startTime - 60 * 60 * 1000]
-      : undefined
-
-    return {
-      type: calendarManager.EventType.NORMAL,
-      title,
-      description,
-      startTime,
-      endTime,
-      isAllDay,
-      identifier: task.id,
-      reminderTime
-    }
-  }
-
-  private taskDescription(task: OrgTask): string {
-    let description = `来源: ${task.fileName}\n状态: ${(task.state?.name || '')}\n`
-    if (task.tags.length > 0) {
-      description += `标签: ${task.tags.join(', ')}\n`
-    }
-    if (task.progress >= 0) {
-      description += `进度: ${task.progress}%\n`
-    }
-    if (task.body) {
-      description += `\n${task.body}`
-    }
-    return description
-  }
-
-  async removeEvent(eventId: number): Promise<boolean> {
-    if (!this.calendar) {
-      return false
-    }
+  private async delete(taskKey: string): Promise<void> {
     try {
-      await this.calendar.deleteEvent(eventId)
-      return true
-    } catch (error) {
-      console.error('删除事件失败:', JSON.stringify(error))
-      return false
-    }
-  }
+      const existing = this.events.get(taskKey)
+      if (!existing) return
+      if (!this.calendar) throw new Error('应用提醒日历不可用')
+      await this.calendar.deleteEvent(existing.id!)
+      this.events.delete(taskKey)
 
-  async clearAll(eventIds: number[]): Promise<number> {
-    let count = 0
-    for (const eventId of eventIds) {
-      if (await this.removeEvent(eventId)) {
-        count++
-      }
-    }
-    return count
+    } catch (error) { throw error as Error }
   }
 }

@@ -1,13 +1,11 @@
-import { AppConfig } from '../models/OrgTask'
-import { DataSet, DataSetDefinition, DataSetManager } from '../services/DataSetManager'
+import { DataSet } from '../services/DataSetManager'
 import { CoreTask, CoreTaskModification, CoreTaskPlanningEdit, coreErrorMessage, CoreBridgeError } from '../services/NativeCoreService'
-import { systemTrashExclusions } from '../services/FileTargetService'
-import { TaskReminderService } from '../services/TaskReminderService'
+import { TaskEventManager } from '../services/TaskEventManager'
 import { reminderPlanning, reminderModification } from '../ui/TaskReminderPresentation'
 import { TaskDateDialog } from './editors/TaskDateDialog'
 import { UiColor } from '../ui/Theme'
 
-// 进入设置子页才创建查询；列表成员、排序和外部更新全部由 Core 及 DataSet 维护。
+// 只消费全局事件管理器持有的 DataSet；离开设置页不关闭共享查询或事件维护。
 @Component
 export struct TaskReminderList {
   @State tasks: CoreTask[] = []
@@ -15,7 +13,6 @@ export struct TaskReminderList {
   @State message: string = ''
   @State busy: boolean = false
   @State revision: number = 0
-  private manager: DataSetManager | undefined = undefined
   private dataSet: DataSet | undefined = undefined
   private stopData: (() => void) | undefined = undefined
   private stopStatus: (() => void) | undefined = undefined
@@ -24,28 +21,20 @@ export struct TaskReminderList {
 
   aboutToAppear(): void {
     this.active = true
-    this.manager = DataSetManager.create(this.getUIContext().getHostContext()!, 'task-reminder-list',
-      (config: AppConfig): DataSetDefinition[] => {
-        const trash = systemTrashExclusions(config)
-        return [{ name: 'tasks', query: { type: 'task', query: {
-          expression: 'it.todo has.reminder o.reminder', excludeFiles: trash.files
-        } }, repositoryBindings: trash.repositoryBindings }]
-      }, { cache: false })
-    this.dataSet = this.manager.dataSet('tasks')
+    this.dataSet = TaskEventManager.dataSet(this.getUIContext().getHostContext()!)
     this.stopData = this.dataSet.subscribe((): void => { this.update() })
-    this.stopStatus = TaskReminderService.subscribe((): void => { this.revision++ })
+    this.stopStatus = TaskEventManager.subscribe((): void => { this.revision++ })
     this.load()
   }
   aboutToDisappear(): void {
     this.active = false; this.dialog?.close()
     this.stopData?.(); this.stopStatus?.()
-    this.manager?.close().catch((): void => { console.error('关闭提醒列表失败') })
   }
   private async load(): Promise<void> {
     this.loading = true; this.message = ''
     try {
       if (this.dataSet?.error) await this.dataSet.refresh()
-      else await this.manager!.start()
+      else await TaskEventManager.refresh(this.getUIContext().getHostContext()!)
     }
     catch (error) { if (this.active) this.message = coreErrorMessage(error as CoreBridgeError) }
     finally { if (this.active) { this.loading = false; this.update() } }
@@ -62,7 +51,7 @@ export struct TaskReminderList {
   }
   private status(task: CoreTask): string {
     if (this.revision < 0) return ''
-    return TaskReminderService.status(task)
+    return TaskEventManager.status(task)
   }
   private edit(task: CoreTask): void {
     if (this.busy || !this.dataSet?.isReady()) return

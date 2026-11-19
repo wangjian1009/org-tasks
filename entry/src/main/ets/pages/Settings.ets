@@ -1,6 +1,7 @@
 import { SettingsAutoSave } from '../services/SettingsAutoSave'
 import { TaskReminderSettings, TaskReminderConfiguration } from '../services/TaskReminderSettings'
-import { TaskReminderService } from '../services/TaskReminderService'
+import { CalendarPermissionService, CalendarPermissionState } from '../services/CalendarPermissionService'
+import { TaskEventManager } from '../services/TaskEventManager'
 import { TaskReminderList } from '../components/TaskReminderList'
 import { TrashSettingsService } from '../services/TrashSettingsService'
 import { PageNavigator } from '../services/PageNavigator'
@@ -33,10 +34,9 @@ struct Settings {
   @State config: AppConfig = DEFAULT_CONFIG
   @State section: string = ''
   @State reminderEnabled: boolean = false
-  @State ringDurationDraft: string = '30'
   @State reminderSummary: string = ''
   private stopReminder: (() => void) | undefined = undefined
-  private reminderSaved: TaskReminderConfiguration = { enabled: false, ringDuration: 30 }
+  private reminderSaved: TaskReminderConfiguration = { enabled: false }
   private savedRetentionDays: number = 30
   private reminderEditVersion: number = 0
   private preferenceSave: SettingsAutoSave = new SettingsAutoSave((error: Error): void => {
@@ -60,7 +60,9 @@ struct Settings {
   @State notebooks: NotebookGroup[] = []
   @State notificationState: NotificationPermissionState | 'loading' | 'error' = 'loading'
   @State notificationBusy: boolean = false
-  @State reminderRetryBusy: boolean = false
+  @State calendarState: CalendarPermissionState | 'loading' | 'error' = 'loading'
+  @State calendarBusy: boolean = false
+  private calendarRevision: number = 0
   private notificationRevision: number = 0
   private notificationVisible: boolean = false
   private notificationTimer: number = -1
@@ -70,13 +72,14 @@ struct Settings {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.saving && !this.categoryBusy && !this.filePickerOpen && !this.filePickerBusy &&
-      !this.notificationBusy && !this.reminderRetryBusy && this.editingCategory < 0 && !this.preferenceSave.hasPending())
+      !this.notificationBusy && !this.calendarBusy && this.editingCategory < 0 && !this.preferenceSave.hasPending())
     this.stopReminder?.()
-    this.stopReminder = TaskReminderService.subscribe((): void => { this.reminderSummary = TaskReminderService.summary() })
-    this.reminderSummary = TaskReminderService.summary()
+    this.stopReminder = TaskEventManager.subscribe((): void => { this.reminderSummary = TaskEventManager.summary() })
+    this.reminderSummary = TaskEventManager.summary()
     this.notificationVisible = true
     this.load()
     this.loadNotificationState()
+    this.loadCalendarState()
     this.scheduleNotificationCheck()
   }
   onPageHide() { this.preferenceSave.flush(); this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.stopNotificationCheck() }
@@ -89,6 +92,7 @@ struct Settings {
       if (!this.notificationVisible) return
       // 系统半屏设置不保证触发页面或窗口生命周期，只检查权限，不重复读取任务。
       if ((this.section === '' || this.section === '应用程序' || this.section === '任务提醒') && NotificationPermissionService.isForeground()) await this.loadNotificationState(true)
+      if (this.section === '任务提醒' && NotificationPermissionService.isForeground()) await this.loadCalendarState(true)
       this.scheduleNotificationCheck()
     }, 1000)
   }
@@ -96,7 +100,7 @@ struct Settings {
   private stopNotificationCheck(): void {
     this.stopReminder?.(); this.stopReminder = undefined
     this.notificationVisible = false
-    this.notificationRevision++
+    this.notificationRevision++; this.calendarRevision++
     if (this.notificationTimer !== -1) clearTimeout(this.notificationTimer)
     this.notificationTimer = -1
   }
@@ -111,7 +115,6 @@ struct Settings {
       this.notificationState = state
       if (refreshBadge && state === 'enabled' && previous !== 'enabled') {
         await NotificationPermissionService.refresh(context)
-        await TaskReminderService.refresh(context)
       }
     } catch (_) {
       if (revision === this.notificationRevision) this.notificationState = 'error'
@@ -128,7 +131,7 @@ struct Settings {
   }
 
   async manageNotifications(): Promise<void> {
-    if (this.notificationBusy || this.reminderRetryBusy || this.notificationState === 'loading') return
+    if (this.notificationBusy || this.calendarBusy || this.notificationState === 'loading') return
     this.notificationBusy = true
     this.message = ''
     try {
@@ -136,7 +139,6 @@ struct Settings {
         await NotificationPermissionService.manage(this.getUIContext().getHostContext()! as common.UIAbilityContext)
       }
       await this.loadNotificationState()
-      await TaskReminderService.refresh(this.getUIContext().getHostContext()!)
     } catch (error) {
       this.message = `更新通知设置失败：${coreErrorMessage(error as CoreBridgeError)}`
       await this.loadNotificationState()
@@ -147,51 +149,43 @@ struct Settings {
     if (this.notificationState === 'error') return '重试'
     return '前往系统设置'
   }
-  reminderResolutionDetail(): string {
-    if (!this.reminderEnabled) return '请先开启本机任务提醒。'
-    if (this.notificationState !== 'enabled') return '请处理下方的系统通知授权，再重新安排提醒。'
-    if (this.reminderSummary.includes('权限未开通')) return '当前安装版本未获得系统提醒权限，请更新应用后重试；通知开关不能授予此权限。'
-    if (this.reminderSummary.includes('暂不可用')) return '系统暂未接受提醒，请重新安排；仍失败时可更新应用或联系维护者检查系统提醒能力。'
-    return '通知已开启，可重新安排尚未结束且未过期的任务提醒。'
+  async loadCalendarState(refreshEvents: boolean = false): Promise<void> {
+    const revision = ++this.calendarRevision
+    try {
+      const previous = this.calendarState
+      const state = await CalendarPermissionService.state()
+      if (revision !== this.calendarRevision || !this.notificationVisible) return
+      this.calendarState = state
+      if (refreshEvents && state !== previous) await TaskEventManager.refresh(this.getUIContext().getHostContext()!)
+    } catch (_) { if (revision === this.calendarRevision) this.calendarState = 'error' }
   }
-  reminderStatusText(): string {
-    if (this.reminderSummary.includes('权限未开通')) return '系统提醒权限未开通'
-    if (this.reminderSummary.includes('暂不可用')) return '代理提醒暂不可用'
-    return this.reminderSummary
+  calendarDetail(): string {
+    if (this.calendarBusy) return '正在处理…'
+    if (this.calendarState === 'enabled') return '日历读写已允许'
+    if (this.calendarState === 'error') return '读取失败 · 点击重试'
+    if (this.calendarState === 'loading') return '正在读取…'
+    return '未授权 · 点击授权'
+  }
+  async manageCalendar(): Promise<void> {
+    if (this.calendarBusy || this.calendarState === 'loading') return
+    this.calendarBusy = true; this.message = ''
+    try {
+      const context = this.getUIContext().getHostContext()!
+      if (this.calendarState !== 'error') await CalendarPermissionService.manage(context)
+      await this.loadCalendarState()
+      if (this.notificationVisible) await TaskEventManager.refresh(context)
+    } catch (error) { this.message = `更新日历授权失败：${coreErrorMessage(error as CoreBridgeError)}` }
+    finally { this.calendarBusy = false }
   }
   reminderHelpDetail(): string {
-    const permission = this.notificationState !== 'enabled' && this.notificationState !== 'loading'
-      ? `\n${this.notificationResolutionDetail()}` : ''
-    return '仅控制本机，任务的提醒配置会保留。开启后按任务时间自动安排系统通知。' +
-      '\n\n响铃时长默认 30 秒，可设置 1 至 1800 秒；修改后自动保存并更新提醒。' +
-      '\n\n“重新安排提醒”是自动安排异常时的备用重试操作，日常使用无需点击。' +
-      `\n\n当前状态：${this.reminderSummary}\n${this.reminderResolutionDetail()}${permission}`
-  }
-  async retryReminders(): Promise<void> {
-    if (this.reminderRetryBusy || this.notificationBusy || !this.loaded || !this.notificationVisible) return
-    this.reminderRetryBusy = true
-    this.message = ''
-    try {
-      await this.preferenceSave.flush()
-      if (this.preferenceSave.hasPending() || this.message) return
-      if (!this.notificationVisible) return
-      const context = this.getUIContext().getHostContext()!
-      await this.loadNotificationState()
-      if (!this.notificationVisible || !this.reminderEnabled || this.notificationState !== 'enabled') return
-      await TaskReminderService.refresh(context)
-      if (this.notificationVisible) this.reminderSummary = TaskReminderService.summary()
-    } catch (error) {
-      if (this.notificationVisible) this.message = `重新安排提醒失败：${coreErrorMessage(error as CoreBridgeError)}`
-    } finally { this.reminderRetryBusy = false }
-  }
-  notificationResolutionDetail(): string {
-    if (this.notificationState === 'unrequested') return '开启通知后，任务提醒才能发送系统通知。'
-    if (this.notificationState === 'error') return '暂时无法读取通知状态，请重试。'
-    return '系统通知已关闭，任务提醒无法发送；请在系统设置中允许通知。'
+    return '开启后，把未完成任务的提醒时间写入“小清单提醒”专用日历，由系统日历在到点时通知，应用退出后已登记事件仍由系统处理。' +
+      '\n\n需要授予日历读写权限。首次使用请打开系统日历完成初始化，并允许系统日历发送通知；小清单自身的通知开关不能替代它。声音和响铃时长由系统日历控制。' +
+      '\n\n启动时自动核对事件，之后随任务新增、修改、完成、取消和同步结果自动维护；关闭开关会删除本应用创建的日历事件，不修改任务原文。' +
+      `\n\n当前状态：${this.reminderSummary}`
   }
   onBackPress(): boolean {
     if (this.filePickerOpen) { if (!this.filePickerBusy) this.filePickerOpen = false; return true }
-    if (this.saving || this.categoryBusy || this.notificationBusy || this.reminderRetryBusy) return true
+    if (this.saving || this.categoryBusy || this.notificationBusy || this.calendarBusy) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
     if (this.preferenceSave.hasPending()) { this.preferenceSave.flush().then((): void => { this.onBackPress() }); return true }
@@ -210,7 +204,7 @@ struct Settings {
       }
       const reminder = await TaskReminderSettings.load(this.getUIContext().getHostContext()!)
       this.reminderSaved = reminder
-      this.reminderEnabled = reminder.enabled; this.ringDurationDraft = `${reminder.ringDuration}`
+      this.reminderEnabled = reminder.enabled
       this.retentionDraft = `${await TrashSettingsService.retentionDays(this.getUIContext().getHostContext()!)}`
       this.savedRetentionDays = Number(this.retentionDraft)
       this.config = config
@@ -329,23 +323,29 @@ struct Settings {
     }
   }
 
-  private changeReminder(enabled: boolean, duration: string, immediate: boolean = false): void {
-    this.reminderEnabled = enabled; this.ringDurationDraft = duration; this.message = ''
+  private changeReminder(enabled: boolean): void {
+    this.reminderEnabled = enabled; this.message = ''
     const version = ++this.reminderEditVersion
-    this.preferenceSave.schedule('reminder', (): Promise<void> => this.saveReminders(enabled, duration, version), immediate ? 0 : 300)
+    this.preferenceSave.schedule('reminder', (): Promise<void> => this.saveReminders(enabled, version), 0)
   }
   private changeRetention(value: string): void {
     this.retentionDraft = value; this.message = ''
     this.preferenceSave.schedule('trash', (): Promise<void> => this.saveRetention(value))
   }
-  private async saveReminders(enabled: boolean, duration: string, version: number): Promise<void> {
+  private async saveReminders(enabled: boolean, version: number): Promise<void> {
     try {
-      if (!/^\d+$/.test(duration)) throw new Error('响铃时长须为整数秒')
       const context = this.getUIContext().getHostContext()!
-      const config: TaskReminderConfiguration = { enabled, ringDuration: Number(duration) }
+      if (enabled) {
+        this.calendarBusy = true
+        try {
+          if (!await CalendarPermissionService.request(context)) throw new Error('未获得日历读写权限，提醒未开启')
+          await this.loadCalendarState()
+        } finally { this.calendarBusy = false }
+      }
+      const config: TaskReminderConfiguration = { enabled }
       await TaskReminderSettings.save(context, config)
       this.reminderSaved = config
-      TaskReminderService.refresh(context)
+      TaskEventManager.start(context)
     } catch (error) {
       if (version === this.reminderEditVersion) this.reminderEnabled = this.reminderSaved.enabled
       throw error as Error
@@ -357,45 +357,19 @@ struct Settings {
     this.savedRetentionDays = Number(value)
   }
   @Builder
-  notificationResolution() {
-    if (this.notificationState !== 'enabled' && this.notificationState !== 'loading') {
-      Column({ space: 8 }) {
-        Button(this.notificationBusy ? '正在处理…' : this.notificationActionTitle()).id('reminder_notification_action').height(40).fontSize(14).fontColor(UiColor.onPrimary)
-          .backgroundColor(UiColor.primary).enabled(!this.notificationBusy)
-          .accessibilityText(this.notificationActionTitle()).onClick((): void => { this.manageNotifications() })
-      }.width('100%').padding({ left: 16, right: 16, top: 4, bottom: 16 })
-    }
-  }
-  @Builder
   taskReminderSettings() {
     SettingsGroup({ title: '本机任务提醒', detail: this.reminderHelpDetail() }) {
       Row() {
         Text('启用任务提醒').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.reminderEnabled }).id('reminder_global_enabled')
-          .onChange((value: boolean): void => { if (value !== this.reminderEnabled) this.changeReminder(value, this.ringDurationDraft, true) })
+          .enabled(!this.calendarBusy)
+          .onChange((value: boolean): void => { if (value !== this.reminderEnabled) this.changeReminder(value) })
       }.width('100%').padding(16)
-      Row({ space: 12 }) {
-        Text('响铃时长（秒）').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
-        TextInput({ text: this.ringDurationDraft }).id('reminder_ring_duration').width(100).type(InputType.Number)
-          .onChange((value: string): void => { if (value !== this.ringDurationDraft) this.changeReminder(this.reminderEnabled, value) })
-          .onBlur((): void => { this.preferenceSave.flush() })
-      }.width('100%').padding(16)
-      Row({ space: 8 }) {
-        Text(this.reminderStatusText()).id('reminder_service_status').fontSize(13).fontColor(UiColor.secondary)
-          .layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (this.reminderEnabled && this.notificationState === 'enabled') {
-          Button(this.reminderRetryBusy ? '正在重新安排…' : '重新安排提醒', { type: ButtonType.Normal })
-            .id('reminder_retry').height(40).fontSize(13).padding({ left: 8, right: 8 })
-            .fontColor(UiColor.secondary).backgroundColor(Color.Transparent).borderRadius(4)
-            .accessibilityText('重新安排任务提醒，备用操作')
-            .enabled(!this.reminderRetryBusy && !this.notificationBusy)
-            .onClick((): void => { this.retryReminders() })
-        }
-      }.width('100%').padding({ left: 16, right: 8, top: 4, bottom: 8 })
-      SettingsRow({ title: '系统通知授权', value: this.notificationDetail(), action: (): void => { this.manageNotifications() } })
-      this.notificationResolution()
+      Text(this.reminderSummary).id('reminder_service_status').fontSize(13).fontColor(UiColor.secondary)
+        .width('100%').padding({ left: 16, right: 16, top: 4, bottom: 12 })
+      SettingsRow({ title: '日历授权', value: this.calendarDetail(), action: (): void => { this.manageCalendar() } })
     }
-    SettingsGroup({ title: '有提醒的任务', detail: '进入页面后异步读取设置了提醒时间的未完成任务，包含提醒时间已过的记录，排除已完成和已取消的任务；按提醒时间排序，点击可修改或清除。系统最多保留 30 个有效提醒。' }) {
+    SettingsGroup({ title: '有提醒的任务', detail: '与全局事件管理器共用同一任务数据集，展示设置了提醒时间的未完成任务，保留提醒时间已过的记录，排除完成和取消状态；按提醒时间排序，点击可修改或清除。' }) {
       TaskReminderList()
     }
   }

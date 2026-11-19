@@ -14,7 +14,7 @@
     },
     {
       "name": "calendar_permission_reason",
-      "value": "用于同步 org 任务到系统日历"
+      "value": "用于在小清单专用日历中创建、更新和删除任务提醒"
     },
     {
       "name": "file_permission_reason",

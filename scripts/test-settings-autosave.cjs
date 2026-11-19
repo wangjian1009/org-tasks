@@ -68,25 +68,23 @@ function page() {
   const { Page } = compile('export class Page {' + methods + '}', {}, {
     TaskReminderSettings: { async save(context, value) { if (fail) throw new Error('保存失败'); writes.push(['reminder', value]); } },
     TrashSettingsService: { async saveRetentionDays(context, value) { if (fail) throw new Error('保存失败'); if (value < 1 || value > 3650) throw new Error('越界'); writes.push(['trash', value]); } },
-    TaskReminderService: { refresh: async () => {} }
+    TaskEventManager: { start() {} }, CalendarPermissionService: {request:async()=>true}
   });
-  const errors = [], value = Object.assign(new Page(), { reminderEnabled: false, ringDurationDraft: '30',
-    reminderSaved: { enabled: false, ringDuration: 30 }, reminderEditVersion: 0, retentionDraft: '30', savedRetentionDays: 30,
-    getUIContext: () => ({ getHostContext: () => ({}) }) });
+  const errors = [], value = Object.assign(new Page(), { reminderEnabled: false,
+    reminderSaved: { enabled: false }, reminderEditVersion: 0, retentionDraft: '30', savedRetentionDays: 30,
+    loadCalendarState:async()=>{}, getUIContext: () => ({ getHostContext: () => ({}) }) });
   value.preferenceSave = new SettingsAutoSave(error => errors.push(error.message));
   return { value, writes, errors, fail(value) { fail = value; } };
 }
 
-test('提醒开关即时保存，时长与废纸篓合并输入；失败回退开关且保留数字草稿', async () => {
-  const f = page(); f.value.changeReminder(true, '30', true); await f.value.preferenceSave.flush();
-  assert.equal(f.writes[0][1].enabled, true);
-  f.value.changeReminder(true, '4'); f.value.changeReminder(true, '45'); f.value.changeRetention('7');
-  await f.value.preferenceSave.flush();
-  assert.equal(f.writes[1][1].ringDuration, 45); assert.deepEqual(f.writes[2], ['trash', 7]);
-  assert.equal(f.value.savedRetentionDays, 7);
-  f.fail(true); f.value.changeReminder(false, '60', true); await f.value.preferenceSave.flush();
-  assert.equal(f.value.reminderEnabled, true); assert.equal(f.value.ringDurationDraft, '60'); assert.deepEqual(f.errors, ['保存失败']);
-  f.fail(false); f.value.changeReminder(false, '60', true); await f.value.preferenceSave.flush();
+test('提醒开关即时保存且只保存布尔值，废纸篓输入独立合并；失败恢复已确认开关', async () => {
+  const f = page(); f.value.changeReminder(true); await f.value.preferenceSave.flush();
+  assert.equal(f.writes[0][1].enabled, true); assert.deepEqual(Object.keys(f.writes[0][1]), ['enabled']);
+  f.value.changeRetention('7'); await f.value.preferenceSave.flush();
+  assert.deepEqual(f.writes[1], ['trash', 7]); assert.equal(f.value.savedRetentionDays, 7);
+  f.fail(true); f.value.changeReminder(false); await f.value.preferenceSave.flush();
+  assert.equal(f.value.reminderEnabled, true); assert.deepEqual(f.errors, ['保存失败']);
+  f.fail(false); f.value.changeReminder(false); await f.value.preferenceSave.flush();
   assert.equal(f.writes.at(-1)[1].enabled, false);
 });
 

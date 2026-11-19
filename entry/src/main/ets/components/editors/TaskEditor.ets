@@ -1,6 +1,6 @@
 import { reminderPlanning, reminderModification } from '../../ui/TaskReminderPresentation'
 import { PageNavigator } from '../../services/PageNavigator'
-import { TaskReminderService } from '../../services/TaskReminderService'
+import { TaskEventManager } from '../../services/TaskEventManager'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { ProjectNavigation } from '../../services/ProjectNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
@@ -527,7 +527,7 @@ export struct TaskEditor {
   aboutToAppear() {
     this.ownerKey = this.instanceKey || this.localDataSet().taskKey(this.taskId)
     this.appeared = true
-    this.stopReminder = TaskReminderService.subscribe((): void => { this.reminderRevision++ })
+    this.stopReminder = TaskEventManager.subscribe((): void => { this.reminderRevision++ })
     this.controller?.bind(this)
     this.stopDataSet = this.localDataSet().watchTask(this.taskId, (change: TaskDataChange): void => {
       if (!this.appeared) return
@@ -878,10 +878,10 @@ export struct TaskEditor {
   reminderStatus(): string {
     // 系统安排结果独立刷新；卡片保留简短说明，详细状态见设置。
     if (this.reminderRevision < 0) return ''
-    const status = TaskReminderService.status(this.value())
+    const status = TaskEventManager.status(this.value())
     if (status === '本机任务提醒已关闭') return '提醒已关闭'
-    if (status === '提醒已安排') return '已设置提醒'
-    if (status.includes('不可用') || status.includes('失败') || status.includes('未开通')) return '提醒不可用'
+    if (status === '日历提醒已设置') return '已设置提醒'
+    if (status.includes('不可用') || status.includes('失败') || status.includes('未授权')) return '提醒不可用'
     return status
   }
   private async openReminderSettings(): Promise<void> {

@@ -25,9 +25,10 @@ function load(name, mocks, globals = {}) {
   vm.runInThisContext('(function(require,module,exports,LocalStorage,setTimeout,clearTimeout){' + output + '\n})', { filename })(name => {
     if (name.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
     if (name.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
+    if (name.endsWith('/CalendarPermissionService') && !Object.hasOwn(mocks, name)) return {CalendarPermissionService:{state:async()=> 'disabled', request:async()=>true,manage:async()=>{}}};
     if (name.endsWith('/SettingsAutoSave')) return {SettingsAutoSave:class{hasPending(){return false;}async flush(){}schedule(){}}};
-    if (name.endsWith('/TaskReminderSettings')) return {TaskReminderSettings:{load:async()=>({enabled:false,ringDuration:30}),save:async()=>{}}};
-    if (name.endsWith('/TaskReminderService') && !Object.hasOwn(mocks, name)) return {TaskReminderService:{start(){},stop(){},refresh:async()=>{},summary:()=>'',subscribe:()=>()=>{}}};
+    if (name.endsWith('/TaskReminderSettings')) return {TaskReminderSettings:{load:async()=>({enabled:false}),save:async()=>{}}};
+    if (name.endsWith('/TaskEventManager') && !Object.hasOwn(mocks, name)) return {TaskEventManager:{start(){},stop(){},refresh:async()=>{},summary:()=>'',subscribe:()=>()=>{}}};
     if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};
     if (name.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
     if (name.endsWith('/AppDataManager')) return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
@@ -187,12 +188,14 @@ function settingsFixture() {
     .replace('struct Settings', 'export class Settings') + '}';
   const timers = new Map();
   let state = 'enabled', refreshed = 0, reads = 0, readGate, nextId = 1, foreground = true;
+  let calendarState = 'disabled', calendarManaged = 0;
   let managed = 0, manageError, manageGate, reminderRefreshes = 0, reminderGate, summary = '已安排 1 次提醒';
   const Settings = load('pages/Settings', {
     'liborg_tasks_harmony.so': { Workspace: class {} },
     '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Done: 'Done', Cancel: 'Cancel' } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
-    '../services/TaskReminderService': { TaskReminderService: {
+    '../services/CalendarPermissionService': {CalendarPermissionService:{async state(){return calendarState},async manage(){calendarManaged++;calendarState='enabled'},async request(){calendarState='enabled';return true}}},
+    '../services/TaskEventManager': { TaskEventManager: {
       subscribe: () => () => {}, summary: () => summary, async refresh() { reminderRefreshes++; if (reminderGate) await reminderGate.promise; }
     } },
     '../services/AppConfigService': {},
@@ -212,7 +215,7 @@ function settingsFixture() {
   const settings = new Settings();
   settings.load = async () => {};
   settings.getUIContext = () => ({ getHostContext: () => ({}) });
-  return { settings, timers, state(value) { state = value; }, refreshed: () => refreshed, reads: () => reads,
+  return { settings, timers, calendar(value){calendarState=value}, calendarManaged:()=>calendarManaged, state(value) { state = value; }, refreshed: () => refreshed, reads: () => reads,
     foreground(value) { foreground = value; }, holdRead(gate) { readGate = gate; },
     managed: () => managed, failManage(error) { manageError = error; }, holdManage(gate) { manageGate = gate; },
     reminderRefreshes: () => reminderRefreshes, holdReminder(gate) { reminderGate = gate; }, summary(value) { summary = value; },
@@ -255,28 +258,15 @@ test('设置首页显示通知摘要，保持前台权限更新', async () => {
   f.settings.onPageHide();
 });
 
-test('任务提醒设置为通知不可用时提供解决动作文案', () => {
-  const f = settingsFixture();
-  assert.equal(f.settings.notificationActionTitle(), '前往系统设置');
-  assert.match(f.settings.notificationResolutionDetail(), /系统设置/);
-  f.settings.notificationState = 'unrequested';
-  assert.equal(f.settings.notificationActionTitle(), '开启通知');
-  assert.match(f.settings.notificationResolutionDetail(), /任务提醒/);
-  f.settings.notificationState = 'error';
-  assert.equal(f.settings.notificationActionTitle(), '重试');
+test('日历授权摘要区分允许、未授权与读取失败', () => {
+  const f = settingsFixture(); f.settings.calendarState = 'enabled'; assert.match(f.settings.calendarDetail(), /已允许/);
+  f.settings.calendarState = 'disabled'; assert.match(f.settings.calendarDetail(), /点击授权/);
+  f.settings.calendarState = 'error'; assert.match(f.settings.calendarDetail(), /重试/);
 });
 
-
-test('任务提醒页的通知动作按实际状态修复，读取失败只重读，不重复请求', async () => {
-  for (const state of ['unrequested', 'disabled', 'enabled']) {
-    const f = settingsFixture(); f.state(state); f.settings.notificationState = state;
-    await f.settings.manageNotifications();
-    assert.equal(f.managed(), 1); assert.equal(f.reminderRefreshes(), 1);
-    assert.equal(f.settings.notificationBusy, false);
-  }
-  const retry = settingsFixture(); retry.settings.notificationState = 'error';
-  await retry.settings.manageNotifications(); assert.equal(retry.managed(), 0);
-  assert.equal(retry.settings.notificationState, 'enabled');
+test('应用自身通知设置只刷新授权与角标，不额外触发日历同步', async () => {
+  const f = settingsFixture(); f.settings.notificationState = 'enabled'; await f.settings.manageNotifications();
+  assert.equal(f.managed(), 1); assert.equal(f.reminderRefreshes(), 0);
 });
 
 test('通知系统设置失败可重试，重复点击不会打开多个窗口', async () => {
@@ -287,34 +277,20 @@ test('通知系统设置失败可重试，重复点击不会打开多个窗口',
   assert.match(f.settings.message, /系统设置打开失败/); assert.equal(f.settings.notificationBusy, false);
 });
 
-test('通知恢复开启时同步刷新提醒安排，不只刷新角标', async () => {
-  const f = settingsFixture(); f.settings.section = '任务提醒'; f.state('disabled'); f.settings.onPageShow(); await tick();
-  f.state('enabled'); await f.advance();
-  assert.equal(f.refreshed(), 1); assert.equal(f.reminderRefreshes(), 1);
+test('日历授权恢复后自动刷新事件管理器，不提供额外同步入口', async () => {
+  const f = settingsFixture(); f.settings.section = '任务提醒'; f.settings.onPageShow(); await tick();
+  f.calendar('enabled'); await f.advance(); assert.equal(f.reminderRefreshes(), 1);
   await f.advance(); assert.equal(f.reminderRefreshes(), 1); f.settings.onPageHide();
 });
 
-test('重新安排先刷新设置再读取权限，防重入且保留系统失败的真实摘要', async () => {
-  const f = settingsFixture(), gate = deferred();
-  Object.assign(f.settings, {loaded: true, notificationVisible: true, reminderEnabled: true});
-  const events = []; f.settings.preferenceSave = {hasPending: () => false, async flush() { events.push('flush'); }};
-  f.holdReminder(gate); f.summary('代理提醒暂不可用，请检查开放能力和系统提醒名额');
-  const first = f.settings.retryReminders(); await tick(); await f.settings.retryReminders();
-  assert.deepEqual(events, ['flush']); assert.equal(f.reminderRefreshes(), 1);
-  gate.resolve(); await first;
-  assert.equal(f.settings.reminderRetryBusy, false); assert.match(f.settings.reminderSummary, /暂不可用/);
-  assert.match(f.settings.reminderResolutionDetail(), /系统暂未接受/);
+test('日历授权操作防止重复进入，恢复后自动维护事件', async () => {
+  const f = settingsFixture(); f.settings.notificationVisible = true; f.settings.calendarState = 'disabled';
+  const pending = f.settings.manageCalendar(); await f.settings.manageCalendar(); await pending;
+  assert.equal(f.calendarManaged(), 1); assert.equal(f.settings.calendarState, 'enabled');
+  assert.equal(f.reminderRefreshes(), 1); assert.equal(f.settings.calendarBusy, false);
 });
 
-test('未开启通知、本机提醒关闭、保存失败或页面离开都不重新安排', async () => {
-  for (const mode of ['disabled', 'closed', 'save', 'hidden']) {
-    const f = settingsFixture(); Object.assign(f.settings, {loaded: true, notificationVisible: true, reminderEnabled: true});
-    f.settings.preferenceSave = {hasPending: () => false, async flush() {
-      if (mode === 'save') f.settings.message = '保存失败';
-      if (mode === 'hidden') f.settings.notificationVisible = false;
-    }};
-    if (mode === 'disabled') f.state('disabled');
-    if (mode === 'closed') f.settings.reminderEnabled = false;
-    await f.settings.retryReminders(); assert.equal(f.reminderRefreshes(), 0, mode);
-  }
+test('日历状态读取失败时重读，不重复打开授权窗口', async () => {
+  const f = settingsFixture(); f.settings.notificationVisible = true; f.settings.calendarState = 'error'; f.calendar('enabled');
+  await f.settings.manageCalendar(); assert.equal(f.calendarManaged(), 0); assert.equal(f.settings.calendarState, 'enabled');
 });
