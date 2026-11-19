@@ -215,3 +215,32 @@ test('等待在保存失败、菜单撤销、页面离开或任务消失后不�
   }
   const gone=fixture();gone.settleWith(async()=>{gone.state.task=undefined;});await assert.rejects(gone.state.wait());
 });
+
+test('提醒不可用的设置入口先保存当前编辑，单次跳转提醒子页，保存失败或页面失效不跳转', async () => {
+  const calls = [], errors = [];
+  let finish = async () => true, settle = async () => {}, route;
+  const { ReminderNavigation } = compile('export class ReminderNavigation {' + method('openReminderSettings') + '}', {
+    PageNavigator: { shared: { async pushPage(context, page) { calls.push('navigate'); route = page; return true; } } }
+  });
+  const state = Object.assign(new ReminderNavigation(), {
+    appeared: true, removed: false, working: false, completing: false, moveBusy: false, snapshotBlocked: false,
+    async finish(collapse) { assert.equal(collapse, false); calls.push('finish'); return finish(); },
+    localDataSet() { return { error: '', async settle() { calls.push('settle'); await settle(); } }; },
+    getUIContext: () => ({}), actionError: error => errors.push(error.message)
+  });
+  await state.openReminderSettings();
+  assert.deepEqual(calls, ['finish', 'settle', 'navigate']);
+  assert.deepEqual(route, { url: 'pages/Settings', params: { section: '任务提醒' } });
+  calls.length = 0; finish = async () => false; await state.openReminderSettings();
+  assert.deepEqual(calls, ['finish']); assert.equal(state.completing, false);
+  calls.length = 0; finish = async () => true; settle = async () => { state.appeared = false; };
+  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'settle']);
+  state.appeared = true; calls.length = 0;
+  let release; settle = () => new Promise(done => { release = done; });
+  const waiting = state.openReminderSettings(); await tick();
+  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'settle']);
+  release(); await waiting; assert.equal(calls.filter(call => call === 'navigate').length, 1);
+  calls.length = 0; settle = async () => { throw new Error('保存失败'); };
+  await state.openReminderSettings(); assert.deepEqual(calls, ['finish', 'settle']);
+  assert.deepEqual(errors, ['保存失败']); assert.equal(state.completing, false);
+});

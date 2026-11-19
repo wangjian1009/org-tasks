@@ -1,4 +1,5 @@
 import { reminderPlanning, reminderModification } from '../../ui/TaskReminderPresentation'
+import { PageNavigator } from '../../services/PageNavigator'
 import { TaskReminderService } from '../../services/TaskReminderService'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { ProjectNavigation } from '../../services/ProjectNavigation'
@@ -883,6 +884,18 @@ export struct TaskEditor {
     if (status.includes('不可用') || status.includes('失败') || status.includes('未开通')) return '提醒不可用'
     return status
   }
+  private async openReminderSettings(): Promise<void> {
+    if (!this.appeared || this.removed || this.working || this.completing || this.moveBusy || this.pendingAction || this.snapshotBlocked) return
+    this.completing = true
+    try {
+      if (!await this.finish(false)) return
+      await this.localDataSet().settle()
+      if (!this.appeared || this.removed || this.snapshotBlocked) return
+      if (this.localDataSet().error) throw new Error(this.localDataSet().error)
+      await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '任务提醒' } })
+    } catch (error) { this.actionError(error as Error) }
+    finally { this.completing = false }
+  }
   async priorities() {
     if (this.readOnly) return
     if (this.working || this.snapshotBlocked || !await this.prepare() || !await this.finish(false)) return
@@ -1657,6 +1670,13 @@ export struct TaskEditor {
       Row({ space: 6 }) {
         Image($r('app.media.ui_reminder')).id('task_reminder_expanded_icon').width(18).height(18).fillColor(UiColor.secondary)
         Text(this.reminderStatus()).id('task_reminder_status').fontSize(12).fontColor(UiColor.secondary)
+        if (this.reminderStatus() === '提醒不可用') {
+          Button('前往设置').id('task_reminder_settings').fontSize(12).fontColor(UiColor.primary)
+            .height(28).padding({ left: 6, right: 6 }).backgroundColor(Color.Transparent)
+            .enabled(!this.working && !this.completing && !this.snapshotBlocked)
+            .accessibilityText('前往任务提醒设置')
+            .onClick((): void => { this.openReminderSettings() })
+        }
       }.width('100%').padding({ top: 4, bottom: 4 })
         .onClick(() => { if (!this.readOnly) this.emitAction(this.startReminder()) })
     }
