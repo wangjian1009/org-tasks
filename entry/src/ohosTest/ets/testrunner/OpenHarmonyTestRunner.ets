@@ -102,7 +102,7 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     if (notificationWebDav || projectData) config.todoDefaults = '#+TODO: TODO INPROGRESS | DONE'
     await AppConfigService.save(context, config)
     if (notificationWebDav) {
-      const request = RepositorySyncService.start(context, { triggerReason: 'manual', policy: SyncStartPolicy.Wait })
+      const request = RepositorySyncService.start(context, { source: 'manual', policy: SyncStartPolicy.Wait })
       if (request.kind === 'rejected') throw new Error('数据准备同步未被接受')
       const completion = await request.handle.completion
       if (completion.status !== 'succeeded') throw new Error(completion.message || '数据准备同步失败')

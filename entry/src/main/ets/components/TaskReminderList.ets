@@ -28,7 +28,7 @@ export struct TaskReminderList {
       (config: AppConfig): DataSetDefinition[] => {
         const trash = systemTrashExclusions(config)
         return [{ name: 'tasks', query: { type: 'task', query: {
-          expression: '.it.none has.reminder o.reminder', excludeFiles: trash.files
+          expression: 'it.todo has.reminder o.reminder', excludeFiles: trash.files
         } }, repositoryBindings: trash.repositoryBindings }]
       }, { cache: false })
     this.dataSet = this.manager.dataSet('tasks')
@@ -97,7 +97,7 @@ export struct TaskReminderList {
         Button('重新读取').onClick((): void => { this.load() }).enabled(!this.loading && !this.busy).margin(12)
       }
       if (!this.loading && !this.message && !this.tasks.length) {
-        Text('暂无设置提醒时间的任务').id('reminder_list_empty').fontSize(14).fontColor(UiColor.secondary).padding(20)
+        Text('暂无设置提醒时间的未完成任务').id('reminder_list_empty').fontSize(14).fontColor(UiColor.secondary).padding(20)
       }
       ForEach(this.tasks, (task: CoreTask) => {
         Column({ space: 6 }) {
