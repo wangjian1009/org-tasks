@@ -60,6 +60,7 @@ struct Settings {
   @State notebooks: NotebookGroup[] = []
   @State notificationState: NotificationPermissionState | 'loading' | 'error' = 'loading'
   @State notificationBusy: boolean = false
+  @State reminderRetryBusy: boolean = false
   private notificationRevision: number = 0
   private notificationVisible: boolean = false
   private notificationTimer: number = -1
@@ -69,7 +70,7 @@ struct Settings {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.saving && !this.categoryBusy && !this.filePickerOpen && !this.filePickerBusy &&
-      !this.notificationBusy && this.editingCategory < 0 && !this.preferenceSave.hasPending())
+      !this.notificationBusy && !this.reminderRetryBusy && this.editingCategory < 0 && !this.preferenceSave.hasPending())
     this.stopReminder?.()
     this.stopReminder = TaskReminderService.subscribe((): void => { this.reminderSummary = TaskReminderService.summary() })
     this.reminderSummary = TaskReminderService.summary()
@@ -127,8 +128,9 @@ struct Settings {
   }
 
   async manageNotifications(): Promise<void> {
-    if (this.notificationBusy || this.notificationState === 'loading') return
+    if (this.notificationBusy || this.reminderRetryBusy || this.notificationState === 'loading') return
     this.notificationBusy = true
+    this.message = ''
     try {
       if (this.notificationState !== 'error') {
         await NotificationPermissionService.manage(this.getUIContext().getHostContext()! as common.UIAbilityContext)
@@ -140,9 +142,43 @@ struct Settings {
       await this.loadNotificationState()
     } finally { this.notificationBusy = false }
   }
+  notificationActionTitle(): string {
+    if (this.notificationState === 'unrequested') return '开启通知'
+    if (this.notificationState === 'error') return '重试'
+    return '前往系统设置'
+  }
+  reminderResolutionDetail(): string {
+    if (!this.reminderEnabled) return '请先开启本机任务提醒。'
+    if (this.notificationState !== 'enabled') return '请处理下方的系统通知授权，再重新安排提醒。'
+    if (this.reminderSummary.includes('权限未开通')) return '当前安装版本未获得系统提醒权限，请更新应用后重试；通知开关不能授予此权限。'
+    if (this.reminderSummary.includes('暂不可用')) return '系统暂未接受提醒，请重新安排；仍失败时可更新应用或联系维护者检查系统提醒能力。'
+    return '通知已开启，可重新安排尚未结束且未过期的任务提醒。'
+  }
+  async retryReminders(): Promise<void> {
+    if (this.reminderRetryBusy || this.notificationBusy || !this.loaded || !this.notificationVisible) return
+    this.reminderRetryBusy = true
+    this.message = ''
+    try {
+      await this.preferenceSave.flush()
+      if (this.preferenceSave.hasPending() || this.message) return
+      if (!this.notificationVisible) return
+      const context = this.getUIContext().getHostContext()!
+      await this.loadNotificationState()
+      if (!this.notificationVisible || !this.reminderEnabled || this.notificationState !== 'enabled') return
+      await TaskReminderService.refresh(context)
+      if (this.notificationVisible) this.reminderSummary = TaskReminderService.summary()
+    } catch (error) {
+      if (this.notificationVisible) this.message = `重新安排提醒失败：${coreErrorMessage(error as CoreBridgeError)}`
+    } finally { this.reminderRetryBusy = false }
+  }
+  notificationResolutionDetail(): string {
+    if (this.notificationState === 'unrequested') return '开启通知后，任务提醒才能发送系统通知。'
+    if (this.notificationState === 'error') return '暂时无法读取通知状态，请重试。'
+    return '系统通知已关闭，任务提醒无法发送；请在系统设置中允许通知。'
+  }
   onBackPress(): boolean {
     if (this.filePickerOpen) { if (!this.filePickerBusy) this.filePickerOpen = false; return true }
-    if (this.saving || this.categoryBusy || this.notificationBusy) return true
+    if (this.saving || this.categoryBusy || this.notificationBusy || this.reminderRetryBusy) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
     if (this.preferenceSave.hasPending()) { this.preferenceSave.flush().then((): void => { this.onBackPress() }); return true }
@@ -308,6 +344,17 @@ struct Settings {
     this.savedRetentionDays = Number(value)
   }
   @Builder
+  notificationResolution() {
+    if (this.notificationState !== 'enabled' && this.notificationState !== 'loading') {
+      Column({ space: 8 }) {
+        Text(this.notificationResolutionDetail()).fontSize(13).fontColor(UiColor.secondary).lineHeight(20).width('100%')
+        Button(this.notificationBusy ? '正在处理…' : this.notificationActionTitle()).id('reminder_notification_action').height(40).fontSize(14).fontColor(UiColor.onPrimary)
+          .backgroundColor(UiColor.primary).enabled(!this.notificationBusy)
+          .accessibilityText(this.notificationActionTitle()).onClick((): void => { this.manageNotifications() })
+      }.width('100%').padding({ left: 16, right: 16, top: 4, bottom: 16 })
+    }
+  }
+  @Builder
   taskReminderSettings() {
     SettingsGroup({ title: '本机任务提醒', detail: '仅控制本机，任务的提醒配置会保留。开启后按任务时间安排系统通知。' }) {
       Row() {
@@ -323,7 +370,16 @@ struct Settings {
       }.width('100%').padding(16)
       Text('默认 30 秒，可设置 1 至 1800 秒；修改后自动保存并更新提醒。').fontSize(13).fontColor(UiColor.secondary).padding(16)
       Text(this.reminderSummary).id('reminder_service_status').fontSize(14).fontColor(UiColor.secondary).width('100%').padding(16)
+      Text(this.reminderResolutionDetail()).id('reminder_resolution_detail').fontSize(13).fontColor(UiColor.secondary)
+        .lineHeight(20).width('100%').padding({ left: 16, right: 16, bottom: 12 })
+      if (this.reminderEnabled && this.notificationState === 'enabled') {
+        Button(this.reminderRetryBusy ? '正在重新安排…' : '重新安排提醒').id('reminder_retry').height(40).fontSize(14)
+          .fontColor(UiColor.onPrimary).backgroundColor(UiColor.primary).margin({ left: 16, bottom: 16 })
+          .enabled(!this.reminderRetryBusy && !this.notificationBusy)
+          .onClick((): void => { this.retryReminders() })
+      }
       SettingsRow({ title: '系统通知授权', value: this.notificationDetail(), action: (): void => { this.manageNotifications() } })
+      this.notificationResolution()
     }
     SettingsGroup({ title: '有提醒的任务', detail: '进入页面后异步读取所有设置了提醒时间的任务，包含已结束和已过期的记录；按提醒时间排序，点击可修改或清除。系统最多保留 30 个有效提醒。' }) {
       TaskReminderList()
