@@ -31,14 +31,14 @@ function fixture() {
   const writes=[], callbacks=[], scopes=[], context={}, config={repos:[
     {id:'config-a',name:'个人仓库',rootDirectory:'/a',webdavEnabled:true,webdavUrl:'https://example.test/dav/'},
     {id:'config-b',name:'工作资料',rootDirectory:'/b',webdavEnabled:false,webdavUrl:''}]};
-  let configChanged, coreId='core-a', stops=0, initial=[], failure, gate;
+  let configChanged, coreId='core-a', stops=0, initial=[], failure, gate, nativeRevision=0, nativeValues=[];
   const repo={get id(){return coreId;},async load(){}};
   const workspace={async repos(){return [{id:'core-a',rootDirectory:'/a'},{id:'core-b',rootDirectory:'/b'}];},
     async watchNotifications(callback,scope){
       if(failure){const error=failure;failure=undefined;throw error;}
       callbacks.push(callback);scopes.push(scope);
       if(gate){const held=gate;gate=undefined;await held.promise;}
-      callback(initial);
+      nativeValues=initial.slice(); callback({type:'snapshot',revision:nativeRevision,notifications:initial});
     },stopWatchingNotifications(){stops++;},async query(){throw new Error('禁止查询通知');}};
   let current=workspace;
   const service=load('services/NotificationManager',{
@@ -47,7 +47,12 @@ function fixture() {
     '../ui/Theme':{repositoryLabel:repo=>repo.name}
   },{setOrCreate(key,value){assert.equal(key,'coreNotifications');writes.push(value);}});
   return {...service,config,context,workspace,writes,callbacks,scopes,stops:()=>stops,
-    emit(list){callbacks.at(-1)(list);},setCoreId(value){coreId=value;},values(value){initial=value;},
+    emit(list){
+      const before=nativeValues;const fromRevision=nativeRevision++;
+      const changes=before.filter(item=>!list.some(value=>JSON.stringify(item)===JSON.stringify(value))).map(notification=>({kind:'removed',notification}));
+      changes.push(...list.filter(item=>!before.some(value=>JSON.stringify(item)===JSON.stringify(value))).map(notification=>({kind:'added',notification})));
+      nativeValues=list.slice(); callbacks.at(-1)({type:'changed',fromRevision,revision:nativeRevision,changes});
+    },delta(event){callbacks.at(-1)(event);},revision:()=>nativeRevision,setCoreId(value){coreId=value;},values(value){initial=value;},
     fail(error){failure=error;},hold(){gate=deferred();return gate;},configChanged(){configChanged?.();},setWorkspace(value){current=value;},
     settle:()=>new Promise(resolve=>setImmediate(resolve))};
 }
@@ -104,4 +109,17 @@ test('冲突入口重新校验仓库身份，拒绝旧仓库映射',async()=>{
   const f=fixture();f.values([conflict()]);await f.NotificationManager.start(f.context);
   assert.deepEqual(await f.NotificationManager.syncConflictTarget(f.context,conflict()),{repoId:'config-a',path:'same.org'});
   f.setCoreId('replacement');await assert.rejects(f.NotificationManager.syncConflictTarget(f.context,conflict()),/存储库已发生变化/);f.NotificationManager.stop();
+});
+
+test('完整值替换基线异常，增量原子去重且旧版本不覆盖缓存',async()=>{
+  const f=fixture();await f.NotificationManager.start(f.context);
+  const first={type:'syncBaselineUnavailable',repoId:'core-a',rootDirectory:'/a',reason:'missing'};
+  f.emit([first]);assert.equal(f.writes.at(-1).repositories[0].configRepoId,'config-a');
+  const next={...first,reason:'invalid'};
+  const fromRevision=f.revision();
+  f.delta({type:'changed',fromRevision,revision:fromRevision+1,changes:[{kind:'updated',before:first,after:next},{kind:'added',notification:next}]});
+  assert.deepEqual(f.writes.at(-1).notifications,[next]);
+  const writes=f.writes.length;
+  f.delta({type:'changed',fromRevision,revision:fromRevision+2,changes:[{kind:'removed',notification:next}]});
+  assert.equal(f.writes.length,writes);f.NotificationManager.stop();
 });

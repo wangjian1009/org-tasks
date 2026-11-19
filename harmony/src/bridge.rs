@@ -556,7 +556,10 @@ fn subscribed_notifications_json(handle: u64) -> Result<String, CoreError> {
     let roots = workspace.repos().into_iter().map(|repo| (repo.id, repo.root_directory)).collect();
     let notifications = runtime(handle)?.block_on(async {
         let (send, mut received) = tokio::sync::mpsc::unbounded_channel();
-        let _subscription = workspace.watch_notifications(None, move |list| { let _ = send.send(list); });
+        let _subscription = workspace.watch_notifications(None, (
+            move |snapshot: org_tasks_core::NotificationSnapshot| { let _ = send.send(snapshot.notifications); },
+            |_delta: org_tasks_core::NotificationDelta| {},
+        ));
         tokio::time::timeout(std::time::Duration::from_secs(5), received.recv()).await
             .map_err(|_| CoreError::InvalidState("通知初始化超时"))?
             .ok_or(CoreError::InvalidState("通知初始化失败"))
@@ -1301,6 +1304,9 @@ mod tests {
         for path in ["a.org", "b.org"] {
             std::fs::write(root.join(path), "* 同步冲突 :CONFLICT:\n** Point\n").unwrap();
         }
+        // 注册只发送缓存；普通文件查询才发现冲突。
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&subscribed_notifications_json(handle).unwrap()).unwrap(), serde_json::json!([]));
+        query_files_json(handle, directory.clone()).unwrap();
         let notices: serde_json::Value =
             serde_json::from_str(&subscribed_notifications_json(handle).unwrap()).unwrap();
         let values = notices.as_array().unwrap();
@@ -2340,9 +2346,12 @@ impl Drop for NotificationMonitor {
 fn notification_values(notifications: Vec<org_tasks_core::CoreNotification>, roots: &BTreeMap<String, String>) -> Vec<serde_json::Value> {
     notifications.into_iter().map(|notification| {
         let mut value = serde_json::to_value(&notification).expect("通知可序列化");
-        if let org_tasks_core::CoreNotification::SyncConflict(conflict) = notification {
-            value["rootDirectory"] = roots.get(&conflict.repo_id).cloned().unwrap_or_default().into();
-        }
+        let repo_id = match &notification {
+            org_tasks_core::CoreNotification::SyncConflict(conflict) => Some(&conflict.repo_id),
+            org_tasks_core::CoreNotification::SyncBaselineUnavailable { repo_id, .. } => Some(repo_id),
+            _ => None,
+        };
+        if let Some(repo_id) = repo_id { value["rootDirectory"] = roots.get(repo_id).cloned().unwrap_or_default().into(); }
         value
     }).collect()
 }
@@ -2353,20 +2362,44 @@ pub fn workspace_watch_notifications(handle: u64, monitor: u64, scope_json: &str
     let workspace = session;
     let scope = serde_json::from_str::<Option<Vec<String>>>(scope_json).map_err(|_| CoreError::InvalidInput("通知订阅范围无效"))?;
     let roots = workspace.repos().into_iter().map(|repo| (repo.id, repo.root_directory)).collect::<BTreeMap<_, _>>();
-    let subscription = workspace.watch_notifications(scope, move |notifications| {
-        let event = notification_values(notifications, &roots);
-        let _keep_alive = &monitor;
-        if let Ok(json) = serde_json::to_string(&event)
-            .and_then(|s| CString::new(s).map_err(serde::ser::Error::custom))
-        {
-            #[cfg(not(test))]
-            unsafe {
-                org_tasks_harmony_notification_update(monitor.0, json.as_ptr());
+    struct BridgeMonitor { handle: NotificationMonitor, roots: BTreeMap<String, String> }
+    impl BridgeMonitor {
+        fn send(&self, mut event: serde_json::Value) {
+            fn attach(value: &mut serde_json::Value, roots: &BTreeMap<String, String>) {
+                match value {
+                    serde_json::Value::Array(values) => for value in values { attach(value, roots); },
+                    serde_json::Value::Object(object) => {
+                        if let Some(id) = object.get("repoId").and_then(|id| id.as_str()) {
+                            let root = roots.get(id).cloned().unwrap_or_default();
+                            object.insert("rootDirectory".into(), root.into());
+                        }
+                        for value in object.values_mut() { attach(value, roots); }
+                    }
+                    _ => {},
+                }
             }
-            #[cfg(test)]
-            let _ = json;
+            attach(&mut event, &self.roots);
+            if let Ok(json) = serde_json::to_string(&event).and_then(|s| CString::new(s).map_err(serde::ser::Error::custom)) {
+                #[cfg(not(test))]
+                unsafe { org_tasks_harmony_notification_update(self.handle.0, json.as_ptr()); }
+                #[cfg(test)]
+                let _ = (&self.handle, json);
+            }
         }
-    })?;
+    }
+    impl org_tasks_core::NotificationMonitor for BridgeMonitor {
+        fn snapshot(&self, snapshot: org_tasks_core::NotificationSnapshot) {
+            let mut event = serde_json::to_value(snapshot).expect("通知快照可序列化");
+            event["type"] = "snapshot".into();
+            self.send(event);
+        }
+        fn changed(&self, delta: org_tasks_core::NotificationDelta) {
+            let mut event = serde_json::to_value(delta).expect("通知增量可序列化");
+            event["type"] = "changed".into();
+            self.send(event);
+        }
+    }
+    let subscription = workspace.watch_notifications(scope, BridgeMonitor { handle: monitor, roots })?;
     let id = NEXT_NOTIFICATION_SUBSCRIPTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     NOTIFICATION_SUBSCRIPTIONS
         .get_or_init(Default::default)

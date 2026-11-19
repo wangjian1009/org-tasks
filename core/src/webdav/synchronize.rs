@@ -126,7 +126,15 @@ impl WebDavSyncPolicy {
         let mut snapshots = BTreeMap::<String, Option<Vec<u8>>>::new();
         let mut local_sources = BTreeMap::<String, Option<Vec<u8>>>::new();
         for path in &paths {
-            local_sources.insert(path.clone(), transaction::read(root, path).await?);
+            let bytes = transaction::read(root, path).await?;
+            let state = match &bytes {
+                Some(bytes) if path.ends_with(".org") => crate::file_state::observation(&repo.parse_file(path.clone(), bytes.clone())?).1,
+                Some(bytes) => crate::file_state::CurrentFileState::Present {
+                    version: LocalFileVersion::from_bytes(bytes).content_hash, has_conflict: false },
+                None => crate::file_state::CurrentFileState::Missing,
+            };
+            crate::file_state::observe(&repo, vec![(path.clone(), state)]);
+            local_sources.insert(path.clone(), bytes);
         }
         drop(download_guard);
         for (index, path) in paths.iter().cloned().enumerate() {
@@ -224,7 +232,15 @@ impl WebDavSyncPolicy {
             }
         }
         for path in &paths {
-            local_sources.insert(path.clone(), transaction::read(root, path).await?);
+            let bytes = transaction::read(root, path).await?;
+            let state = match &bytes {
+                Some(bytes) if path.ends_with(".org") => crate::file_state::observation(&repo.parse_file(path.clone(), bytes.clone())?).1,
+                Some(bytes) => crate::file_state::CurrentFileState::Present {
+                    version: LocalFileVersion::from_bytes(bytes).content_hash, has_conflict: false },
+                None => crate::file_state::CurrentFileState::Missing,
+            };
+            crate::file_state::observe(&repo, vec![(path.clone(), state)]);
+            local_sources.insert(path.clone(), bytes);
         }
         let base_sources = bases.sources();
         for (index, path) in paths.into_iter().enumerate() {

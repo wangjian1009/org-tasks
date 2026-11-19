@@ -1,7 +1,7 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreNotification, CoreSyncConflictNotification, CoreWorkspace, NativeCoreService } from './NativeCoreService'
+import { CoreNotification, CoreNotificationUpdate, CoreSyncConflictNotification, CoreWorkspace, NativeCoreService } from './NativeCoreService'
 import { repositoryLabel } from '../ui/Theme'
 
 // 宿主展示上下文单独保存，不作为通知的公共数据或持久化字段。
@@ -73,9 +73,41 @@ export class NotificationManager {
       const roots = config.repos.filter(repo => repo.webdavEnabled && repo.webdavUrl.trim().length > 0).map(repo => repo.rootDirectory)
       const repositories = await workspace.repos()
       const repoIds = repositories.filter(repo => roots.includes(repo.rootDirectory)).map(repo => repo.id)
-      await workspace.watchNotifications((notifications: CoreNotification[]): void => {
+      let nativeRevision: number = -1
+      let values: CoreNotification[] = []
+      await workspace.watchNotifications((event: CoreNotificationUpdate): void => {
         if (!NotificationManager.active(generation) || NotificationManager.workspace !== workspace) return
-        NotificationManager.publish(config, notifications)
+        if (event.type === 'snapshot') {
+          nativeRevision = event.revision
+          values = event.notifications.slice()
+        } else {
+          if (event.fromRevision !== nativeRevision || event.revision <= nativeRevision) {
+            console.error('通知增量版本不连续，保留最近快照')
+            return
+          }
+          let next = values.slice()
+          for (const change of event.changes) {
+            if (change.kind === 'removed' || change.kind === 'updated') {
+              const before = change.kind === 'removed' ? change.notification : change.before
+              next = next.filter(item => !NotificationManager.sameNotification(item, before))
+            }
+            if (change.kind === 'added' || change.kind === 'updated') {
+              const after = change.kind === 'added' ? change.notification : change.after
+              if (!next.some(item => NotificationManager.sameNotification(item, after))) next.push(after)
+            }
+          }
+          values = next
+          nativeRevision = event.revision
+        }
+        values.sort((left: CoreNotification, right: CoreNotification): number => {
+          if (left.type === 'syncRequired') return right.type === 'syncRequired' ? 0 : 1
+          if (right.type === 'syncRequired') return -1
+          if (left.repoId !== right.repoId) return left.repoId < right.repoId ? -1 : 1
+          if (left.type !== right.type) return left.type === 'syncBaselineUnavailable' ? -1 : 1
+          if (left.type === 'syncConflict' && right.type === 'syncConflict') return left.path < right.path ? -1 : left.path > right.path ? 1 : 0
+          return 0
+        })
+        NotificationManager.publish(config, values)
         finish()
       }, repoIds)
     })
@@ -101,21 +133,24 @@ export class NotificationManager {
     return NotificationManager.context !== undefined && NotificationManager.generation === generation
   }
 
+  private static sameNotification(left: CoreNotification, right: CoreNotification): boolean {
+    if (left.type === 'syncRequired') return right.type === 'syncRequired'
+    if (left.type === 'syncConflict') return right.type === 'syncConflict' && left.repoId === right.repoId && left.path === right.path && left.rootDirectory === right.rootDirectory
+    return right.type === 'syncBaselineUnavailable' && left.repoId === right.repoId && left.reason === right.reason && left.rootDirectory === right.rootDirectory
+  }
+
   private static publish(config: AppConfig, notifications: CoreNotification[]): void {
     const repositories: NotificationRepository[] = []
     for (const notification of notifications) {
-      if (notification.type !== 'syncConflict') continue
+      if (notification.type === 'syncRequired') continue
       const configured = config.repos.find(item => item.rootDirectory === notification.rootDirectory)
       if (configured && !repositories.some(item => item.coreRepoId === notification.repoId)) {
         repositories.push({ coreRepoId: notification.repoId, configRepoId: configured.id, name: repositoryLabel(configured) })
       }
     }
     const current = NotificationManager.state
-    const sameNotifications = notifications.length === current.notifications.length && notifications.every((item: CoreNotification, index: number): boolean => {
-      const previous = current.notifications[index]
-      return item.type === previous.type && (item.type === 'syncRequired' || previous.type === 'syncConflict' &&
-        item.repoId === previous.repoId && item.path === previous.path && item.rootDirectory === previous.rootDirectory)
-    })
+    const sameNotifications = notifications.length === current.notifications.length && notifications.every((item: CoreNotification, index: number): boolean =>
+      NotificationManager.sameNotification(item, current.notifications[index]))
     const sameRepositories = repositories.length === current.repositories.length && repositories.every((item: NotificationRepository, index: number): boolean => {
       const previous = current.repositories[index]
       return item.coreRepoId === previous.coreRepoId && item.configRepoId === previous.configRepoId && item.name === previous.name

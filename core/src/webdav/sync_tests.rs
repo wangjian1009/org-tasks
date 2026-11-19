@@ -229,7 +229,8 @@ async fn sync(
 }
 
 async fn baseline_index(root: &std::path::Path) -> serde_json::Value {
-    serde_json::from_slice(&tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap()).unwrap()
+    let value: serde_json::Value = serde_json::from_slice(&tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap()).unwrap();
+    value["payload"].clone()
 }
 
 async fn baseline_source(root: &std::path::Path, path: &str, local: bool) -> Option<Vec<u8>> {
@@ -516,7 +517,7 @@ async fn old_conflict_material_does_not_block_edits_and_success_advances_all_sna
             assert_eq!(state.lock().unwrap().files["a.org"].data, expected);
             assert_eq!(record.files[0].detail.synced_source.as_deref().unwrap().as_bytes(), expected);
             let index: serde_json::Value = serde_json::from_slice(&tokio::fs::read(root.join(".sync/remote_base/current.json")).await.unwrap()).unwrap();
-            let entry = &index["entries"]["a.org"];
+            let entry = &index["payload"]["entries"]["a.org"];
             let revision = entry["revision"].as_str().unwrap();
             assert_eq!(entry["hash"], LocalFileVersion::from_bytes(&expected).content_hash);
             assert_eq!(tokio::fs::read(root.join(format!(".sync/remote_base/generations/{revision}/files/a.org"))).await.unwrap(), expected);
@@ -637,7 +638,7 @@ async fn existing_conflicts_merge_concurrent_local_and_remote_changes_and_conver
                 .unwrap(),
         )
         .unwrap();
-        let revision = index["entries"]["a.org"]["revision"].as_str().unwrap();
+        let revision = index["payload"]["entries"]["a.org"]["revision"].as_str().unwrap();
         assert_eq!(
             tokio::fs::read(root.join(format!(".sync/remote_base/generations/{revision}/files/a.org")))
                 .await
@@ -1467,7 +1468,7 @@ async fn failed_merge_preserves_working_files_and_publishes_confirmed_remote_sna
     assert_eq!(repo.last_effect_sync().await.unwrap().unwrap().id, first.id);
     assert!(repo.history_file(&failed.id, "a.org", false).await.is_err());
     let before: serde_json::Value = serde_json::from_slice(&before_base).unwrap();
-    assert_eq!(baseline_index(&root).await["local"], before["local"]);
+    assert_eq!(baseline_index(&root).await["local"], before["payload"]["local"]);
     assert_eq!(baseline_source(&root, "a.org", false).await.unwrap(), b"* TODO New A\n");
     assert_eq!(baseline_source(&root, "b.org", false).await, None);
     assert_eq!(baseline_source(&root, "z.org", false).await.unwrap(), vec![0xff]);
@@ -1515,7 +1516,7 @@ async fn successful_finish_observes_committed_files_baseline_conflicts_and_histo
             let index: serde_json::Value =
                 serde_json::from_slice(&read(".sync/remote_base/current.json".into()))
                     .unwrap_or_default();
-            let revision = index["entries"]["a.org"]["revision"]
+            let revision = index["payload"]["entries"]["a.org"]["revision"]
                 .as_str()
                 .unwrap_or("missing");
             let history: serde_json::Value =
@@ -1789,7 +1790,7 @@ async fn remote_base_is_bound_to_remote_origin_and_detects_missing_cached_conten
             .unwrap(),
     )
     .unwrap();
-    let revision = index["entries"]["a.org"]["revision"].as_str().unwrap();
+    let revision = index["payload"]["entries"]["a.org"]["revision"].as_str().unwrap();
     tokio::fs::remove_file(root.join(format!(".sync/remote_base/generations/{revision}/files/a.org")))
         .await
         .unwrap();
@@ -1934,7 +1935,7 @@ async fn only_local_file_deletion_is_conditional_and_both_missing_updates_the_to
             .unwrap(),
     )
     .unwrap();
-    assert!(index["entries"]["a.org"]["hash"].is_null());
+    assert!(index["payload"]["entries"]["a.org"]["hash"].is_null());
     assert_eq!(
         sync(&mut repo, &policy, 3).await.result,
         Some(OrgRepoSyncResult::Succeeded)
@@ -1966,7 +1967,7 @@ async fn missing_or_weak_etags_block_mutation_before_any_remote_upload() {
             .all(|r| !r.starts_with("PUT") && !r.starts_with("DELETE"))
     );
     let before: serde_json::Value = serde_json::from_slice(&baseline).unwrap();
-    assert_eq!(baseline_index(&root).await["local"], before["local"]);
+    assert_eq!(baseline_index(&root).await["local"], before["payload"]["local"]);
     assert_eq!(baseline_index(&root).await["entries"]["a.org"]["version"]["etag"], "W/\"same\"");
     assert_eq!(baseline_source(&root, "a.org", false).await.unwrap(), b"* Base\n");
     worker.abort();
@@ -2123,7 +2124,7 @@ async fn uploads_release_repository_lock_and_never_overwrite_newer_local_version
     assert!(syncing.await.unwrap().is_err());
     assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), b"* TODO Newer local edit\n");
     let before: serde_json::Value = serde_json::from_slice(&baseline).unwrap();
-    assert_eq!(baseline_index(&root).await["local"], before["local"]);
+    assert_eq!(baseline_index(&root).await["local"], before["payload"]["local"]);
     assert_eq!(baseline_source(&root, "a.org", true).await.unwrap(), b"* TODO Original\n");
     assert_eq!(baseline_source(&root, "a.org", false).await.unwrap(), b"* TODO Upload this\n");
     assert!(!root.join(".sync/history/2.json").exists());

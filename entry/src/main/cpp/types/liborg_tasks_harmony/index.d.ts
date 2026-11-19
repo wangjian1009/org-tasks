@@ -316,9 +316,19 @@ export interface SyncConflictNotification {
 }
 
 export interface SyncRequiredNotification { type: 'syncRequired'; }
-export type CoreNotification = SyncConflictNotification | SyncRequiredNotification;
-
-export type NotificationUpdateMonitor = (notifications: CoreNotification[]) => void;
+export interface SyncBaselineUnavailableNotification {
+  type: 'syncBaselineUnavailable'; repoId: string; rootDirectory: string;
+  reason: 'missing' | 'invalid' | 'inconsistent' | 'io';
+}
+export type CoreNotification = SyncConflictNotification | SyncRequiredNotification | SyncBaselineUnavailableNotification;
+export interface NotificationSnapshot { type: 'snapshot'; revision: number; notifications: CoreNotification[]; }
+export type NotificationChange =
+  { kind: 'added'; notification: CoreNotification } |
+  { kind: 'removed'; notification: CoreNotification } |
+  { kind: 'updated'; before: CoreNotification; after: CoreNotification };
+export interface NotificationDelta { type: 'changed'; fromRevision: number; revision: number; changes: NotificationChange[]; }
+export type NotificationUpdate = NotificationSnapshot | NotificationDelta;
+export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
 
 export interface HttpServerInfo { readonly address: string; }
 export interface HttpUiRequest { method: string; body: string; }

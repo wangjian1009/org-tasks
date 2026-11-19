@@ -267,7 +267,13 @@ impl WorkspaceState {
             let changes = changes.iter().filter(|change|
                 [&change.before, &change.after].into_iter().flatten()
                     .any(|snapshot| snapshot.task.repo_id() == repo_id)).cloned().collect();
-            self.notifications.update_files(repo_id, changed_files.clone(), group.operations.iter().any(|operation| matches!(operation, super::TaskOperation::ConfilictSelection(_))));
+            let repo = self.repo(repo_id).expect("已验证仓库");
+            let stamp = self.notifications.files().stamp(repo, &self.notifications);
+            let observations = changed_files.iter().map(|file| (file.after.path.clone(), crate::file_state::CurrentFileState::Present {
+                version: file.after_version.clone(), has_conflict: file.after.has_conflict,
+            })).collect();
+            self.notifications.files().update_files(repo, stamp, observations)?;
+            self.notifications.files().flush().await?;
             super::sync_events::publish_changes(&self.notifications, self.repo(repo_id).expect("已验证仓库"),
                 group.operation_id.as_deref(), Some(changed_files), changes);
         }

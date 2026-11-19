@@ -313,6 +313,24 @@ impl WorkspaceState {
                 .cmp(&repository_order.get(right.repo_id.as_str()))
                 .then(left.path.cmp(&right.path))
         });
+        for repo in self.repos().iter().filter(|repo| loaded.contains_key(&repo.id)) {
+            let files = &loaded[&repo.id];
+            let stamp = self.notifications.files().stamp(repo, &self.notifications);
+            self.notifications.files().update_files(repo, stamp.clone(), files.iter().map(crate::file_state::observation).collect())?;
+            let known = self.notifications.files().query(&repo.id).await?;
+            let deleted = known.into_keys().filter(|path| path.ends_with(".org")
+                && queries.iter().any(|query| query.needs_file(&repo.id, path))
+                && !files.iter().any(|file| &file.path == path)).collect();
+            self.notifications.files().delete_files(repo, stamp, deleted)?;
+        }
+        // 空仓库也需处理成功覆盖范围内的已知删除。
+        for (_, repo) in &roots {
+            if loaded.contains_key(&repo.id) { continue; }
+            let deleted = self.notifications.files().query(&repo.id).await?.into_keys()
+                .filter(|path| path.ends_with(".org") && queries.iter().any(|query| query.needs_file(&repo.id, path))).collect();
+            let stamp = self.notifications.files().stamp(repo, &self.notifications);
+            self.notifications.files().delete_files(repo, stamp, deleted)?;
+        }
         drop(guards);
         let mut file_tags = BTreeMap::<(&str, &str), BTreeSet<&str>>::new();
         if queries

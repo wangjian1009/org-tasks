@@ -80,7 +80,23 @@ impl crate::OrgWorkspace {
 }
 
 async fn first_notifications(workspace: &crate::OrgWorkspace) -> Vec<crate::CoreNotification> {
+    workspace.query(&[crate::CoreQuery::File { query: crate::FileQuery::default() }]).await.unwrap();
+    workspace.notifications.files().ready().await;
+    workspace.notifications.flush().await.unwrap();
     let (send, mut received) = tokio::sync::mpsc::unbounded_channel();
-    let _subscription = workspace.watch_notifications(None, move |notifications| { let _ = send.send(notifications); });
+    let _subscription = workspace.watch_notifications(None, notification_monitor(move |notifications| { let _ = send.send(notifications); }));
     tokio::time::timeout(std::time::Duration::from_secs(5), received.recv()).await.unwrap().unwrap()
+}
+
+pub(crate) fn notification_monitor<F>(callback: F) -> impl crate::NotificationMonitor
+where F: Fn(Vec<crate::CoreNotification>) + Send + Sync + 'static {
+    let state = std::sync::Arc::new(std::sync::Mutex::new(crate::NotificationSnapshot { revision: 0, notifications: Vec::new() }));
+    let callback = std::sync::Arc::new(callback);
+    let initial = state.clone();
+    let first = callback.clone();
+    (move |snapshot: crate::NotificationSnapshot| {
+        *initial.lock().unwrap() = snapshot.clone(); first(snapshot.notifications);
+    }, move |delta: crate::NotificationDelta| {
+        let mut snapshot = state.lock().unwrap(); delta.apply(&mut snapshot).unwrap(); callback(snapshot.notifications.clone());
+    })
 }

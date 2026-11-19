@@ -561,6 +561,7 @@ impl OrgRepo {
             files.push(file);
         }
         files.sort_by(|left, right| left.path.cmp(&right.path));
+        crate::file_state::observe(self, files.iter().map(crate::file_state::observation).collect());
         Ok(files)
     }
 
@@ -575,9 +576,9 @@ impl OrgRepo {
 
     pub(crate) async fn file_unlocked(&self, path: &str) -> Result<OrgFile, CoreError> {
         let root = Path::new(&self.root_directory);
-        let source = crate::webdav::transaction::read(root, path)
-            .await?
-            .unwrap_or_default();
+        let source = crate::webdav::transaction::read(root, path).await?;
+        let missing = source.is_none();
+        let source = source.unwrap_or_default();
         let setup = load_setup_settings(root, path, &source).await?;
         let mut file = self.parse_file_with_setup(path.into(), source, setup)?;
         file.scan_ignored = super::TaskScanRules::load(root).await?.excludes(path);
@@ -586,6 +587,9 @@ impl OrgRepo {
             .ok()
             .and_then(|m| m.modified().ok())
             .map(|time| chrono::DateTime::<chrono::Utc>::from(time).timestamp_millis());
+        crate::file_state::observe(self, vec![if missing {
+            (path.into(), crate::file_state::CurrentFileState::Missing)
+        } else { crate::file_state::observation(&file) }]);
         Ok(file)
     }
 
@@ -653,9 +657,12 @@ impl OrgRepo {
         P: SyncPolicy,
     {
         let mut change_files = Vec::new();
-        let result = self.sync_with_options_inner(policy, started_at, cancellation, progress, options, &mut change_files).await;
+        let capture = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new()));
+        let result = crate::file_state::CAPTURE.scope(capture.clone(),
+            self.sync_with_options_inner(policy, started_at, cancellation, progress, options, &mut change_files)).await;
         if let Some(notifications) = notifications {
-            if let Err(error) = super::external_files::publish(self, notifications, change_files).await {
+            let observations = capture.lock().unwrap().iter().map(|(path, state)| (path.clone(), state.clone())).collect();
+            if let Err(error) = super::external_files::publish(self, notifications, change_files, observations, false).await {
                 eprintln!("同步后加载通知失败: {error}");
             }
             notifications.flush().await?;
@@ -751,7 +758,16 @@ impl OrgRepo {
             )
             .await?;
             let committed_changes = plan.external_file_changes(&self.id);
+            let observations = plan.changes.iter().filter(|change| !change.path.starts_with(".sync/"))
+                .map(|change| match &change.after {
+                    Some(bytes) if change.path.ends_with(".org") => self.parse_file(change.path.clone(), bytes.clone())
+                        .map(|file| crate::file_state::observation(&file)),
+                    Some(bytes) => Ok((change.path.clone(), crate::file_state::CurrentFileState::Present {
+                        version: crate::LocalFileVersion::from_bytes(bytes).content_hash, has_conflict: false })),
+                    None => Ok((change.path.clone(), crate::file_state::CurrentFileState::Missing)),
+                }).collect::<Result<Vec<_>, CoreError>>()?;
             plan.commit(root).await?;
+            crate::file_state::observe(self, observations);
             change_files.extend(committed_changes);
         } else {
             persist_sync_record(root, &record).await?;

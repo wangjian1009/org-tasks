@@ -1,19 +1,44 @@
-//! 只订阅当前待关注事件；缓存、基线比较和回调均由通知处理任务维护。
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Weak;
-
+//! 通知集合只投影文件服务推送的事实；回调在 NotificationCenter::process 中执行。
 use crate::{CoreError, OrgRepo, OrgRepoId, OrgWorkspace};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::Weak;
 use tokio::sync::watch;
-use tokio::task::JoinSet;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CoreNotification {
     SyncConflict(SyncConflictNotification),
     SyncRequired,
+    SyncBaselineUnavailable {
+        #[serde(rename = "repoId")]
+        repo_id: OrgRepoId,
+        reason: SyncBaselineFailure,
+    },
 }
-
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SyncBaselineFailure {
+    Missing,
+    Invalid,
+    Inconsistent,
+    Io,
+}
+impl SyncBaselineFailure {
+    pub(crate) fn from_error(error: &CoreError) -> Self {
+        let message = error.to_string();
+        if message.contains("丢失") || message.contains("缺少") {
+            Self::Missing
+        } else if message.contains("不一致") || message.contains("已改变") {
+            Self::Inconsistent
+        } else if message.contains("无效") || message.contains("格式") || message.contains("校验")
+        {
+            Self::Invalid
+        } else {
+            Self::Io
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncConflictNotification {
@@ -21,21 +46,89 @@ pub struct SyncConflictNotification {
     pub path: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSnapshot {
+    pub revision: u64,
+    pub notifications: Vec<CoreNotification>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationDelta {
+    pub from_revision: u64,
+    pub revision: u64,
+    pub changes: Vec<NotificationChange>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum NotificationChange {
+    Added {
+        notification: CoreNotification,
+    },
+    Removed {
+        notification: CoreNotification,
+    },
+    Updated {
+        before: CoreNotification,
+        after: CoreNotification,
+    },
+}
+impl NotificationDelta {
+    /// 原子应用完整值的增删改；版本不连续时拒绝，不主动查询。
+    pub fn apply(&self, snapshot: &mut NotificationSnapshot) -> Result<(), CoreError> {
+        if snapshot.revision != self.from_revision || self.revision <= self.from_revision {
+            return Err(CoreError::InvalidState("通知增量版本不连续"));
+        }
+        let mut values = snapshot.notifications.clone();
+        for change in &self.changes {
+            let (before, after) = match change {
+                NotificationChange::Added { notification } => (None, Some(notification)),
+                NotificationChange::Removed { notification } => (Some(notification), None),
+                NotificationChange::Updated { before, after } => (Some(before), Some(after)),
+            };
+            if let Some(before) = before {
+                values.retain(|value| value != before);
+            }
+            if let Some(after) = after
+                && !values.contains(after)
+            {
+                values.push(after.clone());
+            }
+        }
+        order_notifications(&mut values);
+        snapshot.notifications = values;
+        snapshot.revision = self.revision;
+        Ok(())
+    }
+}
+
+pub trait NotificationMonitor: Send + Sync + 'static {
+    fn snapshot(&self, snapshot: NotificationSnapshot);
+    fn changed(&self, delta: NotificationDelta);
+}
+impl<S, C> NotificationMonitor for (S, C)
+where
+    S: Fn(NotificationSnapshot) + Send + Sync + 'static,
+    C: Fn(NotificationDelta) + Send + Sync + 'static,
+{
+    fn snapshot(&self, value: NotificationSnapshot) {
+        self.0(value);
+    }
+    fn changed(&self, value: NotificationDelta) {
+        self.1(value);
+    }
+}
 pub struct NotificationSubscription {
     _subscription: super::notification_center::Subscription,
 }
-
 impl OrgWorkspace {
-    /// 注册后默认收到一次完整列表（包括空列表），随后仅在列表变化时回调。
-    /// 冷缓存由独立任务加载；回调不能同步等待当前 Workspace 的后续业务命令。
-    pub fn watch_notifications<F>(
+    /// 先发送缓存快照，随后只发送变化；注册不读取文件。
+    pub fn watch_notifications<M: NotificationMonitor>(
         &self,
         repo_ids: Option<Vec<OrgRepoId>>,
-        callback: F,
-    ) -> Result<NotificationSubscription, CoreError>
-    where
-        F: Fn(Vec<CoreNotification>) + Send + Sync + 'static,
-    {
+        monitor: M,
+    ) -> Result<NotificationSubscription, CoreError> {
+        self.tasks.ensure_running()?;
         if repo_ids
             .iter()
             .flatten()
@@ -46,197 +139,72 @@ impl OrgWorkspace {
         Ok(NotificationSubscription {
             _subscription: self
                 .notifications
-                .watch_notifications(repo_ids, Box::new(callback)),
+                .watch_notifications(repo_ids, Box::new(monitor)),
         })
     }
 }
-
-pub(crate) type NotificationCallback = Box<dyn Fn(Vec<CoreNotification>) + Send + Sync>;
 
 pub(crate) enum NotificationRequest {
     Subscribe {
         repo_ids: Option<Vec<OrgRepoId>>,
         token: Weak<()>,
-        callback: NotificationCallback,
+        monitor: Box<dyn NotificationMonitor>,
         active: watch::Sender<bool>,
     },
     Unsubscribe(Weak<()>),
     Configure(Vec<OrgRepo>),
-    Snapshot {
-        repo_id: String,
-        data: RepositoryNotifications,
-    },
-    Files {
-        repo_id: String,
-        revision: u64,
-        files: Vec<super::FileDataChange>,
-        conflicts: bool,
-    },
+    FileStates(crate::file_state::FileStateEvent),
 }
-
-/// revision 只用于本 Workspace 内排除迟到结果；在仓库锁内分配，不是持久化时间。
-#[derive(Clone, Debug)]
-pub(crate) struct RepositoryNotifications {
-    revision: u64,
-    baseline: Option<BTreeMap<String, Option<String>>>,
-    current: BTreeMap<String, String>,
-    conflicts: BTreeSet<String>,
-}
-
-impl RepositoryNotifications {
-    pub(crate) async fn load(
-        repo: &OrgRepo,
-        center: &super::NotificationCenter,
-    ) -> Result<Self, CoreError> {
-        let root = std::path::Path::new(&repo.root_directory);
-        let _guard = crate::webdav::transaction::lock(root).await?;
-        Self::load_unlocked(repo, center).await
-    }
-
-    pub(crate) async fn publish(
-        repo: &OrgRepo,
-        center: &super::NotificationCenter,
-    ) -> Result<(), CoreError> {
-        let _guard =
-            crate::webdav::transaction::lock(std::path::Path::new(&repo.root_directory)).await?;
-        let data = Self::load_unlocked(repo, center).await?;
-        // 在同一仓库锁内分配顺序并入队，避免后续文件事件先应用后丢失新基线。
-        center.update_snapshot(repo.id.clone(), data);
-        Ok(())
-    }
-
-    async fn load_unlocked(
-        repo: &OrgRepo,
-        center: &super::NotificationCenter,
-    ) -> Result<Self, CoreError> {
-        let root = std::path::Path::new(&repo.root_directory);
-        super::access::recover(root, &repo.id).await?;
-        let files = repo.load_files_unlocked(&[]).await?;
-        let baseline = crate::webdav::remote_base::notification_baseline(root).await?;
-        let mut current = files
-            .iter()
-            .map(|file| {
-                (
-                    file.path.clone(),
-                    crate::LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-        // 基线中的非 Org 文件（如扫描规则）同样参与本地差异判断。
-        for path in baseline
-            .iter()
-            .flat_map(|entries| entries.keys())
-            .filter(|path| !path.ends_with(".org"))
-        {
-            if let Some(bytes) = crate::webdav::transaction::read(root, path).await? {
-                current.insert(
-                    path.clone(),
-                    crate::LocalFileVersion::from_bytes(&bytes).content_hash,
-                );
-            }
-        }
-        Ok(Self {
-            revision: center.next_revision(),
-            baseline,
-            current,
-            conflicts: files
-                .iter()
-                .filter(|file| file.has_conflict())
-                .map(|file| file.path.clone())
-                .collect(),
-        })
-    }
-
-    fn apply(&mut self, revision: u64, files: &[super::FileDataChange], conflicts: bool) {
-        if revision <= self.revision {
-            return;
-        }
-        for file in files {
-            self.current
-                .insert(file.after.path.clone(), file.after_version.clone());
-            // 普通任务修改不生成冲突通知；只有解决冲突业务可以变更冲突集合。
-            if conflicts {
-                if file.after.has_conflict {
-                    self.conflicts.insert(file.after.path.clone());
-                } else {
-                    self.conflicts.remove(&file.after.path);
-                }
-            }
-        }
-        self.revision = revision;
-    }
-
-    fn dirty(&self) -> bool {
-        let Some(baseline) = &self.baseline else {
-            return false;
-        };
-        self.current
-            .iter()
-            .any(|(path, hash)| baseline.get(path).and_then(Option::as_ref) != Some(hash))
-            || baseline
-                .iter()
-                .any(|(path, hash)| hash.as_ref() != self.current.get(path))
-    }
-}
-
 struct Monitor {
     repo_ids: Option<Vec<OrgRepoId>>,
     token: Weak<()>,
-    callback: NotificationCallback,
+    monitor: Box<dyn NotificationMonitor>,
     active: watch::Sender<bool>,
-    last: Option<Vec<CoreNotification>>,
+    last: NotificationSnapshot,
 }
 impl Drop for Monitor {
     fn drop(&mut self) {
         self.active.send_replace(false);
     }
 }
-
 #[derive(Default)]
 pub(crate) struct NotificationState {
     repos: Vec<OrgRepo>,
-    cache: BTreeMap<String, RepositoryNotifications>,
+    cache: BTreeMap<String, (u64, u64, Vec<CoreNotification>)>,
     monitors: Vec<Monitor>,
-    pending: BTreeMap<String, Vec<(u64, Vec<super::FileDataChange>, bool)>>,
-    generation: u64,
-    loading: BTreeSet<String>,
+    revision: u64,
 }
-
-pub(crate) type NotificationLoads =
-    JoinSet<(u64, String, Result<RepositoryNotifications, CoreError>)>;
-
 impl NotificationState {
     pub(crate) fn handle(
         &mut self,
         request: NotificationRequest,
-        loads: &mut NotificationLoads,
         center: &super::NotificationCenter,
     ) {
         match request {
             NotificationRequest::Subscribe {
                 repo_ids,
                 token,
-                callback,
+                monitor,
                 active,
             } => {
+                let last = NotificationSnapshot {
+                    revision: self.revision,
+                    notifications: self.values(repo_ids.as_deref()),
+                };
+                monitor.snapshot(last.clone());
+                center.files().request_snapshot(repo_ids.clone());
                 self.monitors.push(Monitor {
                     repo_ids,
                     token,
-                    callback,
+                    monitor,
                     active,
-                    last: None,
+                    last,
                 });
             }
             NotificationRequest::Unsubscribe(token) => self
                 .monitors
                 .retain(|monitor| !monitor.token.ptr_eq(&token)),
             NotificationRequest::Configure(repos) => {
-                if self.repos == repos {
-                    return;
-                }
-                self.generation += 1;
-                loads.abort_all();
-                self.loading.clear();
                 self.cache.retain(|id, _| {
                     repos.iter().any(|repo| {
                         &repo.id == id
@@ -245,364 +213,250 @@ impl NotificationState {
                             })
                     })
                 });
-                self.pending.clear();
                 self.repos = repos;
             }
-            NotificationRequest::Snapshot { repo_id, data } => self.install(repo_id, data),
-            NotificationRequest::Files {
-                repo_id,
-                revision,
-                files,
-                conflicts,
-            } => {
-                if let Some(cache) = self.cache.get_mut(&repo_id) {
-                    cache.apply(revision, &files, conflicts);
-                } else if self.loading.contains(&repo_id) {
-                    self.pending
-                        .entry(repo_id)
-                        .or_default()
-                        .push((revision, files, conflicts));
+            NotificationRequest::FileStates(event) => {
+                let Some(repo) = self.repos.iter().find(|repo| repo.id == event.repo_id) else {
+                    return;
+                };
+                if center.files().epoch(repo) != Some(event.epoch) {
+                    return;
                 }
+                if self
+                    .cache
+                    .get(&event.repo_id)
+                    .is_some_and(|(epoch, revision, _)| {
+                        *epoch > event.epoch
+                            || (*epoch == event.epoch && *revision >= event.revision)
+                    })
+                {
+                    return;
+                }
+                let mut values = Vec::new();
+                if let crate::file_state::BaselineState::Unavailable(reason) = event.baseline {
+                    values.push(CoreNotification::SyncBaselineUnavailable {
+                        repo_id: event.repo_id.clone(),
+                        reason,
+                    });
+                }
+                for (path, file) in &event.files {
+                    if matches!(
+                        file.current,
+                        crate::file_state::CurrentFileState::Present {
+                            has_conflict: true,
+                            ..
+                        }
+                    ) {
+                        values.push(CoreNotification::SyncConflict(SyncConflictNotification {
+                            repo_id: event.repo_id.clone(),
+                            path: path.clone(),
+                        }));
+                    }
+                }
+                if event
+                    .files
+                    .values()
+                    .any(|file| file.local_change == Some(true))
+                {
+                    values.push(CoreNotification::SyncRequired);
+                }
+                self.cache
+                    .insert(event.repo_id, (event.epoch, event.revision, values));
             }
         }
         self.monitors
             .retain(|monitor| monitor.token.strong_count() > 0);
-        self.notify();
-        if !self.monitors.is_empty() {
-            for repo in &self.repos {
-                if !self.monitors.iter().any(|monitor| {
-                    monitor
-                        .repo_ids
-                        .as_ref()
-                        .is_none_or(|ids| ids.contains(&repo.id))
-                }) || self.cache.contains_key(&repo.id)
-                    || !self.loading.insert(repo.id.clone())
-                {
-                    continue;
-                }
-                let repo = repo.clone();
-                let generation = self.generation;
-                let center = center.clone();
-                loads.spawn(async move {
-                    let data = RepositoryNotifications::load(&repo, &center).await;
-                    (generation, repo.id, data)
-                });
-            }
-        }
-    }
-
-    pub(crate) fn loaded(
-        &mut self,
-        generation: u64,
-        repo_id: String,
-        data: Result<RepositoryNotifications, CoreError>,
-    ) {
-        if generation != self.generation {
-            return;
-        }
-        self.loading.remove(&repo_id);
-        match data {
-            Ok(data) => self.install(repo_id, data),
-            Err(error) => {
-                eprintln!("加载通知失败: {error}");
-            }
-        }
-        self.notify();
-    }
-
-    fn install(&mut self, repo_id: String, mut data: RepositoryNotifications) {
-        if !self.repos.iter().any(|repo| repo.id == repo_id) {
-            return;
-        }
-        if self
-            .cache
-            .get(&repo_id)
-            .is_some_and(|old| old.revision >= data.revision)
-        {
-            return;
-        }
-        if let Some(mut pending) = self.pending.remove(&repo_id) {
-            pending.sort_by_key(|(revision, _, _)| *revision);
-            for (revision, files, conflicts) in pending {
-                data.apply(revision, &files, conflicts);
-            }
-        }
-        self.cache.insert(repo_id, data);
-    }
-
-    pub(crate) fn notifications_for_repo(&self, repo_id: &str) -> Vec<CoreNotification> {
-        let Some(cache) = self.cache.get(repo_id) else { return Vec::new(); };
-        let mut notifications = cache.conflicts.iter().map(|path| CoreNotification::SyncConflict(SyncConflictNotification {
-            repo_id: repo_id.into(), path: path.clone(),
-        })).collect::<Vec<_>>();
-        if cache.dirty() { notifications.push(CoreNotification::SyncRequired); }
-        notifications
-    }
-
-    fn notify(&mut self) {
-        for monitor in &mut self.monitors {
-            if monitor.token.strong_count() == 0 {
-                continue;
-            }
-            let repos = self
-                .repos
+        self.revision += 1;
+        let updates = self
+            .monitors
+            .iter()
+            .map(|monitor| self.values(monitor.repo_ids.as_deref()))
+            .collect::<Vec<_>>();
+        for (monitor, values) in self.monitors.iter_mut().zip(updates) {
+            let removed = monitor
+                .last
+                .notifications
                 .iter()
-                .filter(|repo| {
-                    monitor
-                        .repo_ids
-                        .as_ref()
-                        .is_none_or(|ids| ids.contains(&repo.id))
-                })
+                .filter(|value| !values.contains(value))
+                .cloned()
                 .collect::<Vec<_>>();
-            if repos.iter().any(|repo| !self.cache.contains_key(&repo.id)) {
-                continue;
-            }
-            let mut notifications = Vec::new();
-            for repo in &repos {
-                for path in &self.cache[&repo.id].conflicts {
-                    notifications.push(CoreNotification::SyncConflict(SyncConflictNotification {
-                        repo_id: repo.id.clone(),
-                        path: path.clone(),
-                    }));
+            let mut added = values
+                .iter()
+                .filter(|value| !monitor.last.notifications.contains(value))
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut changes = Vec::new();
+            for before in removed {
+                let replacement = if let CoreNotification::SyncBaselineUnavailable {
+                    repo_id, ..
+                } = &before
+                {
+                    added.iter().position(|after| matches!(after, CoreNotification::SyncBaselineUnavailable { repo_id: id, .. } if id == repo_id))
+                } else {
+                    None
+                };
+                if let Some(index) = replacement {
+                    changes.push(NotificationChange::Updated {
+                        before,
+                        after: added.remove(index),
+                    });
+                } else {
+                    changes.push(NotificationChange::Removed {
+                        notification: before,
+                    });
                 }
             }
-            if repos.iter().any(|repo| self.cache[&repo.id].dirty()) {
-                notifications.push(CoreNotification::SyncRequired);
+            changes.extend(
+                added
+                    .into_iter()
+                    .map(|notification| NotificationChange::Added { notification }),
+            );
+            if changes.is_empty() {
+                continue;
             }
-            if monitor.last.as_ref() != Some(&notifications) {
-                monitor.last = Some(notifications.clone());
-                (monitor.callback)(notifications);
-            }
+            let delta = NotificationDelta {
+                from_revision: monitor.last.revision,
+                revision: self.revision,
+                changes,
+            };
+            monitor.last = NotificationSnapshot {
+                revision: self.revision,
+                notifications: values,
+            };
+            monitor.monitor.changed(delta);
         }
     }
+    fn values(&self, scope: Option<&[String]>) -> Vec<CoreNotification> {
+        let mut values = Vec::new();
+        let mut dirty = false;
+        for repo in &self.repos {
+            if scope.is_some_and(|ids| !ids.contains(&repo.id)) {
+                continue;
+            }
+            for notification in self.notifications_for_repo(&repo.id) {
+                if notification == CoreNotification::SyncRequired {
+                    dirty = true;
+                } else if !values.contains(&notification) {
+                    values.push(notification);
+                }
+            }
+        }
+        if dirty {
+            values.push(CoreNotification::SyncRequired);
+        }
+        order_notifications(&mut values);
+        values
+    }
+    pub(crate) fn notifications_for_repo(&self, repo_id: &str) -> Vec<CoreNotification> {
+        self.cache
+            .get(repo_id)
+            .map(|(_, _, values)| values.clone())
+            .unwrap_or_default()
+    }
+}
+
+// 通知按完整值维护集合，所有消费者使用同一稳定展示顺序。
+fn order_notifications(values: &mut [CoreNotification]) {
+    fn key(value: &CoreNotification) -> (u8, &str, u8, &str) {
+        match value {
+            CoreNotification::SyncRequired => (1, "", 0, ""),
+            CoreNotification::SyncConflict(file) => (0, &file.repo_id, 1, &file.path),
+            CoreNotification::SyncBaselineUnavailable { repo_id, .. } => (0, repo_id, 0, ""),
+        }
+    }
+    values.sort_by(|left, right| key(left).cmp(&key(right)));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-
-    fn snapshot(revision: u64, source: &str) -> RepositoryNotifications {
-        RepositoryNotifications {
-            revision,
-            baseline: Some(BTreeMap::from([("a.org".into(), Some("base".into()))])),
-            current: BTreeMap::from([("a.org".into(), source.into())]),
-            conflicts: BTreeSet::new(),
-        }
-    }
-    fn changed(source: &str, conflict: bool) -> super::super::FileDataChange {
-        let text = if conflict {
-            "* Conflict :CONFLICT:\n"
-        } else {
-            "* Normal\n"
-        };
-        let file =
-            crate::OrgFile::new("repo".into(), "a.org".into(), text.as_bytes().to_vec()).unwrap();
-        super::super::FileDataChange {
-            before: None,
-            after: file.metadata(false),
-            before_version: None,
-            after_version: source.into(),
-        }
-    }
-    fn state() -> NotificationState {
-        NotificationState {
-            repos: vec![OrgRepo {
-                id: "repo".into(),
-                root_directory: "/unused".into(),
-                todo_defaults: Default::default(),
-            }],
-            ..Default::default()
-        }
-    }
-    fn monitor(
-        state: &mut NotificationState,
-        scope: Option<Vec<String>>,
-    ) -> (Arc<()>, Arc<Mutex<Vec<Vec<CoreNotification>>>>) {
-        let token = Arc::new(());
-        let received = Arc::new(Mutex::new(Vec::new()));
-        let sending = received.clone();
-        let (active, _) = watch::channel(true);
-        state.monitors.push(Monitor {
-            repo_ids: scope,
-            token: Arc::downgrade(&token),
-            callback: Box::new(move |list| sending.lock().unwrap().push(list)),
-            active,
-            last: None,
-        });
-        (token, received)
-    }
-
+    use crate::file_state::BaselineState;
     #[tokio::test]
-    async fn data_event_uses_notification_event_name_and_includes_core_notification_list() {
-        let repo = state().repos.remove(0);
-        let workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
-        workspace.notifications.update_snapshot(repo.id.clone(), snapshot(1, "changed"));
-        let events = Arc::new(Mutex::new(Vec::new()));
-        let captured = events.clone();
-        let _watch = workspace.watch_data_changes(move |event| captured.lock().unwrap().push(event));
-        super::super::sync_events::publish_changes(
-            &workspace.notifications, &repo, None, Some(vec![changed("changed", false)]), Vec::new(),
-        );
-        workspace.notifications.flush().await.unwrap();
-        let event = serde_json::to_value(&events.lock().unwrap()[0]).unwrap();
-        assert_eq!(event["type"], "notificationEvent");
-        assert_eq!(event["notifications"], serde_json::json!([{"type":"syncRequired"}]));
-        workspace.stop().await.unwrap();
-    }
-
-    #[test]
-    fn initial_empty_list_and_cached_subscribers_receive_once_and_only_changes_follow() {
-        let mut state = state();
-        state.install("repo".into(), snapshot(1, "base"));
-        let (_token, received) = monitor(&mut state, None);
-        state.notify();
-        state.notify();
-        assert_eq!(
-            *received.lock().unwrap(),
-            vec![Vec::<CoreNotification>::new()]
-        );
-        let (_other, cached) = monitor(&mut state, None);
-        state.notify();
-        assert_eq!(cached.lock().unwrap().len(), 1);
-        state
-            .cache
-            .get_mut("repo")
-            .unwrap()
-            .apply(2, &[changed("new", false)], false);
-        state.notify();
-        state
-            .cache
-            .get_mut("repo")
-            .unwrap()
-            .apply(3, &[changed("another", false)], false);
-        state.notify();
-        assert_eq!(received.lock().unwrap().len(), 2);
-        state
-            .cache
-            .get_mut("repo")
-            .unwrap()
-            .apply(4, &[changed("base", false)], false);
-        state.notify();
-        assert_eq!(received.lock().unwrap().last().unwrap(), &[]);
-    }
-
-    #[test]
-    fn cold_load_replays_newer_checksums_and_rejects_late_snapshots() {
-        let mut state = state();
-        state.loading.insert("repo".into());
-        let (_token, received) = monitor(&mut state, None);
-        let (center, _) = super::super::NotificationCenter::new();
-        state.handle(
-            NotificationRequest::Files {
-                repo_id: "repo".into(),
-                revision: 2,
-                files: vec![changed("edited", false)],
-                conflicts: false,
-            },
-            &mut NotificationLoads::new(),
-            &center,
-        );
-        assert!(received.lock().unwrap().is_empty());
-        state.loaded(0, "repo".into(), Ok(snapshot(1, "base")));
-        assert_eq!(
-            *received.lock().unwrap(),
-            vec![vec![CoreNotification::SyncRequired]]
-        );
-        state.install("repo".into(), snapshot(4, "base"));
-        state.install("repo".into(), snapshot(3, "edited"));
-        state
-            .cache
-            .get_mut("repo")
-            .unwrap()
-            .apply(2, &[changed("edited", false)], false);
-        state.notify();
-        assert_eq!(received.lock().unwrap().last().unwrap(), &[]);
-    }
-
-    #[test]
-    fn conflicts_and_dirty_files_use_separate_baselines_and_scopes() {
-        let mut state = state();
-        let mut data = snapshot(1, "base");
-        data.conflicts.insert("a.org".into());
-        data.apply(2, &[changed("base", false)], false);
-        assert_eq!(data.conflicts.len(), 1);
-        data.apply(3, &[changed("edited", false)], true);
-        assert!(data.conflicts.is_empty());
-        assert!(data.dirty());
-        data.baseline = None;
-        assert!(!data.dirty());
-        state.install("repo".into(), data);
-        let (_empty, received) = monitor(&mut state, Some(vec![]));
-        state.notify();
-        assert_eq!(
-            *received.lock().unwrap(),
-            vec![Vec::<CoreNotification>::new()]
-        );
-        let mut deleted = snapshot(1, "base");
-        deleted.current.clear();
-        assert!(deleted.dirty());
-        deleted.baseline = Some(BTreeMap::from([("a.org".into(), None)]));
-        assert!(!deleted.dirty());
-        deleted.current.insert(
-            "a.org".into(),
-            crate::LocalFileVersion::from_bytes(b"").content_hash,
-        );
-        assert!(deleted.dirty());
-    }
-
-    #[tokio::test]
-    async fn cold_search_does_not_block_channel_or_unsubscription() {
+    async fn monitor_snapshots_scopes_updates_and_cancellation_follow_channel_order() {
         let root = std::env::temp_dir().join(format!(
-            "notification-cold-{}",
+            "notification-monitor-{}",
             super::super::service::generate_repo_id().unwrap()
         ));
         tokio::fs::create_dir_all(&root).await.unwrap();
-        tokio::fs::write(root.join("a.org"), b"* A\n")
-            .await
-            .unwrap();
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         repo.load::<crate::webdav::WebDavSyncPolicy>()
             .await
             .unwrap();
-        let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
-        let guard = crate::webdav::transaction::lock(&root).await.unwrap();
-        let (send, mut received) = tokio::sync::mpsc::unbounded_channel();
-        let subscription = workspace
-            .watch_notifications(None, move |list| {
-                let _ = send.send(list);
-            })
+        let workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
+        let (send, mut receive) = tokio::sync::mpsc::unbounded_channel();
+        let snapshot_send = send.clone();
+        let monitor = workspace
+            .watch_notifications(
+                None,
+                (
+                    move |snapshot: NotificationSnapshot| {
+                        let _ = snapshot_send.send((true, serde_json::to_value(snapshot).unwrap()));
+                    },
+                    move |delta: NotificationDelta| {
+                        let _ = send.send((false, serde_json::to_value(delta).unwrap()));
+                    },
+                ),
+            )
             .unwrap();
-        tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            workspace.notifications.flush(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert!(received.try_recv().is_err());
-        drop(subscription);
         workspace.notifications.flush().await.unwrap();
-        let (send, mut current) = tokio::sync::mpsc::unbounded_channel();
-        let _subscription = workspace
-            .watch_notifications(None, move |list| {
-                let _ = send.send(list);
-            })
+        let (initial, value) = receive.recv().await.unwrap();
+        assert!(initial);
+        assert_eq!(value["notifications"], serde_json::json!([]));
+        for (index, reason) in [SyncBaselineFailure::Missing, SyncBaselineFailure::Invalid]
+            .into_iter()
+            .enumerate()
+        {
+            let files = workspace.notifications.files();
+            files
+                .apply_repository(
+                    &repo,
+                    files.stamp(&repo, &workspace.notifications),
+                    BaselineState::Unavailable(reason),
+                    vec![],
+                    false,
+                )
+                .unwrap();
+            workspace.notifications.flush().await.unwrap();
+            let (initial, delta) = receive.recv().await.unwrap();
+            assert!(!initial);
+            assert_eq!(
+                delta["changes"][0]["kind"],
+                if index == 0 { "added" } else { "updated" }
+            );
+            if index == 1 {
+                assert_eq!(delta["changes"][0]["before"]["reason"], "missing");
+                assert_eq!(delta["changes"][0]["after"]["reason"], "invalid");
+            } else {
+                assert_eq!(delta["changes"][0]["kind"], "added");
+            }
+        }
+        let (empty_send, mut empty) = tokio::sync::mpsc::unbounded_channel();
+        let _empty = workspace
+            .watch_notifications(
+                Some(vec![]),
+                (
+                    move |snapshot: NotificationSnapshot| {
+                        let _ = empty_send.send(snapshot);
+                    },
+                    |_: NotificationDelta| panic!("空范围不应收到变化"),
+                ),
+            )
             .unwrap();
-        drop(guard);
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_secs(2), current.recv())
-                .await
-                .unwrap()
-                .unwrap()
-                .is_empty()
-        );
-        assert!(received.try_recv().is_err());
-        assert!(
-            workspace
-                .watch_notifications(Some(vec!["missing".into()]), |_| {})
-                .is_err()
-        );
+        workspace.notifications.flush().await.unwrap();
+        assert!(empty.recv().await.unwrap().notifications.is_empty());
+        drop(monitor);
+        let files = workspace.notifications.files();
+        files
+            .apply_repository(
+                &repo,
+                files.stamp(&repo, &workspace.notifications),
+                BaselineState::Uninitialized,
+                vec![],
+                false,
+            )
+            .unwrap();
+        workspace.notifications.flush().await.unwrap();
+        assert!(receive.try_recv().is_err());
         workspace.stop().await.unwrap();
         tokio::fs::remove_dir_all(root).await.unwrap();
     }

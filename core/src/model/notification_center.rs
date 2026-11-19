@@ -1,8 +1,5 @@
 //! Workspace 私有的通知请求通道；订阅表和 ID 只存在于 process 的局部状态。
-use super::notification::{
-    NotificationCallback, NotificationLoads, NotificationRequest, NotificationState,
-    RepositoryNotifications,
-};
+use super::notification::{NotificationMonitor, NotificationRequest, NotificationState};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
@@ -17,6 +14,7 @@ type Callback = Box<dyn Fn(&SyncCommitted) + Send + Sync>;
 pub struct NotificationCenter {
     sender: mpsc::UnboundedSender<Request>,
     sequence: Arc<AtomicU64>,
+    files: crate::file_state::FileStateManager,
 }
 
 pub(crate) struct Subscription {
@@ -29,6 +27,8 @@ pub(crate) struct Requests(
     mpsc::UnboundedReceiver<Request>,
     mpsc::WeakUnboundedSender<Request>,
     Arc<AtomicU64>,
+    crate::file_state::FileStateManager,
+    mpsc::UnboundedReceiver<crate::file_state::Command>,
 );
 
 enum Request {
@@ -59,8 +59,9 @@ impl NotificationCenter {
     pub(crate) fn new() -> (Self, Requests) {
         let (sender, receiver) = mpsc::unbounded_channel();
         let sequence = Arc::new(AtomicU64::new(0));
-        let requests = Requests(receiver, sender.downgrade(), sequence.clone());
-        (Self { sender, sequence }, requests)
+        let (files, file_requests) = crate::file_state::FileStateManager::new();
+        let requests = Requests(receiver, sender.downgrade(), sequence.clone(), files.clone(), file_requests);
+        (Self { sender, sequence, files }, requests)
     }
 
     pub(crate) fn subscribe<F>(&self, callback: F) -> Subscription
@@ -89,14 +90,15 @@ impl NotificationCenter {
         let _ = self
             .sender
             .send(Request::Notifications(NotificationRequest::Configure(
-                repos,
+                repos.clone(),
             )));
+        self.files.configure(repos, self);
     }
 
     pub(crate) fn watch_notifications(
         &self,
         repo_ids: Option<Vec<super::OrgRepoId>>,
-        callback: NotificationCallback,
+        monitor: Box<dyn NotificationMonitor>,
     ) -> Subscription {
         let token = Arc::new(());
         let (active, status) = watch::channel(true);
@@ -105,7 +107,7 @@ impl NotificationCenter {
             .send(Request::Notifications(NotificationRequest::Subscribe {
                 repo_ids,
                 token: Arc::downgrade(&token),
-                callback,
+                monitor,
                 active,
             }));
         Subscription {
@@ -115,29 +117,10 @@ impl NotificationCenter {
         }
     }
 
-    pub(crate) fn update_files(
-        &self,
-        repo_id: &str,
-        files: Vec<super::FileDataChange>,
-        conflicts: bool,
-    ) {
-        let _ = self
-            .sender
-            .send(Request::Notifications(NotificationRequest::Files {
-                repo_id: repo_id.into(),
-                revision: self.next_revision(),
-                files,
-                conflicts,
-            }));
-    }
+    pub(crate) fn files(&self) -> &crate::file_state::FileStateManager { &self.files }
 
-    pub(crate) fn update_snapshot(&self, repo_id: String, data: RepositoryNotifications) {
-        let _ = self
-            .sender
-            .send(Request::Notifications(NotificationRequest::Snapshot {
-                repo_id,
-                data,
-            }));
+    pub(crate) fn file_states(&self, event: crate::file_state::FileStateEvent) {
+        let _ = self.sender.send(Request::Notifications(NotificationRequest::FileStates(event)));
     }
 
     fn unsubscribe(&self, token: Weak<()>) {
@@ -155,6 +138,7 @@ impl NotificationCenter {
 
     /// 确认此前入队的订阅、事件和取消已处理；不重新查询仓库。
     pub(crate) async fn flush(&self) -> Result<(), CoreError> {
+        self.files.flush().await?;
         let (done, received) = oneshot::channel();
         self.sender
             .send(Request::Flush(done))
@@ -226,8 +210,13 @@ impl NotificationCenter {
             Ok(())
         }
 
+        let Some(sender) = requests.1.upgrade() else { return Ok(()); };
+        let center = Self { sender, sequence: requests.2.clone(), files: requests.3.clone() };
+        let (_, empty_requests) = mpsc::unbounded_channel();
+        let file_requests = std::mem::replace(&mut requests.4, empty_requests);
+        let file_center = center.clone();
+        let files_task = tokio::spawn(crate::file_state::FileStateManager::process(file_requests, file_center));
         let mut notices = NotificationState::default();
-        let mut loads = NotificationLoads::new();
         let mut monitors = BTreeMap::new();
         let mut next_id = 0;
         loop {
@@ -235,49 +224,21 @@ impl NotificationCenter {
                 biased;
                 _ = &mut stopping => break,
                 next = requests.0.recv() => next,
-                loaded = loads.join_next(), if !loads.is_empty() => {
-                    if let Some(Ok((generation, repo_id, data))) = loaded { notices.loaded(generation, repo_id, data); }
-                    continue;
-                },
             };
-            let Some(next) = next else {
-                break;
-            };
+            let Some(next) = next else { break; };
             if let Request::Notifications(request) = next {
-                if let Some(sender) = requests.1.upgrade() {
-                    notices.handle(
-                        request,
-                        &mut loads,
-                        &Self {
-                            sender,
-                            sequence: requests.2.clone(),
-                        },
-                    );
-                }
+                notices.handle(request, &center);
             } else {
                 handle(next, &mut monitors, &mut next_id, &notices)?;
             }
         }
-        // 关闭入口后排空已受理请求；当前回调由本任务执行，返回时已全部完成。
+        center.files.stop().await;
+        files_task.await.map_err(|_| CoreError::InvalidState("文件状态服务退出失败"))?;
         requests.0.close();
         while let Some(request) = requests.0.recv().await {
-            if let Request::Notifications(request) = request {
-                if let Some(sender) = requests.1.upgrade() {
-                    notices.handle(
-                        request,
-                        &mut loads,
-                        &Self {
-                            sender,
-                            sequence: requests.2.clone(),
-                        },
-                    );
-                }
-            } else {
-                handle(request, &mut monitors, &mut next_id, &notices)?;
-            }
+            if let Request::Notifications(request) = request { notices.handle(request, &center); }
+            else { handle(request, &mut monitors, &mut next_id, &notices)?; }
         }
-        loads.abort_all();
-        while loads.join_next().await.is_some() {}
         Ok(())
     }
 }

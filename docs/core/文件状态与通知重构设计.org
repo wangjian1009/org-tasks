@@ -1,0 +1,146 @@
+#+TITLE: 文件状态与通知实现
+#+STARTUP: show2levels hidestars
+#+OPTIONS: author:nil date:nil toc:nil
+#+LANGUAGE: zh-CN
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
+
+* 范围与状态
+
+2026-11-19 按已确认方案实现文件状态服务与通知差量回调，删除首次通知订阅的全量文件扫描。通知订阅的完整契约见 [[file:通知订阅设计.org][通知订阅设计]]。启动只读取基线元数据；正常搜索、读取和提交逐步补全文件信息。未读取的路径没有文件通知，不能把未知当作未修改或已删除。
+
+* 两个模块的职责
+
+| 模块 | 独占状态 | 入口与输出 |
+|-
+| ~core::file_state~ | 基线、已观察文件的版本及冲突状态、删除记录、每文件 revision | 内部更新、删除、查询、同步原子批次；主动推送 ~FileStateEvent~ |
+| ~core::model::notification~ | 每仓库通知贡献、去重集合、monitor 与最近发送版本 | 在 ~NotificationCenter::process~ 内处理文件状态；首次快照与后续增删改 |
+
+文件状态服务不持有 Org AST、任务投影或宿主页面数据，不替代执行编辑的每文件 task。通知模块不保存基线或文件 hash，不执行任何业务读取。两个模块都复用宿主 Tokio，Workspace 只持有服务句柄。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{Workspace}{NotificationCenter \\ FileStateManager}{start() \\ stop()}
+\umlclass[x=8,y=0]{Business}{搜索、读取、修改、同步、reset}{推送已读取或已提交信息}
+\umlclass[x=0,y=-4]{FileStateProcess}{baselines \\ files and revisions}{process() \\ query() \\ apply()}
+\umlclass[x=8,y=-4]{NotificationProcess}{contributions \\ monitors}{process() \\ apply file events}
+\umlclass[x=8,y=-8]{NotificationMonitor}{}{snapshot() \\ changed()}
+\umldep{Workspace}{FileStateProcess}
+\umldep{Workspace}{NotificationProcess}
+\umldep{Business}{FileStateProcess}
+\umluniassoc{FileStateProcess}{NotificationProcess}
+\umluniassoc{NotificationProcess}{NotificationMonitor}
+\end{tikzpicture}
+
+* 文件服务内部接口
+
+#+begin_src rust
+impl FileStateManager {
+    fn update_files(&self, repo: &OrgRepo, stamp: Stamp,
+        files: Vec<(String, CurrentFileState)>) -> Result<(), CoreError>;
+    fn delete_files(&self, repo: &OrgRepo, stamp: Stamp,
+        paths: Vec<String>) -> Result<(), CoreError>;
+    fn apply_repository(&self, repo: &OrgRepo, stamp: Stamp,
+        baseline: BaselineState, files: Vec<(String, CurrentFileState)>,
+        reset: bool) -> Result<(), CoreError>;
+    async fn query(&self, repo_id: &str)
+        -> Result<BTreeMap<String, FileState>, CoreError>;
+    fn request_snapshot(&self, scope: Option<Vec<String>>);
+    async fn flush(&self) -> Result<(), CoreError>;
+}
+
+enum CurrentFileState {
+    Present { version: String, has_conflict: bool },
+    Missing,
+}
+struct FileState { current: CurrentFileState, local_change: Option<bool> }
+enum BaselineState {
+    Loading,
+    Uninitialized,
+    Ready(BTreeMap<String, Option<String>>),
+    Unavailable(SyncBaselineFailure),
+}
+#+end_src
+
+以上均为 crate 内部接口。未观察路径不进入文件 map，以缺项表示未知； ~Missing~ 是已确认的删除，保留 tombstone revision，迟到读取不能复活旧内容。 ~local_change=None~ 表示基线尚未就绪、从未建立或不可用，具体原因由仓库基线状态区分；有效基线下为明确的 true 或 false。真实空文件仍有 hash，与删除的空值不同。
+
+~query~ 只返回内存快照。通知注册调用 ~request_snapshot~ 异步回送当前范围内已知文件信息，通知 process 不等待 reply。 ~UpdateFiles~ 、 ~DeleteFiles~ 是普通内部 channel 命令； ~ApplyRepository~ 将基线、更新与删除一起应用后再发事件，reset 同时清除旧观察与基线。其余控制命令为配置、内存查询、首次初始化完成确认、flush 与停止。
+
+文件状态事件包含仓库 epoch、服务 revision、仓库基线状态及已观察文件的当前版本、本地变化判断和冲突情况。服务统一计算后主动投递通知中心；当前实现按仓库发送完整内存状态，通知中心从仓库贡献集合计算 monitor 的增删改，不会因此重读文件。
+
+* 通知公开接口
+
+#+begin_src rust
+pub trait NotificationMonitor: Send + Sync + 'static {
+    fn snapshot(&self, snapshot: NotificationSnapshot);
+    fn changed(&self, delta: NotificationDelta);
+}
+pub struct NotificationSnapshot {
+    pub revision: u64,
+    pub notifications: Vec<CoreNotification>,
+}
+pub struct NotificationDelta {
+    pub from_revision: u64,
+    pub revision: u64,
+    pub changes: Vec<NotificationChange>,
+}
+pub enum NotificationChange {
+    Added { notification: CoreNotification },
+    Removed { notification: CoreNotification },
+    Updated { before: CoreNotification, after: CoreNotification },
+}
+impl OrgWorkspace {
+    pub fn watch_notifications<M: NotificationMonitor>(&self,
+        repo_ids: Option<Vec<OrgRepoId>>, monitor: M)
+        -> Result<NotificationSubscription, CoreError>;
+}
+#+end_src
+
+两个 closure 的 tuple 也实现 ~NotificationMonitor~ ，分别接收快照和差量。取消继续通过订阅句柄完成。 ~NotificationDelta.apply~ 提供连续版本校验、完整值增删改及稳定排序；不增加主动查询接口。
+
+~CoreNotification~ 包含 ~SyncConflict~ 、 ~SyncRequired~ 与 ~SyncBaselineUnavailable { repo_id, reason }~ 。基线异常原因只序列化为 ~missing / invalid / inconsistent / io~ ，不携带绝对路径、URL、账号或底层 I/O 文本。通知以类型及全部数据确定身份；多个来源相同只显示一次，撤销一个来源不影响另一来源。基线异常原因改变发送 ~Updated~ 。
+
+* 读取与提交接入
+
+| 入口 | 文件状态来源 | 顺序与限制 |
+|-
+| Task/File 搜索 | 本次实际读取的完整文件 | 在任务筛选前收集，零匹配任务的文件也更新；不增加扫描 |
+| Workspace 单文件读取 | ~read_repo~ 的只读观察上下文 | 使用已读字节，缺失按 ~Missing~ 处理；预览副本不进入真实仓库 |
+| 普通修改与冲突解决 | 提交后的文件元信息及 ~after_version~ | 失败或无实际变更不发布提交通知；先处理文件状态，再发任务数据事件 |
+| 同步 | 本轮读取缓存及成功事务里的 after 字节 | 不为通知再次扫描；收尾连同实际基线原子应用，失败也保留远端事实 |
+| reset | 已确认删除路径及清除基线 | 一批清空旧通知贡献，保留稳定仓库身份 |
+
+搜索结果缺少路径，只有在本次完整成功覆盖该路径且它此前已被观察时，才能确认删除。被排除路径、另一仓库、任务表达式与忽略规则不能充当文件删除证据。首次启动基线里的路径都仍未知，必须实际读取或确认缺失才能判断。
+
+实际观察在仓库锁内取得 ~Stamp~ ，包含仓库 epoch 与 revision；逐文件比较顺序，文件 A 的新事件不能丢弃文件 B 的旧但有效观察。删除同样保留 revision。配置 epoch 拒绝移除或换根目录前的事件，reset 截止 revision 排除旧观察；启动加载结果不能覆盖同步已安装的基线。服务输出使用同一 sender 保序，通知版本与文件版本分开。
+
+Workspace 启动命令、文件状态和通知回调三个 process。基线 I/O 在独立任务中进行，文件 process 可继续处理 channel；启动等待初始基线加载结果后开放业务。普通命令不等待重新加载基线。无遗留事务时启动及通知注册不读取 Org 正文；必要的崩溃恢复仍执行既有文件校验。
+
+普通提交先将状态事件交入通知队列，再发布 ~DataChangeEvent::NotificationEvent~ ，该事件暂时保留兼容的通知字段，只附加缓存。同步与 reset 先更新通知，再发 ~ExternalFileChanged~ 。停止先结束业务，随后停止文件服务并取消加载，最后排空通知回调。
+
+* current.json 的损坏与删除保护
+
+索引采用 version 3 envelope： ~version~ 、 ~payload~ 、 ~checksum~ 。payload 保留完整基线索引，绑定稳定仓库 ID、远端来源、远端代、共同祖先代与 entries；checksum 是固定字段顺序和有序路径映射序列化后的 SHA-256。业务文件的 ~LocalFileVersion~ 算法不变。完整索引同时保存为 ~current.json~ 和 ~current.backup.json~ 。
+
+新代清单和字节先耐久保存，主索引与副本通过同一个可恢复元数据事务发布；已确认远端事实仍独立于工作文件事务。本地共同祖先推进则随工作文件事务一起更新两份索引，guards 也覆盖两份。通知与同步复用同一受保护加载器，不保留通知专用的宽松读取。
+
+启动先恢复必要事务，再检查两份索引、checksum、仓库身份和所引用清单。只读取控制元数据；完整同步继续核对基线正文、长度与同级版本元数据。旧 version 2 索引通过清单校验后，在锁内事务迁移成双副本，不访问网络或重写业务文件。
+
+| 索引状态 | 行为 |
+|-
+| 两份有效且一致 | 使用已确认基线 |
+| 仅一份有效且清单一致 | 在锁内事务修复另一份，修复失败则不可用 |
+| 两份有效但不同 | 报告 ~Inconsistent~ ，不猜测新旧 |
+| 两份损坏、checksum 错误或清单损坏 | 报告基线异常，保留材料 |
+| 两份缺失但 generations 有内容 | 报告 ~Missing~ ，拒绝按首次同步处理 |
+| 无索引且无基线代 | ~Uninitialized~ ，允许真正首次同步 |
+
+检查缺失证据仅遍历控制代目录，不扫描 Org。若全部索引和基线证据一起被删除，仅凭仓库身份无法区分首次同步与全部元数据丢失。checksum 用于发现意外损坏，不承诺防御同时重写全部控制文件的行为。
+
+加载失败会形成 ~SyncBaselineUnavailable~ ，不把旧基线当作当前有效事实。同步拒绝合并与远端写入；不会为通知增加轮询，运行中外部损坏在下次必要基线读取或写入校验时发现。手机使用原共享通知卡片显示“同步基线异常，暂时无法同步”，不自动重置本地内容。
+
+* 验证
+
+Rust 验证覆盖首次订阅零扫描、限定查询逐步发现冲突、逐文件乱序与删除、基线改变后的重新比较、多来源去重、恢复与 reset、快照与增量、取消及空范围；基线测试覆盖主索引截断与删除后的修复、双副本丢失、checksum 篡改、有效副本不一致与旧格式迁移。
+
+Harmony 验证订阅只发送缓存，正常查询才发现冲突；宿主回归覆盖连续版本、完整值替换、去重、旧生命周期与错误保留。模拟器使用独立仓库和本地 WebDAV 服务，通过 APP 内嵌 HTTP 修改与真实界面操作验证；修改实时显示、失败版本保持、同步清除及索引故障恢复均通过，见 [[file:../harmony/通知文件状态模拟器验收.org][模拟器验收报告]]。

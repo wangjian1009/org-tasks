@@ -29,6 +29,7 @@ impl Display for CoreError {
 
 impl std::error::Error for CoreError {}
 
+mod file_state;
 mod filter;
 mod merge;
 pub mod model;

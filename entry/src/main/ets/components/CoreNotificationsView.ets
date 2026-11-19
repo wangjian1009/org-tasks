@@ -3,6 +3,7 @@ import { CoreNotificationsState, emptyCoreNotificationsState } from '../services
 import { coreNotificationRenderKey } from '../ui/CoreNotificationPresentation'
 import { SyncConflictNotificationView } from './SyncConflictNotificationView'
 import { SyncRequiredNotificationView } from './SyncRequiredNotificationView'
+import { SyncBaselineNotificationView } from './SyncBaselineNotificationView'
 import { UiColor } from '../ui/Theme'
 
 // 通用入口只分发枚举变体，各通知的内容和操作由其专属组件实现。
@@ -21,6 +22,8 @@ export struct CoreNotificationsView {
               SyncConflictNotificationView({ notification, repositories: this.notificationState.repositories, disabled: this.disabled })
             } else if (notification.type === 'syncRequired') {
               SyncRequiredNotificationView({ disabled: this.disabled })
+            } else if (notification.type === 'syncBaselineUnavailable') {
+              SyncBaselineNotificationView({ notification, repositories: this.notificationState.repositories })
             }
           }, (notification: CoreNotification) => coreNotificationRenderKey(notification))
         }.width('100%').padding({ top: 4, bottom: 4 }).borderRadius(12)

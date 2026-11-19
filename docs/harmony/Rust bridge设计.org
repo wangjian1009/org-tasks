@@ -461,7 +461,7 @@ interface TitleCount {
 
 * 待关注事件
 
-通知通过列表订阅推送当前待关注事件。文件冲突形状为 ~{ type: 'syncConflict', repoId, path }~ ，每个文件独立一条；Rust bridge 附带 ~rootDirectory~ 供宿主映射配置仓库，Core 事件本身不保存绝对路径。通知处理任务通过冷加载及业务提交的 checksum 维护缓存；点击校验仓库身份后按文件路径进入 ~ConflictFile~ 。
+通知通过列表订阅推送当前待关注事件。文件冲突形状为 ~{ type: 'syncConflict', repoId, path }~ ，每个文件独立一条；Rust bridge 附带 ~rootDirectory~ 供宿主映射配置仓库，Core 事件本身不保存绝对路径。文件服务根据业务读取或提交的版本维护状态，通知处理任务只投影状态；点击校验仓库身份后按文件路径进入 ~ConflictFile~ 。
 
 ~{ type: 'syncRequired' }~ 为 workspace 级无载荷事件；只要任一仓库本地字节 hash 与基线索引不同就生成一条，点击执行普通同步。它不依赖进程内去重标记，重启后可重新发现。Core 负责当前状态判断，ArkTS 只展示快照，读取失败保留既有快照。
 
@@ -475,7 +475,7 @@ Repo 不提供独立的网络比较／解决会话；文件读取与 Core Confli
 
 * 通知更新监控与生命周期
 
-~Workspace.watchNotifications(monitor, repoIds?): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications(repo_ids, callback)~ 。回调通过独立 TSFN 转发 ~CoreNotification[]~ 完整列表 ，不复用同步进度回调。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
+~Workspace.watchNotifications(monitor, repoIds?): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications(repo_ids, monitor)~ 。两个回调通过独立无界 FIFO TSFN 转发 ~type: snapshot | changed~ 对象，分别携带完整通知与 ~added / removed / updated~ 差量；不复用同步进度回调。ArkTS 按连续版本原子应用变化，不主动查询通知。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
 
 ~NotificationManager~ 由 EntryAbility 管理应用级生命周期，启动、恢复前台及配置变化只注册或重新绑定当前 Workspace 的通知订阅。monitor 默认收到一次完整列表，之后只在列表变化时回调；独立 TSFN 转发数组，C++ 不解释通知内容。管理类排除旧生命周期回调并发布 AppStorage 共享快照，页面与角标复用该快照，不主动查询。详细范围与基线见 [[file:../core/通知订阅设计.org][通知订阅设计]]。
 
@@ -509,7 +509,7 @@ Core 仅解释文件头 ~#+TAGS:~ ，提取标签名称、去掉快捷键并保�
 
 同步目录、历史与新增通知的全部领域规则统一见 [[file:../core/同步核心设计.org][同步核心设计]]，bridge 不扫描目录比较 resolved 与远端文件，也不在 ArkTS 去重或持久化提示。
 
-TS 的 ~CoreNotification~ 联合类型包含 ~{ type: 'syncRequired' }~ ，由 Core 列表订阅直接推送。范围内任一已建立远端基线的仓库存在 checksum 差异时只有一条，恢复基线内容或同步确认后消失；重启通过冷加载重新发现，不持久化通知对象。
+TS 的 ~CoreNotification~ 联合类型包含 ~{ type: 'syncRequired' }~ ，由 Core 列表订阅直接推送。范围内任一已建立远端基线的仓库存在 checksum 差异时只有一条，恢复基线内容或同步确认后消失；重启后通过正常读取逐步发现，未读取路径保持未知；通知本身不持久化。
 
 通知组件点击后复用 ~RepositorySyncService~ 发起当前配置全部仓库的普通同步；已有会话不并发重启，错误走现有反馈。Core 在成功确认待上传结果后清除提示，失败或取消时保留。C++ 和 ArkTS 不提前删除本地展示来模拟消费。
 
@@ -829,3 +829,7 @@ TaskEditor 的 ~startNote~ 返回纯操作组，由现有控制器及 DataSet �
 * 任务提醒快照
 
 ~FilterTask.reminder_at()~ 映射为只读 ~Task.reminderAt: number | null~ ，原始事件、N-API、界面快照与缓存使用相同可空毫秒时间戳。修改使用 ~SET_REMINDER~ 的数值或 ~null~ ，不向宿主暴露属性名，不要求宿主生成 Org 原文。C++ 注册只读 getter，ArkTS 透传类型；旧缓存没有新字段时恢复为空，系统协调仍只用已确认且版本大于零的快照。详见 [[file:任务提醒设计.org][任务提醒设计]]。
+
+* 文件状态推送与基线异常
+
+文件服务与通知 monitor 的完整 Rust 接口见 [[file:../core/文件状态与通知重构设计.org][文件状态与通知实现]]。 ~NotificationSnapshot~ 带 revision 与完整 notifications， ~NotificationDelta~ 带 fromRevision、revision 与 changes。 ~CoreNotification~ 增加 ~syncBaselineUnavailable~ ，包含 repoId、reason 及 bridge 附加的 rootDirectory；宿主不读取或修复索引，只展示共享异常提示。

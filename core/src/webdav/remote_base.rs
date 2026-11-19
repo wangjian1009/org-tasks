@@ -7,6 +7,7 @@ use std::path::Path;
 use tokio::fs;
 
 const INDEX: &str = ".sync/remote_base/current.json";
+const BACKUP: &str = ".sync/remote_base/current.backup.json";
 const GENERATIONS: &str = ".sync/remote_base/generations";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,8 +18,10 @@ pub(crate) struct Entry {
     sync_id: String,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Index {
+    #[serde(default)]
+    repo_id: String,
     version: u32,
     origin: String,
     #[serde(default)]
@@ -82,23 +85,75 @@ fn file_path(id: &str, path: &str) -> Result<String, CoreError> {
     Ok(format!("{}/files/{path}", generation_path(id)?))
 }
 
-async fn read_index(root: &Path) -> Result<(Option<Vec<u8>>, Index), CoreError> {
-    let original = transaction::read(root, INDEX).await?;
-    let index = original
-        .as_deref()
-        .map(serde_json::from_slice::<Index>)
-        .transpose()
-        .map_err(|_| invalid("远端基线索引无效"))?
-        .unwrap_or(Index {
-            version: 2,
-            ..Default::default()
-        });
-    if index.version != 2 {
-        return Err(CoreError::InvalidState(
-            "远端基线格式已改变，请重置仓库后重新同步",
-        ));
+#[derive(Serialize, Deserialize)]
+struct ProtectedIndex { version: u32, payload: Index, checksum: String }
+fn checksum(index: &Index) -> Result<String, CoreError> {
+    let bytes = encode(index)?;
+    Ok(ring::digest::digest(&ring::digest::SHA256, &bytes).as_ref().iter().map(|byte| format!("{byte:02x}")).collect())
+}
+fn encode_index(index: &Index) -> Result<Vec<u8>, CoreError> {
+    encode(&ProtectedIndex { version: 3, payload: index.clone(), checksum: checksum(index)? })
+}
+fn decode_index(bytes: &[u8]) -> Result<Index, CoreError> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid("远端基线索引无效"))?;
+    match value.get("version").and_then(|version| version.as_u64()) {
+        Some(2) => serde_json::from_value(value).map_err(|_| invalid("远端基线索引无效")),
+        Some(3) => {
+            let envelope: ProtectedIndex = serde_json::from_value(value).map_err(|_| invalid("远端基线索引无效"))?;
+            if checksum(&envelope.payload)? != envelope.checksum { return Err(invalid("远端基线索引 checksum 校验失败")); }
+            Ok(envelope.payload)
+        }
+        _ => Err(invalid("远端基线格式版本无效")),
     }
-    Ok((original, index))
+}
+async fn validate_index(root: &Path, index: &Index, repo_id: &str) -> Result<(), CoreError> {
+    if index.version != 2 || (!index.repo_id.is_empty() && index.repo_id != repo_id) {
+        return Err(invalid("远端基线索引身份或格式不一致"));
+    }
+    let id = index.generation.as_deref().ok_or_else(|| invalid("远端基线缺少当前目录"))?;
+    let remote = manifest(root, id, &index.origin).await?;
+    if remote.entries != index.entries { return Err(invalid("远端基线索引与清单不一致")); }
+    let local = index.local.as_deref().ok_or_else(|| invalid("远端基线缺少本地合并祖先"))?;
+    if local != id { manifest(root, local, &index.origin).await?; }
+    Ok(())
+}
+async fn read_index(root: &Path) -> Result<(Option<Vec<u8>>, Index), CoreError> {
+    let primary = transaction::read(root, INDEX).await?;
+    let backup = transaction::read(root, BACKUP).await?;
+    let repo_id = crate::model::service::read_repo_id(&root.join(".sync/id")).await
+        .map_err(|_| invalid("无法读取基线仓库身份"))?;
+    if primary.is_none() && backup.is_none() {
+        match fs::read_dir(root.join(GENERATIONS)).await {
+            Ok(mut entries) => {
+                if entries.next_entry().await.map_err(io)?.is_some() { return Err(invalid("远端基线索引丢失，已保留基线目录")); }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(error) => return Err(io(error)),
+        }
+        return Ok((None, Index { version: 2, repo_id, ..Default::default() }));
+    }
+    let mut valid = Vec::new();
+    let mut failure = None;
+    for bytes in [&primary, &backup].into_iter().flatten() {
+        match decode_index(bytes) {
+            Ok(index) => match validate_index(root, &index, &repo_id).await {
+                Ok(()) => valid.push(index),
+                Err(error) => failure = Some(error),
+            },
+            Err(error) => failure = Some(error),
+        }
+    }
+    let Some(mut index) = valid.first().cloned() else { return Err(failure.unwrap_or_else(|| invalid("远端基线索引无效"))); };
+    if valid.iter().any(|other| other != &index) { return Err(invalid("远端基线主索引与副本不一致")); }
+    index.repo_id = repo_id;
+    let encoded = encode_index(&index)?;
+    if primary.as_ref() != Some(&encoded) || backup.as_ref() != Some(&encoded) {
+        let mut plan = Plan::default();
+        plan.set(root, INDEX.into(), Some(encoded.clone())).await?;
+        plan.set(root, BACKUP.into(), Some(encoded.clone())).await?;
+        plan.commit(root).await?;
+    }
+    Ok((Some(encoded), index))
 }
 
 async fn manifest(root: &Path, id: &str, origin: &str) -> Result<Manifest, CoreError> {
@@ -246,6 +301,7 @@ impl Store {
     }
     pub fn guard(&self, plan: &mut Plan) {
         plan.guards.push((INDEX.into(), self.original.clone()));
+        plan.guards.push((BACKUP.into(), self.original.clone()));
         for snapshot in [&self.ancestor, &self.remote] {
             plan.guards.extend(
                 snapshot
@@ -376,20 +432,24 @@ impl Store {
 
     // 发布远端事实不读取或写入工作文件；旧祖先与新远端在同一原子索引中发布。
     pub async fn publish(&mut self, root: &Path, remote: Snapshot) -> Result<(), CoreError> {
-        if transaction::read(root, INDEX).await? != self.original {
+        if transaction::read(root, INDEX).await? != self.original || transaction::read(root, BACKUP).await? != self.original {
             return Err(CoreError::InvalidState("远端基线在发布期间改变"));
         }
         let ancestor = self.build(root, &self.ancestor, Vec::new()).await?;
         let index = Index {
+            repo_id: self.index.repo_id.clone(),
             version: 2,
             origin: self.index.origin.clone(),
             generation: remote.id.clone(),
             local: ancestor.id.clone(),
             entries: remote.entries.clone(),
         };
-        let bytes = encode(&index)?;
+        let bytes = encode_index(&index)?;
         if self.original.as_ref() != Some(&bytes) {
-            transaction::atomic_write(&transaction::target(root, INDEX).await?, &bytes).await?;
+            let mut plan = Plan::default();
+            plan.set(root, INDEX.into(), Some(bytes.clone())).await?;
+            plan.set(root, BACKUP.into(), Some(bytes.clone())).await?;
+            plan.commit(root).await?;
         }
         self.index = index;
         self.original = Some(bytes);
@@ -418,7 +478,9 @@ impl Store {
         let mut index = self.index.clone();
         index.local = local.id;
         self.guard(plan);
-        plan.set(root, INDEX.into(), Some(encode(&index)?)).await
+        let bytes = encode_index(&index)?;
+        plan.set(root, INDEX.into(), Some(bytes.clone())).await?;
+        plan.set(root, BACKUP.into(), Some(bytes)).await
     }
 
     // 仅在取得同步锁后、构造新目录之前回收；当前远端和本地祖先始终保留。
@@ -669,4 +731,57 @@ mod tests {
         );
         fs::remove_dir_all(root).await.unwrap();
     }
+    #[tokio::test]
+    async fn protected_index_repairs_corruption_and_deletion_and_rejects_total_loss() {
+        let (_, root) = repository().await;
+        let mut store = Store::load(&root, "origin").await.unwrap();
+        let remote = store.prepare_remote(&root, vec![update("a.org", Some("A"))]).await.unwrap();
+        store.publish(&root, remote).await.unwrap();
+        let expected = fs::read(root.join(INDEX)).await.unwrap();
+        fs::write(root.join(INDEX), b"{broken").await.unwrap();
+        Store::load(&root, "origin").await.unwrap();
+        assert_eq!(fs::read(root.join(INDEX)).await.unwrap(), expected);
+        fs::remove_file(root.join(INDEX)).await.unwrap();
+        notification_baseline(&root).await.unwrap();
+        assert_eq!(fs::read(root.join(INDEX)).await.unwrap(), expected);
+        fs::remove_file(root.join(INDEX)).await.unwrap();
+        fs::remove_file(root.join(BACKUP)).await.unwrap();
+        assert!(notification_baseline(&root).await.unwrap_err().to_string().contains("丢失"));
+        assert!(Store::load(&root, "origin").await.is_err());
+        fs::remove_dir_all(root).await.unwrap();
+    }
+    #[tokio::test]
+    async fn protected_index_rejects_checksum_damage_and_two_valid_disagreeing_copies() {
+        let (_, root) = repository().await;
+        let mut store = Store::load(&root, "origin").await.unwrap();
+        let remote = store.prepare_remote(&root, vec![update("a.org", Some("A"))]).await.unwrap();
+        store.publish(&root, remote).await.unwrap();
+        let first = fs::read(root.join(INDEX)).await.unwrap();
+        let remote = store.prepare_remote(&root, vec![update("a.org", Some("B"))]).await.unwrap();
+        store.publish(&root, remote).await.unwrap();
+        let second = fs::read(root.join(INDEX)).await.unwrap();
+        fs::write(root.join(BACKUP), &first).await.unwrap();
+        assert!(notification_baseline(&root).await.unwrap_err().to_string().contains("不一致"));
+        let mut damaged: serde_json::Value = serde_json::from_slice(&second).unwrap();
+        damaged["payload"]["entries"]["a.org"]["hash"]="changed".into();
+        let damaged=serde_json::to_vec(&damaged).unwrap();
+        for path in [INDEX,BACKUP] { fs::write(root.join(path),&damaged).await.unwrap(); }
+        assert!(notification_baseline(&root).await.unwrap_err().to_string().contains("checksum"));
+        fs::remove_dir_all(root).await.unwrap();
+    }
+    #[tokio::test]
+    async fn legacy_index_migrates_only_after_manifest_validation() {
+        let (_, root) = repository().await;
+        let mut store = Store::load(&root, "origin").await.unwrap();
+        let remote = store.prepare_remote(&root, vec![update("a.org", Some("A"))]).await.unwrap();
+        store.publish(&root, remote).await.unwrap();
+        fs::write(root.join(INDEX), encode(&store.index).unwrap()).await.unwrap();
+        fs::remove_file(root.join(BACKUP)).await.unwrap();
+        notification_baseline(&root).await.unwrap();
+        let bytes=fs::read(root.join(INDEX)).await.unwrap();
+        assert_eq!(bytes,fs::read(root.join(BACKUP)).await.unwrap());
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["version"],3);
+        fs::remove_dir_all(root).await.unwrap();
+    }
+
 }

@@ -61,6 +61,8 @@ impl OrgWorkspace {
             tasks: tasks.clone(),
         };
         notifications.configure(state.repos.clone());
+        notifications.files().ready().await;
+        notifications.flush().await?;
         let (snapshots, snapshot) = watch::channel(Snapshot::from_state(&state));
         let (completion, completed) = watch::channel(None);
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -269,7 +271,9 @@ impl OrgWorkspace {
                     .repo_by_root_directory(&root)
                     .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?
                     .clone();
-                read(repo).await
+                let result = crate::file_state::OBSERVER.scope(state.notifications.clone(), read(repo)).await;
+                state.notifications.flush().await?;
+                result
             })
         })
         .await

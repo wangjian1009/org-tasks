@@ -196,7 +196,8 @@ impl OrgRepo {
             self.id = id;
             drop(guard);
             if let Some(notifications) = notifications {
-                super::external_files::publish(self, notifications, change_files).await?;
+                let observations = change_files.iter().map(|change| (change.file.path.clone(), crate::file_state::CurrentFileState::Missing)).collect();
+                super::external_files::publish(self, notifications, change_files, observations, true).await?;
             }
             return Ok(());
         }

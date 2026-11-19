@@ -57,6 +57,8 @@ import {
   HttpUiHandler, HttpUiRequest, HttpUiResponse,
   SyncRequiredNotification as NativeSyncRequiredNotification,
   CoreNotification as NativeCoreNotification,
+  NotificationUpdate as NativeNotificationUpdate,
+  SyncBaselineUnavailableNotification as NativeSyncBaselineUnavailableNotification,
   SyncConflictNotification as NativeSyncConflictNotification,
   OrgFile as NativeOrgFile,
   FileHeaderEntry as NativeFileHeaderEntry,
@@ -204,6 +206,8 @@ export type CoreTaskModification = NativeTaskModification
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
 export type CoreWebDavSyncMonitor = NativeWebDavSyncMonitor
 export type CoreBridgeError = NativeCoreError
+export type CoreNotificationUpdate = NativeNotificationUpdate
+export type CoreSyncBaselineUnavailableNotification = NativeSyncBaselineUnavailableNotification
 export type CoreNotification = NativeCoreNotification
 export type CoreSyncConflictNotification = NativeSyncConflictNotification
 

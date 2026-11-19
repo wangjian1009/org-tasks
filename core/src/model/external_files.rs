@@ -56,9 +56,14 @@ pub(crate) async fn publish(
     repo: &super::OrgRepo,
     center: &super::NotificationCenter,
     change_files: Vec<ExternalFileChange>,
+    observations: Vec<(String, crate::file_state::CurrentFileState)>,
+    reset: bool,
 ) -> Result<(), crate::CoreError> {
-    let notification_result =
-        super::notification::RepositoryNotifications::publish(repo, center).await;
+    let (revision, baseline) = crate::file_state::load_baseline(repo, center).await;
+    let mut stamp = center.files().stamp(repo, center);
+    stamp.set_revision(revision);
+    let notification_result = center.files().apply_repository(repo, stamp, baseline, observations, reset);
+    center.files().flush().await?;
     if !change_files.is_empty() {
         center.publish(super::sync_events::SyncCommitted::ExternalFiles(
             ExternalFileChanged { change_files },
@@ -158,17 +163,19 @@ mod tests {
             .await
             .unwrap();
         let workspace = OrgWorkspace::start(vec![repo.clone()]).await.unwrap();
+        workspace.query(&[crate::CoreQuery::File { query: crate::FileQuery::default() }]).await.unwrap();
+        workspace.notifications.flush().await.unwrap();
         let ordering = Arc::new(Mutex::new(Vec::new()));
         let observed = ordering.clone();
         let (initial, mut received) = tokio::sync::mpsc::unbounded_channel();
         let _notices = workspace
-            .watch_notifications(None, move |list| {
+            .watch_notifications(None, super::super::test_support::notification_monitor(move |list| {
                 observed
                     .lock()
                     .unwrap()
                     .push(if list.is_empty() { "empty" } else { "conflict" });
                 let _ = initial.send(list);
-            })
+            }))
             .unwrap();
         assert_eq!(
             tokio::time::timeout(std::time::Duration::from_secs(5), received.recv())

@@ -124,7 +124,12 @@ async fn baseline_comparison_detects_edit_creation_deletion_and_survives_workspa
         assert!(OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().notification_snapshot().await.iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
     }
     std::fs::remove_file(f.root.join("a.org")).unwrap();
-    assert!(OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().notification_snapshot().await.iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
+    let deleted = OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap();
+    // 新会话没有观察过该路径，搜索当前存在文件不能猜测它已删除。
+    assert!(deleted.notification_snapshot().await.is_empty());
+    deleted.read_repo(&f.repo.root_directory, |repo| async move { repo.file("a.org").await }).await.unwrap();
+    assert_eq!(required(&deleted.notification_snapshot().await), 1);
+    deleted.stop().await.unwrap();
     std::fs::write(f.root.join("a.org"), "* A\n").unwrap();
     assert!(!OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().notification_snapshot().await.iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired)));
     std::fs::write(f.root.join("new.org"), "* New\n").unwrap();
@@ -146,22 +151,27 @@ async fn baseline_comparison_detects_edit_creation_deletion_and_survives_workspa
 }
 
 #[tokio::test]
-async fn corrupt_baseline_is_an_error_and_query_does_not_write_history_or_outbox() {
+async fn corrupt_baseline_repairs_one_copy_and_reports_failure_without_writing_business_data() {
     let f = Fixture::new(&[("a.org", "* A\n")]).await;
     f.baseline(&[("a.org", Some("* A\n"))]);
-    let before = std::fs::read(f.root.join(".sync/remote_base/current.json")).unwrap();
-    OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap().notification_snapshot().await.iter().any(|notice| matches!(notice, org_tasks_core::CoreNotification::SyncRequired));
-    assert_eq!(
-        std::fs::read(f.root.join(".sync/remote_base/current.json")).unwrap(),
-        before
-    );
-    assert!(f.repo.pending_writes().await.unwrap().is_empty());
-    std::fs::write(f.root.join(".sync/remote_base/current.json"), b"broken").unwrap();
     let workspace = OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap();
-    let (send, mut received) = tokio::sync::mpsc::unbounded_channel();
-    let _subscription = workspace.watch_notifications(None, move |list| { let _ = send.send(list); });
-    assert!(tokio::time::timeout(std::time::Duration::from_millis(100), received.recv()).await.is_err());
-    std::fs::write(f.root.join(".sync/remote_base/current.json"), before).unwrap();
+    let before = std::fs::read(f.root.join(".sync/remote_base/current.json")).unwrap();
     assert!(workspace.notification_snapshot().await.is_empty());
+    assert_eq!(std::fs::read(f.root.join(".sync/remote_base/current.json")).unwrap(), before);
+    assert!(f.repo.pending_writes().await.unwrap().is_empty());
     workspace.stop().await.unwrap();
+    std::fs::write(f.root.join(".sync/remote_base/current.json"), b"broken").unwrap();
+    let repaired = OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap();
+    assert!(repaired.notification_snapshot().await.is_empty());
+    assert_eq!(std::fs::read(f.root.join(".sync/remote_base/current.json")).unwrap(), before);
+    repaired.stop().await.unwrap();
+    for name in ["current.json", "current.backup.json"] {
+        std::fs::write(f.root.join(".sync/remote_base").join(name), b"broken").unwrap();
+    }
+    let failed = OrgWorkspace::start(vec![f.repo.clone()]).await.unwrap();
+    assert!(matches!(failed.notification_snapshot().await.as_slice(),
+        [CoreNotification::SyncBaselineUnavailable { reason: SyncBaselineFailure::Invalid, .. }]));
+    assert_eq!(std::fs::read(f.root.join("a.org")).unwrap(), b"* A\n");
+    assert!(f.repo.pending_writes().await.unwrap().is_empty());
+    failed.stop().await.unwrap();
 }

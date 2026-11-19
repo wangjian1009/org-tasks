@@ -1523,11 +1523,14 @@ path: String}{}
 
 ~CoreNotification~ 是从当前仓库文件和已确认基线派生的只读事件，不写通知记录，也不消费事件。
 
+文件状态、通知贡献及首次快照与差量回调的模型和内嵌 UML 见 [[file:文件状态与通知重构设计.org][文件状态与通知重构设计]]。相关运行时对象不持久化。
+
 #+begin_src rust
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum CoreNotification {
     SyncConflict(SyncConflictNotification),
     SyncRequired,
+    SyncBaselineUnavailable { repo_id: OrgRepoId, reason: SyncBaselineFailure },
 }
 #[serde(rename_all = "camelCase")]
 pub struct SyncConflictNotification {
@@ -1536,15 +1539,17 @@ pub struct SyncConflictNotification {
 }
 #+end_src
 
-每个当前有冲突标记的文件生成一条 ~SyncConflict~ ，身份为 Core 仓库 ID 与原相对路径，不带同步 ID 或路径列表。 ~SyncRequired~ 不带载荷；只要 workspace 任一仓库的本地文件 hash 与基线不同就附加一条，无需显式解决操作触发，重启后可重新发现。两种事件均不维护“已解决”状态。
+每个已观察且当前有冲突标记的文件生成一条 ~SyncConflict~ ，身份为 Core 仓库 ID 与相对路径。 ~SyncRequired~ 没有载荷，订阅范围内任一已观察文件与有效基线不同就贡献一条，多个来源去重。 ~SyncBaselineUnavailable~ 表示基线加载或恢复失败，原因是 missing、invalid、inconsistent 或 io。通知不维护已读或已解决状态，未读取路径保持未知。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
 \umlclass[x=0,y=0,type=enumeration]{CoreNotification}{SyncConflict(SyncConflictNotification) \\
-SyncRequired}{}
+SyncRequired / SyncBaselineUnavailable}{}
 \umlclass[x=8,y=0]{SyncConflictNotification}{repo\_id: OrgRepoId \\
 path: String}{}
+\umlclass[x=0,y=-4]{SyncBaselineUnavailable}{repo\_id: OrgRepoId \\ reason: SyncBaselineFailure}{}
 \umluniassoc{CoreNotification}{SyncConflictNotification}
+\umluniassoc{CoreNotification}{SyncBaselineUnavailable}
 \end{tikzpicture}
 
 * 日志文件备份与冲突比较模型
@@ -1575,27 +1580,25 @@ ConfilictSelection}{}
 
 * 通知订阅运行时模型
 
-通知仅通过 ~watch_notifications(repo_ids, callback)~ 订阅，callback 接收完整 ~Vec<CoreNotification>~ 。首次订阅在缓存就绪后默认回调一次，包括空列表；以后仅列表变化时回调。冷缓存由独立任务加载，通知处理 task 维护缓存并比较差异，宿主不主动查询。类型基线、checksum 与迟到结果规则统一见 [[file:通知订阅设计.org][通知订阅设计]]。
-
-~NotificationSubscription~ 只持有取消令牌；process 独占 ~NotificationState~ ，其中每仓库的 ~RepositoryNotifications~ 保存基线 checksum、当前 checksum、冲突路径与内部 revision。注册范围及最近发送的完整列表属于独立 monitor；数据更新与通知列表使用各自回调，不保留 ~NotificationUpdate~ 失效事件。所有状态均不持久化，停止时排空请求、取消加载并释放监控器。
+~FileStateManager~ 的 process 独占仓库基线与已观察文件状态，每文件保存内容版本、冲突情况和 revision；未知路径不进入 map，已确认删除保留 tombstone。 ~NotificationCenter::process~ 独占通知贡献及 monitor，接收文件服务主动推送，不保存基线、不读取文件。首次回调发送 ~NotificationSnapshot~ ，后续发送 ~NotificationDelta~ ，句柄析构取消订阅。公开类型与完整顺序见 [[file:文件状态与通知重构设计.org][文件状态与通知实现]]。
 
 \begin{tikzpicture}
-\umlclass[x=0,y=0]{NotificationCenter}{sender \\ sequence}{process() \\ flush()}
-\umlclass[x=8,y=0]{NotificationSubscription}{取消令牌}{}
-\umlclass[x=0,y=-4]{NotificationState}{repos \\ cache \\ monitors \\ pending \\ generation}{notify()}
-\umlclass[x=8,y=-4]{RepositoryNotifications}{revision \\ baseline \\ current \\ conflicts}{apply() \\ dirty()}
-\umldep{NotificationSubscription}{NotificationCenter}
-\umldep{NotificationCenter}{NotificationState}
-\umlcompo{NotificationState}{RepositoryNotifications}
+\umlclass[x=0,y=0]{FileStateManager}{sender / epochs}{process() / query()}
+\umlclass[x=8,y=0]{FileState}{current / local change}{逐文件版本比较}
+\umlclass[x=0,y=-4]{NotificationCenter}{sender / sequence}{process() / flush()}
+\umlclass[x=8,y=-4]{NotificationState}{repo contributions / monitors}{snapshot() / changed()}
+\umluniaggreg{FileStateManager}{FileState}
+\umluniassoc{FileStateManager}{NotificationCenter}
+\umlcompo{NotificationCenter}{NotificationState}
 \end{tikzpicture}
 
 * remote_base 与仓库事务模型
 
-以下均为 Core 私有持久化结构，不增加宿主 DTO。 ~remote_base/current.json~ 保存版本 2 的原子状态： ~version~ 、远端绑定 hash ~origin~ 、最新远端目录 ~generation~ 、本地共同祖先目录 ~local~ 和远端 ~entries~ 。每代目录的 ~manifest.json~ 保存版本、来源绑定与条目； ~A.org.meta.json~ 与 ~A.org~ 同级，保存对应条目的 ETag、长度、hash 和来源同步 ID。读取必须校验三份元数据和正文配对。正文缺失且 hash 为空表示已确认删除，没有条目表示未建立；真实空文件具有正常 hash。
+以下均为 Core 私有持久化结构，不增加宿主 DTO。 ~remote_base/current.json~ 与 ~current.backup.json~ 保存相同的 version 3 envelope，含 payload 与 SHA-256 checksum；payload 保存以下原子状态：稳定仓库 ID ~repo_id~ 、 ~version~ 、远端绑定 hash ~origin~ 、最新远端目录 ~generation~ 、本地共同祖先目录 ~local~ 和远端 ~entries~ 。每代目录的 ~manifest.json~ 保存版本、来源绑定与条目； ~A.org.meta.json~ 与 ~A.org~ 同级，保存对应条目的 ETag、长度、hash 和来源同步 ID。读取必须校验三份元数据和正文配对。正文缺失且 hash 为空表示已确认删除，没有条目表示未建立；真实空文件具有正常 hash。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
-\umlclass[x=0,y=0]{RemoteBaseIndex}{version: u32 \\
+\umlclass[x=0,y=0]{RemoteBaseIndex}{repo\_id: OrgRepoId \\ version: u32 \\
 origin: String \\
 generation: Option\textless String\textgreater \\
 local: Option\textless String\textgreater \\
@@ -1607,12 +1610,14 @@ sync\_id: String}{}
 \umlclass[x=0,y=-5]{Manifest}{version: u32 \\
 origin: String \\
 entries: Map}{}
+\umlclass[x=8,y=-5]{ProtectedIndex}{version: 3 / payload / checksum}{主索引与副本事务发布}
+\umluniassoc{ProtectedIndex}{RemoteBaseIndex}
 \umluniaggreg{RemoteBaseIndex}{RemoteBaseEntry}
 \umluniaggreg{Manifest}{RemoteBaseEntry}
 \umluniassoc{RemoteBaseIndex}{Manifest}
 \end{tikzpicture}
 
-远端下载完整后独立发布新目录，已确认的上传和删除继续独立推进远端状态。本地提交失败保留旧共同祖先，重启后仍执行 ~merge(B, L, R)~ ；本地事务只推进实际处理路径的合并祖先。未变化正文从旧基线硬链接，工作文件不参与链接。旧索引不升级，重置后重新获取远端数据。物理布局、版本校验、回收与同步锁见 [[file:同步核心设计.org][同步核心设计]]。
+远端下载完整后独立发布新目录，已确认的上传和删除继续独立推进远端状态。本地提交失败保留旧共同祖先，重启后仍执行 ~merge(B, L, R)~ ；本地事务只推进实际处理路径的合并祖先。未变化正文从旧基线硬链接，工作文件不参与链接。旧 version 2 索引通过清单验证后事务迁移成双副本；两份缺失而仍有基线代时拒绝首次同步。物理布局、版本校验、回收与同步锁见 [[file:同步核心设计.org][同步核心设计]]。
 
 固定 ~.sync/.sync.lock~ 的 OS 文件描述符由同步会话持有至完成回调结束；仓库重置保留该锁文件。会话阶段新增 ~Publishing~ ，基线发布与本地提交分开恢复。
 

@@ -757,6 +757,11 @@ extern "C" void org_tasks_harmony_webdav_sync_monitor_event(uint64_t monitor_han
     }
 }
 
+// 首次 snapshot 与后续 changed 共用无界 FIFO 通道，保持增量版本连续。
+void CallNotificationMonitor(napi_env env, napi_value callback, void* context, void* data)
+{
+    CallWebDavSyncMonitor(env, callback, context, data);
+}
 struct NotificationWatch { napi_threadsafe_function function = nullptr; };
 void FinalizeNotificationWatch(napi_env, void* data, void*) { delete static_cast<NotificationWatch*>(data); }
 extern "C" void org_tasks_harmony_notification_update(uint64_t handle, const char* json)
@@ -1655,7 +1660,7 @@ napi_value WorkspaceWatchNotifications(napi_env env, napi_callback_info info)
     auto* watch = new NotificationWatch();
     if (napi_create_string_utf8(env, "OrgTasksNotificationMonitor", NAPI_AUTO_LENGTH, &name) != napi_ok ||
         napi_create_threadsafe_function(env, args[0], nullptr, name, 0, 1, watch, FinalizeNotificationWatch,
-            nullptr, CallWebDavSyncMonitor, &watch->function) != napi_ok) {
+            nullptr, CallNotificationMonitor, &watch->function) != napi_ok) {
         delete watch; napi_throw_error(env, nullptr, "无法创建通知监控"); return nullptr;
     }
     napi_unref_threadsafe_function(env, watch->function);
