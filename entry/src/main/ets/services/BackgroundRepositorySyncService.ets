@@ -36,7 +36,7 @@ export class BackgroundRepositorySyncService {
       }).requestId
       let requested: SyncStartResult | undefined = undefined
       if (RepositorySyncService.runningSync()) {
-        requested = RepositorySyncService.start(context, { triggerReason: 'appBackground', policy: SyncStartPolicy.Reject })
+        requested = RepositorySyncService.start(context, { source: 'background', policy: SyncStartPolicy.Reject })
       }
       try { await DataSetManager.flushAll() }
       catch (_) { console.error('页面缓存保存失败') }
@@ -46,7 +46,7 @@ export class BackgroundRepositorySyncService {
         const config = await AppConfigService.load(context, false)
         if (!config.repos.some(repo => repo.webdavEnabled) || expired) return
         if (RepositorySyncService.runningSync()) {
-          requested = RepositorySyncService.start(context, { triggerReason: 'appBackground', policy: SyncStartPolicy.Reject })
+          requested = RepositorySyncService.start(context, { source: 'background', policy: SyncStartPolicy.Reject })
         }
       }
       await presentation.start()
@@ -56,7 +56,7 @@ export class BackgroundRepositorySyncService {
       // 已有会话仅延续后台保护；新请求用 Reject，防止准备期间出现并发同步。
       RepositorySyncService.watch(observer)
       const result = requested ?? RepositorySyncService.start(context, {
-        triggerReason: 'appBackground', policy: SyncStartPolicy.Reject })
+        source: 'background', policy: SyncStartPolicy.Reject })
       await (result.kind === 'rejected' ? result.active.completion : result.handle.completion)
     } catch (_) {
       // 不在后台弹授权或错误窗口，也不把失败标记为已同步；下次退后台可重试。

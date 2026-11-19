@@ -251,21 +251,20 @@ impl WebDavSyncPolicy {
         runtime::test_connection(&self.client, &self.username, &self.password, &self.endpoint).await
     }
 
-    /// 只读比较远端路径与强 ETag；无基线或版本不足以确认时返回 true。
-    /// 不获取仓库锁、不读取工作文件、不修复基线，也不创建同步记录。
-    pub async fn has_remote_changes(
+    async fn check_remote_snapshot(
         &self,
-        repo: &OrgRepo,
-        options: &crate::SyncOptions,
-    ) -> Result<bool, CoreError> {
+        context: &crate::RemoteCheckContext<'_>,
+    ) -> Result<crate::RemoteChangeState, CoreError> {
+        use crate::RemoteChangeState::{Changed, Unchanged, Unknown};
+        let options = crate::SyncOptions {
+            excluded_directories: context.excluded_directories.to_vec(), ..Default::default()
+        }.normalized()?;
         let Some(mut baseline) = remote_base::remote_versions(
-            std::path::Path::new(&repo.root_directory), &self.origin(),
-        ).await? else {
-            return Ok(true);
-        };
+            std::path::Path::new(&context.repo.root_directory), &self.origin(),
+        ).await? else { return Ok(Unknown) };
         baseline.retain(|path, _| !options.excludes_path(path));
         let remotes = runtime::list_remote_tree(
-            &self.client, &self.username, &self.password, &self.endpoint, options,
+            &self.client, &self.username, &self.password, &self.endpoint, &options,
             &SyncProgressReporter::default(), &NoopWebDavSyncMonitor,
         ).await.map_err(|error| CoreError::Store(error.summary().message))?;
         let mut listed = BTreeMap::new();
@@ -274,19 +273,20 @@ impl WebDavSyncPolicy {
                 return Err(CoreError::InvalidState("WebDAV 列举返回重复文件"));
             }
         }
-        if baseline.len() != listed.len() {
-            return Ok(true);
-        }
+        if baseline.len() != listed.len() { return Ok(Changed) }
+        let mut result = Unchanged;
         for (path, version) in listed {
-            let Some(previous) = baseline.get(&path) else { return Ok(true) };
-            let etag = synchronize::strong(version.etag.as_deref());
-            if etag.is_none() || etag != synchronize::strong(previous.etag.as_deref())
-                || version.size.zip(previous.size).is_some_and(|(a, b)| a != b)
-            {
-                return Ok(true);
+            let Some(previous) = baseline.get(&path) else { return Ok(Changed) };
+            if version.size.zip(previous.size).is_some_and(|(a, b)| a != b) {
+                return Ok(Changed);
+            }
+            match (synchronize::strong(version.etag.as_deref()), synchronize::strong(previous.etag.as_deref())) {
+                (Some(a), Some(b)) if a != b => return Ok(Changed),
+                (Some(_), Some(_)) => {},
+                _ => result = Unknown,
             }
         }
-        Ok(false)
+        Ok(result)
     }
 
     fn origin(&self) -> String {
@@ -304,6 +304,12 @@ impl SyncPolicy for WebDavSyncPolicy {
     const KIND: &'static str = "webdav";
     type ContextDetail = WebDavSyncContextDetail;
     type FileDetail = WebDavSyncFileDetail;
+
+    async fn check_remote_changes(
+        &self, context: &crate::RemoteCheckContext<'_>,
+    ) -> Result<crate::RemoteChangeState, CoreError> {
+        self.check_remote_snapshot(context).await
+    }
 
     async fn synchronize(
         &self,
@@ -522,7 +528,7 @@ mod tests {
         .with_monitor(monitor);
 
         let record = repo
-            .sync(
+            .sync_at(
                 &policy,
                 1,
                 &SyncCancellation::default(),
@@ -678,7 +684,7 @@ mod write_tests {
         policy: &WebDavSyncPolicy,
         time: i64,
     ) -> OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail> {
-        repo.sync(
+        repo.sync_at(
             policy,
             time,
             &SyncCancellation::default(),

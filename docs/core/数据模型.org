@@ -30,19 +30,38 @@
 
 ~OrgWorkspace~ 是可克隆的命令句柄，公开方法使用 ~&self~ 或消费句柄，不借出可变仓库引用。 ~WorkspaceState~ 、 ~Command~ 、 ~Access~ 和 ~Snapshot~ 均为私有运行时状态，不进入 Org、同步记录或 Preferences。宿主提供 Tokio 执行上下文， ~start~ 只启动普通异步 task；命令 ~process~ 与 NotificationCenter 的 ~process~ 共用该 runtime。
 
-~WorkspaceState~ 独占仓库配置、默认设置、操作回退历史与调度生命周期。查询和修改 task 取得本次配置上下文；只有命令循环归并成功提交产生的回退记录、发布独立快照并交回答复。快照持有仓库配置、TodoConfig 和历史，调用方修改返回值不会修改 Workspace。 ~Access~ 区分 Query、Files、Exclusive 和 Stop：读取批次并发，文件修改按完整依赖保序，独占命令等待在途批次结束；后来的查询不能越过写入屏障。
+~WorkspaceState~ 独占仓库配置、默认设置、操作回退历史与调度生命周期。查询和修改 task 取得本次配置上下文；只有命令循环归并成功提交产生的回退记录、发布独立快照并交回答复。快照持有仓库配置、按仓库 ID 绑定的策略引用、TodoConfig 和历史，调用方修改返回值不会修改 Workspace。 ~Access~ 区分 Query、Files、Exclusive 和 Stop：读取批次并发，文件修改按完整依赖保序，独占命令等待在途批次结束；后来的查询不能越过写入屏障。
 
 \begin{center}
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
-\umlclass[x=0,y=0]{WorkspaceHandle}{sender: Command channel \\ snapshot: Snapshot receiver}{query() \\ execute() \\ stop()}
+\umlclass[x=0,y=0]{WorkspaceHandle}{sender: Command channel \\ snapshot: Snapshot receiver}{query() \\ execute() \\ check remote changes() \\ sync repos() \\ stop()}
 \umlclass[x=7,y=0]{WorkspaceProcess}{state: WorkspaceState \\ queue: Command deque \\ active: Task set}{dispatch() \\ complete()}
-\umlclass[x=0,y=-4]{WorkspaceState}{repos: Vec of OrgRepo \\ todo defaults: TodoConfig \\ history: TaskOperationHistory}{}
-\umlclass[x=7,y=-4]{Snapshot}{repos: Vec of OrgRepo \\ defaults: TodoConfig \\ history: TaskOperationHistory}{}
+\umlclass[x=0,y=-4]{WorkspaceState}{repos: Vec of OrgRepo \\ todo defaults: TodoConfig \\ history: TaskOperationHistory \\ sync policies: Map of SyncBinding}{}
+\umlclass[x=7,y=-4]{Snapshot}{repos: Vec of OrgRepo \\ defaults: TodoConfig \\ history: TaskOperationHistory \\ sync policies: Map of SyncBinding}{}
 \umldep{WorkspaceHandle}{WorkspaceProcess}
 \umlcompo{WorkspaceProcess}{WorkspaceState}
 \umldep{WorkspaceState}{Snapshot}
 \umldep{WorkspaceHandle}{Snapshot}
+\end{tikzpicture}
+\end{center}
+
+* 仓库策略绑定与批量结果
+
+~SyncBinding~ 是私有运行时对象，持有 Policy 和规范化目录过滤，通过引用计数共享到已发布快照。配置替换或移除不修改已经开始检查的快照。通用组合层仅对返回的策略专属字段进行 JSON 编组；持久化和策略内部仍使用关联类型。绑定和凭据不写入 Org、历史或 Preferences。
+
+~RemoteCheckContext~ 由 Core 提供只读仓库和已绑定过滤，不包含开始时间、触发原因或取消令牌。~RepoRemoteChange~ 为每个已配置仓库保存 ~Result<RemoteChangeState, CoreError>~ ，状态为 ~Unchanged~ 、 ~Changed~ 或 ~Unknown~ 。~RepoSyncResult~ 按输入仓库列表保存各自的同步记录或错误。它们是请求返回值，不是持久化实体；检查不会触发同步。
+
+\begin{center}
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{SyncBinding}{policy: shared Policy \\ excluded directories: String[]}{check() \\ sync()}
+\umlclass[x=7,y=0]{RemoteCheckContext}{repo: borrowed OrgRepo \\ excluded directories: borrowed String[]}{ }
+\umlclass[x=0,y=-4]{RepoRemoteChange}{repo id: OrgRepoId \\ result: Result of RemoteChangeState}{ }
+\umlclass[x=7,y=-4]{RepoSyncResult}{repo id: OrgRepoId \\ result: Result of OrgRepoSyncRecord}{ }
+\umldep{SyncBinding}{RemoteCheckContext}
+\umldep{SyncBinding}{RepoRemoteChange}
+\umldep{SyncBinding}{RepoSyncResult}
 \end{tikzpicture}
 \end{center}
 
@@ -88,8 +107,8 @@ unsubscribe\_query(subscription)}
   load\_files(ignore\_files): FutureResult \\
   file(path): FutureResult \\
   file\_metadata(): FutureResult \\
-  sync(policy, started\_at, cancellation, progress) \\
-  sync\_with\_options(policy, started\_at, cancellation, progress, options)
+  sync(policy, cancellation, progress) \\
+  sync\_with\_options(policy, cancellation, progress, options)
 }
 \umlclass[x=0,y=-6.0]{OrgFile}{
   repo\_id: OrgRepoId \\
@@ -491,7 +510,7 @@ pub struct TaskPosition {
 
 根目录 ~.orgzlyignore~ 每次读盘时加载到本次操作上下文； ~OrgRepo~ 不保存规则。 ~load_files~ 返回完整的本次文件集合并携带对应的元信息标记，任务查询排除命中规则的标题。规则不改变文件同步、原始字节或 outbox；WebDAV 更新配置后，下一次读取立即使用新规则。
 
-远端地址、用户名、密码、令牌、客户端证书和 Authorization header 都属于具体 ~SyncPolicy~ 实现的运行时配置，不进入 ~OrgRepo~ 或任何其他 core 数据结构。
+远端地址、用户名、密码、令牌、客户端证书和 Authorization header 都属于具体 ~SyncPolicy~ 实现的运行时配置，不复制到 ~OrgRepo~ 、公开结果或持久化结构；Workspace 只在运行时按仓库 ID 持有策略引用，凭据字段仍封装在具体 Policy 内。
 
 #+begin_src rust
 pub struct OrgWorkspace {
@@ -822,7 +841,7 @@ pub struct TodoMetadata {
 
 * 同步运行时参数
 
-~SyncOptions~ 由同步调用传入 ~SyncContext~ ，不保存在仓库实体或 outbox 中；仅将 ~trigger_reason~ 复制到完成的同步历史，目录过滤规则不写入历史。Rust 默认排除 ~archive~ ，显式空列表表示不过滤。 ~excluded_directories~ 只接受单个目录名，匹配任意层级的目录路径组件。
+Workspace 通过 ~set_sync_policy~ 绑定策略和目录过滤， ~sync_repos~ 将已绑定过滤与本轮原因组合成 ~SyncOptions~ 传入 ~SyncContext~ ；独立仓库同步仍可直接提供 ~SyncOptions~ 。参数不保存在仓库实体或 outbox 中；仅将 ~trigger_reason~ 复制到完成的同步历史，目录过滤规则不写入历史。Rust 默认排除 ~archive~ ，显式空列表表示不过滤。 ~excluded_directories~ 只接受单个目录名，匹配任意层级的目录路径组件。
 
 #+begin_src rust
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -833,7 +852,7 @@ pub struct SyncOptions {
 }
 
 #[serde(rename_all = "camelCase")]
-pub enum SyncTriggerReason { AppStartup, AppBackground, Manual }
+pub enum SyncTriggerReason { RemoteChanged, LocalChanged, Manual }
 #+end_src
 
 \begin{center}
@@ -844,13 +863,13 @@ base: PathBuf \\
 options: SyncOptions}{}
 \umlclass[x=7,y=0]{SyncOptions}{excluded\_directories: Vec\textless String\textgreater \\
 trigger\_reason: SyncTriggerReason}{}
-\umlclass[x=7,y=-3]{SyncTriggerReason}{AppStartup \\ AppBackground \\ Manual}{}
+\umlclass[x=7,y=-3]{SyncTriggerReason}{RemoteChanged \\ LocalChanged \\ Manual}{}
 \umldep{SyncOptions}{SyncTriggerReason}
 \umluniassoc[mult1=1,mult2=1]{SyncContext}{SyncOptions}
 \end{tikzpicture}
 \end{center}
 
-~SyncTriggerReason~ 只有 ~AppStartup~ （应用启动）、 ~AppBackground~ （退到后台）与 ~Manual~ （手动同步），JSON 值分别为 ~appStartup~ 、 ~appBackground~ 与 ~manual~ 。省略调用原因时默认 ~Manual~ ，未知值拒绝，不作为宿主持久化配置。
+~SyncTriggerReason~ 只有 ~RemoteChanged~ （远端变化）、 ~LocalChanged~ （本地变化）与 ~Manual~ （手动同步），JSON 值分别为 ~remoteChanged~ 、 ~localChanged~ 与 ~manual~ 。默认值为 ~Manual~ ，未知值拒绝，不映射旧原因。启动和退后台是宿主入口信息，不作为当前同步原因。
 
 * 通用批量查询模型
 

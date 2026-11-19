@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use chrono::{Local, TimeZone};
 use clap::{ArgAction, Args, Parser, Subcommand};
@@ -388,7 +388,7 @@ async fn sync_webdav(repo: OrgRepo, args: WebDavArgs) -> Result<(), String> {
 
     let controller = OrgRepoSyncController::new(repo, policy);
     controller
-        .start(timestamp_ms()?)
+        .start()
         .await
         .map_err(|error| error.to_string())?;
     let mut last_progress = None;
@@ -470,13 +470,6 @@ fn history(
             Ok(())
         }
     }
-}
-
-pub(crate) fn timestamp_ms() -> Result<i64, String> {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| "系统时间早于 Unix epoch".to_string())?;
-    i64::try_from(duration.as_millis()).map_err(|_| "当前时间超出支持范围".to_string())
 }
 
 #[derive(Default)]

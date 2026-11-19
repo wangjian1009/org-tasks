@@ -653,7 +653,7 @@ impl WebDavSyncPolicy {
         result: OrgRepoSyncResult,
         _progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail>, CoreError> {
-        record.finish(result, finished_at()?)?;
+        record.finish(result, finished_at()?.max(record.started_at))?;
         Ok(record)
     }
 }

@@ -57,6 +57,11 @@ N-API 对象继续按既有引用计数保持会话存活。最后一个引用�
 
 #+begin_src ts
 class Workspace {
+  setSyncPolicy(repoId: string, policy: WebDavSyncPolicy,
+    excludedDirectories: string[], monitor?: WebDavSyncMonitor): Promise<void>
+  removeSyncPolicy(repoId: string): Promise<void>
+  checkRemoteChanges(): Promise<RepoRemoteChange[]>
+  syncRepos(repoIds: string[], triggerReason: SyncTriggerReason): Promise<RepoSyncResult[]>
   startHttpServer(port?: number): Promise<HttpServerInfo>
   stopHttpServer(): Promise<void>
   httpServerStatus(): Promise<HttpServerInfo | null>
@@ -99,8 +104,6 @@ class Repo {
   historyFile(target: HistoryFileTarget): Promise<OrgFile>
   loadFiles(ignoreFiles?: string[]): Promise<OrgFile[]>
   file(path: string): Promise<OrgFile>
-  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor,
-       options?: SyncOptions): Promise<SyncRecord>
   conflicts(): Promise<ConflictSync[]>
 }
 
@@ -128,7 +131,8 @@ class WebDavSyncPolicy {
   testConnection(): Promise<void>
 }
 
-type SyncTriggerReason = 'appStartup' | 'appBackground' | 'manual'
+type SyncTriggerReason = 'remoteChanged' | 'localChanged' | 'manual'
+type SyncRequestSource = 'startup' | 'background' | 'manual'
 interface SyncOptions {
   excludedDirectories: string[]
   triggerReason?: SyncTriggerReason
@@ -161,7 +165,9 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~FilterTask.created_at()~ 、 ~closed_at()~ 、 ~modified_at()~ | ~task.createdAt~ 、 ~task.closedAt~ 、 ~task.modifiedAt~ | 只读、可枚举的可空时间快照；创建时间来自标题自身的 ~CREATED~ 属性，关闭时间来自标题自身的真实 ~CLOSED~ 规划节点，修改时间仅来自当前标题自身的 ~LAST_MODIFIED~ 属性；缺失或无效为 ~null~ ，不读取文件 mtime。 |
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
-| ~WebDavSyncPolicy.has_remote_changes(repo, options)~ | ~await repo.hasRemoteChanges(policy, options)~ | 只读检查远端变化，返回布尔值；不获取仓库文件锁或执行同步，规则与错误语义由 Core 定义。 |
+| ~OrgWorkspace.check_remote_changes()~ | ~await workspace.checkRemoteChanges()~ | 无参只读检查，逐仓库返回状态或错误；不加文件锁、不触发同步。 |
+| ~OrgWorkspace.set_sync_policy~ 、 ~remove_sync_policy~ | ~workspace.setSyncPolicy~ 、 ~removeSyncPolicy~ | 策略和过滤目录绑定到稳定仓库 ID，仅保存在运行时。 |
+| ~OrgWorkspace.sync_repos~ | ~workspace.syncRepos~ | 显式传入仓库 ID 列表和本轮原因，逐仓库返回结果；开始时间由 Core 生成。 |
 | ~OrgWorkspace.query(&[CoreQuery])~ | ~workspace.query(queries)~ | 结构化请求数组在一次 worker 调用中透传 Core，按输入顺序返回任务及分类统计数组。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |
 | ~OrgRepo.load()~ | ~repo.load()~ | 仅恢复稳定 ID；Core 原泛型返回类型保留为空集合，TS 只等待完成。 |
@@ -173,7 +179,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 
 这些适配差异不改变所属对象或领域规则；跨语言类型与同步/异步边界不要求逐字符一致。
 
-~SyncRecord.triggerReason~ 为 ~SyncTriggerReason | null~ ，同步返回值、历史列表和详情摘要均透传 Core 的原因，旧记录返回 ~null~ 。 ~RepositorySyncService.start(context, options)~ 从 ~options.triggerReason~ 接受本轮原因并传给 ~syncWorkspaceWebDav~ 与 ~Repo.sync~ ；退后台新会话显式使用 ~appBackground~ ，下拉和同步提示点击使用 ~manual~ ，复用会话保持首次原因。原因不进入 Preferences 或凭据存储。
+~SyncRecord.triggerReason~ 为 ~SyncTriggerReason | null~ ，同步返回值、历史和详情透传 Core 的原因。当前只定义 ~remoteChanged~ （远端变化）、 ~localChanged~ （本地变化）和 ~manual~ （手动同步），不保留旧原因的映射或展示分支。 ~RepositorySyncService.start(context, options)~ 通过 ~options.source~ 接受 ~startup~ 、 ~background~ 或 ~manual~ 的上层入口信息；启动检查后选中仓库使用 ~remoteChanged~ ，退后台已检测到本地变化后使用 ~localChanged~ ，手动入口使用 ~manual~ 。复用会话保持原入口，不改写已有同步原因；入口信息只保存在 Harmony 会话中，不传给 Core 或写入历史。
 
 Harmony 共享同步入口同步返回受理结果，Core 的单仓库接口不承载应用会话队列。接口为：
 
@@ -184,7 +190,7 @@ enum SyncStartPolicy {
   Wait = 'Wait'
 }
 interface SyncStartOptions {
-  triggerReason: SyncTriggerReason
+  source: SyncRequestSource
   policy: SyncStartPolicy
 }
 interface SyncCompletion {
@@ -193,7 +199,7 @@ interface SyncCompletion {
 }
 interface SyncHandle {
   readonly id: number
-  readonly triggerReason: SyncTriggerReason
+  readonly source: SyncRequestSource
   readonly completion: Promise<SyncCompletion>
 }
 interface SyncAccepted {
@@ -213,18 +219,18 @@ class RepositorySyncService {
 
 空闲时三种策略都返回 ~started~ ，先保留会话再异步执行。存在会话时， ~Reuse~ 返回 ~reused~ 与同一个句柄， ~Reject~ 返回 ~rejected~ 与当前句柄， ~Wait~ 返回 ~queued~ 与独立句柄，按受理顺序执行。复用不改变原触发原因；拒绝不是同步错误，不创建历史或失败提示。配置、凭据与文件在每轮实际执行时读取，不在排队时固定快照。
 
-~completion~ 在本轮同步与角标刷新结束后返回成功或失败，不以 Promise 拒绝表达普通同步错误；角标刷新失败不改变文件同步结果。前一轮失败仍继续处理队列，失败快照独立保留供当前可见页面领取，不能被下一轮准备状态覆盖。手动入口只等待原位编辑保存，提交 ~Wait~ 请求后立即释放入口状态，不等待 ~completion~ 或禁用后续 UI 操作。同步启动接口不申请系统后台任务或发布通知，退后台保护由宿主单独管理；已有会话在保护准备期间完成时，不再补开一轮同步。
+~completion~ 在本轮检查、所选仓库同步与角标刷新结束后返回成功或失败，不以 Promise 拒绝表达普通同步错误；角标刷新失败不改变文件同步结果。前一轮失败仍继续处理队列，失败快照独立保留供当前可见页面领取，不能被下一轮准备状态覆盖。手动入口只等待原位编辑保存，提交 ~Wait~ 请求后立即释放入口状态，不等待 ~completion~ 或禁用后续 UI 操作。同步启动接口不申请系统后台任务或发布通知，退后台保护由宿主单独管理；已有会话在保护准备期间完成时，不再补开一轮同步。
 
 
 同步记录保留原有 ~result~ 、 ~conflicts~ 、时间与文件数，另增 ~executionResult~ 、 ~transfer~ 、 ~downloadedFiles~ 、 ~uploadedFiles~  、 ~errorCategory~ 与 ~errorMessage~ 。 ~result~ 继续承载原始作业结果，避免改变现有同步编排；日志行按 ~executionResult~ 展示结果图标，只有冲突而无执行错误时为 ~succeeded~ 。 ~transfer~ 为 ~unchanged~ 、 ~download~ 、 ~upload~ 或 ~bidirectional~ ，只统计 Core 已确认成功的文件动作。冲突路径仅反映当次固定结果，UI 显示固定冲突数，不再提供待处理／已解决计数。
 
-~errorCategory~ 与 ~errorMessage~ 分别为既有文件记录的错误分类和消息，缺失时为 ~null~ 。ArkTS 优先显示已有错误消息，缺失时使用结果或分类生成标题；列举失败的空记录保留 ~failed~ ，没有已记录原因时显示“执行失败”。不扩展原始历史格式或补造旧错误。取消与中断保留原结果及独立的辅助色图标。实时 ~repo.sync()~ 复用相同摘要字段；冲突字段在完成时固定，不随后续文件操作变化。C++ 在工作线程请求后完整透传摘要， ~NativeCoreService~ 不重复判断传输或冲突状态。
+~errorCategory~ 与 ~errorMessage~ 分别为既有文件记录的错误分类和消息，缺失时为 ~null~ 。ArkTS 优先显示已有错误消息，缺失时使用结果或分类生成标题；列举失败的空记录保留 ~failed~ ，没有已记录原因时显示“执行失败”。不扩展原始历史格式或补造旧错误。取消与中断保留原结果及独立的辅助色图标。实时 ~workspace.syncRepos()~ 复用相同摘要字段；冲突字段在完成时固定，不随后续文件操作变化。C++ 在工作线程请求后完整透传摘要， ~NativeCoreService~ 不重复判断传输或冲突状态。
 
 * 文件对象与生命周期
 
 Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复制后交给 ~org_tasks_harmony_free_string~ 释放。释放接口在 Rust 声明为 ~unsafe extern "C"~ ：非空参数必须是本 bridge 返回、尚未释放的原始指针，不得改变字符串长度，释放后不得访问或再次释放；空指针无操作。错误字符串使用同一所有权约定。Rust 调用方在 ~unsafe~ 块中保证这些条件；C++ 保持原有 C ABI，ArkTS 接口不暴露字符串指针。
 
-同步通过 ~Workspace.sync_repo~ 命令取得执行时的仓库配置与身份，不持有整体 workspace mutex；Core 管理本轮同步锁和分阶段仓库锁，结束后由命令循环发布配置快照。文件列表通过 ~read_repo~ 纳入查询批次， ~loadFiles(ignoreFiles)~ 的 C ABI、N-API、请求和结果字段保持原约定。同一 Workspace 的页面查询等待同步屏障结束；底层网络阶段释放仓库锁供其他进程访问。具体协议见 [[file:../core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。
+同步通过 ~Workspace.sync_repos~ 命令取得执行时的仓库配置与身份，不持有整体 workspace mutex；Core 管理本轮同步锁和分阶段仓库锁，结束后由命令循环发布配置快照。文件列表通过 ~read_repo~ 纳入查询批次， ~loadFiles(ignoreFiles)~ 的 C ABI、N-API、请求和结果字段保持原约定。同一 Workspace 的页面查询等待同步屏障结束；底层网络阶段释放仓库锁供其他进程访问。具体协议见 [[file:../core/仓库访问与跨进程同步设计.org][仓库访问与跨进程同步设计]]。
 
 ~Workspace~ 与 ~Repo~ 持有同一个 opaque workspace handle 的引用；最后一个引用释放后，Harmony session 释放 core workspace。 ~Repo~ 从 workspace 取得，不能直接构造。
 
@@ -248,11 +254,15 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 旧 Repo.createTask、Repo.updateTaskLocation、Repo.updateTask、Repo.deleteTask 与 Workspace.editTask 均已删除，native 导出、类型声明和宿主 wrapper 不保留兼容入口。
 
-~Repo.sync~ 接收策略和 ~SyncOptions~ 对象。C++ 在工作线程临时构造 core policy，并调用 ~OrgRepo.sync_with_options~ 。历史由仓库内部恢复，不传给 TS 或 ~SyncPolicy.synchronize~ 。省略参数使用 Rust 默认值，显式空列表关闭目录过滤； ~monitor~ 可为 ~undefined~ ，后台调用仍能传入 options。事件通过 N-API thread-safe function 回到 ArkTS，包含相对路径、处理结果与 HTTP 状态，不包含凭据或正文。
+~Workspace.setSyncPolicy(repoId, policy, excludedDirectories, monitor?)~ 在工作线程构造 Rust Policy，并按稳定仓库 ID 绑定到 Core；过滤规则由 Core 校验。 ~removeSyncPolicy~ 解除绑定，仓库移除时 Core 同时解除绑定。参数为结构化对象或字段，不向 ArkTS 暴露 JSON 字符串。远端配置和凭据只进入 Policy 的运行时，不进入同步历史、错误或日志。
 
-~Repo.hasRemoteChanges(policy, options?) -> Promise<boolean>~ 经 C ABI ~org_tasks_harmony_repo_has_remote_changes~ 在工作线程执行。Rust 从 Workspace 已发布配置快照取得仓库，直接调用 ~WebDavSyncPolicy.has_remote_changes~ ，不经过 ~read_repo~ 或 ~sync_repo~ 命令。参数沿用结构化 ~SyncOptions~ ，默认值、基线比较、目录过滤和不可靠版本的保守处理均由 Core 负责；C++ 与 ArkTS 只透传布尔值和错误。
+~Workspace.checkRemoteChanges() -> Promise<RepoRemoteChange[]>~ 无参数。Rust 从 Core 已发布的策略与仓库快照执行检查，不进入同步屏障或获取文件锁。每项为 ~{ repoId, state, error }~ ，其中 state 为 ~unchanged~ 、 ~changed~ 、 ~unknown~ 或失败时的 null；错误保留该仓库的 ~{ code, message }~ 。纯本地仓库不参与，单仓库失败不丢弃其他检查结果。
 
-~NativeCoreService.syncWorkspaceWebDav~ 仅对 ~appStartup~ 在每个启用 WebDAV 的仓库同步前调用检查，返回 ~false~ 时跳过该仓库，不产生本轮历史或文件事件；返回 ~true~ 时按原参数和原因执行 ~Repo.sync~ ，检查失败沿用现有失败反馈。手动和退后台同步直接进入原同步流程。本地独有修改不触发启动同步，仍由手动或既有退后台入口上传。
+~Workspace.syncRepos(repoIds, triggerReason) -> Promise<RepoSyncResult[]>~ 仅同步指定列表，空列表不执行；Core 拒绝重复 ID，并按输入顺序返回 ~{ repoId, record, error }~ ，单仓库失败继续处理后续仓库。成功项 record 为既有同步摘要，错误项保留 Core 错误。Core 从绑定取得 Policy 和目录过滤，为每个仓库在实际执行时生成开始时间；C++、Rust bridge 和 CLI 不再传递 ~started_at~ 。
+
+以上方法统一通过 C ABI ~org_tasks_harmony_workspace_sync_operation~ 编组，实际领域行为均调用 Core Workspace 接口。Policy 的 monitor 使用独立 N-API thread-safe function 租约，所有权在进入 Rust 时移交，构造失败同样释放；回调不引用短生命周期的请求 work 对象。绑定被替换、解除或会话释放时清理引用。
+
+~NativeCoreService.syncWorkspaceWebDav~ 先绑定当前启用远端的仓库，并解除本地仓库的旧绑定。 ~startup~ 入口只检查一次，选择 ~changed~ 与 ~unknown~ 的 ID 列表，以 ~remoteChanged~ 原因同步；检查失败的仓库单独反馈，其他仓库继续。 ~background~ 与 ~manual~ 入口直接提交指定仓库列表，原因分别为 ~localChanged~ 与 ~manual~ 。所有检查和同步结束后统一使用既有失败反馈，不自行判断差异或读取控制目录。
 
 ~defaultSyncOptions~ 读取 Rust 默认配置； ~normalizeSyncOptions~ 接受数据对象，由 Rust 验证并返回规范化对象。Preferences 只保存外部配置，core 不读取宿主配置存储。
 

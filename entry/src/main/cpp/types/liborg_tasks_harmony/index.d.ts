@@ -261,7 +261,7 @@ export type WebDavSyncEvent =
 
 export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
 
-export type SyncTriggerReason = 'appStartup' | 'appBackground' | 'manual';
+export type SyncTriggerReason = 'remoteChanged' | 'localChanged' | 'manual';
 export interface SyncOptions { excludedDirectories: string[]; triggerReason?: SyncTriggerReason; }
 
 export interface QueryRepositoryBinding { id: string; rootDirectory: string; }
@@ -334,7 +334,14 @@ export interface HttpServerInfo { readonly address: string; }
 export interface HttpUiRequest { method: string; body: string; }
 export interface HttpUiResponse { status: number; body: string; }
 export type HttpUiHandler = (request: HttpUiRequest, respond: (response: HttpUiResponse) => void) => void;
+export type RemoteChangeState = 'unchanged' | 'changed' | 'unknown';
+export interface RepoRemoteChange { repoId: string; state: RemoteChangeState | null; error: CoreError | null; }
+export interface RepoSyncResult { repoId: string; record: SyncRecord | null; error: CoreError | null; }
 export class Workspace {
+  setSyncPolicy(repoId: string, policy: WebDavSyncPolicy, excludedDirectories: string[], monitor?: WebDavSyncMonitor): Promise<void>;
+  removeSyncPolicy(repoId: string): Promise<void>;
+  checkRemoteChanges(): Promise<RepoRemoteChange[]>;
+  syncRepos(repoIds: string[], triggerReason: SyncTriggerReason): Promise<RepoSyncResult[]>;
   startHttpServer(port?: number, handler?: HttpUiHandler): Promise<HttpServerInfo>;
   stopHttpServer(): Promise<void>;
   httpServerStatus(): Promise<HttpServerInfo | null>;
@@ -379,8 +386,6 @@ export class Repo {
   lastEffectSync(): Promise<SyncRecord | null>;
   historyFile(target: HistoryFileTarget): Promise<OrgFile>;
   conflicts(): Promise<ConflictSync[]>;
-  sync(policy: WebDavSyncPolicy, monitor?: WebDavSyncMonitor, options?: SyncOptions): Promise<SyncRecord>;
-  hasRemoteChanges(policy: WebDavSyncPolicy, options?: SyncOptions): Promise<boolean>;
 }
 
 export interface OrgFileMetadata {

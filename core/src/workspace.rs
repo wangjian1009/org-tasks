@@ -5,6 +5,8 @@ use crate::model::{OrgRepo, OrgRepoId, TodoConfig, validate_id};
 pub type OrgWorkspaceValidationError = CoreError;
 
 mod process;
+mod sync;
+use sync::SyncBinding;
 use process::{Command, Snapshot};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
@@ -27,6 +29,7 @@ impl Eq for OrgWorkspace {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceState {
     pub repos: Vec<OrgRepo>,
+    sync_policies: std::collections::BTreeMap<OrgRepoId, SyncBinding>,
     pub todo_defaults: TodoConfig,
     pub task_operation_history: crate::model::TaskOperationHistory,
     pub(crate) preview: crate::model::conflict_preview::PreviewStore,
@@ -130,7 +133,9 @@ impl WorkspaceState {
             .position(|repo| repo.root_directory == root_directory)
             .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
         self.preview.invalidate();
-        Ok(self.repos.remove(index))
+        let repo = self.repos.remove(index);
+        self.sync_policies.remove(&repo.id);
+        Ok(repo)
     }
 }
 

@@ -28,9 +28,9 @@ WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料
 
 * 只读远端变化检查
 
-~WebDavSyncPolicy.has_remote_changes(repo, options)~ 读取受保护远端索引与清单的元数据，按远端地址和账号核对来源，并复用 ~Depth: 1~ 递归列举与同步目录过滤；不扫描或下载正文。现存路径集合和强 ETag 相同，且双方提供的长度没有矛盾时返回 ~false~ 。新增、删除、版本不同、首次未建立基线或缺少强 ETag 时返回 ~true~ ；基线异常、来源变化和列举失败返回错误。根目录 ~.orgzlyignore~ 属于检查范围，删除标记不作为现存文件比较。
+~WebDavSyncPolicy~ 实现 ~SyncPolicy.check_remote_changes(context)~ ，由 Workspace 的无参 ~check_remote_changes()~ 按已绑定仓库逐项调用。上下文中的仓库身份和目录过滤由 Core 提供，不由检查调用方传入。读取受保护远端索引与清单元数据，核对来源，并复用 ~Depth: 1~ 递归列举及同步过滤，不扫描或下载正文。现存路径集合与强 ETag 相同、双方提供的长度不矛盾时返回 ~Unchanged~ ；新增、删除、强版本不同或长度矛盾返回 ~Changed~ ；首次无基线、缺少强 ETag 返回 ~Unknown~ 。基线异常、来源变化和列举失败保留为该仓库错误。根目录 ~.orgzlyignore~ 属于检查范围，删除标记不作为现存文件比较。
 
-该接口不获取文件锁、不等待同步屏障、不执行恢复或基线副本修复、不写盘，也不产生同步生命周期事件、历史或通知。有效副本可供只读检查使用，并发读到不一致时返回错误，不能据此推断远端删除。检查结果只供宿主决定是否发起实际同步，实际同步仍重新确认远端快照；检查本身不确认本地已合并进度或待上传状态。
+检查不获取文件锁、不等待同步屏障、不执行恢复或基线修复、不写盘，也不产生同步生命周期事件、历史或通知。有效副本可供只读使用，并发读到不一致时返回错误。检查只返回结果，由上层决定是否调用 ~sync_repos~ ；实际同步仍重新确认远端快照。
 
 * Adapter 契约
 
@@ -87,7 +87,7 @@ WebDAV 报告列举、下载、上传和请求响应的脱敏进度，不将运�
 
 * 同步过滤目录
 
-本次同步参数通过 ~OrgRepo.sync_with_options~ 传入 ~SyncContext.options~ ，不保存在 ~WebDavSyncPolicy~ 或 ~OrgRepo~ 中。 ~trigger_reason~ 使用通用 ~SyncTriggerReason~ 枚举，由宿主按应用启动、退到后台或手动入口传入；仓库服务将其写入本轮完成历史，WebDAV 不推断或改变原因。 ~SyncOptions::default()~ 默认排除 ~archive~ 目录；显式空列表关闭目录过滤。目录名按大小写敏感的路径组件匹配，可匹配任意层级的同名目录，文件名不参与匹配。
+Workspace 在 ~set_sync_policy~ 时绑定目录过滤， ~sync_repos~ 执行时与本轮触发原因组合成 ~SyncOptions~ ，经 ~OrgRepo.sync_with_options~ 传入 ~SyncContext.options~ 。独立仓库调用仍可直接提供 ~SyncOptions~ ；参数不保存在 ~WebDavSyncPolicy~ 或 ~OrgRepo~ 实体中。 ~trigger_reason~ 使用通用 ~SyncTriggerReason~ 枚举，由宿主按远端变化、本地变化或手动同步传入；仓库服务将其写入本轮完成历史，WebDAV 不推断或改变原因。 ~SyncOptions::default()~ 默认排除 ~archive~ 目录；显式空列表关闭目录过滤。目录名按大小写敏感的路径组件匹配，可匹配任意层级的同名目录，文件名不参与匹配。
 
 WebDAV 在处理文件前同时过滤远端列举结果与本地候选路径，避免被排除文件的下载、上传、冲突和远端删除判断。过滤路径不生成本轮文件记录，不消费其 outbox，也不删除已有本地文件。远端目录以 ~Depth: 1~ 逐层校验并递归列举，路径范围与删除决策统一由 Core 管理。
 

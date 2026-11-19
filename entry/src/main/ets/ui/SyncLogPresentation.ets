@@ -59,8 +59,8 @@ export function syncLogRenderKey(record: CoreSyncRecord): string {
 
 export function syncLogTriggerLabel(record: CoreSyncRecord): string {
   switch (record.triggerReason) {
-    case 'appStartup': return '应用启动'
-    case 'appBackground': return '退到后台'
+    case 'remoteChanged': return '远端变化'
+    case 'localChanged': return '本地变化'
     case 'manual': return '手动同步'
     default: return '未记录触发原因'
   }

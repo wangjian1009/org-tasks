@@ -6,8 +6,7 @@ use org_tasks_core::webdav::{
     WebDavEndpoint, WebDavError, WebDavSyncEvent, WebDavSyncMonitor, WebDavSyncPolicy,
 };
 use org_tasks_core::{
-    CoreError, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace, SyncCancellation, SyncOptions,
-    SyncProgressReporter, TimestampMs,
+    CoreError, FilterTask, OrgRepo, OrgRepoSyncResult, OrgWorkspace, TimestampMs,
 };
 use serde::{Deserialize, Serialize};
 
@@ -201,7 +200,6 @@ enum HarmonyBridgeWebDavSyncEvent {
     },
 }
 
-#[derive(Clone, Copy)]
 struct HarmonyWebDavSyncMonitor {
     handle: u64,
 }
@@ -212,6 +210,14 @@ unsafe extern "C" {
         handle: u64,
         event_json: *const std::ffi::c_char,
     );
+    fn org_tasks_harmony_webdav_sync_monitor_release(handle: u64);
+}
+
+impl Drop for HarmonyWebDavSyncMonitor {
+    fn drop(&mut self) {
+        #[cfg(not(test))]
+        if self.handle != 0 { unsafe { org_tasks_harmony_webdav_sync_monitor_release(self.handle); } }
+    }
 }
 
 fn report_webdav_sync_event(handle: u64, event: &CString) {
@@ -682,58 +688,61 @@ fn query_result_value(result: org_tasks_core::CoreQueryResult, _roots: &BTreeMap
     })
 }
 
-pub fn repo_has_remote_changes_json(
-    workspace_handle: u64,
-    root_directory: String,
-    webdav_url: String,
-    username: String,
-    password: String,
-    options_json: String,
+/// monitor 的所有权在进入函数时转交给 Rust，失败路径同样释放。
+pub fn workspace_sync_operation(
+    handle: u64, request: Result<String, CoreError>, monitor_handle: u64,
 ) -> Result<String, CoreError> {
-    let workspace = workspace_for_handle(workspace_handle)?;
-    // 直接取得配置快照，不经过 read_repo 的同步屏障或仓库文件锁。
-    let repo = workspace.repos().into_iter()
-        .find(|repo| repo.root_directory == root_directory)
-        .ok_or(CoreError::InvalidInput("仓库不在当前 Workspace 中"))?;
-    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
-    let options = if options_json.trim().is_empty() { SyncOptions::default() } else {
-        serde_json::from_str::<SyncOptions>(&options_json)
-            .map_err(|_| CoreError::InvalidInput("同步参数无效"))?
-    };
-    encode(&runtime(workspace_handle)?.block_on(policy.has_remote_changes(&repo, &options))?)
-}
-
-pub fn repo_sync_json(
-    workspace_handle: u64,
-    root_directory: String,
-    webdav_url: String,
-    username: String,
-    password: String,
-    options_json: String,
-    monitor_handle: u64,
-    started_at: TimestampMs,
-) -> Result<String, CoreError> {
-    let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
-    let policy = if monitor_handle == 0 {
-        policy
-    } else {
-        policy.with_monitor(HarmonyWebDavSyncMonitor {
-            handle: monitor_handle,
-        })
-    };
-    let workspace = workspace_for_handle(workspace_handle)?;
-    let runtime = runtime(workspace_handle)?;
-    let options = if options_json.trim().is_empty() {
-        SyncOptions::default()
-    } else {
-        serde_json::from_str::<SyncOptions>(&options_json)
-            .map_err(|_| CoreError::InvalidInput("同步参数无效"))?
-    };
-    let record = runtime.block_on(workspace.sync_repo(&root_directory, policy, started_at,
-        Some(SyncCancellation::default()), Some(SyncProgressReporter::default()), options))?;
-    encode(&bridge_sync_summary(
-        org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&record)?,
-    )?)
+    let monitor = HarmonyWebDavSyncMonitor { handle: monitor_handle };
+    #[derive(Deserialize)]
+    #[serde(tag = "operation", rename_all = "camelCase")]
+    enum Request {
+        #[serde(rename_all = "camelCase")]
+        Set { repo_id: String, webdav_url: String, username: String, password: String,
+            excluded_directories: Vec<String> },
+        #[serde(rename_all = "camelCase")]
+        Remove { repo_id: String },
+        Check,
+        #[serde(rename_all = "camelCase")]
+        Sync { repo_ids: Vec<String>, trigger_reason: org_tasks_core::SyncTriggerReason },
+    }
+    let request: Request = serde_json::from_str(&request?)
+        .map_err(|_| CoreError::InvalidInput("Workspace 同步参数无效"))?;
+    let workspace = workspace_for_handle(handle)?;
+    let runtime = runtime(handle)?;
+    match request {
+        Request::Set { repo_id, webdav_url, username, password, excluded_directories } => {
+            let policy = WebDavSyncPolicy::new(WebDavEndpoint::new(webdav_url)?, username, password)?;
+            let policy = if monitor_handle == 0 { policy } else { policy.with_monitor(monitor) };
+            runtime.block_on(workspace.set_sync_policy(&repo_id, policy, excluded_directories))?;
+            Ok("null".into())
+        }
+        Request::Remove { repo_id } => {
+            runtime.block_on(workspace.remove_sync_policy(&repo_id))?;
+            Ok("null".into())
+        }
+        Request::Check => {
+            let results = runtime.block_on(workspace.check_remote_changes())?;
+            encode(&results.into_iter().map(|item| match item.result {
+                Ok(state) => serde_json::json!({"repoId":item.repo_id,"state":state,"error":null}),
+                Err(error) => serde_json::json!({"repoId":item.repo_id,"state":null,"error":crate::core_error_value(&error)}),
+            }).collect::<Vec<_>>())
+        }
+        Request::Sync { repo_ids, trigger_reason } => {
+            let results = runtime.block_on(workspace.sync_repos(&repo_ids, trigger_reason, None, None))?;
+            encode(&results.into_iter().map(|item| {
+                let result = item.result.and_then(|record| {
+                    let record = serde_json::from_value(serde_json::to_value(record)
+                        .map_err(|_| CoreError::InvalidState("无法编码同步记录"))?)
+                        .map_err(|_| CoreError::InvalidState("无法读取 WebDAV 同步结果"))?;
+                    bridge_sync_summary(org_tasks_core::webdav::WebDavSyncRecordSummary::from_record(&record)?)
+                });
+                match result {
+                    Ok(record) => serde_json::json!({"repoId":item.repo_id,"record":record,"error":null}),
+                    Err(error) => serde_json::json!({"repoId":item.repo_id,"record":null,"error":crate::core_error_value(&error)}),
+                }
+            }).collect::<Vec<_>>())
+        }
+    }
 }
 
 fn bridge_sync_summary(
@@ -1364,7 +1373,7 @@ mod tests {
         )
         .unwrap()
         .with_kind("webdav");
-        conflict.trigger_reason = Some(org_tasks_core::SyncTriggerReason::AppBackground);
+        conflict.trigger_reason = Some(org_tasks_core::SyncTriggerReason::LocalChanged);
         for path in ["a.org", "b.org"] {
             conflict
                 .append_file(
@@ -1409,7 +1418,7 @@ mod tests {
         let history: serde_json::Value =
             serde_json::from_str(&repo_history_json(handle, directory.clone()).unwrap()).unwrap();
         assert_eq!(history[0]["result"], "failed");
-        assert_eq!(history[0]["triggerReason"], "appBackground");
+        assert_eq!(history[0]["triggerReason"], "localChanged");
         assert_eq!(history[0]["executionResult"], "succeeded");
         assert_eq!(history[0]["transfer"], "unchanged");
         assert_eq!(history[0]["conflicts"].as_array().unwrap().len(), 2);
@@ -1424,7 +1433,7 @@ mod tests {
         )
         .unwrap();
         assert!(detail["summary"].get("pendingConflicts").is_none());
-        assert_eq!(detail["summary"]["triggerReason"], "appBackground");
+        assert_eq!(detail["summary"]["triggerReason"], "localChanged");
         assert_eq!(detail["files"][0]["outcome"], "conflict");
         assert_eq!(detail["files"][1]["outcome"], "conflict");
         assert_eq!(detail["errors"].as_array().unwrap().len(), 0);
@@ -2876,20 +2885,14 @@ mod sync_concurrency_tests {
                 }
             }
         });
-        let check_endpoint = endpoint.clone();
-        let sync_directory = directory.clone();
-        let syncing = std::thread::spawn(move || {
-            repo_sync_json(
-                handle,
-                sync_directory,
-                endpoint,
-                "user".into(),
-                "secret".into(),
-                String::new(),
-                0,
-                1,
-            )
-        });
+        let id = repo_id(handle, directory.clone()).unwrap();
+        workspace_sync_operation(handle, Ok(serde_json::json!({
+            "operation":"set", "repoId":id, "webdavUrl":endpoint,
+            "username":"user", "password":"secret", "excludedDirectories":["archive"]
+        }).to_string()), 0).unwrap();
+        let syncing = std::thread::spawn(move || workspace_sync_operation(handle, Ok(serde_json::json!({
+            "operation":"sync", "repoIds":[id], "triggerReason":"manual"
+        }).to_string()), 0));
         entering.recv_timeout(Duration::from_secs(5)).unwrap();
         std::fs::write(root.join("a.org"), b"* TODO Edited during network\n").unwrap();
         let (read, reading) = std::sync::mpsc::channel();
@@ -2903,12 +2906,11 @@ mod sync_concurrency_tests {
         assert_eq!(workspace_repo_roots(handle).unwrap(), vec![directory.clone()]);
         // 远端检查使用配置快照；即使同步屏障已建立，也应直接返回首次同步判定。
         let (checked, checking) = std::sync::mpsc::channel();
-        let check_directory = directory.clone();
         let checker = std::thread::spawn(move || {
-            checked.send(repo_has_remote_changes_json(handle, check_directory, check_endpoint,
-                "user".into(), "secret".into(), String::new())).unwrap();
+            checked.send(workspace_sync_operation(handle, Ok("{\"operation\":\"check\"}".into()), 0)).unwrap();
         });
-        assert_eq!(checking.recv_timeout(Duration::from_secs(2)).unwrap().unwrap(), "true");
+        let checks: serde_json::Value = serde_json::from_str(&checking.recv_timeout(Duration::from_secs(2)).unwrap().unwrap()).unwrap();
+        assert_eq!(checks[0]["state"], "unknown");
         checker.join().unwrap();
         resume.send(()).unwrap();
         let snapshot = reading.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();

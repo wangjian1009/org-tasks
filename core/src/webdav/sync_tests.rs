@@ -218,7 +218,7 @@ async fn sync(
     policy: &WebDavSyncPolicy,
     time: i64,
 ) -> OrgRepoSyncRecord<WebDavSyncContextDetail, WebDavSyncFileDetail> {
-    repo.sync(
+    repo.sync_at(
         policy,
         time,
         &SyncCancellation::default(),
@@ -248,6 +248,12 @@ async fn offline(repo: &mut OrgRepo, path: &str) {
         .unwrap();
 }
 
+async fn check_remote_changes(policy: &WebDavSyncPolicy, repo: &OrgRepo, options: &crate::SyncOptions) -> Result<bool, CoreError> {
+    policy.check_remote_changes(&crate::RemoteCheckContext {
+        repo, excluded_directories: &options.excluded_directories,
+    }).await.map(|state| state != crate::RemoteChangeState::Unchanged)
+}
+
 fn disk_snapshot(root: &std::path::Path) -> BTreeMap<std::path::PathBuf, Vec<u8>> {
     let mut result = BTreeMap::new();
     let mut directories = vec![root.to_path_buf()];
@@ -268,7 +274,7 @@ fn disk_snapshot(root: &std::path::Path) -> BTreeMap<std::path::PathBuf, Vec<u8>
 async fn remote_change_check_is_readonly_even_with_active_locks_and_broken_working_files() {
     let (mut repo, root) = repo().await;
     let (policy, state, worker) = server(&[("a.org", b"* TODO Task\n")]).await;
-    assert!(policy.has_remote_changes(&repo, &crate::SyncOptions::default()).await.unwrap());
+    assert!(check_remote_changes(&policy, &repo, &crate::SyncOptions::default()).await.unwrap());
     assert!(!root.join(".sync/remote_base").exists());
     assert_eq!(sync(&mut repo, &policy, 1).await.result, Some(OrgRepoSyncResult::Succeeded));
     // 单份索引损坏可读取有效副本，但检查不能执行修复。
@@ -280,7 +286,7 @@ async fn remote_change_check_is_readonly_even_with_active_locks_and_broken_worki
     let accesses = crate::model::test_support::repository_accesses(&repo.root_directory);
     state.lock().unwrap().requests.clear();
     let result = tokio::time::timeout(std::time::Duration::from_secs(2),
-        policy.has_remote_changes(&repo, &crate::SyncOptions::default())).await.unwrap().unwrap();
+        check_remote_changes(&policy, &repo, &crate::SyncOptions::default())).await.unwrap().unwrap();
     assert!(!result);
     assert_eq!(crate::model::test_support::repository_accesses(&repo.root_directory), accesses);
     assert_eq!(disk_snapshot(&root), before);
@@ -298,19 +304,19 @@ async fn remote_change_check_detects_modified_added_deleted_and_unreliable_versi
     state.lock().unwrap().hierarchical = true;
     sync(&mut repo, &policy, 1).await;
     let options = crate::SyncOptions::default();
-    assert!(!policy.has_remote_changes(&repo, &options).await.unwrap());
+    assert!(!check_remote_changes(&policy, &repo, &options).await.unwrap());
     let before = disk_snapshot(&root);
     // 同长度内容也必须通过 ETag 发现变化；弱版本和缺失版本不能确认未变化。
     for etag in ["\"v2\"", "W/\"v1\"", ""] {
         state.lock().unwrap().files.get_mut("nested/a.org").unwrap().etag = etag.into();
-        assert!(policy.has_remote_changes(&repo, &options).await.unwrap(), "{etag}");
+        assert!(check_remote_changes(&policy, &repo, &options).await.unwrap(), "{etag}");
     }
     state.lock().unwrap().files.get_mut("nested/a.org").unwrap().etag = "\"v1\"".into();
     state.lock().unwrap().files.insert("new.org".into(), Remote { data: b"* New\n".to_vec(), etag: "\"new\"".into() });
-    assert!(policy.has_remote_changes(&repo, &options).await.unwrap());
+    assert!(check_remote_changes(&policy, &repo, &options).await.unwrap());
     state.lock().unwrap().files.remove("new.org");
     state.lock().unwrap().files.remove("nested/a.org");
-    assert!(policy.has_remote_changes(&repo, &options).await.unwrap());
+    assert!(check_remote_changes(&policy, &repo, &options).await.unwrap());
     assert_eq!(disk_snapshot(&root), before);
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
@@ -326,13 +332,13 @@ async fn remote_change_check_respects_filters_and_includes_root_scan_rules() {
     state.lock().unwrap().hierarchical = true;
     sync(&mut repo, &policy, 1).await;
     let options = crate::SyncOptions::default();
-    assert!(!policy.has_remote_changes(&repo, &options).await.unwrap());
+    assert!(!check_remote_changes(&policy, &repo, &options).await.unwrap());
     state.lock().unwrap().files.get_mut("archive/old.org").unwrap().etag = "\"changed\"".into();
-    assert!(!policy.has_remote_changes(&repo, &options).await.unwrap());
+    assert!(!check_remote_changes(&policy, &repo, &options).await.unwrap());
     let all = crate::SyncOptions { excluded_directories: vec![], ..Default::default() };
-    assert!(policy.has_remote_changes(&repo, &all).await.unwrap());
+    assert!(check_remote_changes(&policy, &repo, &all).await.unwrap());
     state.lock().unwrap().files.get_mut(".orgzlyignore").unwrap().etag = "\"rules2\"".into();
-    assert!(policy.has_remote_changes(&repo, &options).await.unwrap());
+    assert!(check_remote_changes(&policy, &repo, &options).await.unwrap());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -344,9 +350,9 @@ async fn remote_change_check_ignores_confirmed_tombstones_but_detects_reappearan
     sync(&mut repo, &policy, 1).await;
     state.lock().unwrap().files.remove("a.org");
     sync(&mut repo, &policy, 2).await;
-    assert!(!policy.has_remote_changes(&repo, &crate::SyncOptions::default()).await.unwrap());
+    assert!(!check_remote_changes(&policy, &repo, &crate::SyncOptions::default()).await.unwrap());
     state.lock().unwrap().files.insert("a.org".into(), Remote { data: b"* New\n".to_vec(), etag: "\"new\"".into() });
-    assert!(policy.has_remote_changes(&repo, &crate::SyncOptions::default()).await.unwrap());
+    assert!(check_remote_changes(&policy, &repo, &crate::SyncOptions::default()).await.unwrap());
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
@@ -359,16 +365,16 @@ async fn remote_change_check_propagates_listing_origin_and_baseline_failures_wit
     let options = crate::SyncOptions::default();
     let before = disk_snapshot(&root);
     state.lock().unwrap().invalid_listing = true;
-    assert!(policy.has_remote_changes(&repo, &options).await.is_err());
+    assert!(check_remote_changes(&policy, &repo, &options).await.is_err());
     state.lock().unwrap().invalid_listing = false;
     let other = WebDavSyncPolicy::new(policy.endpoint.clone(), "other".into(), "password".into()).unwrap();
-    assert!(other.has_remote_changes(&repo, &options).await.is_err());
+    assert!(check_remote_changes(&other, &repo, &options).await.is_err());
     assert_eq!(disk_snapshot(&root), before);
     for path in ["current.json", "current.backup.json"] {
         tokio::fs::write(root.join(".sync/remote_base").join(path), b"invalid").await.unwrap();
     }
     let before = disk_snapshot(&root);
-    assert!(policy.has_remote_changes(&repo, &options).await.is_err());
+    assert!(check_remote_changes(&policy, &repo, &options).await.is_err());
     assert_eq!(disk_snapshot(&root), before);
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
@@ -381,12 +387,12 @@ async fn trigger_reason_is_persisted_for_success_failure_and_cancellation() {
     for (time, trigger_reason, expected) in [
         (
             1,
-            crate::SyncTriggerReason::AppStartup,
+            crate::SyncTriggerReason::RemoteChanged,
             OrgRepoSyncResult::Succeeded,
         ),
         (
             2,
-            crate::SyncTriggerReason::AppBackground,
+            crate::SyncTriggerReason::LocalChanged,
             OrgRepoSyncResult::Failed,
         ),
         (
@@ -401,7 +407,7 @@ async fn trigger_reason_is_persisted_for_success_failure_and_cancellation() {
             cancellation.cancel();
         }
         let record = repo
-            .sync_with_options(
+            .sync_with_options_at(
                 &policy,
                 time,
                 &cancellation,
@@ -1101,7 +1107,7 @@ async fn sync_ignore_rules_preserves_local_edits_and_rejects_invalid_remote_cont
         .await
         .unwrap();
     assert!(
-        repo.sync(
+        repo.sync_at(
             &policy,
             2,
             &SyncCancellation::default(),
@@ -1129,7 +1135,7 @@ async fn sync_ignore_rules_preserves_local_edits_and_rejects_invalid_remote_cont
             .unwrap()
             .data = invalid;
         assert!(
-            repo.sync(
+            repo.sync_at(
                 &policy,
                 3 + index as i64,
                 &SyncCancellation::default(),
@@ -1205,7 +1211,7 @@ async fn sync_directory_filters_skip_transfers_and_can_be_overridden_per_call() 
 
     // 自定义参数替换默认规则，仅对本次调用生效。
     let second = repo
-        .sync_with_options(
+        .sync_with_options_at(
             &policy,
             2,
             &SyncCancellation::default(),
@@ -1249,7 +1255,7 @@ async fn sync_directory_filters_skip_transfers_and_can_be_overridden_per_call() 
     );
 
     let fourth = repo
-        .sync_with_options(
+        .sync_with_options_at(
             &policy,
             4,
             &SyncCancellation::default(),
@@ -1564,7 +1570,7 @@ async fn failed_merge_preserves_working_files_and_publishes_confirmed_remote_sna
     let subscription = workspace.watch_external_file_changes(move |event| {
         captured.lock().unwrap().push(event);
     });
-    let failed = repo.sync_with_options(
+    let failed = repo.sync_with_options_at(
         &policy, 2, &SyncCancellation::default(), &SyncProgressReporter::default(),
         crate::SyncOptions::default(), Some(workspace.notification_center()),
     ).await.unwrap();
@@ -1728,7 +1734,7 @@ async fn history_persist_failure_preserves_working_files_and_confirmed_remote_ba
     });
     let progress = SyncProgressReporter::default();
     let result = repo
-        .sync(&policy, 1, &SyncCancellation::default(), &progress)
+        .sync_at(&policy, 1, &SyncCancellation::default(), &progress)
         .await;
     assert!(result.is_err());
     assert!(
@@ -1763,7 +1769,7 @@ async fn cancelled_after_publication_keeps_remote_snapshot_and_old_local_ancesto
         token: token.clone(),
     });
     let record = repo
-        .sync(&policy, 1, &token, &SyncProgressReporter::default())
+        .sync_at(&policy, 1, &token, &SyncProgressReporter::default())
         .await
         .unwrap();
     assert_eq!(record.result, Some(OrgRepoSyncResult::Cancelled));
@@ -1796,7 +1802,7 @@ async fn executing_a_stale_snapshot_never_overwrites_an_external_local_edit() {
         path: root.join("a.org"),
     });
     assert!(
-        repo.sync(
+        repo.sync_at(
             &policy,
             1,
             &SyncCancellation::default(),
@@ -1900,7 +1906,7 @@ async fn remote_base_is_bound_to_remote_origin_and_detects_missing_cached_conten
     let (other, _, second_worker) = server(&[("a.org", b"* Other\n")]).await;
     let before = tokio::fs::read(root.join("a.org")).await.unwrap();
     assert!(
-        repo.sync(
+        repo.sync_at(
             &other,
             2,
             &SyncCancellation::default(),
@@ -1922,7 +1928,7 @@ async fn remote_base_is_bound_to_remote_origin_and_detects_missing_cached_conten
         .unwrap();
     let count = state.lock().unwrap().requests.len();
     assert!(
-        repo.sync(
+        repo.sync_at(
             &policy,
             3,
             &SyncCancellation::default(),
@@ -2198,7 +2204,7 @@ async fn downloads_release_repository_lock_and_merge_reads_edits_made_during_net
     let resume = Arc::new(tokio::sync::Notify::new());
     state.lock().unwrap().pause = Some(("GET".into(), entered.clone(), resume.clone()));
     let syncing = tokio::spawn(async move {
-        source.sync(&policy, 2, &SyncCancellation::default(), &SyncProgressReporter::default()).await
+        source.sync_at(&policy, 2, &SyncCancellation::default(), &SyncProgressReporter::default()).await
     });
     tokio::time::timeout(std::time::Duration::from_secs(3), entered.notified()).await.unwrap();
     let mut reader = OrgRepo::new(root.to_string_lossy().into_owned()).unwrap();
@@ -2240,7 +2246,7 @@ async fn uploads_release_repository_lock_and_never_overwrite_newer_local_version
     let resume = Arc::new(tokio::sync::Notify::new());
     state.lock().unwrap().pause = Some(("PUT".into(), entered.clone(), resume.clone()));
     let syncing = tokio::spawn(async move {
-        source.sync(&policy, 2, &SyncCancellation::default(), &SyncProgressReporter::default()).await
+        source.sync_at(&policy, 2, &SyncCancellation::default(), &SyncProgressReporter::default()).await
     });
     tokio::time::timeout(std::time::Duration::from_secs(3), entered.notified()).await.unwrap();
     let guard = tokio::time::timeout(std::time::Duration::from_secs(1), super::transaction::lock(&root)).await.unwrap().unwrap();
@@ -2296,7 +2302,7 @@ async fn retry_after_local_commit_failure_keeps_the_old_ancestor_and_remote_stat
     }
     let policy = policy.with_monitor(EditAfterUpload(root.join("a.org")));
     assert!(
-        repo.sync(
+        repo.sync_at(
             &policy,
             2,
             &SyncCancellation::default(),

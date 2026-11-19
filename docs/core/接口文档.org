@@ -74,7 +74,7 @@ workspace.execute_task_operations(&group).await?;
 
 #+begin_src rust
 let record = repo.sync(
-    &webdav_sync_policy, started_at,
+    &webdav_sync_policy,
     &SyncCancellation::default(), &SyncProgressReporter::default(),
 ).await?;
 #+end_src
@@ -150,7 +150,7 @@ impl OrgWorkspace {
 }
 #+end_src
 
-~start~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主通过 ~Workspace.load_repo::<P>~ 读取或创建稳定 ID，或加入已经独立加载的仓库；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。仓库快照不能用于原地修改 Workspace；仓库读取通过 ~read_repo~ 纳入查询批次，加载、同步与重置分别通过 ~load_repo~ 、 ~sync_repo~ 和 ~reset_repo~ 提交。异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影；独立任务由调用方 runtime 上的 ~tokio::spawn~ 执行，每找到一个任务便通过通道回送，当前上下文合并后解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。任一执行任务失败或提前结束，整批取消并返回错误，不返回部分结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
+~start~ 与 ~add_repo~ 必须拒绝重复的仓库根目录，以及已加载仓库的重复 ~OrgRepoId~ 。新加入的仓库可以尚未加载；宿主通过 ~Workspace.load_repo::<P>~ 读取或创建稳定 ID，或加入已经独立加载的仓库；具体操作自行在锁内检查恢复状态并按需读盘。返回的集合不可由调用方原地修改。 ~remove_repo_by_root_directory~ 仅移除运行时集合中的仓库，不删除根目录、 ~.sync~ 历史或任何文件。仓库快照不能用于原地修改 Workspace；仓库读取通过 ~read_repo~ 纳入查询批次，加载、同步与重置分别通过 ~load_repo~ 、 ~sync_repos~ 和 ~reset_repo~ 提交。异步批量 ~query~ 每仓库加锁一次、加载一次文件并共享 headline 基础投影；独立任务由调用方 runtime 上的 ~tokio::spawn~ 执行，每找到一个任务便通过通道回送，当前上下文合并后解析 ~TaskQuery.expression~ 并应用通用结构化条件，按表达式排序规则返回任务与分类统计。任一执行任务失败或提前结束，整批取消并返回错误，不返回部分结果。结果中的 ~repoId~ 与相对路径共同标识来源文件；宿主不得自行遍历仓库并实现另一套过滤逻辑。
 
 ~set_todo_defaults(&self, defaults).await~ 更新完整默认配置； ~set_todo_defaults_text(&self, source).await~ 在同一配置命令中解析 TODO 文本并保留执行时的 CoreSettings，避免宿主读取旧快照后覆盖并发更新。 ~set_preview_root(&self, root).await~ 与 ~with_preview_root(self, root).await~ 均等待预览配置屏障完成。原 ~repo_mut~ 、 ~repo_mut_by_root_directory~ 和公开可变字段已移除。
 
@@ -161,14 +161,19 @@ impl OrgWorkspace {
     pub async fn read_repo<T, F, Fut>(&self, root: &str, read: F) -> Result<T, CoreError>
     where T: Send + 'static, F: FnOnce(OrgRepo) -> Fut + Send + 'static,
           Fut: Future<Output = Result<T, CoreError>> + Send + 'static;
-    pub async fn sync_repo<P: SyncPolicy + 'static>(
-        &self, root: &str, policy: P, started_at: TimestampMs,
-        cancellation: Option<SyncCancellation>, progress: Option<SyncProgressReporter>, options: SyncOptions,
-    ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>;
+    pub async fn set_sync_policy<P: SyncPolicy + 'static>(
+        &self, repo_id: &OrgRepoId, policy: P, excluded_directories: Vec<String>,
+    ) -> Result<(), CoreError>;
+    pub async fn remove_sync_policy(&self, repo_id: &OrgRepoId) -> Result<(), CoreError>;
+    pub async fn check_remote_changes(&self) -> Result<Vec<RepoRemoteChange>, CoreError>;
+    pub async fn sync_repos(
+        &self, repo_ids: &[OrgRepoId], trigger_reason: SyncTriggerReason,
+        cancellation: Option<SyncCancellation>, progress: Option<SyncProgressReporter>,
+    ) -> Result<Vec<RepoSyncResult>, CoreError>;
 }
 #+end_src
 
-~read_repo~ 的闭包只取得独立仓库配置，必须只执行只读业务；不能重入并等待当前 Workspace 的后续命令。 ~sync_repo~ 自动传递本 Workspace 的 NotificationCenter；TS 对象归属和 JSON 协议保持原样。 ~start_http_server~ 直接接收 Workspace 句柄，移除外层 ~Arc<Mutex<OrgWorkspace>>~ 。
+~read_repo~ 的闭包只取得独立仓库配置，必须只执行只读业务；不能重入并等待当前 Workspace 的后续命令。 ~sync_repos~ 自动传递本 Workspace 的 NotificationCenter；同步开始时间由 Core 在仓库实际取得锁并恢复历史后生成；同毫秒或时钟回退时推进到最近历史之后，宿主不传开始时间。 ~start_http_server~ 直接接收 Workspace 句柄，移除外层 ~Arc<Mutex<OrgWorkspace>>~ 。
 
 ~Filter~ 、表达式节点、日期条件、区间及排序节点均为 Core 内部实现类型，不再作为跨 crate API 导出。公开查询投影继续使用 ~FilterTask~ 、 ~FilterDate~ 、 ~FilterStateType~ 与 ~AddressLink~ 。
 
@@ -216,23 +221,22 @@ impl OrgRepo {
         -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError>;
 
     pub async fn sync<P>(&mut self, policy: &P,
-        started_at: TimestampMs,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter)
         -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
     where P: SyncPolicy;
 
     pub async fn sync_with_options<P>(&mut self, policy: &P,
-        started_at: TimestampMs,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
-        options: SyncOptions)
+        options: SyncOptions,
+        notifications: Option<&NotificationCenter>)
         -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
     where P: SyncPolicy;
 }
 #+end_src
 
-~contains_path~ 必须拒绝绝对路径和包含 ~..~ 的路径。 ~load~ 先读取或创建 ~.sync/id~ ，再扫描根目录、跳过 ~.sync/~ 并解析 org 文件，最后替换仓库的完整文件快照；重复或越界路径必须失败。首次加载生成的 UUID 必须写入带换行的 ~.sync/id~ ，后续加载同一根目录必须复用该值。 ~sync~ 自行恢复最新文件与历史后委托策略执行同步，并只追加归属本仓库的完成记录；重复开始时间在调用策略前拒绝。
+~contains_path~ 必须拒绝绝对路径和包含 ~..~ 的路径。 ~load~ 先读取或创建 ~.sync/id~ ，再扫描根目录、跳过 ~.sync/~ 并解析 org 文件，最后替换仓库的完整文件快照；重复或越界路径必须失败。首次加载生成的 UUID 必须写入带换行的 ~.sync/id~ ，后续加载同一根目录必须复用该值。 ~sync~ 自行恢复最新文件与历史后委托策略执行同步，并只追加归属本仓库的完成记录；开始时间由 Core 自动生成，保证不覆盖已有历史。
 
 ~file(path)~ 从当前已加载集合返回独立的 ~OrgFile~ 副本。路径尚不存在时构造未落盘的空文件，沿用该仓库的全局默认 TODO 配置；非法路径或仓库尚未加载时报错。该方法不读取磁盘、不修改仓库文件列表，也不写入 outbox。宿主需要最新内容时先加载仓库。
 
@@ -486,6 +490,10 @@ pub trait SyncPolicy: Send + Sync {
     type ContextDetail: SyncContextDetail;
     type FileDetail: SyncFileDetail;
 
+    fn check_remote_changes(
+        &self, context: &RemoteCheckContext<'_>,
+    ) -> impl Future<Output = Result<RemoteChangeState, CoreError>> + Send;
+
     fn synchronize(
         &self,
         context: &mut SyncContext<'_>,
@@ -524,7 +532,7 @@ pub struct SyncOptions {
 }
 
 #[serde(rename_all = "camelCase")]
-pub enum SyncTriggerReason { AppStartup, AppBackground, Manual }
+pub enum SyncTriggerReason { RemoteChanged, LocalChanged, Manual }
 
 impl Default for SyncOptions {
     fn default() -> Self {
@@ -542,7 +550,7 @@ pub trait SyncPolicy: Send + Sync {
 }
 #+end_src
 
-~sync_with_options~ 通过 ~trigger_reason~ 接受 ~AppStartup~ 、 ~AppBackground~ 或 ~Manual~ ，JSON 字段为 ~triggerReason~ ，值为 ~appStartup~ 、 ~appBackground~ 或 ~manual~ 。宿主按真实发起入口传值；复用已有同步会话时不覆盖最初原因。仓库服务在持久化前将原因写入 ~OrgRepoSyncRecord.trigger_reason~ ，成功、失败、取消和中断均遵循同一约定。旧记录缺失原因时返回空值，不推断为手动同步。
+~sync_with_options~ 通过 ~trigger_reason~ 接受 ~RemoteChanged~ 、 ~LocalChanged~ 或 ~Manual~ ，JSON 字段为 ~triggerReason~ ，值为 ~remoteChanged~ 、 ~localChanged~ 或 ~manual~ 。宿主按实际检查结果或手动操作传值；复用已有同步会话时不覆盖最初原因。仓库服务在持久化前将原因写入 ~OrgRepoSyncRecord.trigger_reason~ ，成功、失败、取消和中断均遵循同一约定。旧记录缺失原因时返回空值，不推断为手动同步。
 
 ~sync~ 使用 Rust 默认值； ~sync_with_options~ 使用本次传入的值。缺失的 JSON 字段采用默认值，显式空列表表示不排除任何目录。目录名按大小写敏感的完整路径组件匹配，只匹配文件路径中的目录部分；例如 ~archive/a.org~ 与 ~work/archive/a.org~ 被默认排除，而 ~archives/a.org~ 与 ~work/archive.org~ 不被排除。输入去除首尾空白、忽略空项并去重，不接受绝对路径、多级路径或控制字符。
 
@@ -554,7 +562,7 @@ pub trait SyncPolicy: Send + Sync {
 
 #+begin_src rust
 let controller = OrgRepoSyncController::new(repo, policy);
-controller.start(started_at).await?;
+controller.start().await?;
 let snapshot = controller.snapshot();
 controller.cancel()?;
 #+end_src
@@ -573,7 +581,7 @@ controller.cancel()?;
 let endpoint = WebDavEndpoint::new("https://dav.example.com/org/".into())?;
 let policy = WebDavSyncPolicy::new(endpoint, username, password)?;
 let record = repo.sync(
-    &policy, started_at,
+    &policy,
     &SyncCancellation::default(), &SyncProgressReporter::default(),
 ).await?;
 
@@ -594,19 +602,33 @@ impl WebDavSyncPolicy {
 
 策略内部的列举映射 ~PROPFIND~ ，下载映射 ~GET~ ，上传的 ~CreateOnly~ 映射 ~If-None-Match: *~ ， ~Match~ 映射 ~If-Match~ 。策略不得把认证材料放入领域记录。
 
-** 只读检查远端变化
+** Policy 绑定与多仓库检查
+
+宿主在配置接入时通过 ~set_sync_policy~ 将 Policy 和过滤目录绑定到稳定仓库 ID；Core 校验过滤规则并在运行时保存绑定，不复制或持久化 Policy 内的凭据。重新绑定替换原策略， ~remove_sync_policy~ 解除绑定，移除仓库时同时解除绑定。修改绑定使用 Workspace 配置屏障；只读检查克隆已发布快照后直接调用各策略，不进入同步屏障、不获取仓库文件锁。
 
 #+begin_src rust
-impl WebDavSyncPolicy {
-    pub async fn has_remote_changes(
-        &self, repo: &OrgRepo, options: &SyncOptions,
-    ) -> Result<bool, CoreError>;
+pub struct RemoteCheckContext<'a> {
+    pub repo: &'a OrgRepo,
+    pub excluded_directories: &'a [String],
+}
+pub enum RemoteChangeState { Unchanged, Changed, Unknown }
+pub struct RepoRemoteChange {
+    pub repo_id: OrgRepoId,
+    pub result: Result<RemoteChangeState, CoreError>,
+}
+pub struct RepoSyncResult {
+    pub repo_id: OrgRepoId,
+    pub result: Result<OrgRepoSyncRecord, CoreError>,
 }
 #+end_src
 
-~repo~ 是已加载稳定身份的仓库。该接口直接读取已保存远端基线的索引和清单，并用与同步相同的 ~SyncOptions~ 逐层列举远端；比较有效文件路径集合、强 ETag 与双方都有的长度信息，包含根目录 ~.orgzlyignore~ ，忽略已确认的删除标记。 ~false~ 表示检查时远端与基线一致；新增、删除、版本不同、首次尚无基线，以及缺少强 ETag 时均返回 ~true~ ，表示应进入正常同步以确认和处理。基线来源身份改变、基线不可用或远端列举失败返回错误，不转换成无变化。
+~check_remote_changes()~ 无参数，按 Workspace 仓库顺序返回所有已绑定远端策略的检查结果，未绑定的本地仓库不参与。上下文由 Core 创建，调用方不传仓库、过滤选项、开始时间或触发原因。每个仓库独立返回状态或错误，单仓库失败不丢弃其余结果。所有 Policy 必须实现检查方法。~Unchanged~ 表示确认未变化， ~Changed~ 表示确认有变化， ~Unknown~ 表示首次无基线或版本不足以确认。
 
-检查不获取仓库锁或同步锁，不进入 Workspace 的同步屏障，不执行恢复、索引修复、工作文件读取、正文下载、合并、上传或 outbox 确认，不生成同步历史、生命周期事件或文件通知。单份索引失效时可使用有效副本，但不修复磁盘。并发发布基线造成不一致时允许返回错误；结果只描述本次观察，不提供后续同步的版本保证，实际同步仍重新列举并沿用条件传输校验。本地独有修改不影响结果。
+WebDAV 比较过滤后的远端文件路径集合、强 ETag 与双方都有的长度信息，包含根目录 ~.orgzlyignore~ ，忽略已确认的删除标记。来源身份改变、基线不可用或远端列举失败返回该仓库的错误。检查不读取工作文件或下载正文，不执行恢复、基线修复、合并、上传、outbox 确认，不创建历史、生命周期事件或文件通知。单份索引失效时可使用有效副本而不修复磁盘，并发读到不一致时允许返回错误。本地独有修改不影响检查结果。
+
+~sync_repos~ 只同步指定仓库列表；空列表不执行同步，重复 ID 在开始前拒绝。结果顺序与输入一致，仓库未配置策略或执行失败分别写入对应结果，继续处理其他仓库。过滤目录来自已绑定配置，本轮原因从调用参数取得，取消令牌和进度对象可选；同一令牌适用于本批全部仓库，策略通过原有检查点响应取消。Core 按实际执行时的配置和身份同步，并自动传递本 Workspace 的通知中心。策略专属类型在持久化与策略内部保持原类型，在 Workspace 组合返回边界转为通用 JSON 字段。
+
+检查只返回结果，不触发同步；是否同步以及选择哪些仓库由上层决定。实际同步仍重新列举和验证远端版本，检查结果不作为条件写入的版本保证。
 
 * 旧接口
 

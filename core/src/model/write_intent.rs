@@ -191,6 +191,11 @@ mod tests {
         type ContextDetail = serde_json::Value;
         type FileDetail = serde_json::Value;
 
+        async fn check_remote_changes(&self, _: &crate::RemoteCheckContext<'_>)
+            -> Result<crate::RemoteChangeState, crate::CoreError> {
+            Ok(crate::RemoteChangeState::Unknown)
+        }
+
         async fn synchronize(
             &self,
             context: &mut super::super::SyncContext<'_>,
@@ -239,7 +244,7 @@ mod tests {
             .unwrap();
         let cancellation = SyncCancellation::default();
         let progress = SyncProgressReporter::default();
-        repo.sync(
+        repo.sync_at(
             &ConfirmingPolicy { success: false },
             1,
             &cancellation,
@@ -250,7 +255,7 @@ mod tests {
         assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
         // 即使上传成功，历史提交失败也不能消费意图。
         assert!(
-            repo.sync(
+            repo.sync_at(
                 &ConfirmingPolicy { success: true },
                 1,
                 &cancellation,
@@ -260,7 +265,7 @@ mod tests {
             .is_err()
         );
         assert_eq!(repo.pending_writes().await.unwrap().len(), 1);
-        repo.sync(
+        repo.sync_at(
             &ConfirmingPolicy { success: true },
             2,
             &cancellation,

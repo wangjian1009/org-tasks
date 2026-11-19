@@ -52,8 +52,8 @@ function fixture() {
   const native = {
     NativeCoreService: {
       async workspaceFor(){calls.push('workspace');return{query(){throw new Error('本地启动不应重新查询')}}},
-      async syncWorkspaceWebDav(repos, callback, todoDefaults, coreSettings, triggerReason) {
-        reasons.push(triggerReason); inputs.push(todoDefaults);
+      async syncWorkspaceWebDav(repos, callback, todoDefaults, coreSettings, source) {
+        reasons.push(source); inputs.push(todoDefaults);
         calls.push('sync'); monitor = callback;
         callback({ type: 'fileStarted', index: 0, total: 2, path: 'a.org' });
         callback({ type: 'fileProcessed', path: 'a.org' });
@@ -117,32 +117,32 @@ function fixture() {
   };
 }
 
-test('共享同步保留最初触发原因，退后台新会话使用后台原因', async () => {
-  for (const reason of ['appStartup', 'manual']) {
+test('共享同步保留最初请求入口，退后台新会话使用后台入口', async () => {
+  for (const reason of ['startup', 'manual']) {
     const f = fixture(), gate = deferred(); f.holdSync(gate);
-    const running = f.repository.start(f.context, { triggerReason: reason, policy: 'Reuse' }).handle;
+    const running = f.repository.start(f.context, { source: reason, policy: 'Reuse' }).handle;
     await tick();
     const background = f.service.start(f.context);
-    const rejected = f.repository.start(f.context, { triggerReason: 'appBackground', policy: 'Reject' });
+    const rejected = f.repository.start(f.context, { source: 'background', policy: 'Reject' });
     assert.equal(rejected.kind, 'rejected'); assert.equal(rejected.active, running);
     gate.resolve(); await Promise.all([running.completion, background]);
     assert.deepEqual(f.reasons, [reason]);
   }
   const f = fixture(); await f.service.start(f.context);
-  assert.deepEqual(f.reasons, ['appBackground']);
+  assert.deepEqual(f.reasons, ['background']);
 });
 
 test('start 立即受理并保留会话，Reuse 与 Reject 不再启动新同步', async () => {
   const f = fixture(), gate = deferred(); f.holdSync(gate);
-  const first = f.repository.start(f.context, { triggerReason: 'appStartup', policy: 'Reuse' });
+  const first = f.repository.start(f.context, { source: 'startup', policy: 'Reuse' });
   assert.equal(first.kind, 'started'); assert.equal(first.then, undefined);
   assert.equal(f.repository.runningSync(), first.handle);
   assert.equal(f.calls.length, 0, '请求受理时不读取配置或执行同步');
-  const reused = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' });
-  const rejected = f.repository.start(f.context, { triggerReason: 'appBackground', policy: 'Reject' });
+  const reused = f.repository.start(f.context, { source: 'manual', policy: 'Reuse' });
+  const rejected = f.repository.start(f.context, { source: 'background', policy: 'Reject' });
   assert.equal(reused.kind, 'reused'); assert.equal(reused.handle, first.handle);
   assert.equal(rejected.kind, 'rejected'); assert.equal(rejected.active, first.handle);
-  await tick(); assert.deepEqual(f.reasons, ['appStartup']);
+  await tick(); assert.deepEqual(f.reasons, ['startup']);
   assert(!f.calls.includes('retain')); assert.equal(f.notifications.length, 0);
   gate.resolve(); assert.equal((await first.handle.completion).status, 'succeeded');
   assert.equal(f.repository.runningSync(), undefined);
@@ -151,9 +151,9 @@ test('start 立即受理并保留会话，Reuse 与 Reject 不再启动新同步
 test('Wait 立即返回独立句柄并按顺序执行，轮到时读取最新配置', async () => {
   const f = fixture(), gates = [deferred(), deferred(), deferred()];
   gates.forEach(gate => f.syncSteps.push({ gate }));
-  const first = f.repository.start(f.context, { triggerReason: 'appStartup', policy: 'Reuse' });
-  const second = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
-  const third = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  const first = f.repository.start(f.context, { source: 'startup', policy: 'Reuse' });
+  const second = f.repository.start(f.context, { source: 'manual', policy: 'Wait' });
+  const third = f.repository.start(f.context, { source: 'manual', policy: 'Wait' });
   assert.equal(second.kind, 'queued'); assert.equal(third.kind, 'queued');
   assert.notEqual(second.handle.id, third.handle.id);
   let completed = false; second.handle.completion.then(() => { completed = true; });
@@ -165,14 +165,14 @@ test('Wait 立即返回独立句柄并按顺序执行，轮到时读取最新配
   await tick(); assert.equal(f.repository.runningSync(), third.handle);
   assert.deepEqual(f.inputs, ['TODO DONE', '第二轮配置', '第三轮配置']);
   gates[2].resolve(); await third.handle.completion;
-  assert.deepEqual(f.reasons, ['appStartup', 'manual', 'manual']);
+  assert.deepEqual(f.reasons, ['startup', 'manual', 'manual']);
 });
 
 test('前一轮失败仍继续排队请求，错误快照不会被下一轮清除', async () => {
   const f = fixture(), firstGate = deferred(), secondGate = deferred();
   f.syncSteps.push({ gate: firstGate, failed: true }, { gate: secondGate });
-  const first = f.repository.start(f.context, { triggerReason: 'appStartup', policy: 'Reuse' });
-  const second = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  const first = f.repository.start(f.context, { source: 'startup', policy: 'Reuse' });
+  const second = f.repository.start(f.context, { source: 'manual', policy: 'Wait' });
   firstGate.resolve();
   const failed = await first.handle.completion;
   assert.equal(failed.status, 'failed'); assert.match(failed.message, /网络不可用/);
@@ -186,10 +186,10 @@ test('观察者重入时复用已保留的会话，角标失败不改变同步�
   const f = fixture(); f.badgeFail();
   let reused;
   f.repository.watch(state => {
-    if (state.running) reused = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' });
+    if (state.running) reused = f.repository.start(f.context, { source: 'manual', policy: 'Reuse' });
   });
-  const first = f.repository.start(f.context, { triggerReason: 'appStartup', policy: 'Reuse' });
-  const next = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  const first = f.repository.start(f.context, { source: 'startup', policy: 'Reuse' });
+  const next = f.repository.start(f.context, { source: 'manual', policy: 'Wait' });
   assert.equal((await first.handle.completion).status, 'succeeded');
   assert.equal((await next.handle.completion).status, 'succeeded');
   assert.equal(reused.handle, next.handle); assert.equal(f.reasons.length, 2);
@@ -224,7 +224,7 @@ test('主界面首次显示且在前台时同步一次，恢复前台和重新�
     if (contentFirst) callbacks[0]({ code: 0 }); else ability.onForeground();
     assert.equal(requests.length, 0);
     if (contentFirst) ability.onForeground(); else callbacks[0]({ code: 0 });
-    assert.deepEqual(requests, [{ actual: context, triggerReason: 'appStartup', policy: 'Reuse' }]);
+    assert.deepEqual(requests, [{ actual: context, source: 'startup', policy: 'Reuse' }]);
     ability.onBackground(); ability.onForeground(); assert.equal(backgroundRequests, 1);
     ability.onNewWant({ parameters: { page: 'inbox' } }); callbacks[1]({ code: 0 });
     assert.equal(requests.length, 1);
@@ -258,8 +258,8 @@ test('快速反复退后台与 Reuse 请求只保留同一轮同步', async () =
   const f = fixture(), gate = deferred(); f.holdSync(gate);
   const first = f.service.start(f.context), second = f.service.start(f.context);
   assert.equal(first, second); await tick();
-  const manual = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' }).handle;
-  assert.equal(manual, f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' }).handle);
+  const manual = f.repository.start(f.context, { source: 'manual', policy: 'Reuse' }).handle;
+  assert.equal(manual, f.repository.start(f.context, { source: 'manual', policy: 'Reuse' }).handle);
   gate.resolve(); await Promise.all([first, manual.completion]);
   assert.equal(f.calls.filter(x => x === 'sync').length, 1);
   assert.equal(f.calls.filter(x => x === 'retain').length, 1);
@@ -267,7 +267,7 @@ test('快速反复退后台与 Reuse 请求只保留同一轮同步', async () =
 
 test('前台同步在准备实况窗期间结束，也不会再启动第二轮同步', async () => {
   const f = fixture(), sync = deferred(), retain = deferred(); f.holdSync(sync); f.holdRetain(retain);
-  const manual = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Reuse' }).handle; await tick();
+  const manual = f.repository.start(f.context, { source: 'manual', policy: 'Reuse' }).handle; await tick();
   const background = f.service.start(f.context); await tick();
   sync.resolve(); await manual.completion; retain.resolve(); await background;
   assert.equal(f.calls.filter(x => x === 'sync').length, 1);
@@ -278,7 +278,7 @@ test('前台同步在准备实况窗期间结束，也不会再启动第二轮�
 test('退后台准备期间出现手动同步时 Reject 拒绝另建会话', async () => {
   const f = fixture(), retain = deferred(), sync = deferred(); f.holdRetain(retain); f.holdSync(sync);
   const background = f.service.start(f.context); await tick();
-  const manual = f.repository.start(f.context, { triggerReason: 'manual', policy: 'Wait' });
+  const manual = f.repository.start(f.context, { source: 'manual', policy: 'Wait' });
   assert.equal(manual.kind, 'started'); await tick();
   retain.resolve(); await tick();
   assert.deepEqual(f.reasons, ['manual']);
@@ -376,7 +376,7 @@ test('取消旧作业失败时不保存完成标记，下次启动重试', async
 
 test('纯本地启动只接入 Workspace，角标消费共享数据，不增加全量查询',async()=>{
  const f=fixture();f.config.repos[0].webdavEnabled=false;
- const result=f.repository.start(f.context,{triggerReason:'appStartup',policy:'Reuse'});await result.handle.completion;
+ const result=f.repository.start(f.context,{source:'startup',policy:'Reuse'});await result.handle.completion;
  assert.equal(f.calls.filter(value=>value==='workspace').length,1);assert.equal(f.calls.filter(value=>value==='sync').length,0);
  assert.equal(f.calls.filter(value=>value==='badge').length,1);
 });
@@ -392,44 +392,47 @@ function remoteCheckFixture(states) {
   const configs = states.map((_, index) => ({ rootDirectory: `/repo-${index}`, webdavEnabled: true,
     webdavUrl: `https://example.test/${index}`, webdavUsername: 'user', webdavPassword: 'secret',
     excludedDirectories: ['archive'] }));
-  const repos = configs.map((config, index) => ({
-    rootDirectory: config.rootDirectory,
-    async hasRemoteChanges(policy, options) {
-      calls.push(['check', index, options]);
-      if (states[index] instanceof Error) throw states[index];
-      return states[index];
+  const repos = configs.map((config, index) => ({ id: `core-${index}`, rootDirectory: config.rootDirectory }));
+  NativeCoreService.workspaceFor = async () => ({
+    async repos() { return repos; },
+    async setSyncPolicy(id, policy, excludedDirectories) { calls.push(['set', id, Array.from(excludedDirectories)]); },
+    async removeSyncPolicy(id) { calls.push(['remove', id]); },
+    async checkRemoteChanges(...args) {
+      assert.equal(args.length, 0); calls.push(['check']);
+      return states.map((state, index) => state instanceof Error
+        ? { repoId: repos[index].id, state: null, error: state }
+        : { repoId: repos[index].id, state: typeof state === 'string' ? state : state ? 'changed' : 'unchanged', error: null });
     },
-    async sync(policy, monitor, options) { calls.push(['sync', index, options]); return { result: 'succeeded' }; }
-  }));
-  NativeCoreService.workspaceFor = async () => ({ async repos() { return repos; } });
-  return { calls, policies, run: reason => NativeCoreService.syncWorkspaceWebDav(configs, undefined, '', undefined, reason) };
+    async syncRepos(ids, reason) {
+      calls.push(['sync', Array.from(ids), reason]);
+      return ids.map(repoId => ({ repoId, record: { result: 'succeeded' }, error: null }));
+    }
+  });
+  return { calls, policies, configs, run: reason => NativeCoreService.syncWorkspaceWebDav(configs, undefined, '', undefined, reason) };
 }
 
-test('启动按仓库检查远端，未变化跳过，有变化才执行原同步', async () => {
-  const f = remoteCheckFixture([false, true, false]);
-  await f.run('appStartup');
-  assert.deepEqual(f.calls.map(([kind, index]) => [kind, index]), [['check', 0], ['check', 1], ['sync', 1], ['check', 2]]);
-  for (const [, , options] of f.calls) {
-    assert.equal(options.triggerReason, 'appStartup');
-    assert.deepEqual(Array.from(options.excludedDirectories), ['archive']);
-  }
+test('启动无参检查全部仓库，仅将有变化或未知的仓库列表交给 Core 同步', async () => {
+  const f = remoteCheckFixture([false, true, 'unknown']);
+  await f.run('startup');
+  assert.deepEqual(f.calls, [['set', 'core-0', ['archive']], ['set', 'core-1', ['archive']],
+    ['set', 'core-2', ['archive']], ['check'], ['sync', ['core-1', 'core-2'], 'remoteChanged']]);
   assert.equal(f.policies.length, 3);
 });
 
-test('启动远端无变化时没有实际同步，检查失败沿用失败反馈', async () => {
+test('远端无变化不调用同步，单仓库检查失败不阻止其他仓库同步', async () => {
   const unchanged = remoteCheckFixture([false]);
-  await unchanged.run('appStartup');
-  assert.deepEqual(unchanged.calls.map(([kind]) => kind), ['check']);
-  const failed = remoteCheckFixture([new Error('远端检查失败')]);
-  await assert.rejects(failed.run('appStartup'), /远端检查失败/);
-  assert.deepEqual(failed.calls.map(([kind]) => kind), ['check']);
+  await unchanged.run('startup');
+  assert.deepEqual(unchanged.calls.map(([kind]) => kind), ['set', 'check']);
+  const failed = remoteCheckFixture([new Error('远端检查失败'), true]);
+  await assert.rejects(failed.run('startup'), /远端检查失败/);
+  assert.deepEqual(failed.calls.at(-1), ['sync', ['core-1'], 'remoteChanged']);
 });
 
-test('手动与退后台同步直接执行，不受远端变化检查影响', async () => {
-  for (const reason of ['manual', 'appBackground']) {
-    const f = remoteCheckFixture([false]);
+test('手动与退后台直接传指定仓库列表，关闭远端时解绑 Policy', async () => {
+  for (const reason of ['manual', 'background']) {
+    const f = remoteCheckFixture([false, false]);
+    f.configs[1].webdavEnabled = false;
     await f.run(reason);
-    assert.deepEqual(f.calls.map(([kind]) => kind), ['sync']);
-    assert.equal(f.calls[0][2].triggerReason, reason);
+    assert.deepEqual(f.calls, [['set', 'core-0', ['archive']], ['remove', 'core-1'], ['sync', ['core-0'], reason === 'background' ? 'localChanged' : 'manual']]);
   }
 });

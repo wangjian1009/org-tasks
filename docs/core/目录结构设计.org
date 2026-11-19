@@ -74,7 +74,7 @@ workspace 由宿主提供独立 preview_root，Core 验证其在全部仓库根�
 
 * 同步记录触发原因
 
-~.sync/history/<started_at>.json~ 的顶层可选字段 ~trigger_reason~ 保存 ~appStartup~ 、 ~appBackground~ 或 ~manual~ 。新完成记录始终写入本轮调用原因，失败、取消与中断也保留；该字段不影响事务提交、目录布局或 WebDAV 历史版本。旧记录缺失时保持未知，读取不回写，也不增加独立原因文件。
+~.sync/history/<started_at>.json~ 的顶层可选字段 ~trigger_reason~ 保存 ~remoteChanged~ 、 ~localChanged~ 或 ~manual~ 。新完成记录始终写入本轮调用原因，失败、取消与中断也保留；该字段不影响事务提交、目录布局或 WebDAV 历史版本。旧记录缺失时保持未知，读取不回写，也不增加独立原因文件。
 
 * 模板新文件
 

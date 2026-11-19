@@ -111,7 +111,7 @@ export default class EntryAbility extends UIAbility {
   private startStartupSync(): void {
     if (!this.foreground || !this.contentReady || this.startupSyncRequested) return
     this.startupSyncRequested = true
-    RepositorySyncService.start(this.context, { triggerReason: 'appStartup', policy: SyncStartPolicy.Reuse })
+    RepositorySyncService.start(this.context, { source: 'startup', policy: SyncStartPolicy.Reuse })
   }
 
   onForeground(): void {

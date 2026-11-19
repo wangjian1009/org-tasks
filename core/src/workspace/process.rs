@@ -12,7 +12,8 @@ type Work = Box<dyn FnOnce(WorkspaceState) -> BoxFuture<'static, (WorkspaceState
 
 #[derive(Clone, Debug)]
 pub(super) struct Snapshot {
-    repos: Vec<OrgRepo>,
+    pub(super) repos: Vec<OrgRepo>,
+    pub(super) sync_policies: std::collections::BTreeMap<OrgRepoId, SyncBinding>,
     defaults: TodoConfig,
     history: Arc<crate::TaskOperationHistory>,
 }
@@ -20,6 +21,7 @@ impl Snapshot {
     fn from_state(state: &WorkspaceState) -> Arc<Self> {
         Arc::new(Self {
             repos: state.repos.clone(),
+            sync_policies: state.sync_policies.clone(),
             defaults: state.todo_defaults.clone(),
             history: Arc::new(state.task_operation_history.clone()),
         })
@@ -54,6 +56,7 @@ impl OrgWorkspace {
         )?;
         let state = WorkspaceState {
             repos,
+            sync_policies: Default::default(),
             todo_defaults: TodoConfig::default(),
             task_operation_history: Default::default(),
             preview: Default::default(),
@@ -79,7 +82,7 @@ impl OrgWorkspace {
         })
     }
 
-    async fn request<T, F>(&self, access: Access, work: F) -> Result<T, CoreError>
+    pub(super) async fn request<T, F>(&self, access: Access, work: F) -> Result<T, CoreError>
     where
         T: Send + 'static,
         F: for<'a> FnOnce(&'a mut WorkspaceState) -> BoxFuture<'a, Result<T, CoreError>>
@@ -224,39 +227,6 @@ impl OrgWorkspace {
         })
         .await
     }
-    pub async fn sync_repo<P>(
-        &self,
-        root: &str,
-        policy: P,
-        started_at: crate::TimestampMs,
-        cancellation: Option<crate::SyncCancellation>,
-        progress: Option<crate::SyncProgressReporter>,
-        options: crate::SyncOptions,
-    ) -> Result<crate::OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
-    where
-        P: crate::SyncPolicy + 'static,
-    {
-        let root = root.to_owned();
-        self.request(Access::Exclusive, move |state| {
-            Box::pin(async move {
-                let notifications = state.notifications.clone();
-                let repo = state
-                    .repo_mut_by_root_directory(&root)
-                    .ok_or(CoreError::InvalidInput("仓库目录不属于 workspace"))?;
-                repo.sync_with_options(
-                    &policy,
-                    started_at,
-                    &cancellation.unwrap_or_default(),
-                    &progress.unwrap_or_default(),
-                    options,
-                    Some(&notifications),
-                )
-                .await
-            })
-        })
-        .await
-    }
-
     /// 将仓库只读操作纳入查询批次；闭包只取得本次独立的配置快照。
     pub async fn read_repo<T, F, Fut>(&self, root: &str, read: F) -> Result<T, CoreError>
     where
@@ -522,6 +492,7 @@ async fn process(
             let barrier = matches!(command.access, Access::Exclusive | Access::Stop);
             let snapshot = match command.access {
                 Access::Query | Access::Files(_) => WorkspaceState {
+                    sync_policies: state.sync_policies.clone(),
                     repos: state.repos.clone(),
                     todo_defaults: state.todo_defaults.clone(),
                     task_operation_history: Default::default(),

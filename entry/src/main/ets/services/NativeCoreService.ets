@@ -32,7 +32,6 @@ import {
   TaskRepeatUnit as NativeTaskRepeatUnit,
   SupportTags as NativeSupportTags,
   TodoMetadata as NativeTodoMetadata,
-  defaultSyncOptions,
   defaultTodoSettings,
   defaultTaskStates,
   CoreSettings,
@@ -71,6 +70,8 @@ import {
   OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
   SyncTriggerReason,
+  RepoRemoteChange as NativeRepoRemoteChange,
+  RepoSyncResult as NativeRepoSyncResult,
   SyncRecordDetail as NativeSyncRecordDetail,
   SyncFileRecord as NativeSyncFileRecord,
   SyncHistoryError as NativeSyncHistoryError,
@@ -93,7 +94,7 @@ import {
   WebDavSyncPolicy as NativeWebDavSyncPolicy,
   Workspace as NativeWorkspace
 } from 'liborg_tasks_harmony.so'
-import { RepoConfig, SyncOptions } from '../models/OrgTask'
+import { RepoConfig } from '../models/OrgTask'
 
 export type CoreConflictPreview = NativeConflictPreview
 export type CoreConflictPreviewRequest = NativeConflictPreviewRequest
@@ -148,15 +149,6 @@ export type CoreTaskQuery = NativeTaskQuery
 // fullFiles 只随单次查询或订阅初始结果返回，由调用方消费。
 export type CoreTaskQueryResult = NativeTaskQueryResult
 
-export interface CoreSyncSnapshot {
-  id: string
-  result: 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
-  started_at: number
-  finished_at: number | null
-  files: number
-  conflicts: string[]
-}
-
 export type CoreSyncRecord = NativeSyncRecord
 export type CoreSyncRecordDetail = NativeSyncRecordDetail
 export type CoreNotificationUpdateMonitor = NativeNotificationUpdateMonitor
@@ -205,6 +197,8 @@ export type CoreTaskModification = NativeTaskModification
 
 export type CoreWebDavSyncEvent = NativeWebDavSyncEvent
 export type CoreWebDavSyncMonitor = NativeWebDavSyncMonitor
+export type CoreRepoRemoteChange = NativeRepoRemoteChange
+export type CoreRepoSyncResult = NativeRepoSyncResult
 export type CoreBridgeError = NativeCoreError
 export type CoreNotificationUpdate = NativeNotificationUpdate
 export type CoreSyncBaselineUnavailableNotification = NativeSyncBaselineUnavailableNotification
@@ -217,6 +211,8 @@ export function coreErrorMessage(error: CoreBridgeError): string {
   }
   return '操作未完成，请重试'
 }
+
+export type SyncRequestSource = 'startup' | 'background' | 'manual'
 
 export class CoreWebDavSyncPolicy {
   private readonly native: NativeWebDavSyncPolicy
@@ -282,17 +278,19 @@ export class CoreRepo {
     return await this.native.historyDetail(syncId)
   }
 
-  async sync(policy: CoreWebDavSyncPolicy, monitor?: CoreWebDavSyncMonitor, options?: SyncOptions): Promise<CoreSyncSnapshot> {
-    const effective = options ?? await defaultSyncOptions()
-    return await this.native.sync(policy.nativePolicy(), monitor, effective) as NativeSyncRecord
-  }
 
-  async hasRemoteChanges(policy: CoreWebDavSyncPolicy, options?: SyncOptions): Promise<boolean> {
-    return await this.native.hasRemoteChanges(policy.nativePolicy(), options ?? await defaultSyncOptions())
-  }
 }
 
 export class CoreWorkspace {
+  async setSyncPolicy(repoId: string, policy: CoreWebDavSyncPolicy, excludedDirectories: string[], monitor?: CoreWebDavSyncMonitor): Promise<void> {
+    await this.native.setSyncPolicy(repoId, policy.nativePolicy(), excludedDirectories, monitor)
+  }
+  async removeSyncPolicy(repoId: string): Promise<void> { await this.native.removeSyncPolicy(repoId) }
+  async checkRemoteChanges(): Promise<CoreRepoRemoteChange[]> { return await this.native.checkRemoteChanges() }
+  async syncRepos(repoIds: string[], triggerReason: SyncTriggerReason): Promise<CoreRepoSyncResult[]> {
+    return await this.native.syncRepos(repoIds, triggerReason)
+  }
+
   private readonly native: NativeWorkspace
 
   constructor(native: NativeWorkspace) {
@@ -439,24 +437,45 @@ export class NativeCoreService {
     monitor?: CoreWebDavSyncMonitor,
     todoDefaults?: string,
     coreSettings?: CoreSettings,
-    triggerReason: SyncTriggerReason = 'manual'
+    source: SyncRequestSource = 'manual'
   ): Promise<void> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     const repos = await workspace.repos()
+    const enabledIds: string[] = []
     for (const repo of repos) {
       const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
-        const options: SyncOptions = { excludedDirectories: config.excludedDirectories, triggerReason }
-        if (triggerReason === 'appStartup' && !await repo.hasRemoteChanges(policy, options)) continue
-        const sync = await repo.sync(policy, monitor, options)
-        if (sync.result !== 'succeeded') {
-          throw new Error('WebDAV 同步未完成，请重试')
-        }
+        await workspace.setSyncPolicy(repo.id, policy, config.excludedDirectories, monitor)
+        enabledIds.push(repo.id)
       } else {
-        await repo.load()
+        await workspace.removeSyncPolicy(repo.id)
       }
     }
+    let selectedIds: string[] = enabledIds
+    let failure = ''
+    if (source === 'startup') {
+      const checks = await workspace.checkRemoteChanges()
+      selectedIds = []
+      for (const id of enabledIds) {
+        const check = checks.find((item: CoreRepoRemoteChange) => item.repoId === id)
+        if (!check) { failure = failure || '仓库远端检查结果缺失'; continue }
+        if (check.error) { failure = failure || coreErrorMessage(check.error); continue }
+        if (check.state !== 'unchanged') selectedIds.push(id)
+      }
+    }
+    if (selectedIds.length > 0) {
+      const reason: SyncTriggerReason = source === 'startup' ? 'remoteChanged'
+        : source === 'background' ? 'localChanged' : 'manual'
+      const results = await workspace.syncRepos(selectedIds, reason)
+      for (const result of results) {
+        if (result.error) failure = failure || coreErrorMessage(result.error)
+        else if (!result.record || result.record.result !== 'succeeded') {
+          failure = failure || result.record?.errorMessage || 'WebDAV 同步未完成，请重试'
+        }
+      }
+    }
+    if (failure.length > 0) throw new Error(failure)
   }
 
 }

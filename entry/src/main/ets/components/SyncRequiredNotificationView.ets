@@ -11,7 +11,7 @@ export struct SyncRequiredNotificationView {
     if (this.disabled || this.starting) return
     this.starting = true
     try {
-      RepositorySyncService.start(this.getUIContext().getHostContext()!, { triggerReason: 'manual', policy: SyncStartPolicy.Wait })
+      RepositorySyncService.start(this.getUIContext().getHostContext()!, { source: 'manual', policy: SyncStartPolicy.Wait })
     } finally { this.starting = false }
   }
 

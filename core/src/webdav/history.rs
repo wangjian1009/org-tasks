@@ -268,8 +268,8 @@ mod tests {
             None
         );
         for reason in [
-            crate::SyncTriggerReason::AppStartup,
-            crate::SyncTriggerReason::AppBackground,
+            crate::SyncTriggerReason::RemoteChanged,
+            crate::SyncTriggerReason::LocalChanged,
             crate::SyncTriggerReason::Manual,
         ] {
             decoded.trigger_reason = Some(reason);

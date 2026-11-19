@@ -67,6 +67,28 @@ pub struct SyncContext<'a> {
     pub options: SyncOptions,
 }
 
+/// 由 Core 创建的只读检查上下文，不包含触发原因或同步开始时间。
+pub struct RemoteCheckContext<'a> {
+    pub repo: &'a OrgRepo,
+    pub excluded_directories: &'a [String],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RemoteChangeState { Unchanged, Changed, Unknown }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoRemoteChange {
+    pub repo_id: OrgRepoId,
+    pub result: Result<RemoteChangeState, CoreError>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoSyncResult {
+    pub repo_id: OrgRepoId,
+    pub result: Result<OrgRepoSyncRecord, CoreError>,
+}
+
 impl<'a> SyncContext<'a> {
     pub fn new(repo: &'a mut OrgRepo, started_at: TimestampMs) -> Self {
         Self::with_options(repo, started_at, SyncOptions::default())
@@ -97,8 +119,8 @@ pub struct SyncOptions {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SyncTriggerReason {
-    AppStartup,
-    AppBackground,
+    RemoteChanged,
+    LocalChanged,
     #[default]
     Manual,
 }
@@ -157,9 +179,9 @@ mod sync_options_tests {
     #[test]
     fn trigger_reason_uses_stable_wire_values_and_rejects_unknown_values() {
         for (trigger_reason, value) in [
-            (SyncTriggerReason::AppStartup, "appStartup"),
-            (SyncTriggerReason::AppBackground, "appBackground"),
             (SyncTriggerReason::Manual, "manual"),
+            (SyncTriggerReason::RemoteChanged, "remoteChanged"),
+            (SyncTriggerReason::LocalChanged, "localChanged"),
         ] {
             let options: SyncOptions = serde_json::from_value(serde_json::json!({
                 "triggerReason": value,
@@ -225,6 +247,11 @@ pub trait SyncPolicy: Send + Sync {
 
     type ContextDetail: SyncContextDetail;
     type FileDetail: SyncFileDetail;
+
+    fn check_remote_changes(
+        &self,
+        context: &RemoteCheckContext<'_>,
+    ) -> impl Future<Output = Result<RemoteChangeState, CoreError>> + Send;
 
     fn synchronize(
         &self,
@@ -370,7 +397,7 @@ where
         }
     }
 
-    pub async fn start(&self, started_at: TimestampMs) -> Result<(), CoreError> {
+    pub async fn start(&self) -> Result<(), CoreError> {
         let mut snapshot = self
             .snapshot
             .lock()
@@ -403,7 +430,7 @@ where
         tokio::spawn(async move {
             let mut working_repo = initial_repo;
             let result = working_repo
-                .sync(policy.as_ref(), started_at, &cancellation, &progress)
+                .sync(policy.as_ref(), &cancellation, &progress)
                 .await;
             if let Ok(mut stored_repo) = repo.lock() {
                 *stored_repo = working_repo;
@@ -626,7 +653,6 @@ impl OrgRepo {
     pub async fn sync<P>(
         &mut self,
         policy: &P,
-        started_at: TimestampMs,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
     ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError>
@@ -635,7 +661,6 @@ impl OrgRepo {
     {
         self.sync_with_options(
             policy,
-            started_at,
             cancellation,
             progress,
             SyncOptions::default(),
@@ -647,7 +672,6 @@ impl OrgRepo {
     pub async fn sync_with_options<P>(
         &mut self,
         policy: &P,
-        started_at: TimestampMs,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
         options: SyncOptions,
@@ -656,6 +680,31 @@ impl OrgRepo {
     where
         P: SyncPolicy,
     {
+        self.sync_with_time(policy, None, cancellation, progress, options, notifications).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn sync_at<P: SyncPolicy>(
+        &mut self, policy: &P, started_at: TimestampMs,
+        cancellation: &SyncCancellation, progress: &SyncProgressReporter,
+    ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError> {
+        self.sync_with_time(policy, Some(started_at), cancellation, progress, SyncOptions::default(), None).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn sync_with_options_at<P: SyncPolicy>(
+        &mut self, policy: &P, started_at: TimestampMs,
+        cancellation: &SyncCancellation, progress: &SyncProgressReporter,
+        options: SyncOptions, notifications: Option<&super::NotificationCenter>,
+    ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError> {
+        self.sync_with_time(policy, Some(started_at), cancellation, progress, options, notifications).await
+    }
+
+    async fn sync_with_time<P: SyncPolicy>(
+        &mut self, policy: &P, started_at: Option<TimestampMs>,
+        cancellation: &SyncCancellation, progress: &SyncProgressReporter,
+        options: SyncOptions, notifications: Option<&super::NotificationCenter>,
+    ) -> Result<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>, CoreError> {
         let mut change_files = Vec::new();
         let capture = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new()));
         let result = crate::file_state::CAPTURE.scope(capture.clone(),
@@ -673,7 +722,7 @@ impl OrgRepo {
     async fn sync_with_options_inner<P>(
         &mut self,
         policy: &P,
-        started_at: TimestampMs,
+        started_at: Option<TimestampMs>,
         cancellation: &SyncCancellation,
         progress: &SyncProgressReporter,
         options: SyncOptions,
@@ -691,6 +740,18 @@ impl OrgRepo {
         self.id = id;
         super::access::recover(Path::new(&root_directory), &self.id).await?;
         let history = self.sync_history::<P>().await?;
+        // 在取得仓库锁并恢复历史后取时；同毫秒或时钟回退时推进，避免覆盖历史。
+        let started_at = match started_at {
+            Some(value) => value,
+            None => {
+                let now = chrono::Utc::now().timestamp_millis();
+                match history.iter().map(|record| record.started_at).max() {
+                    Some(last) if last >= now => last.checked_add(1)
+                        .ok_or(CoreError::InvalidState("同步开始时间超出支持范围"))?,
+                    _ => now,
+                }
+            }
+        };
         if history.iter().any(|record| record.started_at == started_at) {
             return Err(CoreError::InvalidInput("同步开始时间已有同步记录"));
         }
@@ -1189,6 +1250,11 @@ mod tests {
         type ContextDetail = serde_json::Value;
         type FileDetail = serde_json::Value;
 
+        async fn check_remote_changes(&self, _: &crate::RemoteCheckContext<'_>)
+            -> Result<crate::RemoteChangeState, crate::CoreError> {
+            Ok(crate::RemoteChangeState::Unknown)
+        }
+
         fn synchronize(
             &self,
             context: &mut SyncContext<'_>,
@@ -1216,6 +1282,11 @@ mod tests {
         const KIND: &'static str = "test";
         type ContextDetail = serde_json::Value;
         type FileDetail = serde_json::Value;
+
+        async fn check_remote_changes(&self, _: &crate::RemoteCheckContext<'_>)
+            -> Result<crate::RemoteChangeState, crate::CoreError> {
+            Ok(crate::RemoteChangeState::Unknown)
+        }
 
         fn synchronize(
             &self,
@@ -1497,7 +1568,7 @@ mod tests {
         let root = test_root("sync");
         let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         let record = repo
-            .sync(
+            .sync_at(
                 &CompletedSync,
                 10,
                 &SyncCancellation::default(),
@@ -1524,14 +1595,14 @@ mod tests {
     #[tokio::test]
     async fn sync_trigger_reason_survives_failure_and_history_reload() {
         for trigger_reason in [
-            SyncTriggerReason::AppStartup,
-            SyncTriggerReason::AppBackground,
+            SyncTriggerReason::RemoteChanged,
+            SyncTriggerReason::LocalChanged,
             SyncTriggerReason::Manual,
         ] {
             let root = test_root(&format!("sync-trigger-{trigger_reason:?}"));
             let mut repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
             let record = repo
-                .sync_with_options(
+                .sync_with_options_at(
                     &FailedSync,
                     10,
                     &SyncCancellation::default(),
@@ -1560,7 +1631,7 @@ mod tests {
         let root = test_root("controller");
         let repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         let controller = OrgRepoSyncController::new(repo, CompletedSync);
-        controller.start(10).await.unwrap();
+        controller.start().await.unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while tokio::time::Instant::now() < deadline {
             let snapshot = controller.snapshot();
@@ -1582,7 +1653,7 @@ mod tests {
         let root = test_root("failed-controller");
         let repo = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         let controller = OrgRepoSyncController::new(repo, FailedSync);
-        controller.start(10).await.unwrap();
+        controller.start().await.unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while tokio::time::Instant::now() < deadline {
             let snapshot = controller.snapshot();
@@ -1624,7 +1695,7 @@ mod tests {
         let mut reloaded = OrgRepo::new(root.to_string_lossy().into()).unwrap();
         reloaded.load::<CompletedSync>().await.unwrap();
         let error = reloaded
-            .sync(
+            .sync_at(
                 &CompletedSync,
                 20,
                 &SyncCancellation::default(),
@@ -1655,6 +1726,11 @@ mod tests {
         type ContextDetail = serde_json::Value;
         type FileDetail = serde_json::Value;
 
+        async fn check_remote_changes(&self, _: &crate::RemoteCheckContext<'_>)
+            -> Result<crate::RemoteChangeState, crate::CoreError> {
+            Ok(crate::RemoteChangeState::Unknown)
+        }
+
         async fn synchronize(
             &self,
             context: &mut SyncContext<'_>,
@@ -1662,8 +1738,8 @@ mod tests {
             _: &SyncProgressReporter,
         ) -> Result<OrgRepoSyncRecord<Self::ContextDetail, Self::FileDetail>, CoreError> {
             let history = context.repo.sync_history::<Self>().await.unwrap();
-            assert_eq!(history.len(), context.started_at as usize);
-            if context.started_at == 1 {
+            let round = history.len();
+            if round == 1 {
                 assert_eq!(
                     context.repo.load_files(&[]).await.unwrap()[0].source_bytes(),
                     b"* TODO External edit\n"
@@ -1671,7 +1747,7 @@ mod tests {
                 assert_eq!(history[0].id, "history-0");
             }
             let mut record = OrgRepoSyncRecord::new(
-                format!("history-{}", context.started_at),
+                format!("history-{round}"),
                 context.started_at,
             )?;
             record.finish(OrgRepoSyncResult::Succeeded, context.started_at + 1)?;
@@ -1690,7 +1766,7 @@ mod tests {
                     .await
                     .unwrap();
             }
-            controller.start(time).await.unwrap();
+            controller.start().await.unwrap();
             let mut completed = false;
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
             while tokio::time::Instant::now() < deadline {
@@ -1715,21 +1791,14 @@ mod tests {
                 .len(),
             2
         );
-        assert!(
-            repo.sync(
-                &HistoryReadingSync,
-                1,
-                &SyncCancellation::default(),
-                &SyncProgressReporter::default()
-            )
-            .await
-            .is_err()
-        );
+        let existing = repo.sync_history::<HistoryReadingSync>().await.unwrap()[0].started_at;
+        assert!(repo.sync_at(&HistoryReadingSync, existing, &SyncCancellation::default(),
+            &SyncProgressReporter::default()).await.is_err());
         tokio::fs::write(root.join(".sync/history/2.json"), b"{")
             .await
             .unwrap();
         assert!(
-            repo.sync(
+            repo.sync_at(
                 &HistoryReadingSync,
                 2,
                 &SyncCancellation::default(),

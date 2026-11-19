@@ -20,19 +20,18 @@ fn clear_last_error() {
     LAST_ERROR.with(|value| *value.borrow_mut() = None);
 }
 
-fn remember_error(error: &CoreError) {
+pub(crate) fn core_error_value(error: &CoreError) -> serde_json::Value {
     let code = match error {
         CoreError::InvalidInput(_) => "invalidInput",
         CoreError::InvalidState(_) => "invalidState",
         CoreError::Store(_) => "store",
         CoreError::Preview { code, .. } => code,
     };
-    let value = serde_json::json!({
-        "code": code,
-        "message": error.to_string(),
-    })
-    .to_string();
-    LAST_ERROR.with(|slot| *slot.borrow_mut() = Some(value));
+    serde_json::json!({ "code": code, "message": error.to_string() })
+}
+
+fn remember_error(error: &CoreError) {
+    LAST_ERROR.with(|slot| *slot.borrow_mut() = Some(core_error_value(error).to_string()));
 }
 
 #[unsafe(no_mangle)]
@@ -236,49 +235,10 @@ pub extern "C" fn org_tasks_harmony_webdav_test_connection(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_repo_has_remote_changes(
-    workspace_handle: u64,
-    root_directory: *const c_char,
-    webdav_url: *const c_char,
-    username: *const c_char,
-    password: *const c_char,
-    options_json: *const c_char,
+pub extern "C" fn org_tasks_harmony_workspace_sync_operation(
+    handle: u64, request: *const c_char, monitor_handle: u64,
 ) -> *mut c_char {
-    string_result((|| {
-        bridge::repo_has_remote_changes_json(
-            workspace_handle,
-            read_c_string(root_directory)?,
-            read_c_string(webdav_url)?,
-            read_c_string(username)?,
-            read_c_string(password)?,
-            read_c_string(options_json)?,
-        )
-    })())
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn org_tasks_harmony_repo_sync(
-    workspace_handle: u64,
-    root_directory: *const c_char,
-    webdav_url: *const c_char,
-    username: *const c_char,
-    password: *const c_char,
-    options_json: *const c_char,
-    monitor_handle: u64,
-    started_at: i64,
-) -> *mut c_char {
-    string_result(read_c_string(root_directory).and_then(|root_directory| {
-        bridge::repo_sync_json(
-            workspace_handle,
-            root_directory,
-            read_c_string(webdav_url)?,
-            read_c_string(username)?,
-            read_c_string(password)?,
-            read_c_string(options_json)?,
-            monitor_handle,
-            started_at,
-        )
-    }))
+    string_result(bridge::workspace_sync_operation(handle, read_c_string(request), monitor_handle))
 }
 
 #[unsafe(no_mangle)]

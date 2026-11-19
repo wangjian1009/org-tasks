@@ -1,8 +1,8 @@
-import { CoreSettings, SyncTriggerReason } from 'liborg_tasks_harmony.so'
+import { CoreSettings } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
 import { RepoConfig } from '../models/OrgTask'
-import { CoreBridgeError, CoreWebDavSyncEvent, NativeCoreService, coreErrorMessage } from './NativeCoreService'
+import { CoreBridgeError, CoreWebDavSyncEvent, NativeCoreService, SyncRequestSource, coreErrorMessage } from './NativeCoreService'
 import { DeviceBadgeService } from './DeviceBadgeService'
 
 export enum SyncStartPolicy {
@@ -12,7 +12,7 @@ export enum SyncStartPolicy {
 }
 
 export interface SyncStartOptions {
-  triggerReason: SyncTriggerReason
+  source: SyncRequestSource
   policy: SyncStartPolicy
 }
 
@@ -23,7 +23,7 @@ export interface SyncCompletion {
 
 export interface SyncHandle {
   readonly id: number
-  readonly triggerReason: SyncTriggerReason
+  readonly source: SyncRequestSource
   readonly completion: Promise<SyncCompletion>
 }
 
@@ -108,7 +108,7 @@ export class RepositorySyncService {
     if (active && options.policy === SyncStartPolicy.Reject) return { kind: 'rejected', active: active.handle }
     let complete: (completion: SyncCompletion) => void = (_completion: SyncCompletion): void => {}
     const completion = new Promise<SyncCompletion>((resolve): void => { complete = resolve })
-    const handle: SyncHandle = { id: ++RepositorySyncService.nextId, triggerReason: options.triggerReason, completion }
+    const handle: SyncHandle = { id: ++RepositorySyncService.nextId, source: options.source, completion }
     const request: SyncRequest = { context, handle, complete }
     if (active) {
       RepositorySyncService.pending.push(request)
@@ -127,7 +127,7 @@ export class RepositorySyncService {
   private static async execute(request: SyncRequest): Promise<void> {
     let completion: SyncCompletion
     try {
-      completion = await RepositorySyncService.run(request.context, request.handle.triggerReason)
+      completion = await RepositorySyncService.run(request.context, request.handle.source)
     } catch (error) {
       const state = RepositorySyncService.state
       state.running = false
@@ -143,7 +143,7 @@ export class RepositorySyncService {
     if (next) RepositorySyncService.activate(next)
   }
 
-  private static async run(context: Context, triggerReason: SyncTriggerReason): Promise<SyncCompletion> {
+  private static async run(context: Context, source: SyncRequestSource): Promise<SyncCompletion> {
     console.info('文件同步开始')
     const generation = ++RepositorySyncService.generation
     const state = RepositorySyncService.state
@@ -178,7 +178,7 @@ export class RepositorySyncService {
         ? NativeCoreService.syncWorkspaceWebDav(repos,
           (event: CoreWebDavSyncEvent) => {
             if (generation === RepositorySyncService.generation) RepositorySyncService.updateProgress(event)
-          }, todoDefaults, coreSettings, triggerReason)
+          }, todoDefaults, coreSettings, source)
         : NativeCoreService.workspaceFor(repos, todoDefaults, coreSettings))
       state.progress = 100
       state.determinate = true
