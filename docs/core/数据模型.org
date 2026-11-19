@@ -2045,6 +2045,11 @@ Trash 与 Restore 的持久来源属性统一使用 ~SOURCE_~ 前缀。原节点
 
 任务只投影 ~reminder_at: Option<TimestampMs>~ ，不保留提醒配置对象、次数、间隔或任务级开关。读取复用 ~CREATED~ 的 ~property_time~ ，不继承、不补值；缺失、无效或范围为 ~None~ ，日期无时刻按本地零点。~TaskModification::SetReminder~ 接收可空毫秒时间戳，Core 封装属性名和 Org 原文写入，不生成 ID。完整契约见 [[file:../harmony/任务提醒设计.org][任务提醒设计]]。
 
+
+完成带重复器的任务时，如果已有有效提醒，Core 在修改前选择带重复器的规划字段作为提醒基准：优先 DEADLINE，其次 SCHEDULED；仅有一个字段带重复器时只使用该字段，普通规划日期不参与选择。以规划时间戳的开始时刻计算原提醒的有符号毫秒差，只有日期时按本地零点；时间范围使用起点。重复器推进完成后，新提醒时间等于新基准时刻加原时间差，保持提前或延后的偏移。支持累加、追赶、完成后重复与重复窗口，具体推进仍复用原有规则。
+
+日期推进、提醒写入、状态恢复、清单重置和联动处于同一事务；新提醒超出有效范围或后续操作失败时整体回滚，不产生部分日期或提醒。没有有效提醒、没有带重复器的规划字段、非首次进入完成状态时不移动提醒；正文内重复时间戳不作为规划基准。无效旧提醒保留原文，不生成默认提醒。此行为仅更新现有提醒属性，不增加接口字段或持久化结构。
+
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FilterTask}{reminder\_at : Option<TimestampMs>}{reminder\_at()}
 \umlclass[x=7,y=0]{TaskModification}{SetReminder(Option<TimestampMs>)}{}

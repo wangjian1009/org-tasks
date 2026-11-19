@@ -170,3 +170,21 @@ test('日期控件只返回 SET_REMINDER 时间戳或空值，不暴露属性名
   assert.equal(reminderModification({ reminderAt: null }, { date: '2026-11-21' }).value, new Date(2026, 10, 21).getTime());
   assert.throws(() => reminderModification(task, { date: '2026-11-21', time: { start: '09:00', end: '10:00' } }));
 });
+
+test('重复完成后的已确认提醒时间更新会取消旧响铃实例并安排下一轮，不重复登记', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); f.service.start({}); await f.refresh();
+  assert.equal(f.writes.length, 1);
+  f.clock.now = task.reminderAt + 1000;
+  task.reminderAt += 7 * 86400000;
+  for (const listener of f.listeners) listener({ optimistic: false });
+  await f.refresh();
+  assert.equal(f.cancelled.length, 1); assert.equal(f.writes.length, 2); assert.equal(f.system.size, 1);
+  assert.equal(f.service.status(task), '提醒已安排');
+  const date = new Date(task.reminderAt), next = f.writes[1].dateTime;
+  assert.equal(next.day, date.getDate()); assert.equal(next.hour, date.getHours());
+  await f.refresh(); assert.equal(f.writes.length, 2);
+  f.tasks([]);
+  for (const listener of f.listeners) listener({ optimistic: false });
+  await f.refresh(); assert.equal(f.system.size, 0);
+  f.service.stop();
+});

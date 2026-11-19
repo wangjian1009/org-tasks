@@ -3,7 +3,7 @@ use super::task_operation_executor::{
     end, newline, planning, planning_lines, replace, start, validate_state,
 };
 use super::{CoreError, OrgFile, TodoLogAction, TodoWorkflowKind};
-use chrono::{Datelike, Duration, Months, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{Datelike, Duration, Local, Months, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike};
 use orgize::{
     SyntaxKind,
     ast::{Drawer, Headline, List, ListItem, Timestamp},
@@ -327,6 +327,7 @@ pub(super) fn modify_without_triggers_with_note(
         Vec::new()
     };
     let repeating = !repeated.is_empty();
+    let reminder_offset = if repeating { repeat_reminder_offset(file, headline) } else { None };
     let repeat_state = if repeating {
         repeat_state(file, headline, previous.as_deref())?
     } else {
@@ -343,6 +344,13 @@ pub(super) fn modify_without_triggers_with_note(
         });
     for (range, value) in repeated.into_iter().rev() {
         replace(file, range, value.as_bytes())?;
+    }
+    if let Some((kind, offset_ms)) = reminder_offset {
+        let updated = node_at(file, offset)?;
+        let next = planning_start_time(file, &updated, kind)
+            .and_then(|time| time.checked_add(offset_ms))
+            .ok_or(CoreError::InvalidInput("重复提醒时间超出有效日期范围"))?;
+        super::task_operation_executor::modify(file, &updated, &super::TaskModification::SetReminder(Some(next)))?;
     }
     set_keyword(file, &node_at(file, offset)?, repeat_state.as_deref())?;
     let updated = node_at(file, offset)?;
@@ -904,6 +912,26 @@ fn repeat_timestamps(headline: &Headline) -> BTreeMap<usize, (usize, String)> {
     timestamps
 }
 
+// 复用规划投影和属性时间解析；只以带重复器的规划起始时刻计算固定时间差。
+fn planning_start_time(file: &OrgFile, headline: &Headline, kind: SyntaxKind) -> Option<i64> {
+    let info = super::task_repeat::planning_info(file, headline, kind)?;
+    let date = NaiveDate::parse_from_str(&info.date, "%Y-%m-%d").ok()?;
+    let time = info.time.map(|time| NaiveTime::parse_from_str(&time.start, "%H:%M")).transpose().ok()?
+        .unwrap_or(NaiveTime::MIN);
+    Local.from_local_datetime(&date.and_time(time)).earliest().map(|time| time.timestamp_millis())
+}
+
+fn repeat_reminder_offset(file: &OrgFile, headline: &Headline) -> Option<(SyntaxKind, i64)> {
+    let reminder = crate::filter::property_time(&metadata_node(file, headline), super::properties::REMINDER_PROPERTY)?.1;
+    for kind in [SyntaxKind::PLANNING_DEADLINE, SyntaxKind::PLANNING_SCHEDULED] {
+        let Some(raw) = super::task_repeat::planning_timestamp(file, headline, kind) else { continue };
+        if raw.starts_with('<') && repeater(&raw).is_some() {
+            return Some((kind, reminder.checked_sub(planning_start_time(file, headline, kind)?)?));
+        }
+    }
+    None
+}
+
 fn repeat_edits(
     headline: &Headline,
     now: NaiveDateTime,
@@ -920,6 +948,55 @@ fn repeat_edits(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeat_completion_moves_reminder_by_the_repeating_planning_offset() {
+        let now = NaiveDateTime::parse_from_str("2026-11-17 12:00", "%Y-%m-%d %H:%M").unwrap();
+        for (planning, reminder, expected, expected_planning) in [
+            ("SCHEDULED: <2026-11-10 Tue 10:00 +1d>", "[2026-11-10 Tue 09:00]", "[2026-11-11 Wed 09:00]", "SCHEDULED: <2026-11-11 Wed 10:00 +1d>"),
+            ("DEADLINE: <2026-11-10 Tue 10:00 +1w>", "[2026-11-09 Mon 09:00]", "[2026-11-16 Mon 09:00]", "DEADLINE: <2026-11-17 Tue 10:00 +1w>"),
+            ("SCHEDULED: <2026-11-10 Tue 10:00 +1d> DEADLINE: <2026-11-10 Tue 10:00 +1w>", "[2026-11-10 Tue 09:00]", "[2026-11-17 Tue 09:00]", "SCHEDULED: <2026-11-11 Wed 10:00 +1d> DEADLINE: <2026-11-17 Tue 10:00 +1w>"),
+            ("SCHEDULED: <2026-11-10 Tue 10:00 +1d> DEADLINE: <2026-12-01 Tue 10:00>", "[2026-11-10 Tue 09:00]", "[2026-11-11 Wed 09:00]", "DEADLINE: <2026-12-01 Tue 10:00>"),
+            ("SCHEDULED: <2026-11-10 Tue 10:00> DEADLINE: <2026-11-10 Tue 10:00 +1w>", "[2026-11-10 Tue 09:00]", "[2026-11-17 Tue 09:00]", "DEADLINE: <2026-11-17 Tue 10:00 +1w>"),
+            ("SCHEDULED: <2026-11-10 Tue 10:00 .+1d>", "[2026-11-10 Tue 09:00]", "[2026-11-18 Wed 09:00]", "SCHEDULED: <2026-11-18 Wed 10:00 .+1d>"),
+            ("SCHEDULED: <2026-11-10 Tue 10:00 ++1d>", "[2026-11-10 Tue 09:00]", "[2026-11-18 Wed 09:00]", "SCHEDULED: <2026-11-18 Wed 10:00 ++1d>"),
+            ("SCHEDULED: <2026-11-10 Tue 10:30-11:00 +2h>", "[2026-11-10 Tue 09:45]", "[2026-11-10 Tue 11:45]", "SCHEDULED: <2026-11-10 Tue 12:30-13:00 +2h>"),
+            ("SCHEDULED: <2026-11-10 Tue +1d>", "[2026-11-09 Mon 23:00]", "[2026-11-10 Tue 23:00]", "SCHEDULED: <2026-11-11 Wed +1d>"),
+            ("SCHEDULED: <2026-11-10 Tue 10:00 +1d>", "[2026-11-10 Tue 11:30]", "[2026-11-11 Wed 11:30]", "SCHEDULED: <2026-11-11 Wed 10:00 +1d>"),
+            ("SCHEDULED: <2026-01-31 Sat 10:00 +1m>", "[2026-01-30 Fri 09:00]", "[2026-03-02 Mon 09:00]", "SCHEDULED: <2026-03-03 Tue 10:00 +1m>"),
+            ("SCHEDULED: <2026-11-10 Tue 10:00 .+1w/2w>", "[2026-11-10 Tue 09:00]", "[2026-11-24 Tue 09:00]", "SCHEDULED: <2026-11-24 Tue 10:00 .+1w/2w>"),
+        ] {
+            let source = format!("* TODO Task\r\n{planning}\r\n:PROPERTIES:\r\n:REMIND_AT: {reminder}\r\n:KEEP:   value  \r\n:END:\r\n正文  \r\n** Child\r\n子正文\r\n");
+            let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+            let headline = file.path_headlines()[0].1.clone();
+            modify_at(&mut file, &headline, Some("DONE"), now).unwrap();
+            let actual = std::str::from_utf8(file.source_bytes()).unwrap();
+            assert!(actual.contains(&format!(":REMIND_AT: {expected}\r\n")), "{planning}\n{actual}");
+            assert!(actual.contains(expected_planning), "{planning}\n{actual}");
+            assert!(actual.starts_with("* TODO Task\r\n"));
+            assert!(actual.ends_with(":KEEP:   value  \r\n:END:\r\n正文  \r\n** Child\r\n子正文\r\n"));
+        }
+    }
+
+    #[test]
+    fn reminder_is_not_invented_or_moved_without_a_repeating_planning_anchor() {
+        let now = NaiveDateTime::parse_from_str("2026-11-17 12:00", "%Y-%m-%d %H:%M").unwrap();
+        for (state, planning, properties, body, target) in [
+            ("TODO", "SCHEDULED: <2026-11-10 Tue 10:00 +1d>\n", "", "Body\n", "DONE"),
+            ("TODO", "SCHEDULED: <2026-11-10 Tue 10:00 +1d>\n", ":REMIND_AT: wrong\n", "Body\n", "DONE"),
+            ("TODO", "SCHEDULED: <2026-11-10 Tue 10:00>\n", ":REMIND_AT: [2026-11-10 Tue 09:00]\n", "Body\n", "DONE"),
+            ("TODO", "", ":REMIND_AT: [2026-11-10 Tue 09:00]\n", "<2026-11-10 Tue +1d>\n", "DONE"),
+            ("DONE", "SCHEDULED: <2026-11-10 Tue 10:00 +1d>\n", ":REMIND_AT: [2026-11-10 Tue 09:00]\n", "Body\n", "DONE"),
+            ("DONE", "SCHEDULED: <2026-11-10 Tue 10:00 +1d>\n", ":REMIND_AT: [2026-11-10 Tue 09:00]\n", "Body\n", "TODO"),
+        ] {
+            let source = format!("* {state} Task\n{planning}:PROPERTIES:\n{properties}:KEEP: x\n:END:\n{body}");
+            let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
+            let headline = file.path_headlines()[0].1.clone();
+            modify_at(&mut file, &headline, Some(target), now).unwrap();
+            let actual = std::str::from_utf8(file.source_bytes()).unwrap();
+            assert!(actual.contains(&format!(":PROPERTIES:\n{properties}:KEEP: x\n:END:\n")), "{actual}");
+        }
+    }
 
     #[test]
     fn property_operations_preserve_unrelated_bytes_and_project_only_own_values() {

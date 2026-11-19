@@ -233,3 +233,49 @@ async fn reminder_expressions_share_created_date_rules_and_sort_by_full_time() {
     );
     workspace.stop().await.unwrap();
 }
+
+#[tokio::test]
+async fn repeat_completion_updates_reminder_in_the_same_notification_and_rolls_back_with_triggers() {
+    let source = "* TODO Target\r\nSCHEDULED: <2026-11-10 Tue 10:00 +1d> DEADLINE: <2026-11-10 Tue 10:00 +1w>\r\n:PROPERTIES:\r\n:REMIND_AT: [2026-11-10 Tue 09:00]\r\n:KEEP:   unchanged  \r\n:END:\r\nBody  \r\n";
+    let workspace = workspace(source).await;
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let capture = events.clone();
+    let mut subscription = workspace.subscribe_query(vec![QuerySubscriptionRequest::new(
+        TaskQuery { expression: "it.todo has.reminder".into(), ..Default::default() }.into(),
+        move |event| capture.lock().unwrap().push(event),
+    )]).await.unwrap().remove(0);
+    let original = workspace.repos()[0].file("tasks.org").await.unwrap().nodes().remove(0);
+    workspace.execute_task_operations(&TaskOperationGroup {
+        operations: vec![TaskOperation::Modification(TaskModificationOperation {
+            path: original.full_path().clone(), modifications: vec![TaskModification::Todo(Some("DONE".into()))], note: None,
+        })],
+        file_versions: vec![TaskFileVersion { repo_id: original.repo_id().into(), file: original.path().into(), version: original.file_version().into() }],
+        ..Default::default()
+    }).await.unwrap();
+    let next = workspace.query(&[TaskQuery { expression: "it.todo has.reminder".into(), ..Default::default() }.into()])
+        .await.unwrap().remove(0).into_task().unwrap().tasks.remove(0);
+    let expected = Local.with_ymd_and_hms(2026, 11, 17, 9, 0, 0).earliest().unwrap().timestamp_millis();
+    assert_eq!(next.reminder_at(), Some(expected));
+    assert_eq!(next.state().unwrap().name, "TODO");
+    assert_ne!(next.file_version(), original.file_version());
+    assert!(serde_json::to_string(&*events.lock().unwrap()).unwrap().contains(&format!("\"reminderAt\":{expected}")));
+    let bytes = workspace.repos()[0].file("tasks.org").await.unwrap();
+    assert!(String::from_utf8_lossy(bytes.source_bytes()).ends_with(":KEEP:   unchanged  \r\n:END:\r\nBody  \r\n"));
+    workspace.unsubscribe_query(&mut subscription.subscription);
+    workspace.stop().await.unwrap();
+
+    for source in [
+        "* TODO Target\nSCHEDULED: <2026-11-10 Tue 10:00 +1d>\n:PROPERTIES:\n:REMIND_AT: [2026-11-10 Tue 09:00]\n:TRIGGER: self todo!(INVALID)\n:END:\nBody\n",
+        "* TODO Target\nSCHEDULED: <9999-12-30 Thu 10:00 +1d>\n:PROPERTIES:\n:REMIND_AT: [9999-12-31 Fri 10:00]\n:END:\nBody\n",
+    ] {
+        let workspace = self::workspace(source).await;
+        let task = workspace.repos()[0].file("tasks.org").await.unwrap().nodes().remove(0);
+        assert!(workspace.execute_task_operations(&TaskOperationGroup {
+            operations: vec![TaskOperation::Modification(TaskModificationOperation {
+                path: task.full_path().clone(), modifications: vec![TaskModification::Todo(Some("DONE".into()))], note: None,
+            })], ..Default::default()
+        }).await.is_err());
+        assert_eq!(workspace.repos()[0].file("tasks.org").await.unwrap().source_bytes(), source.as_bytes());
+        workspace.stop().await.unwrap();
+    }
+}
