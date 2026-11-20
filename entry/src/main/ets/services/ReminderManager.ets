@@ -276,7 +276,11 @@ export class ReminderManager {
     ReminderManager.timer = setTimeout((): void => {
       ReminderManager.timer = -1
       const cleanupDue = cleanupTimes.some(when => when > scheduledAt && when <= Date.now())
-      if (cleanupDue) ReminderManager.schedule('过期清理')
+      if (cleanupDue) {
+        const refresh = ReminderManager.source?.refresh()
+        if (refresh) refresh.finally((): void => { ReminderManager.schedule('过期清理') })
+        else ReminderManager.schedule('过期清理')
+      }
       else { ReminderManager.publish(); ReminderManager.updateTimer(tasks) }
     }, Math.min(2147483647, Math.max(1, Math.min(...times) - scheduledAt + 500)))
   }

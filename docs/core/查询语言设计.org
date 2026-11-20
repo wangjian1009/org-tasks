@@ -204,6 +204,6 @@ impl OrgWorkspace {
 
 * 提醒条件
 
-~reminder.<interval>~ / ~r.<interval>~ 使用与 ~cr~ 相同的自然日条件，支持 ~eq/ne/lt/le/gt/ge~ 、 ~none~ 和既有相对日期单位；默认关系为 ~le~ ， ~now~ 为当前自然日。 ~has.reminder~ 匹配有效提醒时间， ~.has.reminder~ 取反，缺失或非法值均按空时间处理。 ~o.reminder~ / ~o.r~ 按完整时间戳升序，前置点号降序，缺失值和同值次序沿用 ~created~ 。例如 ~reminder.ge.today reminder.lt.tomorrow~ 、 ~reminder.none~ 。
+~reminder.<interval>~ / ~r.<interval>~ 使用与 ~cr~ 相同的自然日条件，支持 ~eq/ne/lt/le/gt/ge~ 、 ~none~ 和既有相对日期单位；提醒时间另支持分钟单位 ~min~，例如 ~reminder.ge.-30min~ 表示最近 30 分钟内的提醒。默认关系为 ~le~ ， ~now~ 为当前自然日。 ~has.reminder~ 匹配有效提醒时间， ~.has.reminder~ 取反，缺失或非法值均按空时间处理。 ~o.reminder~ / ~o.r~ 按完整时间戳升序，前置点号降序，缺失值和同值次序沿用 ~created~ 。例如 ~reminder.ge.today reminder.lt.tomorrow~ 、 ~reminder.none~ 。
 
 系统协调使用 ~it.todo has.reminder~ ，设置列表使用 ~.it.none has.reminder o.reminder~ ，由 Core 统一处理状态、冲突、忽略和文件范围；列表包含已结束与过期任务，不在 UI 再过滤。

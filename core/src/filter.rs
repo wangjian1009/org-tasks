@@ -105,6 +105,7 @@ struct FilterInterval {
 enum FilterIntervalUnit {
     None,
     Now,
+    Minute,
     Hour,
     Day,
     Week,
@@ -505,6 +506,9 @@ impl FilterInterval {
                 value: -1,
             }),
             _ => {
+                if let Some(number) = lower.strip_suffix("min") {
+                    return Some(Self { unit: FilterIntervalUnit::Minute, value: number.parse().ok()? });
+                }
                 let split = lower.len().checked_sub(1)?;
                 let (number, unit) = lower.split_at(split);
                 let value = number.parse().ok()?;
@@ -980,6 +984,21 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
             relation,
             interval,
         } => {
+            if *field == FilterDateField::Reminder && interval.unit == FilterIntervalUnit::Minute {
+                let matches = task.reminder_at.is_some_and(|value| {
+                    let target = Local::now() + Duration::minutes(interval.value as i64);
+                    let target = target.timestamp_millis();
+                    match relation {
+                        FilterRelation::Eq => value == target,
+                        FilterRelation::Ne => value != target,
+                        FilterRelation::Lt => value < target,
+                        FilterRelation::Le => value <= target,
+                        FilterRelation::Gt => value > target,
+                        FilterRelation::Ge => value >= target,
+                    }
+                });
+                return matches;
+            }
             let dates = dates_for_field(task, *field, *relation, *interval);
             if interval.unit == FilterIntervalUnit::None {
                 return dates.is_empty();
@@ -1081,6 +1100,7 @@ fn interval_date(interval: FilterInterval, today: NaiveDate) -> NaiveDate {
     match interval.unit {
         FilterIntervalUnit::None
         | FilterIntervalUnit::Now
+        | FilterIntervalUnit::Minute
         | FilterIntervalUnit::Day
         | FilterIntervalUnit::Hour => today + Duration::days(interval.value as i64),
         FilterIntervalUnit::Week => today + Duration::weeks(interval.value as i64),
@@ -1808,6 +1828,7 @@ mod tests {
         assert!(Filter::validate_expression("b.\"book(1) name\"").is_err());
         assert!(Filter::validate_expression(".b.old.org").is_err());
         assert!(Filter::validate_expression("\"b.old.org\"").is_ok());
+        assert!(Filter::validate_expression("reminder.ge.-30min").is_ok());
     }
 
     #[test]

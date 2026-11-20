@@ -84,7 +84,7 @@ function fixture(shared = {}) {
       creates++; assert.equal(name, 'app'); assert.deepEqual(Array.from(options.uncachedDataSets), ['reminderTasks']);
       const definitions = factory({});
       assert.equal(definitions.filter(item => item.name === 'reminderTasks').length, 1);
-      assert.equal(definitions.find(item => item.name === 'reminderTasks').query.query.expression, 'it.todo has.reminder o.reminder');
+      assert.equal(definitions.find(item => item.name === 'reminderTasks').query.query.expression, 'it.todo has.reminder reminder.ge.-30min o.reminder');
       return manager;
     } } },
     './FileTargetService': { systemTrashExclusions: () => ({ files: [], repositoryBindings: [] }),
@@ -444,6 +444,7 @@ test('提醒到点仅更新过期状态，满 30 分钟才按内存索引自动�
   f.clock.now = task.reminderAt+30*60000+500; timer.fn(); await tick();
   assert.equal(f.native.events.size, 0); assert.equal(f.timers.size, 0);
   const log = f.service.operationLogs()[0]; assert.equal(log.operation, '删除'); assert.equal(log.trigger, '过期清理');
+  assert.equal(f.calls.filter(call=>call[0]==='query').length,1);
   assert.equal(f.calls.filter(call=>call[0]==='inventory').length, 1);assert.equal(f.calls.filter(call=>call[0]==='lookup').length, 0);
 });
 
@@ -527,8 +528,10 @@ test('更改事件时长自动更新已加载事件且不重扫库存，不覆�
 test('提前提醒过期三十分钟时仍保留尚未结束的事件，事件结束后自动清理', async () => {
   const f=fixture();f.clock.now=local('2026-11-20T08:00:00');const task=f.task();task.reminderAt=local('2026-11-20T08:10:00');task.editContent.scheduledPlanning=planning('2026-11-20','11:00');
   f.tasks([task]);await f.refresh();f.clock.now=local('2026-11-20T08:41:00');await f.refresh();assert.equal(f.native.events.size,1);
+  assert.equal(f.calls.filter(call=>call[0]==='query').length,0);
   const timer=[...f.timers.values()][0];f.clock.now=local('2026-11-20T11:05:01');timer.fn();await tick();
   assert.equal(f.native.events.size,0);assert.equal(f.service.operationLogs()[0].trigger,'过期清理');
+  assert.equal(f.calls.filter(call=>call[0]==='query').length,1);
 });
 
 test('持续时长超过三十分钟时等待事件结束，不截断日历事件', async () => {

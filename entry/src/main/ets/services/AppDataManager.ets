@@ -50,7 +50,7 @@ export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
     if (target) definitions.push({ name: `${kind}Tasks`, query: target.task, repositoryBindings: target.repositoryBindings },
       { name: `${kind}File`, query: target.file, repositoryBindings: target.repositoryBindings })
   }
-  definitions.push(task('reminderTasks', { type: 'task', query: { expression: 'it.todo has.reminder o.reminder' } }))
+  definitions.push(task('reminderTasks', { type: 'task', query: { expression: 'it.todo has.reminder reminder.ge.-30min o.reminder' } }))
   return definitions
 }
 

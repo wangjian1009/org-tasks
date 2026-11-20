@@ -43,13 +43,13 @@ JSON 修改项为 ~{"field":"SET_REMINDER","value":1795136400000}~ 或 ~{"field"
 
 * 查询表达式
 
-~reminder.<interval>~ 与简写 ~r.<interval>~ 沿用 ~cr~ 的自然日条件规则，支持 ~eq~ 、 ~ne~ 、 ~lt~ 、 ~le~ 、 ~gt~ 、 ~ge~ ，省略关系时为 ~le~ 。例如 ~reminder.ge.today reminder.lt.tomorrow~ 查询当天的任务， ~reminder.none~ 查询缺失或无效的提醒时间。与既有创建日期条件一致， ~now~ 表示当前自然日，不额外引入按当前分钟比较的规则。
+~reminder.<interval>~ 与简写 ~r.<interval>~ 沿用 ~cr~ 的自然日条件规则，支持 ~eq~ 、 ~ne~ 、 ~lt~ 、 ~le~ 、 ~gt~ 、 ~ge~ ，省略关系时为 ~le~ ；另支持 ~min~ 分钟间隔，例如 ~reminder.ge.-30min~ 表示最近 30 分钟内。比如 ~reminder.ge.today reminder.lt.tomorrow~ 查询当天的任务， ~reminder.none~ 查询缺失或无效的提醒时间。与既有创建日期条件一致， ~now~ 表示当前自然日。
 
 ~has.reminder~ 匹配有效提醒时间， ~.has.reminder~ 取反。排序 ~o.reminder~ / ~o.r~ 按完整毫秒时间升序，前置点号为降序；缺失值及同值的次序沿用 ~created~ 排序规则。条件与其他状态、文件和布尔条件自由组合。
 
 * 全局事件数据集与同步过程
 
-~ReminderManager~ 是应用级提醒入口，由 ~AppDataManager~ 将唯一 ~app/reminderTasks~ DataSet 注册给它，随应用数据层启动和关闭。查询为 ~it.todo has.reminder o.reminder~ ，由 Core 排除完成、取消、无状态和系统废纸篓，按提醒时间排序。提醒查询与普通页面基础查询共享同一个 DataSetManager、Workspace、首次批次和文件变化监听，通过 ~uncachedDataSets~ 排除提醒来源的磁盘缓存。设置页的“有提醒的任务”直接消费这份数据，不新建管理器、查询或过滤；页面离开只解除自身监听。
+~ReminderManager~ 是应用级提醒入口，由 ~AppDataManager~ 将唯一 ~app/reminderTasks~ DataSet 注册给它，随应用数据层启动和关闭。查询为 ~it.todo has.reminder reminder.ge.-30min o.reminder~ ，由 Core 排除完成、取消、无状态、超过 30 分钟的过期提醒和系统废纸篓，按提醒时间排序；管理器的运行时内存索引仍保留到点事件，在实际日历事件满足过期保留时长与结束时间的清理条件后，触发 DataSet 重新查询并清理。提醒查询与普通页面基础查询共享同一个 DataSetManager、Workspace、首次批次和文件变化监听，通过 ~uncachedDataSets~ 排除提醒来源的磁盘缓存。设置页的“有提醒的任务”直接消费这份数据，不新建管理器、查询或过滤；页面离开只解除自身监听。
 
 应用启动后由全局数据管理器加载来源 DataSet，提醒管理器订阅其确认变化，首次已确认快照就绪后执行一次完整日历同步。提醒维护异步执行，不延长普通页面等待数据的过程。后续来源数据的增、删、改及文件同步后的快照变化，转换为对应事件的增、删、改，不再次遍历完整系统日历。调用方不提交人工同步请求；恢复前台复用同一管理器，不重复初始化查询或完整同步。权限恢复、开关重新启用及系统写入失败后的恢复允许重新核对库存。
 
