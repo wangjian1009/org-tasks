@@ -14,6 +14,7 @@ export const LINK_PROTOCOLS: LinkProtocolChoice[] = [
   { kind: 'tel', title: '电话', prefix: 'tel:', icon: $r('app.media.ui_link_phone'), path: 'M7 3H4c-2 8 9 19 17 17v-4l-5-2-2 2c-3-1-5-3-6-6l2-2Z' },
   { kind: 'geo', title: '坐标', prefix: 'geo:', icon: $r('app.media.ui_link_geo'), path: 'M12 22s8-8 8-13a8 8 0 1 0-16 0c0 5 8 13 8 13ZM12 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z' },
   { kind: 'addr', title: '地址', prefix: 'addr:', icon: $r('app.media.ui_link_addr'), path: 'M3 5l6-2 6 2 6-2v16l-6 2-6-2-6 2ZM9 3v16M15 5v16' },
+  { kind: 'app', title: '应用', prefix: 'app:', icon: $r('app.media.ui_link_other'), path: 'M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM9 6h6M9 18h6' },
   { kind: 'internal', title: '文档内部', prefix: '', icon: $r('app.media.ui_link_internal'), path: 'M4 3h10l6 6v12H4ZM14 3v6h6M8 15h8M13 12l3 3-3 3' }
 ]
 

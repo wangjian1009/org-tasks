@@ -63,6 +63,21 @@ export interface AppConfig {
   fileDisplayMode: 'rendered' | 'source' // 文件展示方式
 }
 
+// app: 链接的目标由宿主按链接名称记录，不写入 Org 文件或 Core 同步记录。
+export interface AppLinkAssociation {
+  name: string
+  bundleName: string
+  moduleName: string
+  abilityName: string
+}
+
+// 随版本发布的应用目录；用户只能从目录选择目标，关联键仍由 Org 的 app: 名称决定。
+export interface AppLinkCatalogEntry {
+  id: string
+  name: string
+  iconResource?: Resource
+}
+
 // 默认配置
 export const DEFAULT_CONFIG: AppConfig = {
   repos: [],

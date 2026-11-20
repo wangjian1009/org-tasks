@@ -8,8 +8,9 @@ import { addRepository } from '../services/RepositoryNavigation'
 import { validateConfiguration } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
 import { common } from '@kit.AbilityKit'
-import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
+import { AppConfig, AppLinkAssociation, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
+import { AppLinkService } from '../services/AppLinkService'
 import { CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTaskState, CoreSettingsObject } from '../services/NativeCoreService'
 import { NotebookGroup, NotebookService } from '../services/NotebookService'
 import { AppShell } from '../components/AppShell'
@@ -57,6 +58,13 @@ struct Settings {
   @State filePickerBusy: boolean = false
   @State filePickerKind: FileTargetKind = 'inbox'
   @State notebooks: NotebookGroup[] = []
+  @State appLinks: AppLinkAssociation[] = []
+  @State editingAppLink: number = -1
+  @State appLinkNameDraft: string = ''
+  @State appLinkBundleDraft: string = ''
+  @State appLinkModuleDraft: string = ''
+  @State appLinkAbilityDraft: string = ''
+  @State appLinkBusy: boolean = false
   @State notificationState: NotificationPermissionState | 'loading' | 'error' = 'loading'
   @State notificationBusy: boolean = false
   @State calendarState: CalendarPermissionState | 'loading' | 'error' = 'loading'
@@ -71,7 +79,8 @@ struct Settings {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.saving && !this.categoryBusy && !this.filePickerOpen && !this.filePickerBusy &&
-      !this.notificationBusy && !this.calendarBusy && this.editingCategory < 0 && !this.preferenceSave.hasPending())
+      !this.notificationBusy && !this.calendarBusy && !this.appLinkBusy && this.editingCategory < 0 &&
+      this.editingAppLink < 0 && !this.preferenceSave.hasPending())
     this.stopReminder?.()
     this.stopReminder = ReminderManager.subscribe((): void => { this.reminderSummary = ReminderManager.summary() })
     this.reminderSummary = ReminderManager.summary()
@@ -183,9 +192,10 @@ struct Settings {
   }
   onBackPress(): boolean {
     if (this.filePickerOpen) { if (!this.filePickerBusy) this.filePickerOpen = false; return true }
-    if (this.saving || this.categoryBusy || this.notificationBusy || this.calendarBusy) return true
+    if (this.saving || this.categoryBusy || this.notificationBusy || this.calendarBusy || this.appLinkBusy) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
+    if (this.editingAppLink >= 0) { this.cancelAppLinkEdit(); return true }
     if (this.preferenceSave.hasPending()) { this.preferenceSave.flush().then((): void => { this.onBackPress() }); return true }
     if (this.section === '提醒操作日志') { this.section = '任务提醒'; this.message = ''; return true }
     if (this.section) { this.section = ''; this.message = ''; return true }
@@ -207,6 +217,7 @@ struct Settings {
       this.retentionDraft = `${await TrashSettingsService.retentionDays(this.getUIContext().getHostContext()!)}`
       this.savedRetentionDays = Number(this.retentionDraft)
       this.config = config
+      this.appLinks = await AppLinkService.load(this.getUIContext().getHostContext()!)
       this.coreSettings = config.coreSettings
       this.fileDisplayMode = config.fileDisplayMode
       this.defaultStates = await NativeCoreService.defaultTaskStates()
@@ -225,6 +236,55 @@ struct Settings {
     this.section = section
     this.message = ''
     if (section === '文件入口') this.loadNotebookNames()
+  }
+
+  beginAppLinkEdit(index: number): void {
+    const value = this.appLinks[index]
+    if (!value) return
+    this.editingAppLink = index
+    this.appLinkNameDraft = value.name
+    this.appLinkBundleDraft = value.bundleName
+    this.appLinkModuleDraft = value.moduleName
+    this.appLinkAbilityDraft = value.abilityName
+    this.message = ''
+  }
+
+  cancelAppLinkEdit(): void {
+    if (this.appLinkBusy) return
+    this.editingAppLink = -1
+    this.message = ''
+  }
+
+  async saveAppLink(index: number): Promise<void> {
+    if (this.appLinkBusy || !this.appLinks[index]) return
+    const value: AppLinkAssociation = { name: this.appLinkNameDraft.trim(), bundleName: this.appLinkBundleDraft.trim(),
+      moduleName: this.appLinkModuleDraft.trim(), abilityName: this.appLinkAbilityDraft.trim() }
+    if (!value.name || !value.bundleName) { this.message = '请填写应用名称和 Bundle Name'; return }
+    this.appLinkBusy = true; this.message = ''
+    try {
+      await AppLinkService.update(this.getUIContext().getHostContext()!, this.appLinks[index].name, value)
+      this.appLinks = await AppLinkService.load(this.getUIContext().getHostContext()!)
+      this.editingAppLink = -1
+    } catch (error) { this.message = `保存应用关联失败：${(error as Error).message || '请重试'}` }
+    finally { this.appLinkBusy = false }
+  }
+
+  deleteAppLink(index: number): void {
+    if (this.appLinkBusy || !this.appLinks[index]) return
+    const value = this.appLinks[index]
+    this.getUIContext().showAlertDialog({ title: '删除应用关联？', message: `以后点击 app:${value.name} 时需要重新选择应用。`,
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.removeAppLink(value.name) } } })
+  }
+
+  private async removeAppLink(name: string): Promise<void> {
+    this.appLinkBusy = true; this.message = ''
+    try {
+      await AppLinkService.remove(this.getUIContext().getHostContext()!, name)
+      this.appLinks = await AppLinkService.load(this.getUIContext().getHostContext()!)
+      this.editingAppLink = -1
+    } catch (error) { this.message = `删除应用关联失败：${(error as Error).message || '请重试'}` }
+    finally { this.appLinkBusy = false }
   }
 
   fileTargetTitle(kind: FileTargetKind): string {
@@ -311,6 +371,8 @@ struct Settings {
       SettingsRow({ title: '任务状态分类', value: '5 类', icon: $r('app.media.ui_state'), action: (): void => { this.openSection('任务状态分类') } })
       SettingsChoiceRow({ title: '文件展示方式', value: this.fileDisplayMode === 'source' ? '原文' : '渲染',
         icon: $r('app.media.ui_body'), divider: false, disabled: this.saving, items: this.displayModeChoices() })
+      SettingsRow({ title: '应用关联', value: `${this.appLinks.length} 个`, icon: $r('app.media.ui_link_other'), divider: false,
+        action: (): void => { this.openSection('应用关联') } })
     }
     SettingsGroup({ title: '应用程序', detail: '通知授权和通知类型可在系统设置中管理；数字角标还需在系统设置中开启桌面角标。' }) {
       SettingsRow({ title: '通知与角标', value: this.notificationState === 'enabled' ? '已开启' : this.notificationState === 'loading' ? '读取中' : '未开启',
@@ -387,6 +449,41 @@ struct Settings {
   }
 
   @Builder
+  appLinksSettings() {
+    SettingsGroup({ title: 'app: 链接关联', detail: 'Org 链接使用 app:名称 表示外部应用。第一次点击时从随版本发布的银行应用目录中选择并自动保存；这里只能修改或删除已经建立的关联，不能手动新增。' }) {
+      if (this.appLinks.length === 0) {
+        Text('尚未建立应用关联。点击 Org 中的 app: 链接后即可选择并保存。').fontSize(14).fontColor(UiColor.secondary)
+          .width('100%').padding(16)
+      }
+      ForEach(this.appLinks, (value: AppLinkAssociation, index: number) => {
+        if (this.editingAppLink === index) {
+          Column({ space: 8 }) {
+            TextInput({ text: this.appLinkNameDraft, placeholder: '应用名称（app: 后的值）' }).fontSize(14).backgroundColor(UiColor.field)
+              .onChange((text: string): void => { this.appLinkNameDraft = text })
+            TextInput({ text: this.appLinkBundleDraft, placeholder: 'Bundle Name' }).fontSize(14).backgroundColor(UiColor.field)
+              .onChange((text: string): void => { this.appLinkBundleDraft = text })
+            TextInput({ text: this.appLinkModuleDraft, placeholder: 'Module Name（可选）' }).fontSize(14).backgroundColor(UiColor.field)
+              .onChange((text: string): void => { this.appLinkModuleDraft = text })
+            TextInput({ text: this.appLinkAbilityDraft, placeholder: 'Ability Name' }).fontSize(14).backgroundColor(UiColor.field)
+              .onChange((text: string): void => { this.appLinkAbilityDraft = text })
+            Row({ space: 12 }) {
+              Button('取消').height(40).backgroundColor(UiColor.field).fontColor(UiColor.text).onClick((): void => { this.cancelAppLinkEdit() })
+              Button('保存').height(40).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).onClick((): void => { this.saveAppLink(index) })
+            }.justifyContent(FlexAlign.End).width('100%')
+          }.width('100%').padding(14)
+        } else {
+          SettingsRow({ title: `app:${value.name}`, value: value.bundleName, detail: `${value.moduleName ? value.moduleName + ' · ' : ''}${value.abilityName}`,
+            icon: $r('app.media.ui_link_other'), action: (): void => { this.beginAppLinkEdit(index) }, disabled: this.appLinkBusy })
+        }
+      }, (value: AppLinkAssociation) => value.name)
+      if (this.editingAppLink >= 0) {
+        SettingsRow({ title: '删除当前关联', icon: $r('app.media.ui_delete'), divider: false, danger: true,
+          action: (): void => { this.deleteAppLink(this.editingAppLink) }, disabled: this.appLinkBusy })
+      }
+    }
+  }
+
+  @Builder
   categories() {
     SettingsGroup({ title: '状态分类', detail: '默认状态固定；带 × 的自定义状态可点击移除。点击 + 添加状态，新增状态还需在笔记本的 TODO 声明中启用。' }) {
       ForEach(this.stateCategories, (category: TaskStateCategory, index: number) => {
@@ -444,7 +541,7 @@ struct Settings {
   build() {
     Column() {
       AppShell({ title: this.section || '设置', activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
-        back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy,
+        back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy || this.appLinkBusy,
         backAction: (): void => { this.onBackPress() }, titleIcon: $r('app.media.nav_settings') }) {
         Column() {
           MessageBar({ message: this.message, error: true })
@@ -466,6 +563,7 @@ struct Settings {
               else if (this.section === '文件入口') { this.fileEntries() }
               else if (this.section === '任务状态分类') { this.categories() }
               else if (this.section === '存储库') { this.repositories() }
+              else if (this.section === '应用关联') { this.appLinksSettings() }
               else {
                 SettingsGroup({ title: '小清单' }) {
                   Text('浏览 Org 笔记本、按日期查看任务，支持 WebDAV 同步和快速捕捉。')

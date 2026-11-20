@@ -13,6 +13,8 @@ import { UiColor, UiSize } from '../ui/Theme'
 import { titleCountInline } from './TitleCountInline'
 import { titleCounts } from '../ui/TitleCountPresentation'
 import { CoreTitleCount } from '../services/NativeCoreService'
+import { AppLinkAssociation, AppLinkCatalogEntry } from '../models/OrgTask'
+import { AppLinkService, appLinkName } from '../services/AppLinkService'
 
 interface MapAppChoice {
   title: string
@@ -20,6 +22,16 @@ interface MapAppChoice {
   contextLabel: string
   description: string
   supported: boolean
+  select: () => Promise<void>
+}
+
+interface AppLinkChoice {
+  title: string
+  icon: Resource
+  contextLabel: string
+  description: string
+  supported: boolean
+  association: AppLinkAssociation
   select: () => Promise<void>
 }
 
@@ -111,6 +123,8 @@ export struct LinkView {
   private suppressClickUntil: number = 0
   @State chooserVisible: boolean = false
   @State mapChoices: MapAppChoice[] = []
+  @State appChoices: AppLinkChoice[] = []
+  @State chooserKind: 'map' | 'app' = 'map'
   @State launching: boolean = false
   @State editing: boolean = false
   @State menuVisible: boolean = false
@@ -145,7 +159,7 @@ export struct LinkView {
   }
   aboutToDisappear() {
     this.inputFocus.cancel()
-    this.active = false; this.generation++; this.chooserVisible = false; this.mapChoices = []; this.menuVisible = false; this.protocolVisible = false
+    this.active = false; this.generation++; this.chooserVisible = false; this.mapChoices = []; this.appChoices = []; this.menuVisible = false; this.protocolVisible = false
     this.editor.release(this.owner)
     if (this.editing) this.editingChanged(false)
   }
@@ -426,7 +440,9 @@ export struct LinkView {
       }
       await openExternalLink(this.getUIContext().getHostContext()! as common.UIAbilityContext, href,
         (choices: MapAppChoice[]): void => {
-          if (this.active && generation === this.generation) { this.mapChoices = choices; this.chooserVisible = true }
+          if (this.active && generation === this.generation) { this.chooserKind = 'map'; this.mapChoices = choices; this.chooserVisible = true }
+        }, (choices: AppLinkChoice[]): void => {
+          if (this.active && generation === this.generation) { this.chooserKind = 'app'; this.appChoices = choices; this.chooserVisible = true }
         })
     } catch (_) {
       if (generation === this.generation) this.notify(internalLinkTarget(href) !== undefined
@@ -460,6 +476,22 @@ export struct LinkView {
     }
   }
 
+  async selectApp(choice: AppLinkChoice): Promise<void> {
+    if (!this.active || this.launching) return
+    const generation = this.generation
+    this.launching = true
+    try {
+      const context = this.getUIContext().getHostContext()! as common.UIAbilityContext
+      await choice.select()
+      await AppLinkService.upsert(context, choice.association)
+      if (this.active && generation === this.generation) this.chooserVisible = false
+    } catch (_) {
+      if (generation === this.generation) this.notify('无法打开应用，请确认应用仍然可用。')
+    } finally {
+      if (this.active && generation === this.generation) this.launching = false
+    }
+  }
+
   @Builder
   emptyContent(_links: LinkController) {}
 
@@ -488,6 +520,34 @@ export struct LinkView {
         }.width('100%').padding({ left: 24, right: 24, top: 12, bottom: 12 })
           .enabled(!this.launching).onClick((): void => { this.selectMapApp(choice) })
       })
+    }.width('100%').backgroundColor(UiColor.surface).borderRadius({ topLeft: 28, topRight: 28 })
+  }
+
+  @Builder
+  appLinkSheet() {
+    Column() {
+      Text('选择应用').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+        .width('100%').padding({ left: 24, top: 8, bottom: 4 }).textAlign(TextAlign.Start)
+      if (this.appChoices.length > 0) {
+        Text(`打开 app:${this.appChoices[0].association.name}`).fontSize(14).fontColor(UiColor.secondary)
+          .width('100%').padding({ left: 24, bottom: 10 }).textAlign(TextAlign.Start)
+      }
+      Divider().color(UiColor.divider).margin({ left: 24, right: 24 })
+      ForEach(this.appChoices, (choice: AppLinkChoice) => {
+        Row({ space: 12 }) {
+          Image(choice.icon).width(36).height(36).objectFit(ImageFit.Contain).borderRadius(8).accessibilityLevel('no')
+          Column({ space: 4 }) {
+            Text(choice.title).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+            Text(choice.description).fontSize(14).fontColor(UiColor.secondary)
+          }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+          Image($r('app.media.ui_next')).width(24).height(24).fillColor(UiColor.primary).accessibilityLevel('no')
+        }.width('100%').padding({ left: 24, right: 24, top: 12, bottom: 12 })
+          .enabled(!this.launching).onClick((): void => { this.selectApp(choice) })
+      })
+      if (this.appChoices.length === 0) {
+        Text('没有找到支持此 app 链接的本地应用。').fontSize(14).fontColor(UiColor.secondary)
+          .width('100%').padding(24)
+      }
     }.width('100%').backgroundColor(UiColor.surface).borderRadius({ topLeft: 28, topRight: 28 })
   }
 
@@ -555,7 +615,7 @@ export struct LinkView {
     if (this.document) {
       Stack({ alignContent: Alignment.TopStart }) { this.content(this.links); this.menuAnchor(); this.protocolAnchor() }.width('100%').height(this.contentHeight)
         .onAreaChange((_old: Area, area: Area): void => { this.widthVp = Number(area.width) || 1 })
-        .bindSheet($$this.chooserVisible, this.mapAppSheet(), {
+        .bindSheet($$this.chooserVisible, this.chooserSheet(), {
           height: SheetSize.FIT_CONTENT, detents: [SheetSize.FIT_CONTENT, '85%'], preferType: SheetType.BOTTOM,
           backgroundColor: UiColor.surface, maskColor: Color.Transparent, showClose: false
         })
@@ -564,11 +624,16 @@ export struct LinkView {
         Column({ space: 8 }) { this.inlineText(); if (this.editing) { this.linkEditor() } }.alignItems(HorizontalAlign.Start)
         this.menuAnchor()
       }.flexShrink(1).onClick((event: ClickEvent): void => { LinkEditController.protectInteraction() }).onAreaChange((_old: Area, area: Area): void => { this.widthVp = Number(area.width) || 1 })
-        .bindSheet($$this.chooserVisible, this.mapAppSheet(), {
+        .bindSheet($$this.chooserVisible, this.chooserSheet(), {
           height: SheetSize.FIT_CONTENT, detents: [SheetSize.FIT_CONTENT, '85%'], preferType: SheetType.BOTTOM,
           backgroundColor: UiColor.surface, maskColor: Color.Transparent, showClose: false
         })
     }
+  }
+
+  @Builder
+  chooserSheet() {
+    if (this.chooserKind === 'app') { this.appLinkSheet() } else { this.mapAppSheet() }
   }
 }
 
@@ -725,7 +790,8 @@ export function linkDocumentScript(): string {
 }
 
 // 链接解析由 Core 完成；宿主只调用系统能力打开支持的外部地址。
-async function openExternalLink(context: common.UIAbilityContext, href: string, chooser: (choices: MapAppChoice[]) => void): Promise<void> {
+async function openExternalLink(context: common.UIAbilityContext, href: string, chooser: (choices: MapAppChoice[]) => void,
+  appChooser: (choices: AppLinkChoice[]) => void): Promise<void> {
   const scheme = href.substring(0, href.indexOf(':')).toLowerCase()
   if (scheme === 'http' || scheme === 'https') {
     await context.openLink(href, { appLinkingOnly: false })
@@ -745,9 +811,49 @@ async function openExternalLink(context: common.UIAbilityContext, href: string, 
     // Core 已将地址文字按 URI 规则编码；转换为标准 geo 查询后交给系统选择器。
     const address = decodeURIComponent(href.substring(href.indexOf(':') + 1))
     await openMapChooser(context, `geo:0,0?q=${encodeURIComponent(address)}`, chooser)
+  } else if (scheme === 'app') {
+    const name = appLinkName(href)
+    if (!name) throw new Error('应用链接缺少应用名称')
+    const association = await AppLinkService.find(context, name)
+    if (association) {
+      try {
+        await context.startAbility(appLinkWant(association, href))
+      } catch (_) { throw new Error('应用启动失败') }
+    } else {
+      await openAppChooser(context, href, name, appChooser)
+    }
   } else {
     throw new Error('此链接暂不支持打开')
   }
+}
+
+async function openAppChooser(context: common.UIAbilityContext, href: string, name: string,
+  chooser: (choices: AppLinkChoice[]) => void): Promise<void> {
+  const catalog = await AppLinkService.catalog(context)
+  const choices: AppLinkChoice[] = []
+  const bundles = new Set<string>()
+  for (const app of catalog) {
+    if (bundles.has(app.id)) continue
+    if (!app.iconResource) continue
+    bundles.add(app.id)
+    const association: AppLinkAssociation = { name, bundleName: app.id, moduleName: '', abilityName: '' }
+    choices.push({ title: app.name, icon: app.iconResource, contextLabel: `app:${name}`,
+      description: app.id, supported: true, association,
+      select: async (): Promise<void> => {
+        try {
+          await context.startAbility(appLinkWant(association, href))
+        } catch (_) { throw new Error('应用启动失败') }
+      } })
+  }
+  choices.sort((left: AppLinkChoice, right: AppLinkChoice): number => left.title.localeCompare(right.title))
+  chooser(choices)
+}
+
+function appLinkWant(association: AppLinkAssociation, href: string): Want {
+  const want: Want = { bundleName: association.bundleName, action: 'ohos.want.action.viewData', uri: href } as Want
+  if (association.abilityName) want.abilityName = association.abilityName
+  if (association.moduleName) want.moduleName = association.moduleName
+  return want
 }
 
 async function openMapChooser(context: common.UIAbilityContext, uri: string, chooser: (choices: MapAppChoice[]) => void): Promise<void> {

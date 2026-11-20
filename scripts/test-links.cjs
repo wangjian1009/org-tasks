@@ -52,6 +52,7 @@ function fixture() {
     '@ohos.arkui.UIContext': { FrameCallback: class {} },
     '../ui/TaskInlineFocus': focusModule.exports,
     '../ui/LinkPresentation': linkPresentation,
+    '../services/AppLinkService': { AppLinkService: { async find() { return undefined; }, async upsert() {} }, appLinkName: value => value.startsWith('app:') ? value.slice(4) : '' },
     '@kit.MapKit': { petalMaps: { async openMapTextSearch(...args) { calls.push(['search', ...args]); await search(...args); } } },
     '../ui/Theme': { UiSize: { taskFont: 16 }, UiColor: { surface: '#2D2C2B', text: '#D8D8D8',
       primary: '#64C4BA', secondary: '#AEACA9', field: '#3A3E3F', error: '#FF7592' } }
@@ -275,7 +276,7 @@ test('正文协议菜单使用原生选项，取消保留草稿，地址可选�
   f.view.links.protocol(JSON.stringify(hit));
   assert.equal(f.view.protocolVisible,true);assert.equal(f.view.protocolX,46);assert.equal(f.view.protocolY,68);
   assert.equal(f.view.protocolHeight,168);assert.equal(f.view.titleDraft,'地点草稿');
-  assert.deepEqual(f.view.protocolItems().map(item=>item.title),['HTTPS 网页','HTTP 网页','邮件','电话','坐标','地址','文档内部']);
+  assert.deepEqual(f.view.protocolItems().map(item=>item.title),['HTTPS 网页','HTTP 网页','邮件','电话','坐标','地址','应用','文档内部']);
   f.view.protocolState(false);
   assert.equal(f.view.urlDraft,hit.url);assert.equal(f.view.editing,true);assert.equal(f.view.protocolVisible,false);
   assert.equal(scripts.at(-1),'window.orgLinkProtocolState?.(false)');
@@ -375,7 +376,8 @@ test('协议选择替换前缀并保留内容，同类选择不改写原地址�
   assert.equal(internalLinkTarget('org-internal:%invalid'),undefined);
   assert.equal(linkProtocol('javascript:alert(1)').kind,'other');
   assert.equal(new Set(['https:','mailto:','tel:','geo:','addr:','*章节'].map(value=>linkProtocol(value).icon.name)).size,6);
-  assert.equal(LINK_PROTOCOLS.length,7);
+  assert.equal(LINK_PROTOCOLS.length,8);
+  assert.equal(linkProtocol('app:微信').title,'应用');
 });
 
 test('长按菜单始终支持拷贝，只有可编辑且有快照位置的链接提供编辑和删除', async () => {

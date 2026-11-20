@@ -73,8 +73,16 @@ interface RepoConfig {
 | WebDAV 用户名 | ~repos[].webdavUsername~ | Preferences | 非机密标识；不得拼接入日志 URL。 |
 | WebDAV 密码 | ~repos[].webdavPassword~ | Asset Store | Preferences 只保留空值占位；运行时载入，不能写入日志和 core 记录。 |
 | WebDAV 过滤目录 | ~repos[].excludedDirectories~ | Preferences | 同步调用时作为 ~SyncOptions~ 传入 core；默认值由 Rust 提供，当前为 ~archive~ 。 |
+| 应用目录 | ~app-links/apps.json~ | 随版本发布的 rawfile | 首版银行应用目录，保存应用 ~id~（Bundle Name）和名称；读取目录后只保留已安装且能读取 ~iconResource~ 的应用，目录随版本更新。 |
+| 应用链接关联 | ~appLinkAssociations~ | Preferences 的 ~org_tasks_config~ | 保存 ~app:名称~ 与目录应用的 ~bundleName~ 、~moduleName~ 和 ~abilityName~；首次点击链接时从随版本发布的目录中选择，设置页只能修改或删除已有记录，不能手动新增。 |
 
 关闭 ~repos[].webdavEnabled~ 时不构造 WebDAV ~SyncPolicy~ ，仓库仍是本地 ~OrgRepo~ ，目录、远端参数、密码及过滤规则保持原值，便于重新启用。
+
+* app 链接关联
+
+Org 显式链接支持 ~app:名称~ 和 ~app://名称~ 两种写法。链接名称是关联键，后续路径和查询参数原样作为 URI 交给目标 Ability。点击链接时，Harmony 先读取 ~appLinkAssociations~ ；已有关联直接使用保存的应用身份启动目标应用。没有关联时，宿主读取随版本发布的银行应用目录，在底部选择面板展示应用名称和图标，用户选择后立即启动并保存关联。
+
+关联记录只属于当前设备，不写入 Org 文件、Core 查询快照、同步历史或 WebDAV。应用卸载或 Ability 失效时启动失败，用户可在设置页“应用关联”修改 Bundle、Module 和 Ability，或者删除记录；删除后下次点击同名链接重新选择。设置页不提供手动新增入口，关联只能由实际点击链接建立。
 
 旧已保存查询的读取服务与界面入口已删除；不再读取或写入 ~org_tasks_saved_searches~ ，已有 Preferences 数据不迁移、不主动删除。
 

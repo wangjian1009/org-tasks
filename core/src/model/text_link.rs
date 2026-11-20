@@ -191,6 +191,16 @@ mod tests {
     }
 
     #[test]
+    fn explicit_app_protocol_is_preserved_as_an_org_link() {
+        let document = file("* TODO [[app:微信][打开微信]]\n");
+        let parts = document.nodes()[0].title_parts();
+        let link = parts.iter().find_map(|part| part.link.clone()).unwrap();
+        assert_eq!(link.url, "app:微信");
+        assert_eq!(link.title, "打开微信");
+        assert_eq!(link.source, "[[app:微信][打开微信]]");
+    }
+
+    #[test]
     fn modifies_only_selected_title_link_with_repeated_target_and_preserves_crlf_and_other_fields() {
         let source = "* TODO 前[[https://example.com][甲]][[https://example.com][乙]] 后 [1/2] :tag:\r\nSCHEDULED: <2026-11-14 Sat>\r\n备注不变  \r\n";
         let mut document = file(source);
