@@ -34,7 +34,8 @@ const code = ts.transpileModule(behavior.replace(/@Component\n|@State |@Prop |@B
 }).outputText;
 
 function fixture() {
-  const calls = [], messages = [];
+  const calls = [], messages = [], dialogs = [];
+  let association;
   const frames = [], focused = [];
   let focusFailure;
   let open = async () => {}, start = async () => {}, search = async () => {};
@@ -52,7 +53,14 @@ function fixture() {
     '@ohos.arkui.UIContext': { FrameCallback: class {} },
     '../ui/TaskInlineFocus': focusModule.exports,
     '../ui/LinkPresentation': linkPresentation,
-    '../services/AppLinkService': { AppLinkManager: { shared: { async find() { return undefined; }, async upsert() {}, async catalog() { return []; } } }, appLinkName: value => value.startsWith('app:') ? value.slice(4) : '' },
+    '../services/AppLinkService': {
+      AppLinkManager: { shared: { async find() { return association; } } },
+      appLinkName: value => value.replace(/^app:(?:\/\/)?/i, ''),
+      async openAppLink(context, target, href) { await context.startAbility({ bundleName: target.bundleName, uri: href }); }
+    },
+    '../services/PageNavigator': { PageNavigator: { shared: {
+      async pushPage(_context, route) { calls.push(['navigate', route]); return true; }
+    } } },
     '@kit.MapKit': { petalMaps: { async openMapTextSearch(...args) { calls.push(['search', ...args]); await search(...args); } } },
     '../ui/Theme': { UiSize: { taskFont: 16 }, UiColor: { surface: '#2D2C2B', text: '#D8D8D8',
       primary: '#64C4BA', secondary: '#AEACA9', field: '#3A3E3F', error: '#FF7592' } }
@@ -63,11 +71,12 @@ function fixture() {
   const view = new module.exports.LinkView();
   view.getUIContext = () => ({ getHostContext: () => context, px2vp: value => value,
     postFrameCallback: frame => frames.push(frame),
+    showAlertDialog: dialog => dialogs.push(dialog),
     getFocusController: () => ({requestFocus(key) { if (focusFailure) throw focusFailure; focused.push(key); }}),
     getPromptAction: () => ({ showToast: ({message}) => messages.push(message) }) });
   view.getUniqueId = () => 1;
   view.aboutToAppear();
-  return { view, calls, messages, context, documentScript: module.exports.linkDocumentScript,
+  return { view, calls, messages, dialogs, bind: target => { association = target; }, context, documentScript: module.exports.linkDocumentScript,
     focused, flushFocus() { while (frames.length) frames.shift().onIdle(0); },
     failFocus(error) { focusFailure = error; },
     open: value => { open = value; }, start: value => { start = value; }, search: value => { search = value; } };
@@ -132,6 +141,28 @@ test('邮件和电话使用 viewData，链接行为不调用标题区域激活�
   for (const href of ['mailto:team@example.com', 'tel:12345']) await f.view.links.open(href);
   assert.deepEqual(f.calls, ['mailto:team@example.com', 'tel:12345'].map(uri =>
     ['ability', { action: 'ohos.want.action.viewData', uri }]));
+});
+
+test('应用链接直接打开已绑定应用，未绑定或打开失败时可从提示进入应用关联', async () => {
+  const f = fixture();
+  const href = 'app://中国银行';
+  const settings = ['navigate', { url: 'pages/Settings', params: { section: '应用关联' } }];
+  await f.view.links.open(href);
+  assert.equal(f.dialogs[0].title, '尚未配置应用关联');
+  assert.deepEqual(f.calls, []);
+  f.dialogs[0].secondaryButton.action();
+  assert.deepEqual(f.calls.pop(), settings);
+
+  f.bind({ bundleName: 'com.boc.bocsoft.mbs.personal' });
+  await f.view.links.open(href);
+  assert.equal(f.dialogs.length, 1);
+  assert.deepEqual(f.calls.pop(), ['ability', { bundleName: 'com.boc.bocsoft.mbs.personal', uri: href }]);
+
+  f.start(async () => { throw new Error('未安装'); });
+  await f.view.links.open(href);
+  assert.equal(f.dialogs[1].title, '应用无法打开');
+  f.dialogs[1].secondaryButton.action();
+  assert.deepEqual(f.calls.at(-1), settings);
 });
 
 test('文字地址先展示地图选择，不支持项保留面板，花瓣使用文字搜索接口', async () => {

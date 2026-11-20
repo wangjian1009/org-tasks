@@ -67,14 +67,19 @@ export interface AppConfig {
 export interface AppLinkAssociation {
   name: string
   bundleName: string
+}
+
+export interface AppLinkLaunch {
   moduleName: string
   abilityName: string
+  forwardLink?: boolean
 }
 
 // 随版本发布的应用目录；用户只能从目录选择目标，关联键仍由 Org 的 app: 名称决定。
 export interface AppLinkCatalogEntry {
   id: string
   name: string
+  launch?: AppLinkLaunch
   iconResource?: Resource
 }
 

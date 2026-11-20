@@ -391,6 +391,10 @@ DataSet 接收确认文件事件后，同步推进该文件中未修改记录的
 
 纯本地冷启动时，全部普通任务页、最近新增、笔记本、侧边栏、导航计数和角标的基础查询共享一次初始批次；启动同步只接入已有 Workspace，角标刷新只读取共享确认快照，因此这些业务每仓库只扫描一次。Core 文件服务启动只加载基线控制元数据，通知初始化不扫描或读取 Org 正文；WebDAV 同步仍有独立的工作文件读取、基线正文读取和事务校验。实际文件变化触发共享 Manager 的后续批量刷新。首次通知缓存与增量契约见 [[file:../core/通知订阅设计.org][通知订阅设计]]。
 
+* 应用关联数据集
+
+~AppDataManager~ 通过 ~appLinkTasks~ 共享订阅 ~has.app~ ，沿用系统废纸篓排除及任务缓存规则。设置页读取任务快照中的 ~appLinks~ ，以链接名称与 Preferences 中的关联去重合并，应用安装状态由 HarmonyOS 查询。任务增删改通过 DataSet 更新引用列表，已有绑定仍保留在 Preferences 中。
+
 * 全局提醒管理数据集
 
 ~AppDataManager~ 在唯一应用 DataSetManager 中注册 ~reminderTasks~ ，查询 ~it.todo has.reminder o.reminder~ ，与普通页面共享首次批次、Workspace 和外部文件监听。通过 ~uncachedDataSets~ 将该数据集排除于磁盘写入及恢复，其他基础数据集保持版本零缓存恢复规则。~ReminderManager.register(context, source)~ 绑定唯一来源并订阅变更，不创建第二个 DataSetManager；设置列表消费同一实例，离开页面只解除自身订阅。

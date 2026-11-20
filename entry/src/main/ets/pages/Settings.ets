@@ -8,14 +8,14 @@ import { addRepository } from '../services/RepositoryNavigation'
 import { validateConfiguration } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
 import { common } from '@kit.AbilityKit'
-import { AppConfig, AppLinkAssociation, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
+import { AppConfig, AppLinkAssociation, AppLinkCatalogEntry, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
-import { AppLinkManager } from '../services/AppLinkService'
+import { AppDataManager } from '../services/AppDataManager'
+import { AppLinkManager, AppLinkTargetStatus, appLinkName } from '../services/AppLinkService'
 import { CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTaskState, CoreSettingsObject } from '../services/NativeCoreService'
 import { NotebookGroup, NotebookService } from '../services/NotebookService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/controls/MessageBar'
-import { IconButton } from '../components/controls/IconButton'
 import { EmptyState } from '../components/controls/EmptyState'
 import { SettingsGroup } from '../components/controls/SettingsGroup'
 import { SettingsRow } from '../components/controls/SettingsRow'
@@ -29,7 +29,6 @@ import { isSystemRepository } from '../models/SystemRepository'
 import { NotificationPermissionService, NotificationPermissionState } from '../services/NotificationPermissionService'
 
 interface SettingsParams { section?: string }
-interface AppLinkCandidate { name: string; bundleName: string; icon: Resource; selected: boolean }
 
 @Entry
 @Component
@@ -63,17 +62,18 @@ struct Settings {
   @State filePickerKind: FileTargetKind = 'inbox'
   @State notebooks: NotebookGroup[] = []
   @State appLinks: AppLinkAssociation[] = []
-  @State editingAppLink: number = -1
-  @State appLinkNameDraft: string = ''
-  @State appLinkBundleDraft: string = ''
-  @State appLinkModuleDraft: string = ''
-  @State appLinkAbilityDraft: string = ''
   @State appLinkBusy: boolean = false
-  @State appLinkAddOpen: boolean = false
-  @State appLinkAddBusy: boolean = false
-  @State appLinkCandidatesLoaded: boolean = false
+  @State appLinkPickerOpen: boolean = false
+  @State appLinkPickerBusy: boolean = false
   @State appLinkCandidateError: string = ''
-  @State appLinkCandidates: AppLinkCandidate[] = []
+  @State appLinkCandidates: AppLinkCatalogEntry[] = []
+  @State appLinkPickerName: string = ''
+  @State appLinkPickerBundle: string = ''
+  @State appLinkCatalogNames: Map<string, string> | undefined = undefined
+  @State requiredAppLinks: string[] = []
+  @State appLinkTargets: Map<string, AppLinkTargetStatus> = new Map()
+  private stopAppLinkTasks: (() => void) | undefined = undefined
+  private appLinkTargetRevision: number = 0
   @State notificationState: NotificationPermissionState | 'loading' | 'error' = 'loading'
   @State notificationBusy: boolean = false
   @State calendarState: CalendarPermissionState | 'loading' | 'error' = 'loading'
@@ -88,8 +88,8 @@ struct Settings {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.saving && !this.categoryBusy && !this.filePickerOpen && !this.filePickerBusy &&
-      !this.notificationBusy && !this.calendarBusy && !this.appLinkBusy && !this.appLinkAddBusy && this.editingCategory < 0 &&
-      this.editingAppLink < 0 && !this.preferenceSave.hasPending())
+      !this.notificationBusy && !this.calendarBusy && !this.appLinkBusy && !this.appLinkPickerOpen && !this.appLinkPickerBusy && this.editingCategory < 0 &&
+      !this.preferenceSave.hasPending())
     this.stopReminder?.()
     this.stopReminder = ReminderManager.subscribe((): void => { this.reminderSummary = ReminderManager.summary() })
     this.reminderSummary = ReminderManager.summary()
@@ -99,8 +99,8 @@ struct Settings {
     this.loadCalendarState()
     this.scheduleNotificationCheck()
   }
-  onPageHide() { this.preferenceSave.flush(); this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.stopNotificationCheck() }
-  aboutToDisappear() { this.preferenceSave.flush(); this.stopExternalGuard?.(); this.stopNotificationCheck() }
+  onPageHide() { this.preferenceSave.flush(); this.stopExternalGuard?.(); this.stopExternalGuard = undefined; this.stopNotificationCheck(); this.stopAppLinkTasks?.() }
+  aboutToDisappear() { this.preferenceSave.flush(); this.stopExternalGuard?.(); this.stopNotificationCheck(); this.stopAppLinkTasks?.() }
 
   private scheduleNotificationCheck(): void {
     if (!this.notificationVisible || this.notificationTimer !== -1) return
@@ -202,12 +202,11 @@ struct Settings {
       `\n\n当前状态：${this.reminderSummary}`
   }
   onBackPress(): boolean {
-    if (this.appLinkAddOpen) { if (!this.appLinkAddBusy) this.appLinkAddOpen = false; return true }
+    if (this.appLinkPickerOpen) { if (!this.appLinkBusy && !this.appLinkPickerBusy) this.appLinkPickerOpen = false; return true }
     if (this.filePickerOpen) { if (!this.filePickerBusy) this.filePickerOpen = false; return true }
-    if (this.saving || this.categoryBusy || this.notificationBusy || this.calendarBusy || this.appLinkBusy || this.appLinkAddBusy) return true
+    if (this.saving || this.categoryBusy || this.notificationBusy || this.calendarBusy || this.appLinkBusy || this.appLinkPickerBusy) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
-    if (this.editingAppLink >= 0) { this.cancelAppLinkEdit(); return true }
     if (this.preferenceSave.hasPending()) { this.preferenceSave.flush().then((): void => { this.onBackPress() }); return true }
     if (this.section === '提醒操作日志') { this.section = '任务提醒'; this.message = ''; return true }
     if (this.section) { this.section = ''; this.message = ''; return true }
@@ -217,9 +216,6 @@ struct Settings {
 
   async load() {
     try {
-      this.appLinkAddOpen = false
-      this.appLinkCandidatesLoaded = false
-      this.appLinkCandidates = []
       await this.preferenceSave.flush()
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       if (!this.loaded) {
@@ -238,7 +234,9 @@ struct Settings {
       this.fileDisplayMode = config.fileDisplayMode
       this.defaultStates = await NativeCoreService.defaultTaskStates()
       this.loaded = true
+      this.watchAppLinkTasks()
       if (this.section === '文件入口') await this.loadNotebookNames()
+      if (this.section === '应用关联') await this.refreshAppLinkTargets()
     } catch (e) { this.message = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
   }
 
@@ -252,100 +250,119 @@ struct Settings {
     this.section = section
     this.message = ''
     if (section === '文件入口') this.loadNotebookNames()
+    if (section === '应用关联') this.refreshAppLinkTargets()
   }
 
-  beginAppLinkEdit(index: number): void {
-    const value = this.appLinks[index]
-    if (!value) return
-    this.editingAppLink = index
-    this.appLinkNameDraft = value.name
-    this.appLinkBundleDraft = value.bundleName
-    this.appLinkModuleDraft = value.moduleName
-    this.appLinkAbilityDraft = value.abilityName
-    this.message = ''
-  }
-
-  cancelAppLinkEdit(): void {
-    if (this.appLinkBusy) return
-    this.editingAppLink = -1
-    this.message = ''
-  }
-
-  async saveAppLink(index: number): Promise<void> {
-    if (this.appLinkBusy || !this.appLinks[index]) return
-    const value: AppLinkAssociation = { name: this.appLinkNameDraft.trim(), bundleName: this.appLinkBundleDraft.trim(),
-      moduleName: this.appLinkModuleDraft.trim(), abilityName: this.appLinkAbilityDraft.trim() }
-    if (!value.name || !value.bundleName) { this.message = '请填写应用名称和 Bundle Name'; return }
-    this.appLinkBusy = true; this.message = ''
-    try {
-      await AppLinkManager.shared.update(this.getUIContext().getHostContext()!, this.appLinks[index].name, value)
-      this.appLinks = await AppLinkManager.shared.load(this.getUIContext().getHostContext()!)
-      this.editingAppLink = -1
-    } catch (error) { this.message = `保存应用关联失败：${(error as Error).message || '请重试'}` }
-    finally { this.appLinkBusy = false }
-  }
-
-  deleteAppLink(index: number): void {
-    if (this.appLinkBusy || !this.appLinks[index]) return
-    const value = this.appLinks[index]
-    this.getUIContext().showAlertDialog({ title: '删除应用关联？', message: `以后点击 app:${value.name} 时需要重新选择应用。`,
+  deleteAppLink(name: string): void {
+    if (this.appLinkBusy || this.appLinkPickerBusy) return
+    this.getUIContext().showAlertDialog({ title: '解除应用绑定？', message: `以后点击 app:${name} 时需要重新选择应用。`,
       primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.removeAppLink(value.name) } } })
+      secondaryButton: { value: '解除绑定', fontColor: UiColor.error, action: (): void => { this.removeAppLink(name) } } })
   }
 
   private async removeAppLink(name: string): Promise<void> {
     this.appLinkBusy = true; this.message = ''
     try {
       await AppLinkManager.shared.remove(this.getUIContext().getHostContext()!, name)
-      this.appLinks = await AppLinkManager.shared.load(this.getUIContext().getHostContext()!)
-      this.editingAppLink = -1
+      await this.refreshAppLinks()
+      this.appLinkPickerOpen = false
     } catch (error) { this.message = `删除应用关联失败：${(error as Error).message || '请重试'}` }
     finally { this.appLinkBusy = false }
   }
 
-  async openAppLinkAdd(): Promise<void> {
-    if (this.appLinkAddBusy || this.appLinkBusy) return
-    this.appLinkAddOpen = true
-    if (!this.appLinkCandidatesLoaded) await this.loadAppLinkCandidates()
+  private watchAppLinkTasks(): void {
+    this.stopAppLinkTasks?.()
+    const manager = AppDataManager.shared(this.getUIContext().getHostContext()!)
+    const source = manager.dataSet('appLinkTasks')
+    const update = (): void => {
+      const data = source.data
+      const names = new Set<string>()
+      if (data?.type === 'task') {
+        for (const task of data.result.tasks) {
+          for (const link of task.appLinks ?? []) {
+            const name = appLinkName(link.uri)
+            if (name) names.add(name)
+          }
+        }
+      }
+      const links = Array.from(names)
+      if (JSON.stringify(this.requiredAppLinks) !== JSON.stringify(links)) this.requiredAppLinks = links
+    }
+    this.stopAppLinkTasks = source.subscribe(update)
+    update()
+  }
+
+  private appLinkNames(): string[] {
+    return Array.from(new Set(this.appLinks.map((item: AppLinkAssociation): string => item.name).concat(this.requiredAppLinks)))
+  }
+
+  private appLinkBundle(name: string): string {
+    return this.appLinks.find((item: AppLinkAssociation): boolean => item.name === name)?.bundleName ?? ''
+  }
+
+  private appLinkTargetLabel(bundleName: string): string {
+    const status = this.appLinkTargets.get(bundleName)?.availability
+    if (status === 'missing') return '未安装'
+    if (status === 'disabled') return '已停用'
+    if (!this.appLinkCatalogNames) return '已绑定'
+    return this.appLinkCatalogNames.get(bundleName) ?? '目录中无此应用'
+  }
+
+  private async refreshAppLinks(): Promise<void> {
+    this.appLinks = await AppLinkManager.shared.load(this.getUIContext().getHostContext()!)
+    await this.refreshAppLinkTargets()
+  }
+
+  private async refreshAppLinkTargets(): Promise<void> {
+    const revision = ++this.appLinkTargetRevision
+    const context = this.getUIContext().getHostContext()!
+    try {
+      const catalog = await AppLinkManager.shared.catalog(context)
+      if (revision !== this.appLinkTargetRevision) return
+      const names = new Map<string, string>()
+      catalog.forEach((app: AppLinkCatalogEntry): void => { names.set(app.id, app.name) })
+      this.appLinkCatalogNames = names
+    } catch (_) {
+      if (revision !== this.appLinkTargetRevision) return
+      this.appLinkCatalogNames = undefined
+    }
+    const bundleNames = Array.from(new Set(this.appLinks.map((item: AppLinkAssociation): string => item.bundleName)))
+    const statuses = await Promise.all(bundleNames.map((bundleName: string): Promise<AppLinkTargetStatus> =>
+      AppLinkManager.shared.targetStatus(bundleName)))
+    const targets = new Map<string, AppLinkTargetStatus>()
+    bundleNames.forEach((name: string, index: number): void => { targets.set(name, statuses[index]) })
+    if (revision === this.appLinkTargetRevision) this.appLinkTargets = targets
+  }
+
+  async chooseAppLink(name: string): Promise<void> {
+    if (this.appLinkBusy || this.appLinkPickerBusy) return
+    this.appLinkPickerName = name
+    this.appLinkPickerBundle = this.appLinkBundle(name)
+    this.appLinkCandidates = []
+    this.appLinkPickerOpen = true
+    await this.loadAppLinkCandidates()
   }
 
   private async loadAppLinkCandidates(): Promise<void> {
-    this.appLinkAddBusy = true; this.message = ''; this.appLinkCandidateError = ''
+    this.appLinkPickerBusy = true; this.message = ''; this.appLinkCandidateError = ''
     try {
       const context = this.getUIContext().getHostContext()!
-      const catalog = await AppLinkManager.shared.catalog(context)
-      const existing = await AppLinkManager.shared.load(context)
-      const candidates: AppLinkCandidate[] = []
-      for (const app of catalog) {
-        if (!app.iconResource) continue
-        candidates.push({ name: app.name, bundleName: app.id, icon: app.iconResource,
-          selected: existing.some((item: AppLinkAssociation): boolean => item.name === app.name) })
-      }
-      candidates.sort((left: AppLinkCandidate, right: AppLinkCandidate): number => left.name.localeCompare(right.name))
-      this.appLinkCandidates = candidates
-      this.appLinkCandidatesLoaded = true
+      this.appLinkCandidates = await AppLinkManager.shared.bindingCandidates(context, this.appLinkPickerName)
     } catch (_) { this.appLinkCandidateError = '应用列表读取失败，请重试。' }
-    finally { this.appLinkAddBusy = false }
+    finally { this.appLinkPickerBusy = false }
   }
 
-  toggleAppLinkCandidate(index: number): void {
-    if (this.appLinkAddBusy || !this.appLinkCandidates[index]) return
-    this.appLinkCandidates[index].selected = !this.appLinkCandidates[index].selected
-    this.appLinkCandidates = this.appLinkCandidates.slice()
-  }
-
-  async saveAppLinkCandidates(): Promise<void> {
-    if (this.appLinkAddBusy) return
-    this.appLinkAddBusy = true; this.message = ''
+  async bindAppLink(app: AppLinkCatalogEntry): Promise<void> {
+    if (this.appLinkBusy || this.appLinkPickerBusy || !this.appLinkPickerOpen) return
+    this.appLinkPickerBusy = true
+    this.appLinkCandidateError = ''
     try {
       const context = this.getUIContext().getHostContext()!
-      for (const candidate of this.appLinkCandidates.filter((item: AppLinkCandidate): boolean => item.selected)) {
-        await AppLinkManager.shared.upsert(context, { name: candidate.name, bundleName: candidate.bundleName, moduleName: '', abilityName: '' })
-      }
-      this.appLinks = await AppLinkManager.shared.load(context, true)
-      this.appLinkAddOpen = false
-    } catch (error) { this.message = `保存应用关联失败：${(error as Error).message || '请重试'}` }
-    finally { this.appLinkAddBusy = false }
+      await AppLinkManager.shared.bind(context, this.appLinkPickerName, app.id)
+      this.appLinkPickerOpen = false
+      await this.refreshAppLinks()
+    } catch (error) { this.appLinkCandidateError = `保存应用关联失败：${(error as Error).message || '请重试'}` }
+    finally { this.appLinkPickerBusy = false }
   }
 
   fileTargetTitle(kind: FileTargetKind): string {
@@ -529,41 +546,15 @@ struct Settings {
   @Builder
   appLinksSettings() {
     Column() {
-      Row() {
-        IconButton({ icon: $r('app.media.ui_add'), label: '添加应用关联', disabled: this.appLinkBusy || this.appLinkAddBusy,
-          action: (): void => { this.openAppLinkAdd() } }).id('app_link_add')
-      }.width('100%').padding({ left: 4, top: 8 })
-      if (this.appLinks.length === 0) {
+      if (this.appLinkNames().length === 0) {
         EmptyState({ title: '还没有应用关联' }).id('app_link_empty')
       } else {
         Scroll() {
           Column() {
             SettingsGroup({ title: '应用关联' }) {
-              ForEach(this.appLinks, (value: AppLinkAssociation, index: number) => {
-                if (this.editingAppLink === index) {
-                  Column({ space: 8 }) {
-                    TextInput({ text: this.appLinkNameDraft, placeholder: '应用名称（app: 后的值）' }).fontSize(14).backgroundColor(UiColor.field)
-                      .onChange((text: string): void => { this.appLinkNameDraft = text })
-                    TextInput({ text: this.appLinkBundleDraft, placeholder: 'Bundle Name' }).fontSize(14).backgroundColor(UiColor.field)
-                      .onChange((text: string): void => { this.appLinkBundleDraft = text })
-                    TextInput({ text: this.appLinkModuleDraft, placeholder: 'Module Name（可选）' }).fontSize(14).backgroundColor(UiColor.field)
-                      .onChange((text: string): void => { this.appLinkModuleDraft = text })
-                    TextInput({ text: this.appLinkAbilityDraft, placeholder: 'Ability Name' }).fontSize(14).backgroundColor(UiColor.field)
-                      .onChange((text: string): void => { this.appLinkAbilityDraft = text })
-                    Row({ space: 12 }) {
-                      Button('取消').height(40).backgroundColor(UiColor.field).fontColor(UiColor.text).onClick((): void => { this.cancelAppLinkEdit() })
-                      Button('保存').height(40).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).onClick((): void => { this.saveAppLink(index) })
-                    }.justifyContent(FlexAlign.End).width('100%')
-                  }.width('100%').padding(14)
-                } else {
-                  SettingsRow({ title: `app:${value.name}`, value: value.bundleName, detail: `${value.moduleName ? value.moduleName + ' · ' : ''}${value.abilityName}`,
-                    icon: $r('app.media.ui_link_app'), action: (): void => { this.beginAppLinkEdit(index) }, disabled: this.appLinkBusy })
-                }
-              }, (value: AppLinkAssociation) => value.name)
-              if (this.editingAppLink >= 0) {
-                SettingsRow({ title: '删除当前关联', icon: $r('app.media.ui_delete'), divider: false, danger: true,
-                  action: (): void => { this.deleteAppLink(this.editingAppLink) }, disabled: this.appLinkBusy })
-              }
+              ForEach(this.appLinkNames(), (name: string) => {
+                this.appLinkRow(name, this.appLinkBundle(name))
+              }, (name: string) => JSON.stringify([name, this.appLinkBundle(name)]))
             }
           }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
         }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
@@ -572,34 +563,51 @@ struct Settings {
   }
 
   @Builder
-  appLinkAddSheet() {
+  appLinkRow(name: string, bundleName: string) {
+    SettingsRow({ title: `app:${name}`, value: bundleName ? this.appLinkTargetLabel(bundleName) : '未绑定',
+      icon: this.appLinkTargets.get(bundleName)?.icon ?? $r('app.media.ui_link_app'),
+      action: (): void => { this.chooseAppLink(name) }, disabled: this.appLinkBusy })
+  }
+
+  @Builder
+  appLinkPickerSheet() {
     Column() {
-      Text('添加应用关联').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+      Text('选择应用').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
         .width('100%').padding({ left: 24, top: 8, bottom: 4 }).textAlign(TextAlign.Start)
-      if (this.appLinkAddBusy) {
-        EmptyState({ title: '正在查找可添加的应用', busy: true })
-      } else if (this.appLinkCandidateError) {
+      Text(`app:${this.appLinkPickerName}`).fontSize(14).fontColor(UiColor.secondary)
+        .width('100%').padding({ left: 24, bottom: 10 }).textAlign(TextAlign.Start)
+      if (this.appLinkPickerBusy) {
+        EmptyState({ title: '正在读取应用列表', busy: true })
+      } else if (this.appLinkCandidateError && this.appLinkCandidates.length === 0) {
         EmptyState({ title: this.appLinkCandidateError, actionLabel: '重试',
           action: (): void => { this.loadAppLinkCandidates() } })
       } else if (this.appLinkCandidates.length === 0) {
-        EmptyState({ title: '暂时没有可添加的应用' })
+        EmptyState({ title: '没有可用的应用' })
       } else {
+        MessageBar({ message: this.appLinkCandidateError, error: true })
         Scroll() {
           Column() {
-            ForEach(this.appLinkCandidates, (candidate: AppLinkCandidate, index: number) => {
+            ForEach(this.appLinkCandidates, (candidate: AppLinkCatalogEntry) => {
               Row({ space: 12 }) {
-                Image(candidate.icon).width(36).height(36).objectFit(ImageFit.Contain).borderRadius(8)
+                Image(candidate.iconResource ?? $r('app.media.ui_link_app')).width(36).height(36).objectFit(ImageFit.Contain)
+                  .borderRadius(8).accessibilityLevel('no')
                 Text(candidate.name).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
-                Button(candidate.selected ? '✓' : '').width(36).height(36).padding(0).fontSize(20)
-                  .fontColor(UiColor.primary).backgroundColor(candidate.selected ? UiColor.selected : UiColor.field)
+                if (candidate.id === this.appLinkPickerBundle) {
+                  Text('当前绑定').fontSize(13).fontColor(UiColor.primary)
+                } else {
+                  Image($r('app.media.ui_next')).width(24).height(24).fillColor(UiColor.primary).accessibilityLevel('no')
+                }
               }.width('100%').padding({ left: 24, right: 24, top: 10, bottom: 10 })
-                .onClick((): void => { this.toggleAppLinkCandidate(index) })
-            }, (candidate: AppLinkCandidate) => candidate.name)
+                .accessibilityGroup(true)
+                .accessibilityText(candidate.id === this.appLinkPickerBundle ? `${candidate.name}，当前绑定` : `绑定${candidate.name}`)
+                .onClick((): void => { this.bindAppLink(candidate) })
+            }, (candidate: AppLinkCatalogEntry) => candidate.id)
           }
         }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
-        Button('添加').height(44).margin({ left: 24, right: 24, top: 8, bottom: 18 })
-          .enabled(this.appLinkCandidates.some((candidate: AppLinkCandidate): boolean => candidate.selected))
-          .onClick((): void => { this.saveAppLinkCandidates() })
+      }
+      if (this.appLinkPickerBundle && !this.appLinkPickerBusy) {
+        SettingsRow({ title: '解除绑定', icon: $r('app.media.ui_delete'), divider: false, danger: true,
+          disabled: this.appLinkBusy, action: (): void => { this.deleteAppLink(this.appLinkPickerName) } })
       }
     }.width('100%').height('100%').backgroundColor(UiColor.surface).borderRadius({ topLeft: 28, topRight: 28 })
   }
@@ -662,7 +670,7 @@ struct Settings {
   build() {
     Column() {
       AppShell({ title: this.section || '设置', activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
-        back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy || this.appLinkBusy || this.appLinkAddBusy,
+        back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy || this.appLinkBusy || this.appLinkPickerBusy,
         backAction: (): void => { this.onBackPress() }, titleIcon: $r('app.media.nav_settings') }) {
         Column() {
           MessageBar({ message: this.message, error: true })
@@ -704,10 +712,10 @@ struct Settings {
         backgroundColor: UiColor.container, showClose: true,
         onWillDismiss: (action): void => { if (!this.filePickerBusy) action.dismiss() }
       })
-      .bindSheet($$this.appLinkAddOpen, this.appLinkAddSheet, {
+      .bindSheet($$this.appLinkPickerOpen, this.appLinkPickerSheet, {
         height: '55%', detents: ['55%', '85%'], preferType: SheetType.BOTTOM,
         backgroundColor: UiColor.container, showClose: true,
-        onWillDismiss: (): void => { this.appLinkAddOpen = false }
+        onWillDismiss: (): void => { if (!this.appLinkBusy && !this.appLinkPickerBusy) this.appLinkPickerOpen = false }
       })
   }
 }

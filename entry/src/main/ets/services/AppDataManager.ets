@@ -12,7 +12,7 @@ import { TaskView, overviewTaskQuery, plannedRegionQuery, todayAttentionQuery, t
 
 export const APP_DATA_SET_NAMES: string[] = ['todayTasks', 'todayPriority', 'files', 'categories', 'todayAttention',
   'planned', 'anytime', 'waiting', 'logbook', 'projects', 'trash', 'badgeDeadline',
-  'inboxTasks', 'inboxFile', 'somedayTasks', 'somedayFile', 'memoTasks', 'memoFile', 'inboxRecent', 'plannedFiltered', 'trashExpired', 'notebookFiles', 'reminderTasks']
+  'inboxTasks', 'inboxFile', 'somedayTasks', 'somedayFile', 'memoTasks', 'memoFile', 'inboxRecent', 'plannedFiltered', 'trashExpired', 'notebookFiles', 'reminderTasks', 'appLinkTasks']
 
 // 只定义 Core 查询；相同业务范围只保留一个 DataSet，各项共享同一批文件加载。
 export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
@@ -51,6 +51,7 @@ export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
       { name: `${kind}File`, query: target.file, repositoryBindings: target.repositoryBindings })
   }
   definitions.push(task('reminderTasks', { type: 'task', query: { expression: 'it.todo has.reminder reminder.ge.-30min o.reminder' } }))
+  definitions.push(task('appLinkTasks', { type: 'task', query: { expression: 'has.app' } }))
   return definitions
 }
 

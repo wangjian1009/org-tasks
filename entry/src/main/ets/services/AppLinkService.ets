@@ -1,16 +1,18 @@
-import { Context } from '@kit.AbilityKit'
-import { bundleManager } from '@kit.AbilityKit'
+import { bundleManager, common, Context, Want, wantConstant } from '@kit.AbilityKit'
+import { BusinessError } from '@kit.BasicServicesKit'
 import { util } from '@kit.ArkTS'
 import { PreferencesStore } from './PreferencesStore'
-import { AppLinkAssociation, AppLinkCatalogEntry } from '../models/OrgTask'
+import { AppLinkAssociation, AppLinkCatalogEntry, AppLinkLaunch } from '../models/OrgTask'
 
 const PREFERENCES = 'org_tasks_config'
 const KEY = 'appLinkAssociations'
 const CATALOG_FILE = 'app-links/apps.json'
 
-interface AppLinkCatalogDocument {
-  version: number
-  apps: AppLinkCatalogEntry[]
+interface AppLinkCatalogDocument { apps: AppLinkCatalogEntry[] }
+
+export interface AppLinkTargetStatus {
+  availability: 'installed' | 'missing' | 'disabled' | 'unknown'
+  icon?: Resource
 }
 
 // 应用关联只保存链接名称和目录应用身份；密码、文件内容和 Org 语义不进入这里。
@@ -21,7 +23,11 @@ export class AppLinkManager {
   private associations: AppLinkAssociation[] | undefined = undefined
 
   start(context: Context): void { this.context = context }
-  stop(): void { this.context = undefined; this.associations = undefined; AppLinkManager.catalogCache = undefined }
+  stop(): void {
+    this.context = undefined
+    this.associations = undefined
+    AppLinkManager.catalogCache = undefined
+  }
   private use(context?: Context): Context {
     if (context) this.context = context
     if (!this.context) throw new Error('应用关联管理器尚未启动')
@@ -36,16 +42,32 @@ export class AppLinkManager {
     catch (error) { throw error as Error }
     const value = JSON.parse(util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes)) as AppLinkCatalogDocument
     const apps = Array.isArray(value.apps) ? value.apps : []
-    const catalog = normalizeCatalog(apps)
-    const installed = await Promise.all(catalog.map(async (app: AppLinkCatalogEntry): Promise<AppLinkCatalogEntry | undefined> => {
-      try {
-        const info = await bundleManager.getBundleInfo(app.id, bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION)
-        app.iconResource = info.appInfo.iconResource
-        return app.iconResource ? app : undefined
-      } catch (_) { return undefined }
-    }))
-    AppLinkManager.catalogCache = installed.filter((app: AppLinkCatalogEntry | undefined): boolean => app !== undefined) as AppLinkCatalogEntry[]
+    AppLinkManager.catalogCache = normalizeCatalog(apps)
     return AppLinkManager.catalogCache.slice()
+  }
+
+  async targetStatus(bundleName: string): Promise<AppLinkTargetStatus> {
+    try {
+      const info = await bundleManager.getBundleInfo(bundleName, bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION)
+      return { availability: 'installed', icon: info.appInfo.iconResource }
+    } catch (error) {
+      const code = (error as BusinessError).code
+      if (code === 17700001) return { availability: 'missing' }
+      if (code === 17700026) return { availability: 'disabled' }
+      return { availability: 'unknown' }
+    }
+  }
+
+  async bindingCandidates(context: Context, name: string): Promise<AppLinkCatalogEntry[]> {
+    const catalog = (await this.catalog(context)).filter((app: AppLinkCatalogEntry): boolean => app.launch !== undefined)
+    const candidates = await Promise.all(catalog.map(async (app: AppLinkCatalogEntry): Promise<AppLinkCatalogEntry | undefined> => {
+      const status = await this.targetStatus(app.id)
+      if (status.availability === 'missing' || status.availability === 'disabled') return undefined
+      return { id: app.id, name: app.name, launch: app.launch, iconResource: status.icon }
+    }))
+    const result = candidates.filter((app: AppLinkCatalogEntry | undefined): boolean => app !== undefined) as AppLinkCatalogEntry[]
+    return result.sort((left: AppLinkCatalogEntry, right: AppLinkCatalogEntry): number =>
+      Number(right.name === name) - Number(left.name === name))
   }
 
   async load(context?: Context, reload: boolean = false): Promise<AppLinkAssociation[]> {
@@ -68,26 +90,16 @@ export class AppLinkManager {
     return (await this.load(context)).find((item: AppLinkAssociation): boolean => item.name === normalized)
   }
 
-  async upsert(context: Context, association: AppLinkAssociation): Promise<void> {
-    const value = normalizeAssociation(association)
+  async bind(context: Context, name: string, bundleName: string): Promise<void> {
+    const value = normalizeAssociation({ name, bundleName })
     if (!value) throw new Error('应用链接关联不能为空')
+    if (!(await this.catalog(context)).some((item: AppLinkCatalogEntry): boolean => item.id === value.bundleName && item.launch !== undefined)) {
+      throw new Error('应用目录中没有此应用的启动配置')
+    }
     const values = await this.load(context)
     const index = values.findIndex((item: AppLinkAssociation): boolean => item.name === value.name)
+    if (index >= 0 && values[index].bundleName === value.bundleName) return
     if (index < 0) values.push(value); else values[index] = value
-    await this.write(context, values)
-    this.associations = values
-  }
-
-  async update(context: Context, oldName: string, association: AppLinkAssociation): Promise<void> {
-    const value = normalizeAssociation(association)
-    if (!value) throw new Error('应用链接关联不能为空')
-    const values = await this.load(context)
-    const old = normalizeName(oldName)
-    const index = values.findIndex((item: AppLinkAssociation): boolean => item.name === old)
-    if (index < 0) throw new Error('应用链接关联已不存在')
-    const duplicate = values.some((item: AppLinkAssociation, itemIndex: number): boolean => itemIndex !== index && item.name === value.name)
-    if (duplicate) throw new Error('该应用链接名称已经存在')
-    values[index] = value
     await this.write(context, values)
     this.associations = values
   }
@@ -101,9 +113,30 @@ export class AppLinkManager {
 
   private async write(context: Context, values: AppLinkAssociation[]): Promise<void> {
     const store = await PreferencesStore.open(this.use(context), PREFERENCES)
-    await store.put(KEY, JSON.stringify(normalize(values)))
-    await store.flush()
+    const previous = await store.get(KEY, '') as string
+    try {
+      await store.put(KEY, JSON.stringify(normalize(values)))
+      await store.flush()
+    } catch (error) {
+      try { await store.put(KEY, previous); await store.flush() }
+      catch (_) { console.error('恢复应用关联失败') }
+      throw error as Error
+    }
   }
+}
+
+export async function openAppLink(context: common.UIAbilityContext, association: AppLinkAssociation, href: string): Promise<void> {
+  const catalog = await AppLinkManager.shared.catalog(context)
+  const app = catalog.find((item: AppLinkCatalogEntry): boolean => item.id === association.bundleName)
+  if (!app?.launch) throw new Error('应用目录中没有此应用的启动配置')
+  const want: Want = { bundleName: app.id, moduleName: app.launch.moduleName, abilityName: app.launch.abilityName }
+  if (app.launch.forwardLink) {
+    want.uri = href
+    want.action = 'ohos.want.action.viewData'
+    want.flags = wantConstant.Flags.FLAG_START_WITHOUT_TIPS
+  }
+  try { await context.startAbility(want) }
+  catch (error) { throw error as Error }
 }
 
 export function appLinkName(uri: string): string {
@@ -122,10 +155,8 @@ function normalizeName(value: string): string {
 function normalizeAssociation(value: AppLinkAssociation): AppLinkAssociation | undefined {
   const name = normalizeName(value.name)
   const bundleName = (value.bundleName || '').trim()
-  const moduleName = (value.moduleName || '').trim()
-  const abilityName = (value.abilityName || '').trim()
   if (!name || !bundleName) return undefined
-  return { name, bundleName, moduleName, abilityName }
+  return { name, bundleName }
 }
 
 function normalize(values: AppLinkAssociation[]): AppLinkAssociation[] {
@@ -142,7 +173,12 @@ function normalizeCatalog(values: AppLinkCatalogEntry[]): AppLinkCatalogEntry[] 
   values.forEach((value: AppLinkCatalogEntry): void => {
     const id = (value.id || '').trim()
     const name = (value.name || '').trim()
-    if (id && name && !result.some((item: AppLinkCatalogEntry): boolean => item.id === id)) result.push({ id, name })
+    if (!id || !name || result.some((item: AppLinkCatalogEntry): boolean => item.id === id)) return
+    const moduleName = value.launch?.moduleName?.trim()
+    const abilityName = value.launch?.abilityName?.trim()
+    const launch: AppLinkLaunch | undefined = moduleName && abilityName ?
+      { moduleName, abilityName, forwardLink: value.launch?.forwardLink === true } : undefined
+    result.push({ id, name, launch })
   })
   return result
 }

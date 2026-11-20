@@ -65,7 +65,7 @@ test('收件箱向统一控件注册菜单和右滑回调，普通布局不创�
 
 const emittedInbox = 'entry/build/default/cache/default/default@CompileArkTS/esmodule/debug/entry/src/main/ets/pages/Inbox.ts';
 const emittedTask = path.join(path.dirname(emittedInbox), '../components/editors/TaskEditor.ts');
-test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终在手势范围之外', { skip: !fs.existsSync(emittedTask) }, () => {
+test('收起任务行使用普通点击，链接可优先处理，checkbox 独立操作', { skip: !fs.existsSync(emittedTask) }, () => {
   const source = ts.createSourceFile(emittedTask, fs.readFileSync(emittedTask, 'utf8'), ts.ScriptTarget.Latest, true);
   let builder;
   function visit(node) {
@@ -78,18 +78,17 @@ test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终�
     const root = { children: [] }, stack = [root];
     const current = () => stack.at(-1);
     const Row = { create() { const node = { children: [], parent: current() }; current().children.push(node); stack.push(node); },
-      pop() { stack.pop(); }, width() {}, layoutWeight() {}, constraintSize() {}, padding() {}, accessibilityText() {}, onTouch(callback) { current().touch = callback; } };
+      pop() { stack.pop(); }, width() {}, layoutWeight() {}, constraintSize() {}, padding() {}, accessibilityText() {}, onClick(callback) { current().click = callback; }, onTouch(callback) { current().touch = callback; } };
     const If = { create() {}, pop() {} };
-    const Gesture = { create(priority, mask) { current().gesture = { priority, mask }; }, pop() {} };
-    const TapGesture = { create() {}, onAction(action) { current().gesture.action = action; }, pop() {} };
     const toggleFromCompact = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8')
       .match(/  private toggleFromCompact\(\): void \{[\s\S]*?\n  \}/)[0];
     const code = ts.transpileModule('export class Card {' + builder + toggleFromCompact + '}', {
       compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
     }).outputText;
     const module = { exports: {} };
-    vm.runInThisContext('(function(module,exports,Row,If,globalThis,TapGesture,GesturePriority,GestureMask,UiSize,taskTitleText){' + code + '\n})')(
-      module, module.exports, Row, If, { Gesture }, TapGesture, { High: 'high' }, { IgnoreInternal: 'ignore' },
+    let protectedInteraction = false;
+    vm.runInThisContext('(function(module,exports,Row,If,LinkEditController,UiSize,taskTitleText){' + code + '\n})')(
+      module, module.exports, Row, If, { interactionProtected: () => protectedInteraction },
       { taskRow: 44 }, () => '任务');
     const parts = new Map();
     const leaf = name => { const node = { parent: current() }; current().children.push(node); parts.set(name, node); };
@@ -99,17 +98,16 @@ test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终�
       compactTime() {}, leadingTime: () => false, stateIndicator: () => leaf('state'), toggle: () => expanded++,
       compactContent() { for (const name of ['title', 'link', 'priority', 'count', 'tag', 'repeat', 'indicator', 'duration', 'deadline', 'blank']) leaf(name); } });
     card.compactRow();
-    const gestureFor = node => { while (node && !node.gesture) node = node.parent; return node?.gesture; };
+    const clickFor = node => { while (node && !node.click) node = node.parent; return node?.click; };
     for (const [name, node] of parts) {
-      const gesture = gestureFor(node);
-      if (name === 'state' && state !== null) { assert.equal(gesture, undefined, 'checkbox 不应触发展开'); continue; }
-      assert.equal(gesture?.priority, 'high', name);
-      assert.equal(gesture?.mask, 'ignore', name);
-      const before = expanded; gesture.action(); assert.equal(expanded, before + 1, name);
+      const click = clickFor(node);
+      if (name === 'state' && state !== null) { assert.equal(click, undefined, 'checkbox 不应触发展开'); continue; }
+      protectedInteraction = name === 'link';
+      const before = expanded; click(); assert.equal(expanded, before + (protectedInteraction ? 0 : 1), name);
     }
     assert.equal(root.children[0].children.length, state === null ? 1 : 2);
     root.children = []; card.compactRow();
-    assert.equal(gestureFor(parts.get('title'))?.priority, 'high', '收起任务标题统一支持展开');
+    assert.equal(typeof clickFor(parts.get('title')), 'function');
   }
 });
 
