@@ -36,7 +36,8 @@ struct Settings {
   @State reminderEnabled: boolean = false
   @State reminderSummary: string = ''
   private stopReminder: (() => void) | undefined = undefined
-  private reminderSaved: TaskReminderConfiguration = { enabled: false }
+  private reminderSaved: TaskReminderConfiguration = { enabled: false, eventDurationMinutes: 5 }
+  @State eventDurationDraft: string = '5'
   private savedRetentionDays: number = 30
   private reminderEditVersion: number = 0
   private preferenceSave: SettingsAutoSave = new SettingsAutoSave((error: Error): void => {
@@ -187,6 +188,8 @@ struct Settings {
   reminderHelpDetail(): string {
     return '开启后，把未完成任务的提醒时间写入“小清单提醒”专用日历，由系统日历在到点时通知，应用退出后已登记事件仍由系统处理。' +
       '\n\n需要授予日历读写权限。首次使用请打开系统日历完成初始化，并允许系统日历发送通知；小清单自身的通知开关不能替代它。声音和响铃时长由系统日历控制。' +
+      '\n\n事件优先采用 SCHEDULED，其次 DEADLINE；都没有时使用提醒时间。日期没有时刻时按零点处理，两项都有时优先 SCHEDULED。最高优先级在日历标题标记为【重要】。' +
+      '\n\n事件持续时长默认 5 分钟，可设为 1 至 1440 分钟，修改后自动保存。提醒晚于事件开始时，结束时间至少保留到提醒后的配置时长；清理同时等待提醒过去 30 分钟和事件结束。' +
       '\n\n启动时自动核对事件，之后随任务新增、修改、完成、取消和同步结果自动维护；关闭开关会删除本应用创建的日历事件，不修改任务原文。' +
       `\n\n当前状态：${this.reminderSummary}`
   }
@@ -214,6 +217,7 @@ struct Settings {
       const reminder = await ReminderManager.configuration()
       this.reminderSaved = reminder
       this.reminderEnabled = reminder.enabled
+      this.eventDurationDraft = `${reminder.eventDurationMinutes}`
       this.retentionDraft = `${await TrashSettingsService.retentionDays(this.getUIContext().getHostContext()!)}`
       this.savedRetentionDays = Number(this.retentionDraft)
       this.config = config
@@ -389,6 +393,16 @@ struct Settings {
     const version = ++this.reminderEditVersion
     this.preferenceSave.schedule('reminder', (): Promise<void> => this.saveReminders(enabled, version), 0)
   }
+  private changeEventDuration(value: string): void {
+    this.eventDurationDraft = value; this.message = ''
+    this.preferenceSave.schedule('reminderDuration', (): Promise<void> => this.saveEventDuration(value))
+  }
+  private async saveEventDuration(value: string): Promise<void> {
+    if (!/^\d+$/.test(value)) throw new Error('事件持续时长须为 1 至 1440 分钟的整数')
+    const minutes = Number(value)
+    await ReminderManager.setEventDurationMinutes(minutes)
+    this.reminderSaved = { enabled: this.reminderSaved.enabled, eventDurationMinutes: minutes }
+  }
   private changeRetention(value: string): void {
     this.retentionDraft = value; this.message = ''
     this.preferenceSave.schedule('trash', (): Promise<void> => this.saveRetention(value))
@@ -398,7 +412,7 @@ struct Settings {
       this.calendarBusy = true
       try {
         await ReminderManager.setEnabled(enabled)
-        this.reminderSaved = { enabled }
+        this.reminderSaved = { enabled, eventDurationMinutes: this.reminderSaved.eventDurationMinutes }
         await this.loadCalendarState()
       } finally { this.calendarBusy = false }
     } catch (error) {
@@ -422,6 +436,13 @@ struct Settings {
       }.width('100%').padding(16)
       Text(this.reminderSummary).id('reminder_service_status').fontSize(13).fontColor(UiColor.secondary)
         .width('100%').padding({ left: 16, right: 16, top: 4, bottom: 12 })
+      Row({ space: 12 }) {
+        Text('事件持续时长（分钟）').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
+        TextInput({ text: this.eventDurationDraft, placeholder: '5' }).type(InputType.Number).width(96)
+          .id('reminder_event_duration').fontSize(16).fontColor(UiColor.text).backgroundColor(UiColor.field)
+          .onChange((value: string): void => { if (value !== this.eventDurationDraft) this.changeEventDuration(value) })
+          .onBlur((): void => { this.preferenceSave.flush() })
+      }.width('100%').padding(16)
       SettingsRow({ title: '日历授权', value: this.calendarDetail(), action: (): void => { this.manageCalendar() } })
       SettingsRow({ title: '提醒操作日志', icon: $r('app.media.nav_logbook'), divider: false,
         action: (): void => { this.openSection('提醒操作日志') } }).id('reminder_operation_entry')

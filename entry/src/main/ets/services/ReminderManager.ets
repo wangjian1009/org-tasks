@@ -3,8 +3,9 @@ import { BusinessError } from '@kit.BasicServicesKit'
 import { CoreTask } from './NativeCoreService'
 import { DataSet, DataSetEvent } from './DataSet'
 import { CalendarPermissionService, CalendarPermissionState } from './CalendarPermissionService'
-import { CalendarSync, ReminderCheckResult, CalendarOperation, REMINDER_CLEANUP_DELAY } from './CalendarSync'
+import { CalendarSync, ReminderCheckResult, CalendarOperation } from './CalendarSync'
 import { TaskReminderSettings, TaskReminderConfiguration } from './TaskReminderSettings'
+import { calendarEventKey, DEFAULT_EVENT_DURATION_MINUTES } from './CalendarEventProjection'
 
 export { TaskReminderConfiguration } from './TaskReminderSettings'
 export { CalendarPermissionState } from './CalendarPermissionService'
@@ -17,6 +18,8 @@ export interface ReminderOperationLog extends CalendarOperation {
   readonly trigger: ReminderOperationTrigger
 }
 
+interface AppliedReminder { task: CoreTask; key: string }
+
 const OPERATION_LOG_LIMIT = 500
 
 // 由 AppDataManager 注册共享来源；集中管理本机提醒、授权、系统核实与确认快照的日历维护。
@@ -26,7 +29,7 @@ export class ReminderManager {
   private static calendar: CalendarSync | undefined = undefined
   private static unwatch: (() => void) | undefined = undefined
   private static listeners: Set<() => void> = new Set()
-  private static applied: Map<string, CoreTask> = new Map()
+  private static applied: Map<string, AppliedReminder> = new Map()
   private static sourceStarted: boolean = false
   private static checks: Map<string, Promise<ReminderCheckResult>> = new Map()
   private static dirty: boolean = false
@@ -35,6 +38,7 @@ export class ReminderManager {
   private static running: Promise<void> | undefined = undefined
   private static enabled: boolean | undefined = undefined
   private static permission: CalendarPermissionState | undefined = undefined
+  private static eventDurationMinutes: number = DEFAULT_EVENT_DURATION_MINUTES
   private static message: string = '正在读取提醒任务…'
   private static timer: number = -1
   private static operationHistory: ReminderOperationLog[] = []
@@ -80,6 +84,13 @@ export class ReminderManager {
     ReminderManager.refresh('设置变更').catch((error: Error): void => { console.error(`刷新任务提醒失败：${error.message}`) })
   }
 
+  static async setEventDurationMinutes(minutes: number): Promise<void> {
+    await TaskReminderSettings.save(ReminderManager.hostContext(), { eventDurationMinutes: minutes })
+    ReminderManager.refresh('设置变更').catch((error: Error): void => { console.error(`刷新任务提醒失败：${error.message}`) })
+  }
+
+  static contentKey(task: CoreTask): string { return calendarEventKey(task, ReminderManager.eventDurationMinutes) }
+
   static start(): void {
     if (ReminderManager.sourceStarted) return
     ReminderManager.refresh('启动同步').catch((error: Error): void => { console.error(`初始化提醒管理器失败：${error.message}`) })
@@ -94,8 +105,9 @@ export class ReminderManager {
 
   // 合并同一任务的在途核实；每次展开仍读取系统状态，不把上次同步成功当成当前登记事实。
   static checkRegistered(task: CoreTask): Promise<ReminderCheckResult> {
+    if (task.reminderAt === null || task.reminderAt === undefined) return Promise.resolve<ReminderCheckResult>({ registered: false, reason: '任务未设置提醒时间' })
     if (task.reminderAt !== null && task.reminderAt !== undefined && task.reminderAt <= Date.now()) return Promise.resolve<ReminderCheckResult>({ registered: false, reason: '已过期' })
-    const key = JSON.stringify([ReminderManager.generation, ReminderManager.revision, task.id, task.heading, task.reminderAt, task.state])
+    const key = JSON.stringify([ReminderManager.generation, ReminderManager.revision, task.id, ReminderManager.contentKey(task), task.state])
     const pending = ReminderManager.checks.get(key)
     if (pending) return pending
     const generation = ReminderManager.generation, calendar = ReminderManager.calendar
@@ -109,7 +121,7 @@ export class ReminderManager {
       if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar || !calendar) throw new Error('提醒管理器已停止，请重新展开任务')
       if (permission !== 'enabled') return { registered: false, reason: '未获得日历读写权限' }
       if (task.reminderAt === null || task.reminderAt === undefined) return { registered: false, reason: '任务未设置提醒时间' }
-      const result = await calendar.checkRegistered(task)
+      const result = await calendar.checkRegistered(task, config.eventDurationMinutes)
       if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar) throw new Error('提醒管理器已停止，请重新展开任务')
       return result
     })().catch((error: BusinessError): ReminderCheckResult => {
@@ -126,6 +138,7 @@ export class ReminderManager {
     ReminderManager.unwatch?.(); ReminderManager.unwatch = undefined
     ReminderManager.context = undefined; ReminderManager.source = undefined
     ReminderManager.calendar = undefined; ReminderManager.applied.clear(); ReminderManager.enabled = undefined
+    ReminderManager.eventDurationMinutes = DEFAULT_EVENT_DURATION_MINUTES
     ReminderManager.permission = undefined; ReminderManager.sourceStarted = false; ReminderManager.dirty = false
     ReminderManager.checks.clear()
     ReminderManager.operationHistory = []; ReminderManager.operationSequence = 0
@@ -150,6 +163,7 @@ export class ReminderManager {
   private static recordOperation(operation: CalendarOperation, trigger: ReminderOperationTrigger): void {
     ReminderManager.operationHistory.unshift({ id: ++ReminderManager.operationSequence, at: Date.now(), trigger,
       operation: operation.operation, heading: operation.heading, reminderAt: operation.reminderAt,
+      eventStartTime: operation.eventStartTime, eventEndTime: operation.eventEndTime,
       previousReminderAt: operation.previousReminderAt, eventId: operation.eventId,
       succeeded: operation.succeeded, error: operation.error })
     if (ReminderManager.operationHistory.length > OPERATION_LOG_LIMIT) ReminderManager.operationHistory.length = OPERATION_LOG_LIMIT
@@ -167,7 +181,7 @@ export class ReminderManager {
     if (task.isDone()) return '任务已结束'
     if (task.reminderAt <= Date.now()) return '已过期'
     const applied = ReminderManager.applied.get(task.id)
-    if (applied && applied.heading === task.heading && applied.reminderAt === task.reminderAt &&
+    if (applied && applied.key === ReminderManager.contentKey(task) &&
       ReminderManager.enabled && ReminderManager.permission === 'enabled' && ReminderManager.calendar?.isReady()) return '日历提醒已设置'
     return ReminderManager.message
   }
@@ -206,10 +220,11 @@ export class ReminderManager {
     const permission = await CalendarPermissionService.state()
     if (!current()) return
     const settingsChanged = ReminderManager.enabled !== undefined &&
-      (ReminderManager.enabled !== config.enabled || ReminderManager.permission !== permission)
+      (ReminderManager.enabled !== config.enabled || ReminderManager.permission !== permission || ReminderManager.eventDurationMinutes !== config.eventDurationMinutes)
     if (settingsChanged) trigger = '设置变更'
     if (ReminderManager.enabled !== config.enabled || ReminderManager.permission !== permission) ReminderManager.calendar!.invalidate()
     ReminderManager.enabled = config.enabled; ReminderManager.permission = permission
+    ReminderManager.eventDurationMinutes = config.eventDurationMinutes
     if (permission !== 'enabled') {
       ReminderManager.message = config.enabled ? '日历读写未授权，请在设置中授权' : '本机任务提醒已关闭'
       ReminderManager.publish(); return
@@ -221,10 +236,10 @@ export class ReminderManager {
       ReminderManager.publish(); return
     }
     const tasks = config.enabled && confirmed?.data.type === 'task' ? confirmed.data.result.tasks : []
-    const desired: Map<string, CoreTask> = new Map()
+    const desired: Map<string, AppliedReminder> = new Map()
     for (const task of tasks) {
       if (desired.has(task.id)) throw new Error('提醒任务身份重复')
-      desired.set(task.id, task)
+      desired.set(task.id, { task, key: calendarEventKey(task, config.eventDurationMinutes) })
     }
     const calendar = ReminderManager.calendar!
     const generation = ReminderManager.generation
@@ -233,14 +248,14 @@ export class ReminderManager {
       if (generation === ReminderManager.generation && context === ReminderManager.context) ReminderManager.recordOperation(operation, trigger)
     }
     let completed: boolean
-    if (!calendar.isReady()) completed = await calendar.synchronize(tasks, config.enabled, current, record)
+    if (!calendar.isReady()) completed = await calendar.synchronize(tasks, config.enabled, current, record, config.eventDurationMinutes)
     else {
-      const removed = Array.from(ReminderManager.applied.values()).filter(task => !desired.has(task.id))
+      const removed = Array.from(ReminderManager.applied.values()).map(item => item.task).filter(task => !desired.has(task.id))
       const changed = tasks.filter(task => {
         const before = ReminderManager.applied.get(task.id)
-        return !before || before.heading !== task.heading || before.reminderAt !== task.reminderAt
+        return !before || before.key !== desired.get(task.id)!.key
       })
-      completed = await calendar.apply(removed, changed, current, record)
+      completed = await calendar.apply(removed, changed, current, record, config.eventDurationMinutes)
     }
     if (!completed || calendar !== ReminderManager.calendar) return
     ReminderManager.applied = desired
@@ -255,12 +270,12 @@ export class ReminderManager {
     if (ReminderManager.timer !== -1) clearTimeout(ReminderManager.timer)
     ReminderManager.timer = -1
     const scheduledAt = Date.now()
-    const times = tasks.flatMap(task => [task.reminderAt!, task.reminderAt! + REMINDER_CLEANUP_DELAY]).filter(when => when > scheduledAt)
+    const cleanupTimes = ReminderManager.calendar?.cleanupTimes() ?? []
+    const times = tasks.map(task => task.reminderAt!).concat(cleanupTimes).filter(when => when > scheduledAt)
     if (!times.length) return
     ReminderManager.timer = setTimeout((): void => {
       ReminderManager.timer = -1
-      const cleanupDue = tasks.some(task => task.reminderAt! + REMINDER_CLEANUP_DELAY > scheduledAt &&
-        task.reminderAt! + REMINDER_CLEANUP_DELAY <= Date.now())
+      const cleanupDue = cleanupTimes.some(when => when > scheduledAt && when <= Date.now())
       if (cleanupDue) ReminderManager.schedule('过期清理')
       else { ReminderManager.publish(); ReminderManager.updateTimer(tasks) }
     }, Math.min(2147483647, Math.max(1, Math.min(...times) - scheduledAt + 500)))

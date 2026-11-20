@@ -15,12 +15,13 @@ function load(name, mocks, globals = {}) {
   }).outputText;
   vm.runInNewContext(code, { module, exports: module.exports, console,
     require(name) { assert.ok(name in mocks, name); return mocks[name]; }, ...globals });
-  return module.exports[name];
+  return module.exports[name] ?? module.exports;
 }
+const projection = load('CalendarEventProjection', {});
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(shared = {}) {
   const clock = shared.clock ?? { now: Date.now() };
-  const config = shared.config ?? { enabled: true };
+  const config = shared.config ?? { enabled: true, eventDurationMinutes: 5 };
   const native = shared.native ?? { events: new Map(), calendars: [], next: 1 };
   const calls = [], listeners = new Set(), timers = new Map();
   let tasks = [], view = [], ready = true, version = 1, dataError = '', permission = 'enabled';
@@ -57,7 +58,7 @@ function fixture(shared = {}) {
   const digest = { cryptoFramework: { createMd(name) { assert.equal(name, 'SHA256'); const hash = crypto.createHash('sha256'); return {
     async update(blob) { hash.update(blob.data); }, async digest() { return { data: hash.digest() }; }
   }; } } };
-  const CalendarSync = load('CalendarSync', { '@kit.CalendarKit': kit, '@kit.CryptoArchitectureKit': digest,
+  const CalendarSync = load('CalendarSync', { './CalendarEventProjection': projection, '@kit.CalendarKit': kit, '@kit.CryptoArchitectureKit': digest,
     '@kit.ArkTS': { util: { TextEncoder: class { encodeInto(value) { return new TextEncoder().encode(value); } } } } }, { Date: Clock });
   const dataSet = {
     get error() { return dataError; }, get data() { return { type: 'task', result: { tasks: view } }; },
@@ -69,10 +70,11 @@ function fixture(shared = {}) {
   const manager = { dataSet(name) { return dataSet; },
     async start() { starts++; if (dataError) throw new Error(dataError); }, async close() { closes++; } };
   const service = load('ReminderManager', {
+    './CalendarEventProjection': projection,
     './CalendarSync': { CalendarSync, REMINDER_CLEANUP_DELAY: 30 * 60 * 1000 }, './CalendarPermissionService': { CalendarPermissionService: {
       async state() { return permission; }, async request() { return permission === 'enabled'; }, async manage() { permission = 'enabled'; }
     } },
-    './TaskReminderSettings': { TaskReminderSettings: { async load() { return { ...config }; }, async save(_, value) { config.enabled = value.enabled; } } }
+    './TaskReminderSettings': { TaskReminderSettings: { async load() { return { ...config }; }, async save(_, value) { if (value.enabled !== undefined) config.enabled = value.enabled; if (value.eventDurationMinutes !== undefined) config.eventDurationMinutes = value.eventDurationMinutes; } } }
   }, { Date: Clock, setTimeout(fn, delay) { const id = timers.size + 1; timers.set(id, { fn: () => { timers.delete(id); fn(); }, delay }); return id; }, clearTimeout(id) { timers.delete(id); } });
   const taskQuery = () => ({ type: 'task', query: {} });
   const AppDataManager = load('AppDataManager', {
@@ -90,7 +92,10 @@ function fixture(shared = {}) {
     './TaskViewQueries': { overviewTaskQuery: taskQuery, plannedRegionQuery: taskQuery, todayAttentionQuery: taskQuery, todayPriorityQuery: taskQuery }
   });
   const app = AppDataManager.shared({});
-  function task(id = 'one', offset = 120000) { return { id, heading: `任务 ${id}`, reminderAt: clock.now + offset, state: { name: 'TODO' }, isDone: () => false }; }
+  function task(id = 'one', offset = 120000) { return { id, heading: `任务 ${id}`, reminderAt: clock.now + offset,
+    state: { name: 'TODO' }, priority: null, priorityOptions: [{name:'A',category:'Hight'},{name:'B',category:'Middle'},{name:'C',category:'Low'}],
+    editContent: { scheduledPlanning: null, deadlinePlanning: null },
+    taskPriorityOf(category) { return this.priorityOptions.find(value=>value.category===category) ?? null; }, isDone: () => false }; }
   return { service, app, AppDataManager, config, clock, native, calls, timers, listeners, task, dataSet,
     tasks(value) { tasks = value.map(task => ({ ...task })); view = value; },
     emit(value, optimistic = false) { if (!optimistic) tasks = value.map(task => ({ ...task })); view = value; for (const listener of listeners) listener({ optimistic }); },
@@ -224,11 +229,11 @@ test('本机设置仅保存开关，刷新失败恢复旧值且后续可重试',
   const values = new Map(); let fail = false;
   const store = { get: async (key, fallback) => values.has(key) ? values.get(key) : fallback,
     put: async (key, value) => values.set(key, value), flush: async () => { if (fail) { fail = false; throw new Error('保存失败'); } } };
-  const settings = load('TaskReminderSettings', { './PreferencesStore': { PreferencesStore: { open: async () => store } } });
-  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))), { enabled: false });
-  await settings.save({}, { enabled: true }); fail = true; await assert.rejects(settings.save({}, { enabled: false }));
-  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))), { enabled: true });
-  await settings.save({}, { enabled: false }); assert.deepEqual([...values.keys()], ['enabled']);
+  const settings = load('TaskReminderSettings', { './CalendarEventProjection': projection, './PreferencesStore': { PreferencesStore: { open: async () => store } } });
+  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))), { enabled: false, eventDurationMinutes: 5 });
+  await settings.save({}, { enabled: true, eventDurationMinutes: 5 }); fail = true; await assert.rejects(settings.save({}, { enabled: false }));
+  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))), { enabled: true, eventDurationMinutes: 5 });
+  await settings.save({}, { enabled: false, eventDurationMinutes: 5 }); assert.deepEqual([...values.keys()], ['enabled','eventDurationMinutes']);
 });
 
 
@@ -287,7 +292,7 @@ function cardFixture(check) {
   const output = ts.transpileModule('export class Card {' + methods + '}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
-  vm.runInNewContext(output, { module, exports: module.exports, ReminderManager: { checkRegistered: check }, coreErrorMessage: error => error.message });
+  vm.runInNewContext(output, { module, exports: module.exports, ReminderManager: { checkRegistered: check, contentKey: task => JSON.stringify([task.heading, task.reminderAt, task.editContent, task.priority]) }, coreErrorMessage: error => error.message });
   const task = { id: 'one', heading: '任务', reminderAt: Date.now() + 600000, state: { name: 'TODO' } };
   return Object.assign(new module.exports.Card(), { appeared: true, expanded: true, removed: false,
     reminderChecking: false, reminderChecked: false, reminderError: '', reminderCheckRequest: 0, reminderCheckKey: '',
@@ -462,4 +467,96 @@ test('改期为过期时间时跳过新检查并丢弃旧查询的成功结果',
   card.task={...card.task,reminderAt:Date.now()-1};card.reminderTaskChanged();
   release({registered:true,reason:''});await pending;assert.equal(calls,1);assert.equal(card.reminderStatus(),'已过期');
   assert.equal(card.reminderChecking,false);assert.equal(card.reminderChecked,false);assert.equal(card.reminderError,'');
+});
+
+const local = value => new Date(value).getTime();
+const planning = (date,time=null) => ({date,time:time===null?null:{start:time,end:null}});
+
+test('事件默认持续五分钟，优先 SCHEDULED；提醒相对于事件开始计算提前分钟', async () => {
+  const f=fixture();f.clock.now=local('2026-11-20T08:00:00');const task=f.task();task.reminderAt=local('2026-11-20T09:30:00');
+  task.editContent.scheduledPlanning=planning('2026-11-20','10:00');task.editContent.deadlinePlanning=planning('2026-11-20','11:00');
+  f.tasks([task]);await f.refresh();const event=[...f.native.events.values()][0];
+  assert.equal(event.startTime,local('2026-11-20T10:00:00'));assert.equal(event.endTime,local('2026-11-20T10:05:00'));assert.deepEqual(event.reminderTime,[30]);
+  assert.equal((await f.service.checkRegistered(task)).registered,true);
+  const log=f.service.operationLogs()[0];assert.equal(log.reminderAt,task.reminderAt);assert.equal(log.eventStartTime,event.startTime);assert.equal(log.eventEndTime,event.endTime);
+});
+
+test('只有 DEADLINE 时使用截止时刻，延后提醒用负分钟，结束时间覆盖提醒后的配置时长', async () => {
+  const f=fixture();f.clock.now=local('2026-11-20T14:10:00');const task=f.task();task.reminderAt=local('2026-11-20T14:20:00');
+  task.editContent.deadlinePlanning=planning('2026-11-20','14:00');f.tasks([task]);await f.refresh();
+  const event=[...f.native.events.values()][0];assert.equal(event.startTime,local('2026-11-20T14:00:00'));
+  assert.equal(event.endTime,local('2026-11-20T14:25:00'));assert.deepEqual(event.reminderTime,[-20]);assert.equal(f.native.events.size,1);
+  assert.equal((await f.service.checkRegistered(task)).registered,true);
+});
+
+test('日期无时刻按零点投影且保留实际提醒，无规划时直接使用提醒时间', () => {
+  const f=fixture(),task=f.task();task.reminderAt=local('2026-11-20T10:00:00');task.editContent.scheduledPlanning=planning('2026-11-20');
+  let event=projection.calendarEventContent(task,5);assert.equal(event.startTime,local('2026-11-20T00:00:00'));assert.deepEqual(Array.from(event.reminderTime),[-600]);
+  assert.equal(event.endTime,local('2026-11-20T10:05:00'));task.editContent.scheduledPlanning=null;
+  event=projection.calendarEventContent(task,5);assert.equal(event.startTime,task.reminderAt);assert.equal(event.endTime,task.reminderAt+5*60000);assert.deepEqual(Array.from(event.reminderTime),[0]);
+});
+
+test('最高优先级根据 Core 候选标记日历标题，保持普通事件和可自定义提醒；清除后同步去掉标记', async () => {
+  const f=fixture(),task=f.task();task.priorityOptions=[{name:'P1',category:'Hight'},{name:'P2',category:'Middle'}];task.priority=task.priorityOptions[0];
+  f.tasks([task]);await f.refresh();const id=[...f.native.events.keys()][0];let event=f.native.events.get(id);
+  assert.equal(event.title,'【重要】'+task.heading);assert.equal(event.type,0);assert.deepEqual(event.reminderTime,[0]);
+  task.priority=task.priorityOptions[1];f.emit([task]);await f.settle();event=f.native.events.get(id);assert.equal(event.title,task.heading);
+  task.priority=null;f.emit([task]);await f.settle();assert.equal(f.native.events.size,1);assert.equal(f.native.events.get(id).title,task.heading);
+  assert.equal(f.calls.filter(call=>call[0]==='inventory').length,1);
+});
+
+test('只修改计划、截止或最高优先级时增量更新同一系统事件，指纹与单项检查同步变化', async () => {
+  const f=fixture();f.clock.now=local('2026-11-20T08:00:00');const task=f.task();task.reminderAt=local('2026-11-20T09:00:00');
+  f.tasks([task]);await f.refresh();const id=[...f.native.events.keys()][0],first=f.native.events.get(id).identifier;
+  task.editContent={scheduledPlanning:planning('2026-11-20','10:00'),deadlinePlanning:null};f.emit([task]);await f.settle();
+  assert.equal(f.native.events.get(id).startTime,local('2026-11-20T10:00:00'));assert.notEqual(f.native.events.get(id).identifier,first);
+  task.editContent={scheduledPlanning:null,deadlinePlanning:planning('2026-11-20','11:00')};f.emit([task]);await f.settle();
+  assert.equal(f.native.events.get(id).startTime,local('2026-11-20T11:00:00'));assert.deepEqual(f.native.events.get(id).reminderTime,[120]);
+  assert.equal((await f.service.checkRegistered(task)).registered,true);assert.equal(f.calls.filter(call=>call[0]==='inventory').length,1);
+});
+
+test('更改事件时长自动更新已加载事件且不重扫库存，不覆盖提醒开关', async () => {
+  const f=fixture(),task=f.task();f.tasks([task]);await f.refresh();const id=[...f.native.events.keys()][0];
+  assert.equal(f.native.events.get(id).endTime-task.reminderAt,5*60000);
+  await f.service.setEventDurationMinutes(15);await f.settle();
+  assert.equal(f.native.events.get(id).endTime-task.reminderAt,15*60000);assert.equal(f.config.enabled,true);
+  assert.equal(f.service.operationLogs()[0].trigger,'设置变更');assert.equal(f.calls.filter(call=>call[0]==='inventory').length,1);
+  assert.equal((await f.service.checkRegistered(task)).registered,true);
+});
+
+test('提前提醒过期三十分钟时仍保留尚未结束的事件，事件结束后自动清理', async () => {
+  const f=fixture();f.clock.now=local('2026-11-20T08:00:00');const task=f.task();task.reminderAt=local('2026-11-20T08:10:00');task.editContent.scheduledPlanning=planning('2026-11-20','11:00');
+  f.tasks([task]);await f.refresh();f.clock.now=local('2026-11-20T08:41:00');await f.refresh();assert.equal(f.native.events.size,1);
+  const timer=[...f.timers.values()][0];f.clock.now=local('2026-11-20T11:05:01');timer.fn();await tick();
+  assert.equal(f.native.events.size,0);assert.equal(f.service.operationLogs()[0].trigger,'过期清理');
+});
+
+test('持续时长超过三十分钟时等待事件结束，不截断日历事件', async () => {
+  const f=fixture();f.config.eventDurationMinutes=60;const task=f.task();f.tasks([task]);await f.refresh();
+  f.clock.now=task.reminderAt+31*60000;await f.refresh();assert.equal(f.native.events.size,1);
+  f.clock.now=task.reminderAt+60*60000;await f.refresh();assert.equal(f.native.events.size,0);
+});
+
+test('时长配置旧数据默认五分钟，独立修改串行合并且写入失败恢复两项原值', async () => {
+  const values=new Map();let fail=false;
+  const store={get:async(key,fallback)=>values.has(key)?values.get(key):fallback,put:async(key,value)=>values.set(key,value),flush:async()=>{if(fail){fail=false;throw new Error('保存失败')}}};
+  const settings=load('TaskReminderSettings',{'./CalendarEventProjection':projection,'./PreferencesStore':{PreferencesStore:{open:async()=>store}}});
+  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))),{enabled:false,eventDurationMinutes:5});
+  await Promise.all([settings.save({},{enabled:true}),settings.save({},{eventDurationMinutes:12})]);
+  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))),{enabled:true,eventDurationMinutes:12});
+  fail=true;await assert.rejects(settings.save({},{eventDurationMinutes:20}),/保存失败/);
+  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))),{enabled:true,eventDurationMinutes:12});
+  await settings.save({},{eventDurationMinutes:20});await settings.save({},{enabled:false});
+  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))),{enabled:false,eventDurationMinutes:20});
+  for(const value of [0,-1,1.5,1441,NaN])await assert.rejects(settings.save({},{eventDurationMinutes:value}),/1 至 1440/);
+  assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))),{enabled:false,eventDurationMinutes:20});
+});
+
+test('已到点且日程尚未结束的实例不因标题、优先级或时长变化删除或重发，仍按实际结束清理', async () => {
+  const f=fixture();f.clock.now=local('2026-11-20T08:00:00');const task=f.task();task.reminderAt=local('2026-11-20T08:10:00');task.editContent.scheduledPlanning=planning('2026-11-20','11:00');
+  f.tasks([task]);await f.refresh();const id=[...f.native.events.keys()][0];f.clock.now=local('2026-11-20T08:15:00');
+  task.heading+=' 更新';task.priority=task.priorityOptions[0];f.emit([task]);await f.settle();await f.service.setEventDurationMinutes(1);await f.settle();
+  assert.equal(f.native.events.size,1);assert.equal(f.native.events.get(id).endTime,local('2026-11-20T11:05:00'));
+  assert.equal(f.calls.filter(call=>['add','update','delete'].includes(call[0])).length,1);
+  const timer=[...f.timers.values()][0];f.clock.now=local('2026-11-20T11:05:01');timer.fn();await tick();assert.equal(f.native.events.size,0);
 });

@@ -63,14 +63,14 @@ function method(source, name) {
 }
 function page() {
   const source = fs.readFileSync('entry/src/main/ets/pages/Settings.ets', 'utf8');
-  const methods = ['changeReminder', 'changeRetention', 'saveReminders', 'saveRetention'].map(name => method(source, name)).join('\n');
+  const methods = ['changeReminder', 'changeEventDuration', 'changeRetention', 'saveReminders', 'saveEventDuration', 'saveRetention'].map(name => method(source, name)).join('\n');
   const writes = []; let fail = false;
   const { Page } = compile('export class Page {' + methods + '}', {}, {
-    ReminderManager: { async setEnabled(enabled) { if (fail) throw new Error('保存失败'); writes.push(['reminder', {enabled}]); } },
+    ReminderManager: { async setEnabled(enabled) { if (fail) throw new Error('保存失败'); writes.push(['reminder', {enabled}]); }, async setEventDurationMinutes(minutes) { if (fail) throw new Error('保存失败'); if (!Number.isInteger(minutes) || minutes<1 || minutes>1440) throw new Error('事件持续时长须为 1 至 1440 分钟的整数'); writes.push(['duration', minutes]); } },
     TrashSettingsService: { async saveRetentionDays(context, value) { if (fail) throw new Error('保存失败'); if (value < 1 || value > 3650) throw new Error('越界'); writes.push(['trash', value]); } },
   });
   const errors = [], value = Object.assign(new Page(), { reminderEnabled: false,
-    reminderSaved: { enabled: false }, reminderEditVersion: 0, retentionDraft: '30', savedRetentionDays: 30,
+    reminderSaved: { enabled: false, eventDurationMinutes: 5 }, eventDurationDraft: '5', reminderEditVersion: 0, retentionDraft: '30', savedRetentionDays: 30,
     loadCalendarState:async()=>{}, getUIContext: () => ({ getHostContext: () => ({}) }) });
   value.preferenceSave = new SettingsAutoSave(error => errors.push(error.message));
   return { value, writes, errors, fail(value) { fail = value; } };
@@ -101,4 +101,14 @@ test('废纸篓存储刷新失败恢复原值，后续自动保存可重试，�
   await assert.rejects(TrashSettingsService.saveRetentionDays({}, 7)); assert.equal(values.get('trashRetentionDays'), 30);
   await TrashSettingsService.saveRetentionDays({}, 14); assert.equal(values.get('trashRetentionDays'), 14);
   assert.equal(values.get('repos'), '用户配置');
+});
+
+
+test('事件时长与提醒开关分别排队保存，连续输入只保存最终值，非法或失败保留草稿和确认值', async () => {
+  const f=page();f.value.changeEventDuration('1');f.value.changeEventDuration('15');f.value.changeReminder(true);
+  await f.value.preferenceSave.flush();assert.equal(f.value.reminderSaved.enabled,true);assert.equal(f.value.reminderSaved.eventDurationMinutes,15);
+  assert.deepEqual(f.writes.filter(item=>item[0]==='duration'),[['duration',15]]);
+  f.value.changeEventDuration('0');await f.value.preferenceSave.flush();assert.equal(f.value.reminderSaved.eventDurationMinutes,15);assert.equal(f.value.eventDurationDraft,'0');
+  f.fail(true);f.value.changeEventDuration('20');await f.value.preferenceSave.flush();assert.equal(f.value.reminderSaved.eventDurationMinutes,15);assert.equal(f.value.eventDurationDraft,'20');
+  f.fail(false);f.value.changeEventDuration('20');await f.value.preferenceSave.flush();assert.equal(f.value.reminderSaved.eventDurationMinutes,20);assert.equal(f.value.reminderSaved.enabled,true);
 });

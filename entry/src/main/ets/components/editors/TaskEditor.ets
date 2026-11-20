@@ -904,7 +904,8 @@ export struct TaskEditor {
   private async checkReminder(force: boolean = false): Promise<void> {
     if (!this.appeared || !this.expanded || this.removed) return
     const task = this.value()
-    const key = JSON.stringify([task.id, task.heading, task.reminderAt, task.state])
+    const key = this.hasReminder() && !this.reminderExpired() ?
+      JSON.stringify([task.id, ReminderManager.contentKey(task), task.state]) : JSON.stringify([task.id, task.reminderAt])
     if (!force && key === this.reminderCheckKey) return
     this.reminderCheckKey = key
     const request = ++this.reminderCheckRequest

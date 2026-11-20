@@ -43,6 +43,8 @@ export struct ReminderOperationList {
           Text(record.heading || '未命名提醒').fontSize(16).fontColor(UiColor.text).width('100%')
           Text(`${record.trigger} · ${this.timestamp(record.at, true)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
           Text(`提醒时间：${this.reminderTime(record)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+          Text(`事件时间：${this.timestamp(record.eventStartTime)} → ${this.timestamp(record.eventEndTime)}`)
+            .fontSize(12).fontColor(UiColor.secondary).width('100%')
           if (!record.succeeded) {
             Text(record.error).fontSize(12).fontColor(UiColor.error).width('100%')
           }

@@ -1,4 +1,4 @@
-export type SettingsSaveKey = 'reminder' | 'trash'
+export type SettingsSaveKey = 'reminder' | 'reminderDuration' | 'trash'
 
 // 同类输入只保存最新值；已开始的写入串行完成，失败后仍可继续保存。
 export class SettingsAutoSave {

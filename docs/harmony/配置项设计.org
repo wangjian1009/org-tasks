@@ -74,7 +74,7 @@ interface RepoConfig {
 | WebDAV 密码 | ~repos[].webdavPassword~ | Asset Store | Preferences 只保留空值占位；运行时载入，不能写入日志和 core 记录。 |
 | WebDAV 过滤目录 | ~repos[].excludedDirectories~ | Preferences | 同步调用时作为 ~SyncOptions~ 传入 core；默认值由 Rust 提供，当前为 ~archive~ 。 |
 | 应用目录 | ~app-links/apps.json~ | 随版本发布的 rawfile | 首版银行应用目录，保存应用 ~id~（Bundle Name）和名称；读取目录后只保留已安装且能读取 ~iconResource~ 的应用，目录随版本更新。 |
-| 应用链接关联 | ~appLinkAssociations~ | Preferences 的 ~org_tasks_config~ | 保存 ~app:名称~ 与目录应用的 ~bundleName~ 、~moduleName~ 和 ~abilityName~；首次点击链接时从随版本发布的目录中选择，设置页只能修改或删除已有记录，不能手动新增。 |
+| 应用链接关联 | ~appLinkAssociations~ | Preferences 的 ~org_tasks_config~ | 保存 ~app:名称~ 与目录应用的 ~bundleName~ 、~moduleName~ 和 ~abilityName~ ；首次点击链接时从随版本发布的目录中选择，设置页只能修改或删除已有记录，不能手动新增。 |
 
 关闭 ~repos[].webdavEnabled~ 时不构造 WebDAV ~SyncPolicy~ ，仓库仍是本地 ~OrgRepo~ ，目录、远端参数、密码及过滤规则保持原值，便于重新启用。
 
@@ -289,11 +289,11 @@ UTF-8 JSON 以一次读取、一次解析恢复显示模型；缓存恢复的数
 
 * 本机任务提醒
 
-设置 → 应用程序 → 任务提醒只保存本机总开关，独立使用 Preferences ~org_tasks_reminders~ 的 ~enabled~ 键，默认关闭。修改由 ~ReminderManager.setEnabled()~ 统一处理，启用先申请权限，再即时串行保存，失败恢复原值；页面不直接调用提醒 Preferences 或日历权限服务。移除响铃时长和事件间隔配置，不读写旧代理提醒日志或 eventId 映射。
+设置 → 应用程序 → 任务提醒保存本机总开关与事件持续时长，独立使用 Preferences ~org_tasks_reminders~ 的 ~enabled~ 和 ~eventDurationMinutes~ 键。开关默认关闭，持续时长默认 5 分钟，范围为 1 至 1440 的整数；旧用户缺少时长键时按 5 分钟读取。修改由 ~ReminderManager.setEnabled()~ 统一处理，启用先申请权限，再即时串行保存，失败恢复原值；时长修改由 ~ReminderManager.setEventDurationMinutes()~ 处理，停止输入约 300 毫秒后合并保存，失焦和返回时刷新。页面不直接调用提醒 Preferences 或日历权限服务；两个字段在串行队列中读取最新值并合并补丁，失败恢复原确认值，不互相覆盖。移除响铃时长和事件间隔配置，不读写旧代理提醒日志或 eventId 映射。
 
 日历账号为 ~org-tasks.reminders~ ，显示名称“小清单提醒”。事件身份和内容指纹写入系统事件的 ~identifier~ ，启动后从系统重建内存索引，后续按 DataSet 增删改维护。该状态不属于 ~AppConfig~ ，不进入 Core 控制目录或 WebDAV。日历读写授权单独由系统保存，在前台用户操作时申请；提醒通知的声音与时长由系统日历管理。详细规则见 [[file:任务提醒设计.org][任务提醒设计]]。
 
-提醒操作日志由 ~ReminderManager~ 在内存保留最近 500 条，记录系统提醒增删改及触发原因、成功或失败；停止管理器或重启应用后清空；过期 30 分钟的系统事件清理另记触发原因“过期清理”。日志不属于本机偏好，不新增 Preferences 键或页面缓存字段，不进入 Org、Core 控制目录或 WebDAV。入口位于任务提醒设置的日历授权下方。
+提醒操作日志由 ~ReminderManager~ 在内存保留最近 500 条，记录系统提醒增删改及触发原因、成功或失败；停止管理器或重启应用后清空；提醒过期 30 分钟且事件已结束后的系统事件清理另记触发原因“过期清理”。日志不属于本机偏好，不新增 Preferences 键或页面缓存字段，不进入 Org、Core 控制目录或 WebDAV。入口位于任务提醒设置的日历授权下方。
 
 * 设置自动保存与提醒图标
 
