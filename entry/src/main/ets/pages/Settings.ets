@@ -1,7 +1,5 @@
 import { SettingsAutoSave } from '../services/SettingsAutoSave'
-import { TaskReminderSettings, TaskReminderConfiguration } from '../services/TaskReminderSettings'
-import { CalendarPermissionService, CalendarPermissionState } from '../services/CalendarPermissionService'
-import { TaskEventManager } from '../services/TaskEventManager'
+import { ReminderManager, TaskReminderConfiguration, CalendarPermissionState } from '../services/ReminderManager'
 import { TaskReminderList } from '../components/TaskReminderList'
 import { TrashSettingsService } from '../services/TrashSettingsService'
 import { PageNavigator } from '../services/PageNavigator'
@@ -74,8 +72,8 @@ struct Settings {
       !this.saving && !this.categoryBusy && !this.filePickerOpen && !this.filePickerBusy &&
       !this.notificationBusy && !this.calendarBusy && this.editingCategory < 0 && !this.preferenceSave.hasPending())
     this.stopReminder?.()
-    this.stopReminder = TaskEventManager.subscribe((): void => { this.reminderSummary = TaskEventManager.summary() })
-    this.reminderSummary = TaskEventManager.summary()
+    this.stopReminder = ReminderManager.subscribe((): void => { this.reminderSummary = ReminderManager.summary() })
+    this.reminderSummary = ReminderManager.summary()
     this.notificationVisible = true
     this.load()
     this.loadNotificationState()
@@ -153,10 +151,10 @@ struct Settings {
     const revision = ++this.calendarRevision
     try {
       const previous = this.calendarState
-      const state = await CalendarPermissionService.state()
+      const state = await ReminderManager.permissionState()
       if (revision !== this.calendarRevision || !this.notificationVisible) return
       this.calendarState = state
-      if (refreshEvents && state !== previous) await TaskEventManager.refresh(this.getUIContext().getHostContext()!)
+      if (refreshEvents && state !== previous) await ReminderManager.refresh()
     } catch (_) { if (revision === this.calendarRevision) this.calendarState = 'error' }
   }
   calendarDetail(): string {
@@ -170,10 +168,9 @@ struct Settings {
     if (this.calendarBusy || this.calendarState === 'loading') return
     this.calendarBusy = true; this.message = ''
     try {
-      const context = this.getUIContext().getHostContext()!
-      if (this.calendarState !== 'error') await CalendarPermissionService.manage(context)
+      if (this.calendarState !== 'error') await ReminderManager.managePermission()
       await this.loadCalendarState()
-      if (this.notificationVisible) await TaskEventManager.refresh(context)
+      if (this.notificationVisible) await ReminderManager.refresh()
     } catch (error) { this.message = `更新日历授权失败：${coreErrorMessage(error as CoreBridgeError)}` }
     finally { this.calendarBusy = false }
   }
@@ -202,7 +199,7 @@ struct Settings {
         const params = this.getUIContext().getRouter().getParams() as SettingsParams | undefined
         this.section = params?.section === '笔记与笔记本' ? '文件入口' : params?.section || ''
       }
-      const reminder = await TaskReminderSettings.load(this.getUIContext().getHostContext()!)
+      const reminder = await ReminderManager.configuration()
       this.reminderSaved = reminder
       this.reminderEnabled = reminder.enabled
       this.retentionDraft = `${await TrashSettingsService.retentionDays(this.getUIContext().getHostContext()!)}`
@@ -334,18 +331,12 @@ struct Settings {
   }
   private async saveReminders(enabled: boolean, version: number): Promise<void> {
     try {
-      const context = this.getUIContext().getHostContext()!
-      if (enabled) {
-        this.calendarBusy = true
-        try {
-          if (!await CalendarPermissionService.request(context)) throw new Error('未获得日历读写权限，提醒未开启')
-          await this.loadCalendarState()
-        } finally { this.calendarBusy = false }
-      }
-      const config: TaskReminderConfiguration = { enabled }
-      await TaskReminderSettings.save(context, config)
-      this.reminderSaved = config
-      TaskEventManager.start(context)
+      this.calendarBusy = true
+      try {
+        await ReminderManager.setEnabled(enabled)
+        this.reminderSaved = { enabled }
+        await this.loadCalendarState()
+      } finally { this.calendarBusy = false }
     } catch (error) {
       if (version === this.reminderEditVersion) this.reminderEnabled = this.reminderSaved.enabled
       throw error as Error

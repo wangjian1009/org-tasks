@@ -24,16 +24,19 @@ function fixture(shared = {}) {
   const native = shared.native ?? { events: new Map(), calendars: [], next: 1 };
   const calls = [], listeners = new Set(), timers = new Map();
   let tasks = [], view = [], ready = true, version = 1, dataError = '', permission = 'enabled';
-  let inventoryError, updateError, publishError, createGate, starts = 0, closes = 0, creates = 0;
+  let inventoryError, updateError, publishError, createGate, queryGate, queryError, starts = 0, closes = 0, creates = 0;
   class Clock extends Date { static now() { return clock.now; } }
   const calendar = native.calendar = {
     id: 15, getAccount: () => ({ name: 'org-tasks.reminders', type: 0 }),
     getConfig: () => ({ enableReminder: true }),
     async setConfig(value) { calls.push(['config', value]); },
     async getEvents(...args) {
-      calls.push(['inventory']); assert.equal(args.length, 0, '当前平台全量查询不接受显式 undefined 参数');
+      calls.push([args.length ? 'lookup' : 'inventory', args[0]]);
+      if (args.length && queryGate) await queryGate;
+      if (args.length && queryError) throw queryError;
       if (inventoryError) throw inventoryError;
-      return [...native.events.values()].map(value => structuredClone(value));
+      return [...native.events.values()].filter(value => !args.length || (args[0].ids ? args[0].ids.includes(value.id) :
+        value.startTime >= args[0].start && value.startTime <= args[0].end)).map(value => structuredClone(value));
     },
     async addEvent(event) {
       if (createGate) await createGate;
@@ -47,7 +50,7 @@ function fixture(shared = {}) {
     async deleteEvent(id) { assert(native.events.has(id)); native.events.delete(id); calls.push(['delete', id]); }
   };
   native.calendars = native.calendars.map(previous => previous.getAccount().name === 'org-tasks.reminders' ? calendar : previous);
-  const kit = { calendarManager: { CalendarType: { LOCAL: 0 }, EventType: { NORMAL: 0 }, getCalendarManager() { return {
+  const kit = { calendarManager: { EventFilter: { filterById: ids => ({ ids }), filterByTime: (start, end) => ({ start, end }) }, CalendarType: { LOCAL: 0 }, EventType: { NORMAL: 0 }, getCalendarManager() { return {
     async getAllCalendars() { calls.push(['calendars']); if (inventoryError) throw inventoryError; return native.calendars; },
     async createCalendar(account) { assert.equal(account.name, 'org-tasks.reminders'); native.calendars.push(calendar); calls.push(['calendar']); return calendar; }
   }; } } };
@@ -58,42 +61,56 @@ function fixture(shared = {}) {
     '@kit.ArkTS': { util: { TextEncoder: class { encodeInto(value) { return new TextEncoder().encode(value); } } } } }, { Date: Clock });
   const dataSet = {
     get error() { return dataError; }, get data() { return { type: 'task', result: { tasks: view } }; },
-    isReady: () => ready,
+    isReady: () => ready, hasValidScope: () => ready,
     getConfirmed: () => ({ version, data: { type: 'task', result: { tasks } } }),
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     async refresh() { calls.push(['query']); }, reportError(error) { dataError = error.message; },
   };
-  const manager = { dataSet(name) { assert.equal(name, 'tasks'); return dataSet; },
+  const manager = { dataSet(name) { return dataSet; },
     async start() { starts++; if (dataError) throw new Error(dataError); }, async close() { closes++; } };
-  const service = load('TaskEventManager', {
-    './DataSetManager': { DataSetManager: { create(context, name, factory, options) {
-      creates++; assert.equal(name, 'events'); assert.equal(options.cache, false);
-      const definitions = factory({}); assert.equal(definitions[0].query.query.expression, 'it.todo has.reminder o.reminder'); return manager;
-    } } },
-    './FileTargetService': { systemTrashExclusions: () => ({ files: [], repositoryBindings: [] }) },
-    './CalendarSync': { CalendarSync }, './CalendarPermissionService': { CalendarPermissionService: { async state() { return permission; } } },
-    './TaskReminderSettings': { TaskReminderSettings: { async load() { return { ...config }; } } }
+  const service = load('ReminderManager', {
+    './CalendarSync': { CalendarSync }, './CalendarPermissionService': { CalendarPermissionService: {
+      async state() { return permission; }, async request() { return permission === 'enabled'; }, async manage() { permission = 'enabled'; }
+    } },
+    './TaskReminderSettings': { TaskReminderSettings: { async load() { return { ...config }; }, async save(_, value) { config.enabled = value.enabled; } } }
   }, { Date: Clock, setTimeout(fn, delay) { const id = timers.size + 1; timers.set(id, { fn, delay }); return id; }, clearTimeout(id) { timers.delete(id); } });
+  const taskQuery = () => ({ type: 'task', query: {} });
+  const AppDataManager = load('AppDataManager', {
+    './ReminderManager': { ReminderManager: service }, './AppConfigService': {},
+    './TrashService': {}, './TrashSettingsService': {},
+    './DataSetManager': { DataSetManager: { create(context, name, factory, options) {
+      creates++; assert.equal(name, 'app'); assert.deepEqual(Array.from(options.uncachedDataSets), ['reminderTasks']);
+      const definitions = factory({});
+      assert.equal(definitions.filter(item => item.name === 'reminderTasks').length, 1);
+      assert.equal(definitions.find(item => item.name === 'reminderTasks').query.query.expression, 'it.todo has.reminder o.reminder');
+      return manager;
+    } } },
+    './FileTargetService': { systemTrashExclusions: () => ({ files: [], repositoryBindings: [] }),
+      configuredSpecialFileExclusions: () => ({ files: [], repositoryBindings: [] }), FileTargetService: { prepareConfigured: () => undefined } },
+    './TaskViewQueries': { overviewTaskQuery: taskQuery, plannedRegionQuery: taskQuery, todayAttentionQuery: taskQuery, todayPriorityQuery: taskQuery }
+  });
+  const app = AppDataManager.shared({});
   function task(id = 'one', offset = 120000) { return { id, heading: `任务 ${id}`, reminderAt: clock.now + offset, state: { name: 'TODO' }, isDone: () => false }; }
-  return { service, config, clock, native, calls, timers, listeners, task, dataSet,
+  return { service, app, AppDataManager, config, clock, native, calls, timers, listeners, task, dataSet,
     tasks(value) { tasks = value.map(task => ({ ...task })); view = value; },
     emit(value, optimistic = false) { if (!optimistic) tasks = value.map(task => ({ ...task })); view = value; for (const listener of listeners) listener({ optimistic }); },
     ready(value) { ready = value; }, version(value) { version = value; }, error(value) { dataError = value; }, permission(value) { permission = value; },
     inventoryError(value) { inventoryError = value; }, updateError(value) { updateError = value; }, publishError(value) { publishError = value; },
-    holdCreate(value) { createGate = value; }, refresh: () => service.refresh({}), async settle() { await tick(); await service.refresh({}); },
+    holdCreate(value) { createGate = value; }, holdQuery(value) { queryGate = value; }, queryError(value) { queryError = value; },
+    refresh: async () => { await app.start().catch(() => {}); await service.refresh(); }, async settle() { await tick(); await service.refresh(); },
     creates: () => creates, starts: () => starts, closes: () => closes,
     shared: () => ({ clock, config, native }) };
 }
 
 test('启动建立唯一来源数据集并只核对一次库存；重复启动和设置页共用同一实例', async () => {
   const f = fixture(), task = f.task(); f.tasks([task]); await f.refresh();
-  assert.equal(f.service.dataSet({}), f.dataSet); f.service.start({}); await f.refresh();
+  assert.equal(f.service.dataSet(), f.app.dataSet('reminderTasks')); await f.app.start(); await f.refresh();
   assert.equal(f.creates(), 1); assert.equal(f.calls.filter(x => x[0] === 'inventory').length, 1);
   assert.equal(f.calls.filter(x => x[0] === 'add').length, 1); assert.equal(f.native.events.size, 1);
   const event = [...f.native.events.values()][0], marker = JSON.parse(event.identifier);
   assert.equal(marker.owner, 'org-tasks'); assert.match(marker.taskKey, /^[0-9a-f]{64}$/); assert.match(marker.contentHash, /^[0-9a-f]{64}$/);
   assert(!event.identifier.includes(task.id)); assert.equal(event.startTime, task.reminderAt); assert.deepEqual(event.reminderTime, [0]);
-  f.service.stop(); assert.equal(f.listeners.size, 0); assert.equal(f.timers.size, 0);
+  await f.AppDataManager.close(); assert.equal(f.closes(), 1); assert.equal(f.listeners.size, 0); assert.equal(f.timers.size, 0);
 });
 
 test('提醒改期和显示标题变化更新同一个事件，后续维护不遍历系统日历', async () => {
@@ -212,4 +229,106 @@ test('本机设置仅保存开关，刷新失败恢复旧值且后续可重试',
   await settings.save({}, { enabled: true }); fail = true; await assert.rejects(settings.save({}, { enabled: false }));
   assert.deepEqual(JSON.parse(JSON.stringify(await settings.load({}))), { enabled: true });
   await settings.save({}, { enabled: false }); assert.deepEqual([...values.keys()], ['enabled']);
+});
+
+
+test('单项检查异步按 ID 读取系统，不以同步缓存代替真实登记状态；同一任务合并在途查询', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); await f.refresh();
+  let release; f.holdQuery(new Promise(resolve => release = resolve));
+  const first = f.service.checkRegistered(task), second = f.service.checkRegistered(task);
+  assert.equal(first, second); await tick();
+  assert.equal(f.calls.filter(call => call[0] === 'lookup').length, 1);
+  release(); assert.equal((await first).registered, true);
+  const id = [...f.native.events.keys()][0]; f.native.events.delete(id);
+  const missing = await f.service.checkRegistered(task);
+  assert.equal(missing.registered, false); assert.match(missing.reason, /未找到/);
+  assert.equal(f.calls.filter(call => call[0] === 'inventory').length, 1);
+});
+
+test('单项检查保留系统错误与错误码，区分关闭、权限不足和内容不匹配', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); await f.refresh();
+  const event = [...f.native.events.values()][0]; event.startTime++;
+  assert.match((await f.service.checkRegistered(task)).reason, /不一致/);
+  event.startTime--; f.queryError(Object.assign(new Error('日历数据库读取失败'), { code: 23900004 }));
+  await assert.rejects(f.service.checkRegistered(task), /日历数据库读取失败.*23900004/);
+  f.queryError(undefined); f.permission('disabled'); assert.match((await f.service.checkRegistered(task)).reason, /权限/);
+  f.permission('enabled'); f.config.enabled = false; assert.match((await f.service.checkRegistered(task)).reason, /已关闭/);
+});
+
+test('单项检查等待正在进行的系统写入完成，检查接口本身不写入或修复系统事件', async () => {
+  const f = fixture(), task = f.task(); f.tasks([]); await f.refresh();
+  let release; f.holdCreate(new Promise(resolve => release = resolve)); f.emit([task]); await tick();
+  let finished = false; const checked = f.service.checkRegistered(task).then(result => { finished = true; return result; });
+  await tick(); assert.equal(finished, false); release(); assert.equal((await checked).registered, true);
+  const id = [...f.native.events.keys()][0]; f.native.events.delete(id); const writes = f.calls.filter(c => ['add','update','delete'].includes(c[0])).length;
+  assert.equal((await f.service.checkRegistered(task)).registered, false);
+  assert.equal(f.calls.filter(c => ['add','update','delete'].includes(c[0])).length, writes);
+});
+
+test('全局管理器集中保存开关与申请权限，拒绝授权不写入设置', async () => {
+  const f = fixture(); f.config.enabled = false; f.permission('disabled');
+  await assert.rejects(f.service.setEnabled(true), /未获得/); assert.equal(f.config.enabled, false);
+  await f.service.managePermission(); await f.service.setEnabled(true); await f.settle();
+  assert.equal((await f.service.configuration()).enabled, true);
+});
+
+function cardFixture(check) {
+  const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
+  const names = ['hasReminder', 'reminderExpansionChanged', 'reminderTaskChanged', 'checkReminder', 'reminderStatus'];
+  const methods = names.map(name => {
+    const match = new RegExp('  (?:private )?(?:async )?' + name + '\\(').exec(source);
+    assert.ok(match, name); const start = source.indexOf('{', match.index); let depth = 0;
+    for (let i = start; i < source.length; i++) {
+      if (source[i] === '{') depth++;
+      if (source[i] === '}' && --depth === 0) return source.slice(match.index, i + 1);
+    }
+  }).join('\n');
+  const module = { exports: {} };
+  const output = ts.transpileModule('export class Card {' + methods + '}', {
+    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+  }).outputText;
+  vm.runInNewContext(output, { module, exports: module.exports, ReminderManager: { checkRegistered: check }, coreErrorMessage: error => error.message });
+  const task = { id: 'one', heading: '任务', reminderAt: Date.now() + 600000, state: { name: 'TODO' } };
+  return Object.assign(new module.exports.Card(), { appeared: true, expanded: true, removed: false,
+    reminderChecking: false, reminderChecked: false, reminderError: '', reminderCheckRequest: 0, reminderCheckKey: '',
+    task, value() { return this.task; } });
+}
+
+test('展开有提醒的任务立即显示检查中，成功后显示系统已登记；无提醒不发起检查', async () => {
+  let release, calls = 0;
+  const card = cardFixture(() => { calls++; return new Promise(resolve => release = resolve); });
+  card.reminderExpansionChanged(); assert.equal(card.reminderChecking, true); assert.equal(card.reminderStatus(), '正在检查…');
+  release({ registered: true, reason: '' }); await tick();
+  assert.equal(card.reminderChecking, false); assert.equal(card.reminderStatus(), '✓ 已登记');
+  card.expanded = false; card.reminderExpansionChanged(); card.task.reminderAt = null;
+  card.expanded = true; card.reminderExpansionChanged(); assert.equal(calls, 1); assert.equal(card.reminderChecking, false);
+});
+
+test('未登记与查询错误展示具体原因，重试成功清除旧错误', async () => {
+  let response = () => Promise.resolve({ registered: false, reason: '系统中未找到提醒' });
+  const card = cardFixture(() => response());
+  await card.checkReminder(); assert.equal(card.reminderStatus(), '检查失败'); assert.equal(card.reminderError, '系统中未找到提醒');
+  response = () => Promise.reject(new Error('日历读写未授权（错误码 201）'));
+  await card.checkReminder(true); assert.equal(card.reminderError, '日历读写未授权（错误码 201）');
+  response = () => Promise.resolve({ registered: true, reason: '' });
+  await card.checkReminder(true); assert.equal(card.reminderError, ''); assert.equal(card.reminderStatus(), '✓ 已登记');
+});
+
+test('改期后不接受旧查询结果，收起或离开后不更新已退出的卡片', async () => {
+  const releases = [], card = cardFixture(() => new Promise(resolve => releases.push(resolve)));
+  card.reminderExpansionChanged(); card.task = { ...card.task, reminderAt: card.task.reminderAt + 60000 }; card.reminderTaskChanged();
+  releases[1]({ registered: true, reason: '' }); await tick();
+  releases[0]({ registered: false, reason: '旧时间不存在' }); await tick(); assert.equal(card.reminderError, ''); assert.equal(card.reminderStatus(), '✓ 已登记');
+  card.checkReminder(true); card.expanded = false; card.reminderExpansionChanged();
+  releases[2]({ registered: false, reason: '收起后的旧错误' }); await tick(); assert.equal(card.reminderError, '');
+  card.expanded = true; card.reminderExpansionChanged(); card.appeared = false;
+  releases[3]({ registered: false, reason: '退出后的旧错误' }); await tick(); assert.equal(card.reminderError, '');
+});
+
+
+test('停止管理器后拒绝仍在读取系统的旧结果', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); await f.refresh();
+  let release; f.holdQuery(new Promise(resolve => release = resolve));
+  const result = f.service.checkRegistered(task); await tick(); await f.service.stop(); release();
+  await assert.rejects(result, /已停止/);
 });

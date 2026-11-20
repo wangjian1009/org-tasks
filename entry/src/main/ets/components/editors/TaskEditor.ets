@@ -1,6 +1,6 @@
-import { reminderPlanning, reminderModification } from '../../ui/TaskReminderPresentation'
+import { reminderPlanning, reminderModification, reminderTimeLabel } from '../../ui/TaskReminderPresentation'
 import { PageNavigator } from '../../services/PageNavigator'
-import { TaskEventManager } from '../../services/TaskEventManager'
+import { ReminderManager } from '../../services/ReminderManager'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { ProjectNavigation } from '../../services/ProjectNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
@@ -80,9 +80,9 @@ export struct TaskEditor {
   @Prop regionAreaPolicy: RegionAreaPolicy | undefined = undefined
   scrollHost: Scroller | undefined = undefined
   scrollHostId: string = ''
-  @State expanded: boolean = false
+  @State @Watch('reminderExpansionChanged') expanded: boolean = false
   @State logbookExpanded: boolean = false
-  @State editTask: CoreTask | undefined = undefined
+  @State @Watch('reminderTaskChanged') editTask: CoreTask | undefined = undefined
   @State heading: string = ''
   @State headingInput: boolean = false
   @State notesInput: boolean = false
@@ -137,7 +137,11 @@ export struct TaskEditor {
   private dateDialog: CustomDialogController | undefined = undefined
   private tagsDialog: CustomDialogController | undefined = undefined
   private stopReminder: (() => void) | undefined = undefined
-  @State reminderRevision: number = 0
+  @State reminderChecking: boolean = false
+  @State reminderChecked: boolean = false
+  @State reminderError: string = ''
+  private reminderCheckRequest: number = 0
+  private reminderCheckKey: string = ''
   private reminderDialog: CustomDialogController | undefined = undefined
   private repeatDialog: CustomDialogController | undefined = undefined
   private noteDialog: CustomDialogController | undefined = undefined
@@ -531,7 +535,9 @@ export struct TaskEditor {
     this.recordSource = this.localDataSet().taskSource(this.taskId)
     this.ownerKey = this.instanceKey || this.recordSource.rowId
     this.appeared = true
-    this.stopReminder = TaskEventManager.subscribe((): void => { this.reminderRevision++ })
+    this.stopReminder = ReminderManager.subscribe((): void => {
+      if (!this.reminderChecking) this.checkReminder(true)
+    })
     this.controller?.bind(this)
     this.stopDataSet = this.recordSource.monitor((change: TaskDataChange): void => {
       if (!this.appeared) return
@@ -552,6 +558,7 @@ export struct TaskEditor {
   }
   aboutToDisappear() {
     this.stopReminder?.(); this.stopReminder = undefined
+    ++this.reminderCheckRequest
     this.stopDataSet?.(); this.stopDataSet = undefined; this.recordSource = undefined
     this.priorityOpen = false
     this.deleteConfirming = false
@@ -884,14 +891,35 @@ export struct TaskEditor {
     }
   }
   hasReminder(): boolean { return this.value().reminderAt !== null && this.value().reminderAt !== undefined }
+  private reminderExpansionChanged(): void {
+    ++this.reminderCheckRequest
+    this.reminderCheckKey = ''; this.reminderChecked = false; this.reminderChecking = false; this.reminderError = ''
+    if (this.expanded) this.checkReminder(true)
+  }
+  private reminderTaskChanged(): void { this.checkReminder() }
+  private async checkReminder(force: boolean = false): Promise<void> {
+    if (!this.appeared || !this.expanded || this.removed) return
+    const task = this.value()
+    const key = JSON.stringify([task.id, task.heading, task.reminderAt, task.state])
+    if (!force && key === this.reminderCheckKey) return
+    this.reminderCheckKey = key
+    const request = ++this.reminderCheckRequest
+    this.reminderChecked = false; this.reminderError = ''; this.reminderChecking = this.hasReminder()
+    if (!this.hasReminder()) return
+    const current = (): boolean => this.appeared && this.expanded && !this.removed && request === this.reminderCheckRequest
+    try {
+      const result = await ReminderManager.checkRegistered(task)
+      if (!current()) return
+      this.reminderChecked = true
+      this.reminderError = result.registered ? '' : result.reason
+    } catch (error) {
+      if (current()) this.reminderError = coreErrorMessage(error as CoreBridgeError)
+    } finally { if (current()) this.reminderChecking = false }
+  }
   reminderStatus(): string {
-    // 系统安排结果独立刷新；卡片保留简短说明，详细状态见设置。
-    if (this.reminderRevision < 0) return ''
-    const status = TaskEventManager.status(this.value())
-    if (status === '本机任务提醒已关闭') return '提醒已关闭'
-    if (status === '日历提醒已设置') return '已设置提醒'
-    if (status.includes('不可用') || status.includes('失败') || status.includes('未授权')) return '提醒不可用'
-    return status
+    if (this.reminderChecking) return '正在检查…'
+    if (this.reminderError) return '检查失败'
+    return this.reminderChecked ? '✓ 已登记' : ''
   }
   private async openReminderSettings(): Promise<void> {
     if (!this.appeared || this.removed || this.working || this.completing || this.moveBusy || this.pendingAction || this.snapshotBlocked) return
@@ -1676,18 +1704,31 @@ export struct TaskEditor {
   @Builder
   reminderLine() {
     if (this.hasReminder()) {
-      Row({ space: 6 }) {
-        Image($r('app.media.ui_reminder')).id('task_reminder_expanded_icon').width(18).height(18).fillColor(UiColor.secondary)
-        Text(this.reminderStatus()).id('task_reminder_status').fontSize(12).fontColor(UiColor.secondary)
-        if (this.reminderStatus() === '提醒不可用') {
-          Button('前往设置').id('task_reminder_settings').fontSize(12).fontColor(UiColor.primary)
-            .height(28).padding({ left: 6, right: 6 }).backgroundColor(Color.Transparent)
-            .enabled(!this.working && !this.completing && !this.snapshotBlocked)
-            .accessibilityText('前往任务提醒设置')
-            .onClick((): void => { this.openReminderSettings() })
+      Column({ space: 4 }) {
+        Row({ space: 6 }) {
+          Image($r('app.media.ui_reminder')).id('task_reminder_expanded_icon').width(18).height(18).fillColor(UiColor.secondary)
+          Text(reminderTimeLabel(this.value())).id('task_reminder_time').fontSize(12).fontColor(UiColor.secondary)
+          if (this.reminderChecking) {
+            LoadingProgress().id('task_reminder_checking').width(14).height(14).color(UiColor.secondary)
+              .accessibilityText('正在检查系统提醒')
+          }
+          Text(this.reminderStatus()).id('task_reminder_status').fontSize(12)
+            .fontColor(this.reminderError ? UiColor.error : this.reminderChecked ? UiColor.primary : UiColor.secondary)
+        }.width('100%').onClick(() => { if (!this.readOnly) this.emitAction(this.startReminder()) })
+        if (this.reminderError) {
+          Text(this.reminderError).id('task_reminder_error').fontSize(12).fontColor(UiColor.error).width('100%')
+          Row({ space: 8 }) {
+            Button('重试').id('task_reminder_retry').fontSize(12).fontColor(UiColor.primary)
+              .height(28).padding({ left: 6, right: 6 }).backgroundColor(Color.Transparent)
+              .onClick((): void => { this.checkReminder(true) })
+            Button('前往设置').id('task_reminder_settings').fontSize(12).fontColor(UiColor.primary)
+              .height(28).padding({ left: 6, right: 6 }).backgroundColor(Color.Transparent)
+              .enabled(!this.working && !this.completing && !this.snapshotBlocked)
+              .accessibilityText('前往任务提醒设置')
+              .onClick((): void => { this.openReminderSettings() })
+          }.width('100%')
         }
-      }.width('100%').padding({ top: 4, bottom: 4 })
-        .onClick(() => { if (!this.readOnly) this.emitAction(this.startReminder()) })
+      }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 4, bottom: 4 })
     }
   }
   @Builder

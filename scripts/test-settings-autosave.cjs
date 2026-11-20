@@ -66,9 +66,8 @@ function page() {
   const methods = ['changeReminder', 'changeRetention', 'saveReminders', 'saveRetention'].map(name => method(source, name)).join('\n');
   const writes = []; let fail = false;
   const { Page } = compile('export class Page {' + methods + '}', {}, {
-    TaskReminderSettings: { async save(context, value) { if (fail) throw new Error('保存失败'); writes.push(['reminder', value]); } },
+    ReminderManager: { async setEnabled(enabled) { if (fail) throw new Error('保存失败'); writes.push(['reminder', {enabled}]); } },
     TrashSettingsService: { async saveRetentionDays(context, value) { if (fail) throw new Error('保存失败'); if (value < 1 || value > 3650) throw new Error('越界'); writes.push(['trash', value]); } },
-    TaskEventManager: { start() {} }, CalendarPermissionService: {request:async()=>true}
   });
   const errors = [], value = Object.assign(new Page(), { reminderEnabled: false,
     reminderSaved: { enabled: false }, reminderEditVersion: 0, retentionDraft: '30', savedRetentionDays: 30,

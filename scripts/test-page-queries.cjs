@@ -105,6 +105,7 @@ function fixture() {
       if (dependency.endsWith('/PageDataSnapshot')) return {
         cacheDataSet: (name, result) => ({name, ...result}), restoreDataSet: ({name, ...result}) => result
       };
+      if (dependency.endsWith('/ReminderManager')) return {ReminderManager:{register(){},start(){},async refresh(){},async stop(){}}};
       if (dependency.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
       if (dependency.endsWith('/TrashService')) return {TrashService:{perform:async()=>{}}};
       if (dependency.endsWith('/CaptureService') || dependency.endsWith('/InboxService')) return {};

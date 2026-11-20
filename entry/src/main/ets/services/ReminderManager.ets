@@ -1,0 +1,215 @@
+import { Context } from '@kit.AbilityKit'
+import { BusinessError } from '@kit.BasicServicesKit'
+import { CoreTask } from './NativeCoreService'
+import { DataSet, DataSetEvent } from './DataSet'
+import { CalendarPermissionService, CalendarPermissionState } from './CalendarPermissionService'
+import { CalendarSync, ReminderCheckResult } from './CalendarSync'
+import { TaskReminderSettings, TaskReminderConfiguration } from './TaskReminderSettings'
+
+export { TaskReminderConfiguration } from './TaskReminderSettings'
+export { CalendarPermissionState } from './CalendarPermissionService'
+export { ReminderCheckResult } from './CalendarSync'
+
+// 由 AppDataManager 注册共享来源；集中管理本机提醒、授权、系统核实与确认快照的日历维护。
+export class ReminderManager {
+  private static context: Context | undefined = undefined
+  private static source: DataSet | undefined = undefined
+  private static calendar: CalendarSync | undefined = undefined
+  private static unwatch: (() => void) | undefined = undefined
+  private static listeners: Set<() => void> = new Set()
+  private static applied: Map<string, CoreTask> = new Map()
+  private static sourceStarted: boolean = false
+  private static checks: Map<string, Promise<ReminderCheckResult>> = new Map()
+  private static dirty: boolean = false
+  private static generation: number = 0
+  private static revision: number = 0
+  private static running: Promise<void> | undefined = undefined
+  private static enabled: boolean | undefined = undefined
+  private static permission: CalendarPermissionState | undefined = undefined
+  private static message: string = '正在读取提醒任务…'
+  private static timer: number = -1
+
+  static register(context: Context, source: DataSet): void {
+    if (ReminderManager.source === source) return
+    if (ReminderManager.source) throw new Error('提醒管理器已注册其他数据集')
+    ReminderManager.context = context
+    ReminderManager.source = source
+    ReminderManager.calendar = new CalendarSync(context)
+    ReminderManager.unwatch = source.subscribe((event: DataSetEvent): void => {
+      // 失效与错误同样使旧批次停止；乐观修改只影响展示，不写入系统。
+      if (!event.optimistic && ReminderManager.sourceStarted) ReminderManager.schedule()
+    })
+  }
+
+  static dataSet(): DataSet {
+    if (!ReminderManager.source) throw new Error('提醒管理器尚未注册')
+    return ReminderManager.source
+  }
+
+  private static hostContext(): Context {
+    if (!ReminderManager.context) throw new Error('提醒管理器尚未注册')
+    return ReminderManager.context
+  }
+
+  static configuration(): Promise<TaskReminderConfiguration> {
+    return TaskReminderSettings.load(ReminderManager.hostContext())
+  }
+  static permissionState(): Promise<CalendarPermissionState> { return CalendarPermissionService.state() }
+  static async managePermission(): Promise<void> {
+    await CalendarPermissionService.manage(ReminderManager.hostContext())
+    await ReminderManager.refresh()
+  }
+  static async setEnabled(enabled: boolean): Promise<void> {
+    const context = ReminderManager.hostContext()
+    if (enabled && !await CalendarPermissionService.request(context)) throw new Error('未获得日历读写权限，提醒未开启')
+    await TaskReminderSettings.save(context, { enabled })
+    ReminderManager.refresh().catch((error: Error): void => { console.error(`刷新任务提醒失败：${error.message}`) })
+  }
+
+  static start(): void {
+    if (ReminderManager.sourceStarted) return
+    ReminderManager.refresh().catch((error: Error): void => { console.error(`初始化提醒管理器失败：${error.message}`) })
+  }
+
+  static async refresh(): Promise<void> {
+    if (!ReminderManager.context) return
+    ReminderManager.sourceStarted = true
+    ReminderManager.schedule()
+    while (ReminderManager.running) await ReminderManager.running
+  }
+
+  // 合并同一任务的在途核实；每次展开仍读取系统状态，不把上次同步成功当成当前登记事实。
+  static checkRegistered(task: CoreTask): Promise<ReminderCheckResult> {
+    const key = JSON.stringify([ReminderManager.generation, ReminderManager.revision, task.id, task.heading, task.reminderAt, task.state])
+    const pending = ReminderManager.checks.get(key)
+    if (pending) return pending
+    const generation = ReminderManager.generation, calendar = ReminderManager.calendar
+    const work = (async (): Promise<ReminderCheckResult> => {
+      while (ReminderManager.running) await ReminderManager.running
+      const context = ReminderManager.hostContext()
+      const config = await TaskReminderSettings.load(context)
+      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar) throw new Error('提醒管理器已停止，请重新展开任务')
+      if (!config.enabled) return { registered: false, reason: '本机任务提醒已关闭' }
+      const permission = await ReminderManager.permissionState()
+      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar || !calendar) throw new Error('提醒管理器已停止，请重新展开任务')
+      if (permission !== 'enabled') return { registered: false, reason: '未获得日历读写权限' }
+      if (task.reminderAt === null || task.reminderAt === undefined) return { registered: false, reason: '任务未设置提醒时间' }
+      const result = await calendar.checkRegistered(task)
+      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar) throw new Error('提醒管理器已停止，请重新展开任务')
+      return result
+    })().catch((error: BusinessError): ReminderCheckResult => {
+      const code = error.code === undefined ? '' : `（错误码 ${error.code}）`
+      throw new Error(`${error.message || '系统提醒查询失败'}${code}`)
+    }).finally((): void => { if (ReminderManager.checks.get(key) === work) ReminderManager.checks.delete(key) })
+    ReminderManager.checks.set(key, work)
+    return work
+  }
+
+  static async stop(): Promise<void> {
+    const running = ReminderManager.running
+    ReminderManager.generation++; ReminderManager.revision++
+    ReminderManager.unwatch?.(); ReminderManager.unwatch = undefined
+    ReminderManager.context = undefined; ReminderManager.source = undefined
+    ReminderManager.calendar = undefined; ReminderManager.applied.clear(); ReminderManager.enabled = undefined
+    ReminderManager.permission = undefined; ReminderManager.sourceStarted = false; ReminderManager.dirty = false
+    ReminderManager.checks.clear()
+    ReminderManager.message = '正在读取提醒任务…'
+    if (ReminderManager.timer !== -1) clearTimeout(ReminderManager.timer)
+    ReminderManager.timer = -1
+    await running
+  }
+
+  static subscribe(listener: () => void): () => void {
+    ReminderManager.listeners.add(listener)
+    return (): void => { ReminderManager.listeners.delete(listener) }
+  }
+  static summary(): string { return ReminderManager.message }
+  static status(task: CoreTask): string {
+    if (task.reminderAt === null || task.reminderAt === undefined) return ''
+    if (task.state === null) return '非任务记录不安排提醒'
+    if (task.isDone()) return '任务已结束'
+    if (task.reminderAt <= Date.now()) return '提醒时间已过'
+    const applied = ReminderManager.applied.get(task.id)
+    if (applied && applied.heading === task.heading && applied.reminderAt === task.reminderAt &&
+      ReminderManager.enabled && ReminderManager.permission === 'enabled' && ReminderManager.calendar?.isReady()) return '日历提醒已设置'
+    return ReminderManager.message
+  }
+  private static publish(): void { for (const listener of ReminderManager.listeners) listener() }
+
+  private static schedule(): void {
+    if (!ReminderManager.context) return
+    ReminderManager.dirty = true; ReminderManager.revision++
+    if (!ReminderManager.running) {
+      ReminderManager.running = ReminderManager.drain().finally((): void => {
+        ReminderManager.running = undefined
+        if (ReminderManager.dirty && ReminderManager.context) ReminderManager.schedule()
+      })
+    }
+  }
+
+  private static async drain(): Promise<void> {
+    while (ReminderManager.dirty && ReminderManager.context) {
+      ReminderManager.dirty = false
+      const generation = ReminderManager.generation, revision = ReminderManager.revision
+      const current = (): boolean => generation === ReminderManager.generation && revision === ReminderManager.revision && ReminderManager.context !== undefined
+      try { await ReminderManager.maintain(ReminderManager.context, current) }
+      catch (error) {
+        if (!current()) continue
+        ReminderManager.calendar?.invalidate()
+        ReminderManager.message = (error as BusinessError).code === 201 ? '日历读写未授权，请在设置中授权' : `安排日历提醒失败：${(error as Error).message}`
+        ReminderManager.publish()
+      }
+    }
+  }
+
+  private static async maintain(context: Context, current: () => boolean): Promise<void> {
+    const config = await TaskReminderSettings.load(context)
+    const permission = await CalendarPermissionService.state()
+    if (!current()) return
+    if (ReminderManager.enabled !== config.enabled || ReminderManager.permission !== permission) ReminderManager.calendar!.invalidate()
+    ReminderManager.enabled = config.enabled; ReminderManager.permission = permission
+    if (permission !== 'enabled') {
+      ReminderManager.message = config.enabled ? '日历读写未授权，请在设置中授权' : '本机任务提醒已关闭'
+      ReminderManager.publish(); return
+    }
+    const source = ReminderManager.source!
+    const confirmed = source.getConfirmed()
+    if (config.enabled && (!source.hasValidScope() || !source.isReady() || source.error || !confirmed || confirmed.version === 0 || confirmed.data.type !== 'task')) {
+      ReminderManager.message = source.error || '正在读取提醒任务…'
+      ReminderManager.publish(); return
+    }
+    const tasks = config.enabled && confirmed?.data.type === 'task' ? confirmed.data.result.tasks : []
+    const desired: Map<string, CoreTask> = new Map()
+    for (const task of tasks) {
+      if (desired.has(task.id)) throw new Error('提醒任务身份重复')
+      desired.set(task.id, task)
+    }
+    const calendar = ReminderManager.calendar!
+    let completed: boolean
+    if (!calendar.isReady()) completed = await calendar.synchronize(tasks, config.enabled, current)
+    else {
+      const removed = Array.from(ReminderManager.applied.values()).filter(task => !desired.has(task.id))
+      const changed = tasks.filter(task => {
+        const before = ReminderManager.applied.get(task.id)
+        return !before || before.heading !== task.heading || before.reminderAt !== task.reminderAt
+      })
+      completed = await calendar.apply(removed, changed, current)
+    }
+    if (!completed || calendar !== ReminderManager.calendar) return
+    ReminderManager.applied = desired
+    if (!current()) return
+    ReminderManager.message = config.enabled ? `已设置 ${tasks.filter(task => task.reminderAt! > Date.now()).length} 项日历提醒` : '本机任务提醒已关闭'
+    ReminderManager.updateTimer(tasks)
+    ReminderManager.publish()
+  }
+
+  private static updateTimer(tasks: CoreTask[]): void {
+    if (ReminderManager.timer !== -1) clearTimeout(ReminderManager.timer)
+    ReminderManager.timer = -1
+    const future = tasks.map(task => task.reminderAt!).filter(when => when > Date.now())
+    if (!future.length) return
+    ReminderManager.timer = setTimeout((): void => {
+      ReminderManager.timer = -1; ReminderManager.publish(); ReminderManager.updateTimer(tasks)
+    }, Math.min(2147483647, Math.max(1, Math.min(...future) - Date.now() + 500)))
+  }
+}

@@ -9,6 +9,8 @@ const ACCOUNT = 'org-tasks.reminders'
 const DISPLAY_NAME = '小清单提醒'
 const EVENT_DURATION = 60 * 1000
 
+export interface ReminderCheckResult { registered: boolean; reason: string }
+
 interface EventMarker { owner: string; taskKey: string; contentHash: string }
 interface MarkedEvent { event: calendarManager.Event; marker?: EventMarker }
 interface DesiredEvent { task: CoreTask; marker: EventMarker; event: calendarManager.Event }
@@ -78,6 +80,23 @@ export class CalendarSync {
       description: '由小清单创建的任务提醒', startTime: when, endTime: when + EVENT_DURATION,
       isAllDay: false, reminderTime: [0], identifier: JSON.stringify(marker) }
     return { task, marker, event }
+  }
+
+  async checkRegistered(task: CoreTask): Promise<ReminderCheckResult> {
+    try {
+      const expected = await this.desired(task)
+      const calendar = this.calendar ?? await this.open(false)
+      if (!calendar) return { registered: false, reason: '系统中不存在“小清单提醒”日历' }
+      const known = this.events.get(expected.marker.taskKey)
+      const filter = known?.id !== undefined ? calendarManager.EventFilter.filterById([known.id]) :
+        calendarManager.EventFilter.filterByTime(expected.event.startTime, expected.event.endTime)
+      const events = await calendar.getEvents(filter, ['id', 'type', 'title', 'startTime', 'endTime', 'isAllDay', 'reminderTime', 'identifier'])
+      const actual = events.find((event: calendarManager.Event): boolean => readMarker(event)?.taskKey === expected.marker.taskKey)
+      if (!actual) return { registered: false, reason: '系统日历中未找到对应提醒，可能已被删除' }
+      if (!sameEvent(actual, expected.event)) return { registered: false, reason: '系统日历中的提醒时间或内容与任务不一致' }
+      if (calendar.getConfig().enableReminder === false) return { registered: false, reason: '系统日历中“小清单提醒”的提醒开关已关闭' }
+      return { registered: true, reason: '' }
+    } catch (error) { throw error as Error }
   }
 
   async synchronize(tasks: CoreTask[], enabled: boolean, current: () => boolean): Promise<boolean> {

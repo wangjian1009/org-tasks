@@ -281,7 +281,7 @@ UTF-8 JSON 以一次读取、一次解析恢复显示模型；缓存恢复的数
 
 * 本机任务提醒
 
-设置 → 应用程序 → 任务提醒只保存本机总开关，独立使用 Preferences ~org_tasks_reminders~ 的 ~enabled~ 键，默认关闭。修改后即时串行保存，失败恢复原值。移除响铃时长和事件间隔配置，不读写旧代理提醒日志或 eventId 映射。
+设置 → 应用程序 → 任务提醒只保存本机总开关，独立使用 Preferences ~org_tasks_reminders~ 的 ~enabled~ 键，默认关闭。修改由 ~ReminderManager.setEnabled()~ 统一处理，启用先申请权限，再即时串行保存，失败恢复原值；页面不直接调用提醒 Preferences 或日历权限服务。移除响铃时长和事件间隔配置，不读写旧代理提醒日志或 eventId 映射。
 
 日历账号为 ~org-tasks.reminders~ ，显示名称“小清单提醒”。事件身份和内容指纹写入系统事件的 ~identifier~ ，启动后从系统重建内存索引，后续按 DataSet 增删改维护。该状态不属于 ~AppConfig~ ，不进入 Core 控制目录或 WebDAV。日历读写授权单独由系统保存，在前台用户操作时申请；提醒通知的声音与时长由系统日历管理。详细规则见 [[file:任务提醒设计.org][任务提醒设计]]。
 

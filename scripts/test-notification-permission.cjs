@@ -28,7 +28,7 @@ function load(name, mocks, globals = {}) {
     if (name.endsWith('/CalendarPermissionService') && !Object.hasOwn(mocks, name)) return {CalendarPermissionService:{state:async()=> 'disabled', request:async()=>true,manage:async()=>{}}};
     if (name.endsWith('/SettingsAutoSave')) return {SettingsAutoSave:class{hasPending(){return false;}async flush(){}schedule(){}}};
     if (name.endsWith('/TaskReminderSettings')) return {TaskReminderSettings:{load:async()=>({enabled:false}),save:async()=>{}}};
-    if (name.endsWith('/TaskEventManager') && !Object.hasOwn(mocks, name)) return {TaskEventManager:{start(){},stop(){},refresh:async()=>{},summary:()=>'',subscribe:()=>()=>{}}};
+    if (name.endsWith('/ReminderManager') && !Object.hasOwn(mocks, name)) return {ReminderManager:{start(){},stop(){},refresh:async()=>{},configuration:async()=>({enabled:false}),permissionState:async()=> 'disabled',setEnabled:async()=>{},managePermission:async()=>{},summary:()=>'',subscribe:()=>()=>{}}};
     if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};
     if (name.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
     if (name.endsWith('/AppDataManager')) return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
@@ -195,7 +195,8 @@ function settingsFixture() {
     '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Done: 'Done', Cancel: 'Cancel' } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
     '../services/CalendarPermissionService': {CalendarPermissionService:{async state(){return calendarState},async manage(){calendarManaged++;calendarState='enabled'},async request(){calendarState='enabled';return true}}},
-    '../services/TaskEventManager': { TaskEventManager: {
+    '../services/ReminderManager': { ReminderManager: {
+      configuration:async()=>({enabled:false}), permissionState:async()=>calendarState, managePermission:async()=>{calendarManaged++;calendarState='enabled'},
       subscribe: () => () => {}, summary: () => summary, async refresh() { reminderRefreshes++; if (reminderGate) await reminderGate.promise; }
     } },
     '../services/AppConfigService': {},

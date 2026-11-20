@@ -1,3 +1,4 @@
+import { ReminderManager } from './ReminderManager'
 import { TaskRegionData } from '../ui/TaskRegionPresentation'
 import { TrashService } from './TrashService'
 import { TrashSettingsService } from './TrashSettingsService'
@@ -11,7 +12,7 @@ import { TaskView, overviewTaskQuery, plannedRegionQuery, todayAttentionQuery, t
 
 export const APP_DATA_SET_NAMES: string[] = ['todayTasks', 'todayPriority', 'files', 'categories', 'todayAttention',
   'planned', 'anytime', 'waiting', 'logbook', 'projects', 'trash', 'badgeDeadline',
-  'inboxTasks', 'inboxFile', 'somedayTasks', 'somedayFile', 'memoTasks', 'memoFile', 'inboxRecent', 'plannedFiltered', 'trashExpired', 'notebookFiles']
+  'inboxTasks', 'inboxFile', 'somedayTasks', 'somedayFile', 'memoTasks', 'memoFile', 'inboxRecent', 'plannedFiltered', 'trashExpired', 'notebookFiles', 'reminderTasks']
 
 // 只定义 Core 查询；相同业务范围只保留一个 DataSet，各项共享同一批文件加载。
 export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
@@ -49,6 +50,7 @@ export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
     if (target) definitions.push({ name: `${kind}Tasks`, query: target.task, repositoryBindings: target.repositoryBindings },
       { name: `${kind}File`, query: target.file, repositoryBindings: target.repositoryBindings })
   }
+  definitions.push(task('reminderTasks', { type: 'task', query: { expression: 'it.todo has.reminder o.reminder' } }))
   return definitions
 }
 
@@ -68,19 +70,26 @@ export class AppDataManager {
   static async close(): Promise<void> {
     const current = AppDataManager.current
     AppDataManager.current = undefined
-    await current?.manager.close()
+    if (current) {
+      await ReminderManager.stop()
+      await current.manager.close()
+    }
   }
   private constructor(context: Context) {
     this.context = context
     this.manager = DataSetManager.create(context, 'app', (config: AppConfig): DataSetDefinition[] => {
       this.config = config
       return appDataDefinitions(config)
-    })
+    }, { uncachedDataSets: ['reminderTasks'] })
     for (const name of APP_DATA_SET_NAMES) this.manager.dataSet(name)
+    ReminderManager.register(context, this.manager.dataSet('reminderTasks'))
   }
   get configuration(): AppConfig | undefined { return this.config }
   dataSet(name: string): DataSet { return this.manager.dataSet(name) }
-  async start(): Promise<void> { await this.manager.start() }
+  async start(): Promise<void> {
+    try { await this.manager.start() }
+    finally { ReminderManager.start() }
+  }
   taskDataSet(view: TaskView): DataSet {
     const name = view === 'today' ? 'todayTasks' : view === 'memo' || view === 'someday' ? `${view}Tasks` : view
     return this.dataSet(name)

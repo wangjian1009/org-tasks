@@ -1,4 +1,4 @@
-import { TaskEventManager } from '../services/TaskEventManager'
+import { ReminderManager } from '../services/ReminderManager'
 import { AppDataManager } from '../services/AppDataManager'
 import { NativeCoreService } from '../services/NativeCoreService'
 import { NotificationManager } from '../services/NotificationManager'
@@ -102,7 +102,7 @@ export default class EntryAbility extends UIAbility {
   private checkNotificationPermission(): void {
     if (!this.foreground || !this.contentReady) return
     NotificationPermissionService.start(this.context).then((): void => {
-      if (this.foreground && this.contentReady) TaskEventManager.refresh(this.context)
+      if (this.foreground && this.contentReady) ReminderManager.refresh()
     }).catch((error: Error): void => {
       console.error(`检查通知授权失败：${error.message}`)
     })
@@ -122,7 +122,7 @@ export default class EntryAbility extends UIAbility {
     this.foreground = true
     this.startStartupSync()
     DeviceBadgeService.start(this.context)
-    TaskEventManager.start(this.context)
+    AppDataManager.shared(this.context).start().catch((error: Error): void => { console.error(`恢复共享数据失败：${error.message}`) })
     this.checkNotificationPermission()
   }
 
@@ -135,7 +135,6 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
-    TaskEventManager.stop()
     DeviceBadgeService.stop()
     AppDataManager.close().catch((): void => { console.error('关闭共享数据失败') })
     HttpApiService.attachWindow(undefined)

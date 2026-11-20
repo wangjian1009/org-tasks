@@ -102,7 +102,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 | ~src/main/ets/components/controls/~ | 与业务无关的基础控件：图标按钮、空态、消息条、分区标题、设置行和弹出菜单；只接收展示参数与事件回调，不依赖任务、Org、仓库或同步服务。 |
 | ~src/main/ets/components/editors/~ | 可复用的任务与备忘编辑器，以及日期、标签、重复、优先级、清单、移动目标、文件入口、目录选择和任务日志控件。 ~TaskEditor~ 可嵌入列表项或项目文档，编辑快照与提交通过既有宿主服务接入 Core。 |
 
-文件同步由 Harmony 的 service 编排，经 C++ N-API 与 ~harmony~ bridge 调用 Core 的仓库和策略对象；系统日历事件由全局 ~TaskEventManager~ 管理， ~CalendarSync~ 专门执行首次核对与后续事件增删改。日历、凭据、调度和 SDK 生命周期属于平台能力，不进入 Core 领域模型。
+文件同步由 Harmony 的 service 编排，经 C++ N-API 与 ~harmony~ bridge 调用 Core 的仓库和策略对象；系统日历事件由全局 ~ReminderManager~ 管理， ~CalendarSync~ 专门执行首次核对与后续事件增删改。日历、凭据、调度和 SDK 生命周期属于平台能力，不进入 Core 领域模型。
 
 定时同步已移除，不注册或启动 WorkScheduler 作业。应用启动时清理旧版持久化的同步作业，已删除其扩展注册；同步间隔不再属于宿主配置。桌面卡片定时刷新只读取本地快照，不是同步策略。
 
@@ -154,7 +154,7 @@ APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共�
 
 * 任务提醒平台接入
 
-Core 使用与创建时间相同的属性解析投影 ~reminder_at~ ，并以 ~SetReminder~ 封装底层属性名、时间戳序列化与保真写入。表达式支持 ~reminder~ / ~r~ 的自然日条件和完整时间排序。Harmony 的全局 ~TaskEventManager~ 持有唯一提醒 DataSet，启动首次确认后由 ~CalendarSync~ 核对应用专用日历，之后按增删改维护事件。设置列表直接使用同一数据集。事件身份和内容指纹存于系统日历的 identifier，本机只保存开关；无响铃秒数、间隔或手动同步按钮，设备状态不进入 Core 同步记录。详见 [[file:harmony/任务提醒设计.org][任务提醒设计]]。
+Core 使用与创建时间相同的属性解析投影 ~reminder_at~ ，并以 ~SetReminder~ 封装底层属性名、时间戳序列化与保真写入。表达式支持 ~reminder~ / ~r~ 的自然日条件和完整时间排序。Harmony 的全局 ~ReminderManager~ 由 ~AppDataManager~ 注册唯一 ~reminderTasks~ DataSet，与页面共享同一个数据管理器和首次查询批次；提醒模块集中管理本机开关、授权、系统登记检查与状态订阅，首次确认后由 ~CalendarSync~ 核对应用专用日历，之后按增删改维护事件。设置列表直接使用同一数据集。事件身份和内容指纹存于系统日历的 identifier，本机只保存开关；无响铃秒数、间隔或手动同步按钮，设备状态不进入 Core 同步记录。详见 [[file:harmony/任务提醒设计.org][任务提醒设计]]。
 
 * 任务记录的直接分发
 

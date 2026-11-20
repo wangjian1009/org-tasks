@@ -544,7 +544,7 @@ function sharedConsumers(f) {
  const queries=load('entry/src/main/ets/services/TaskViewQueries.ets',{'./NativeCoreService':native});
  const targets=load('entry/src/main/ets/services/FileTargetService.ets',{'../models/SystemRepository':system,
   './AppConfigService':{},'./NativeCoreService':native,'./PageQueryService':{},'./TaskViewQueries':queries});
- const shared=load('entry/src/main/ets/services/AppDataManager.ets',{'./TrashSettingsService':{TrashSettingsService:{retentionDays:async()=>30}},'./TrashService':{TrashService:{perform:async()=>{}}},'./AppConfigService':{AppConfigService:{load:async()=>f.config}},'./DataSetManager':{DataSetManager:f.DataSetManager},
+ const shared=load('entry/src/main/ets/services/AppDataManager.ets',{'./ReminderManager':{ReminderManager:{register(){},start(){},async refresh(){},async stop(){}}},'./TrashSettingsService':{TrashSettingsService:{retentionDays:async()=>30}},'./TrashService':{TrashService:{perform:async()=>{}}},'./AppConfigService':{AppConfigService:{load:async()=>f.config}},'./DataSetManager':{DataSetManager:f.DataSetManager},
   './NativeCoreService':native,'./FileTargetService':targets,'./TaskViewQueries':queries});
  const equality=load('entry/src/main/ets/services/PageDataEquality.ets',{'./PageDataSnapshot':f.snapshots});
  const sidebar=load('entry/src/main/ets/services/SidebarDataManager.ets',{'./AppDataManager':shared,'./FileTargetService':targets,
@@ -589,9 +589,11 @@ test('共享快照的界面编辑同时更新侧边栏，通知变化只重写�
 test('全局缓存由同一管理器保存，重建恢复版本0后首次批次为1，关闭释放唯一文件监控',async()=>{
  const f=await fixture();let c;try{
   c=sharedConsumers(f);const first=c.AppDataManager.shared(f.context);await first.start();await first.manager.flush();await c.AppDataManager.close();
-  assert.equal(f.externalCallbacks.size,0);assert.equal(JSON.parse(await fsp.readFile(f.file('app'),'utf8')).dataSets.length,c.APP_DATA_SET_NAMES.length);
+  assert.equal(f.externalCallbacks.size,0);const cached=JSON.parse(await fsp.readFile(f.file('app'),'utf8')).dataSets;
+  assert.equal(cached.length,c.APP_DATA_SET_NAMES.length-1);assert.ok(!cached.some(set=>set.name==='reminderTasks'));
   const second=c.AppDataManager.shared(f.context),delay=f.delaySubscribe(),start=second.start();
   await until(()=>second.dataSet('todayTasks').data&&second.dataSet('todayTasks').version===0);assert.equal(second.dataSet('todayTasks').isReady(),false);
+  assert.equal(second.dataSet('reminderTasks').data,undefined,'提醒来源不从磁盘缓存恢复');
   delay.resolve();await start;assert.equal(second.dataSet('todayTasks').version,1);assert.equal(f.batches.length,2);
  }finally{await c?.AppDataManager.close();await f.cleanup()}
 });

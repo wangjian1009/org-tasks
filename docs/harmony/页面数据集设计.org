@@ -389,11 +389,13 @@ DataSet 接收确认文件事件后，同步推进该文件中未修改记录的
 
 纯本地冷启动时，全部普通任务页、最近新增、笔记本、侧边栏、导航计数和角标的基础查询共享一次初始批次；启动同步只接入已有 Workspace，角标刷新只读取共享确认快照，因此这些业务每仓库只扫描一次。Core 文件服务启动只加载基线控制元数据，通知初始化不扫描或读取 Org 正文；WebDAV 同步仍有独立的工作文件读取、基线正文读取和事务校验。实际文件变化触发共享 Manager 的后续批量刷新。首次通知缓存与增量契约见 [[file:../core/通知订阅设计.org][通知订阅设计]]。
 
-* 全局事件管理数据集
+* 全局提醒管理数据集
 
-~TaskEventManager~ 作为独立的应用级事件管理器，拥有唯一 ~events/tasks~ DataSet，查询 ~it.todo has.reminder o.reminder~ 并复用现有 Workspace；不再在 AppDataManager 中重复注册 reminderTasks，也不持久化此数据集缓存。事件同步与设置页任务列表消费同一个实例，列表离开不释放全局查询。
+~AppDataManager~ 在唯一应用 DataSetManager 中注册 ~reminderTasks~ ，查询 ~it.todo has.reminder o.reminder~ ，与普通页面共享首次批次、Workspace 和外部文件监听。通过 ~uncachedDataSets~ 将该数据集排除于磁盘写入及恢复，其他基础数据集保持版本零缓存恢复规则。~ReminderManager.register(context, source)~ 绑定唯一来源并订阅变更，不创建第二个 DataSetManager；设置列表消费同一实例，离开页面只解除自身订阅。
 
-首次已确认快照加载后执行一次系统日历库存核对。之后确认事件驱动任务新增、修改与移出的增量维护，complete 阶段同样用于接收最终确认，不消费乐观写入或版本零缓存。日历层不重复查询或过滤 Core 任务，只比较已经加载的来源快照与上次已应用状态；系统日历仅在启动、授权恢复或失败恢复时重新遍历。来源失败或换代期间不执行删除。应用销毁时由全局事件管理器关闭自己的 DataSetManager。
+全局数据层启动后异步启动提醒维护，不等待系统日历操作才显示任务。首次已确认快照加载后执行一次系统日历库存核对；之后确认事件驱动新增、修改与移出的增量维护，complete 阶段同样处理，忽略乐观写入。来源错误或失效使旧批次停止，保留已有事件；重新确认后继续维护。AppDataManager 关闭时先停止提醒订阅与维护，再关闭共享查询。
+
+~ReminderManager~ 同时封装提醒设置、授权、状态订阅和 ~checkRegistered(task)~ 。展开卡片的单项核实等待已有维护完成，再异步读取系统事件；不以应用内存状态替代系统事实，也不发起 Core 查询或日历写入。展开、改期、收起和退出的结果接收边界见 [[file:任务提醒设计.org][任务提醒设计]]。
 
 * 稳定行的 TaskDataSource 与 Monitor
 

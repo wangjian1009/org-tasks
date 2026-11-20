@@ -9,7 +9,7 @@ import { DataSet, DataSetDefinition, DataSetDefinitionFactory, UserOperationQueu
 
 export { DataSet, DataSetDefinition, DataSetDefinitionFactory, DataSetQuery, DataSetEvent, TaskDataChange, DataSetWriteError } from './DataSet'
 
-export interface DataManagerOptions { cache?: boolean; parent?: DataSetManager }
+export interface DataManagerOptions { cache?: boolean; parent?: DataSetManager; uncachedDataSets?: string[] }
 export interface DataLoadResult { name: string; fullFiles: CoreOrgFile[] }
 
 interface DataSetCacheRepository { id: string; rootDirectory: string; excludedDirectories: string[] }
@@ -41,6 +41,7 @@ export class DataSetManager {
   private subscribeTimer: number = -1
   private cache: PageDataCache | undefined = undefined
   private running: Promise<DataLoadResult[]> | undefined = undefined
+  private readonly uncachedDataSets: Set<string>
   private readonly cacheEnabled: boolean
   private readonly parent: DataSetManager | undefined
   private initialFilesDelivered: boolean = false
@@ -92,6 +93,7 @@ export class DataSetManager {
   }
   private constructor(context: Context, pageName: string, source: DataSetDefinition[] | DataSetDefinitionFactory, options: DataManagerOptions) {
     this.cacheEnabled = options.cache !== false
+    this.uncachedDataSets = new Set(options.uncachedDataSets ?? [])
     this.parent = options.parent
     this.context = context; this.pageName = pageName; this.source = typeof source === 'function' ? source : JSON.parse(JSON.stringify(source)) as DataSetDefinition[]
     if (typeof source !== 'function') {
@@ -149,7 +151,7 @@ export class DataSetManager {
     const cache = this.cache
     const cached = await cache?.read().catch((): undefined => undefined)
     if (request !== this.queryRequests.get(name) || this.closed || this.closing) return
-    const restored = cached?.find(item => item.name === name)
+    const restored = this.uncachedDataSets.has(name) ? undefined : cached?.find(item => item.name === name)
     if (restored?.queryKey === this.queryKey(dataSet)) dataSet.restore(restoreDataSet(restored))
     try { await dataSet.start() }
     catch (error) { if (request === this.queryRequests.get(name) && !this.closed && !this.closing) throw error as Error }
@@ -185,7 +187,7 @@ export class DataSetManager {
     this.config = config; this.workspace = workspace; this.definitions = resolved
     if (!this.sets.size) { this.initialized = true; return [] }
     this.resetCache()
-    const names = Array.from(this.sets.keys())
+    const names = this.cachedNames()
     const scope = this.scope
     for (const entry of this.sets.entries()) {
       const name = entry[0], dataSet = entry[1]
@@ -354,8 +356,9 @@ export class DataSetManager {
     const work = entries.some(entry => this.sets.get(entry.name)?.isReady()) ? UserOperationQueue.submit(execute, keys) : execute()
     work.catch((error: Error): void => { for (const entry of entries) entry.reject(error) })
   }
+  private cachedNames(): string[] { return Array.from(this.sets.keys()).filter(name => !this.uncachedDataSets.has(name)) }
   private resetCache(): void {
-    const config = this.config!, names = Array.from(this.sets.keys())
+    const config = this.config!, names = this.cachedNames()
     const identity: DataSetCacheScope = { repositories: config.repos.map((repo): DataSetCacheRepository =>
       ({ id: repo.id, rootDirectory: repo.rootDirectory, excludedDirectories: repo.excludedDirectories ?? [] })),
       todoDefaults: config.todoDefaults, coreSettings: config.coreSettings, names }
@@ -372,7 +375,7 @@ export class DataSetManager {
   hasValidScope(): boolean { return !this.closed && !this.closing }
   isReady(): boolean { return this.initialized && Array.from(this.sets.values()).every(dataSet => dataSet.isReady()) }
   async refresh(): Promise<void> { await this.start(); await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.refresh())) }
-  private revision(): string { return JSON.stringify(Array.from(this.sets.values()).map(dataSet => [dataSet.version, dataSet.revision])) }
+  private revision(): string { return JSON.stringify(this.cachedNames().map(name => [this.sets.get(name)!.version, this.sets.get(name)!.revision])) }
   private scheduleSave(): void {
     if (!this.cache || !this.initialized || this.closed || this.closing || this.saveTimer >= 0 || !UserOperationQueue.isIdle() || this.revision() === this.savedRevision) return
     this.saveTimer = setTimeout((): void => { this.saveTimer = -1; this.flush().catch((error: Error): void => { for (const dataSet of this.sets.values()) dataSet.reportError(error) }) }, 250)
@@ -383,10 +386,10 @@ export class DataSetManager {
     await this.settleExternalRefresh()
     await UserOperationQueue.whenIdle()
     await Promise.all(Array.from(this.sets.values()).map(dataSet => dataSet.settle()))
-    if (!cache || !this.initialized || generation !== this.generation || cache !== this.cache || Array.from(this.sets.values()).some(dataSet => !dataSet.getConfirmed(dataSet.name))) return
+    if (!cache || !this.initialized || generation !== this.generation || cache !== this.cache || this.cachedNames().some(name => !this.sets.get(name)!.getConfirmed(name))) return
     const revision = this.revision()
-    const data = Array.from(this.sets.entries()).map(entry => {
-      const name = entry[0], dataSet = entry[1]
+    const data = this.cachedNames().map(name => {
+      const dataSet = this.sets.get(name)!
       const cached = cacheDataSet(name, dataSet.getConfirmed(name)!.data); cached.version = dataSet.version; cached.queryKey = this.queryKey(dataSet); return cached
     })
     const result = await this.cache.write(data, (): boolean => UserOperationQueue.isIdle() && generation === this.generation && revision === this.revision())

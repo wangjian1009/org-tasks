@@ -10,6 +10,11 @@ export function reminderPlanning(task: CoreTask): CoreTaskPlanningInfo | null {
   } }
 }
 
+export function reminderTimeLabel(task: CoreTask): string {
+  const planning = reminderPlanning(task)
+  return planning ? `${planning.date} ${planning.time?.start ?? '00:00'}` : ''
+}
+
 export function reminderModification(task: CoreTask, edit: CoreTaskPlanningEdit | null): CoreTaskModification {
   if (!edit) return { field: 'SET_REMINDER', value: null }
   const time = edit.time === undefined ? reminderPlanning(task)?.time?.start ?? '00:00' : edit.time?.start ?? '00:00'

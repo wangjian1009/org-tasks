@@ -19,6 +19,7 @@ function load(name, mocks, globals = {}) {
     if (name.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
     if (name.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
     if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
+    if (name.endsWith('/ReminderManager')) return {ReminderManager:{refresh:async()=>{}}};
     if (name.endsWith('/AppDataManager')) return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
     if (name.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{ensure:async()=>({id:'org-tasks-system',rootDirectory:'/system'})}};
     assert.ok(name in mocks, '缺少替身 ' + name); return mocks[name];

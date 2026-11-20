@@ -1,6 +1,6 @@
 import { DataSet } from '../services/DataSetManager'
 import { CoreTask, CoreTaskModification, CoreTaskPlanningEdit, coreErrorMessage, CoreBridgeError } from '../services/NativeCoreService'
-import { TaskEventManager } from '../services/TaskEventManager'
+import { ReminderManager } from '../services/ReminderManager'
 import { reminderPlanning, reminderModification } from '../ui/TaskReminderPresentation'
 import { TaskDateDialog } from './editors/TaskDateDialog'
 import { UiColor } from '../ui/Theme'
@@ -21,9 +21,9 @@ export struct TaskReminderList {
 
   aboutToAppear(): void {
     this.active = true
-    this.dataSet = TaskEventManager.dataSet(this.getUIContext().getHostContext()!)
+    this.dataSet = ReminderManager.dataSet()
     this.stopData = this.dataSet.subscribe((): void => { this.update() })
-    this.stopStatus = TaskEventManager.subscribe((): void => { this.revision++ })
+    this.stopStatus = ReminderManager.subscribe((): void => { this.revision++ })
     this.load()
   }
   aboutToDisappear(): void {
@@ -34,7 +34,7 @@ export struct TaskReminderList {
     this.loading = true; this.message = ''
     try {
       if (this.dataSet?.error) await this.dataSet.refresh()
-      else await TaskEventManager.refresh(this.getUIContext().getHostContext()!)
+      else await ReminderManager.refresh()
     }
     catch (error) { if (this.active) this.message = coreErrorMessage(error as CoreBridgeError) }
     finally { if (this.active) { this.loading = false; this.update() } }
@@ -51,7 +51,7 @@ export struct TaskReminderList {
   }
   private status(task: CoreTask): string {
     if (this.revision < 0) return ''
-    return TaskEventManager.status(task)
+    return ReminderManager.status(task)
   }
   private edit(task: CoreTask): void {
     if (this.busy || !this.dataSet?.isReady()) return
