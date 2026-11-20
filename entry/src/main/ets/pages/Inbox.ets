@@ -164,7 +164,7 @@ struct Inbox {
   }
 
   closeCapture() {
-    if (this.captureSaving || !this.pageReady) return
+    if (this.captureSaving) return
     clearTimeout(this.captureFocusTimer)
     this.captureOpen = false
     this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)
@@ -180,16 +180,16 @@ struct Inbox {
     this.captureSaving = true
     this.captureMessage = ''
     try {
-      await this.tasksDataSet!.operate( async (operationId: string): Promise<void> => { await CaptureService.save(this.getUIContext().getHostContext()!, title, operationId) })
-      this.captureSaving = false
-      this.closeCapture()
-      this.captureTitle = ''
-      await this.loadRecords()
+      const context = this.getUIContext().getHostContext()!
+      await this.tasksDataSet!.operate((operationId: string): Promise<void> => CaptureService.save(context, title, operationId))
     } catch (e) {
       this.captureMessage = `保存失败：${coreErrorMessage(e as CoreBridgeError)}`
+      return
     } finally {
       this.captureSaving = false
     }
+    this.captureTitle = ''
+    this.closeCapture()
   }
 
   measureRows() {

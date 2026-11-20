@@ -79,25 +79,42 @@ function captureEntities(entities: textProcessing.Entity[]): CaptureEntities {
   return { body: links.join('\n'), scheduled }
 }
 
-// 同一进程的实体抽取不支持并发；释放引擎也必须在下一次抽取之前完成。
-let recognitionQueue: Promise<void> = Promise.resolve()
+const RECOGNITION_TIMEOUT_MS = 3000
+// 下一次识别必须等当前引擎实际释放，即使录入已因超时继续保存。
+let activeRecognition: Promise<void> | undefined
 
 export class CaptureEntityService {
   static async recognize(title: string): Promise<CaptureEntities> {
     if (!title.trim() || title.length > 1000 || !canIUse('SystemCapability.AI.NaturalLanguage.TextProcessing')) return emptyEntities()
-    const request = recognitionQueue.then(async (): Promise<CaptureEntities> => {
-      try {
-        return captureEntities(await textProcessing.getEntity(title, {
-          entityTypes: [EntityType.LOCATION, EntityType.DATETIME]
-        }))
-      } catch (_) {
-        // 不支持、服务异常和平台超时均退回普通捕捉，不记录输入或识别原文。
-        return emptyEntities()
-      } finally {
-        try { await textProcessing.release() } catch (_) { /* 释放失败不阻止本地保存。 */ }
-      }
+    let entities = emptyEntities()
+    let timedOut = false
+    let timer = -1
+    const deadline = new Promise<void>((resolve): void => {
+      timer = setTimeout((): void => { timedOut = true; resolve() }, RECOGNITION_TIMEOUT_MS)
     })
-    recognitionQueue = request.then((): void => {}, (): void => {})
-    return await request
+    const recognizeAndRelease = async (): Promise<void> => {
+      try {
+        const result = await textProcessing.getEntity(title, {
+          entityTypes: [EntityType.LOCATION, EntityType.DATETIME]
+        })
+        if (!timedOut) entities = captureEntities(result)
+      } catch (_) {
+        // 服务异常时按原始标题保存。
+      } finally {
+        try { await textProcessing.release() } catch (_) { /* 保留已取得的识别结果。 */ }
+      }
+    }
+    try {
+      while (activeRecognition) {
+        await Promise.race([activeRecognition, deadline])
+        if (timedOut) return entities
+      }
+      const work = recognizeAndRelease().finally((): void => { activeRecognition = undefined })
+      activeRecognition = work
+      await Promise.race([work, deadline])
+      return entities
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }

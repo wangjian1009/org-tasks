@@ -40,6 +40,8 @@ export class CaptureService {
     }
     if (operationId) group.operationId = operationId
     await NativeCoreService.executeTaskOperations(config.repos, group, config.todoDefaults, config.coreSettings)
-    await DeviceBadgeService.refresh(context)
+    // 角标可能等待数据集写入队列清空，须独立于捕捉提交。
+    Promise.resolve().then((): Promise<void> => DeviceBadgeService.refresh(context))
+      .catch((): void => { console.error('捕捉后更新设备提示计数失败') })
   }
 }

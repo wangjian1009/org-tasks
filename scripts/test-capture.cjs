@@ -130,7 +130,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
   assert.equal(pages.length, beforeWindow + 1, '初始化完成不再重开默认页面或目标页面');
 });
 
-function fixture() {
+function fixture(overrides = {}, globals = {}) {
   const values = new Map();
   const calls = [];
   const config = { repos: [repository('personal')], inboxFile: 'inbox.org', inboxRepoId: 'personal',
@@ -202,8 +202,9 @@ function fixture() {
       async workspaceFor(repos) { return workspace(repos); },
       query: executeBatch
 
-    } }
-  }, { canIUse: capability => {
+    } },
+    ...overrides
+  }, { ...globals, canIUse: capability => {
     assert.equal(capability, 'SystemCapability.AI.NaturalLanguage.TextProcessing');
     return supported;
   } });
@@ -454,6 +455,63 @@ test('同进程并发捕捉串行调用实体识别并等待引擎释放，结�
   const result = await Promise.all(['西湖', '故宫'].map(title => CaptureEntityService.recognize(title)));
   assert.deepEqual(events, ['识别:西湖', '释放', '识别:故宫', '释放']);
   assert.match(result[0].body, /西湖/); assert.match(result[1].body, /故宫/);
+});
+
+test('实体识别或释放未返回时仍能保存，迟到的结果不会再次写入', async () => {
+  for (const stalledStep of ['recognize', 'release']) {
+    const timers = new Map(); const titles = [];
+    let resume;
+    const stalled = new Promise(resolve => { resume = resolve; });
+    const f = fixture({ '@kit.NaturalLanguageKit': {
+      EntityType: { LOCATION: 'location', DATETIME: 'datetime' }, textProcessing: {
+        async getEntity(title) {
+          titles.push(title);
+          if (titles.length === 1 && stalledStep === 'recognize') await stalled;
+          return [addressEntity(title, 0)];
+        },
+        async release() { if (titles.length === 1 && stalledStep === 'release') await stalled; }
+      }
+    } }, {
+      setTimeout(callback, delay) {
+        assert.equal(delay, 3000);
+        const id = Symbol(); timers.set(id, callback); return id;
+      },
+      clearTimeout(id) { timers.delete(id); }
+    });
+    const first = f.CaptureService.save({}, '西湖');
+    const second = f.CaptureService.save({}, '故宫');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(titles, ['西湖']);
+    for (const expire of timers.values()) expire();
+    await Promise.all([first, second]);
+    assert.equal(timers.size, 0);
+    const created = Object.fromEntries(f.calls.map(call => {
+      const data = call.group.operations[0].data;
+      return [data.title, data.body];
+    }));
+    assert.equal(created['故宫'], '');
+    assert.equal(created['西湖'], stalledStep === 'release' ? '[[addr:西湖][西湖]]' : '');
+    resume();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.calls.length, 2);
+    await f.CaptureService.save({}, '长城');
+    assert.deepEqual(titles, ['西湖', '长城']);
+    assert.match(f.calls.at(-1).group.operations[0].data.body, /长城/);
+  }
+});
+
+test('捕捉提交不等待需要写入队列空闲的角标更新', { timeout: 1000 }, async () => {
+  let badgeStarted = false;
+  let finishBadge;
+  const badge = new Promise(resolve => { finishBadge = resolve; });
+  const f = fixture({ './DeviceBadgeService': { DeviceBadgeService: {
+    refresh() { badgeStarted = true; return badge; }
+  } } });
+  await f.CaptureService.save({}, '收件箱新记录', 'capture/operation');
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].group.operationId, 'capture/operation');
+  assert.equal(badgeStarted, true);
+  finishBadge();
 });
 
 test('缺少标题、收件箱或明确目标时不调用写入', async () => {
