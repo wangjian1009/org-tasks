@@ -930,6 +930,10 @@ fn external_link_href(path: &str) -> Option<String> {
         "geo" if !url.path().is_empty() => Some(url.into()),
         // addr 是应用约定的文字地址协议；宿主点击时转换为地图搜索 URI。
         "addr" if !url.path().is_empty() => Some(url.into()),
+        // app 是宿主维护的应用关联协议；由 Harmony 链接控件交给应用关联管理器。
+        "app" if !url.path().is_empty() => Some(url.into()),
+        // app 是宿主维护的应用关联协议；由 Harmony 链接控件交给应用关联管理器。
+        "app" if !url.path().is_empty() => Some(url.into()),
         _ => None,
     }
 }
@@ -1199,6 +1203,9 @@ mod tests {
         );
         assert!(named_address[0].is_link);
         assert!(external_link_href("addr:").is_none());
+        let app = title_parts("[[app:中国工商银行][打开银行]]");
+        assert_eq!(app[0].href.as_deref(), Some("app:%E4%B8%AD%E5%9B%BD%E5%B7%A5%E5%95%86%E9%93%B6%E8%A1%8C"));
+        assert!(app[0].is_link);
         let address_html = file("* 地址 [[geo:39.9042,116.4074][北京市]]\n").render_html();
         assert!(address_html.contains("<a class=\"link\" href=\"geo:39.9042,116.4074\""));
         assert_eq!(title_parts(""), Vec::new());

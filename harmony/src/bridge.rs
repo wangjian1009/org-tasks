@@ -122,6 +122,8 @@ pub struct HarmonyBridgeTask {
     pub body_first_line: Option<String>,
     #[serde(rename = "addressLinks")]
     pub address_links: Vec<org_tasks_core::AddressLink>,
+    #[serde(rename = "appLinks")]
+    pub app_links: Vec<org_tasks_core::AppLink>,
     pub body_html: String,
     pub logbook_html: String,
     pub logs: Vec<org_tasks_core::TaskLog>,
@@ -334,6 +336,7 @@ fn task_from_filter(task: FilterTask) -> Result<HarmonyBridgeTask, CoreError> {
         body: task.body().to_owned(),
         body_first_line: task.body_first_line(),
         address_links: task.address_links().to_vec(),
+        app_links: task.app_links().to_vec(),
         body_html: content.body_html,
         logbook_html: content.logbook_html,
         logs: content.logs,

@@ -14,13 +14,25 @@ interface AppLinkCatalogDocument {
 }
 
 // 应用关联只保存链接名称和目录应用身份；密码、文件内容和 Org 语义不进入这里。
-export class AppLinkService {
+export class AppLinkManager {
+  static readonly shared: AppLinkManager = new AppLinkManager()
+  private context: Context | undefined = undefined
   private static catalogCache: AppLinkCatalogEntry[] | undefined = undefined
+  private associations: AppLinkAssociation[] | undefined = undefined
 
-  static async catalog(context: Context): Promise<AppLinkCatalogEntry[]> {
-    if (AppLinkService.catalogCache) return AppLinkService.catalogCache.slice()
+  start(context: Context): void { this.context = context }
+  stop(): void { this.context = undefined; this.associations = undefined; AppLinkManager.catalogCache = undefined }
+  private use(context?: Context): Context {
+    if (context) this.context = context
+    if (!this.context) throw new Error('应用关联管理器尚未启动')
+    return this.context
+  }
+
+  async catalog(context?: Context): Promise<AppLinkCatalogEntry[]> {
+    const current = this.use(context)
+    if (AppLinkManager.catalogCache) return AppLinkManager.catalogCache.slice()
     try {
-      const bytes = await context.resourceManager.getRawFileContent(CATALOG_FILE)
+      const bytes = await current.resourceManager.getRawFileContent(CATALOG_FILE)
       const value = JSON.parse(util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes)) as AppLinkCatalogDocument
       const apps = Array.isArray(value.apps) ? value.apps : []
       const catalog = normalizeCatalog(apps)
@@ -32,57 +44,64 @@ export class AppLinkService {
           if (app.iconResource) installed.push(app)
         } catch (_) { /* 未安装、权限不足或资源缺失的目录项不显示。 */ }
       }
-      AppLinkService.catalogCache = installed
-    } catch (_) { AppLinkService.catalogCache = [] }
-    return AppLinkService.catalogCache.slice()
+      AppLinkManager.catalogCache = installed
+    } catch (_) { AppLinkManager.catalogCache = [] }
+    return AppLinkManager.catalogCache.slice()
   }
 
-  static async load(context: Context): Promise<AppLinkAssociation[]> {
-    const store = await PreferencesStore.open(context, PREFERENCES)
+  async load(context?: Context, reload: boolean = false): Promise<AppLinkAssociation[]> {
+    const current = this.use(context)
+    if (this.associations && !reload) return this.associations.slice()
+    const store = await PreferencesStore.open(current, PREFERENCES)
     const encoded = await store.get(KEY, '') as string
-    if (!encoded) return []
+    if (!encoded) { this.associations = []; return [] }
     try {
       const values = JSON.parse(encoded) as AppLinkAssociation[]
       if (!Array.isArray(values)) return []
-      return normalize(values)
-    } catch (_) { return [] }
+      this.associations = normalize(values)
+    } catch (_) { this.associations = [] }
+    return this.associations.slice()
   }
 
-  static async find(context: Context, name: string): Promise<AppLinkAssociation | undefined> {
+  async find(context: Context, name: string): Promise<AppLinkAssociation | undefined> {
     const normalized = normalizeName(name)
     if (!normalized) return undefined
-    return (await AppLinkService.load(context)).find((item: AppLinkAssociation): boolean => item.name === normalized)
+    return (await this.load(context)).find((item: AppLinkAssociation): boolean => item.name === normalized)
   }
 
-  static async upsert(context: Context, association: AppLinkAssociation): Promise<void> {
+  async upsert(context: Context, association: AppLinkAssociation): Promise<void> {
     const value = normalizeAssociation(association)
     if (!value) throw new Error('应用链接关联不能为空')
-    const values = await AppLinkService.load(context)
+    const values = await this.load(context)
     const index = values.findIndex((item: AppLinkAssociation): boolean => item.name === value.name)
     if (index < 0) values.push(value); else values[index] = value
-    await AppLinkService.write(context, values)
+    await this.write(context, values)
+    this.associations = values
   }
 
-  static async update(context: Context, oldName: string, association: AppLinkAssociation): Promise<void> {
+  async update(context: Context, oldName: string, association: AppLinkAssociation): Promise<void> {
     const value = normalizeAssociation(association)
     if (!value) throw new Error('应用链接关联不能为空')
-    const values = await AppLinkService.load(context)
+    const values = await this.load(context)
     const old = normalizeName(oldName)
     const index = values.findIndex((item: AppLinkAssociation): boolean => item.name === old)
     if (index < 0) throw new Error('应用链接关联已不存在')
     const duplicate = values.some((item: AppLinkAssociation, itemIndex: number): boolean => itemIndex !== index && item.name === value.name)
     if (duplicate) throw new Error('该应用链接名称已经存在')
     values[index] = value
-    await AppLinkService.write(context, values)
+    await this.write(context, values)
+    this.associations = values
   }
 
-  static async remove(context: Context, name: string): Promise<void> {
+  async remove(context: Context, name: string): Promise<void> {
     const normalized = normalizeName(name)
-    await AppLinkService.write(context, (await AppLinkService.load(context)).filter((item: AppLinkAssociation): boolean => item.name !== normalized))
+    const values = (await this.load(context)).filter((item: AppLinkAssociation): boolean => item.name !== normalized)
+    await this.write(context, values)
+    this.associations = values
   }
 
-  private static async write(context: Context, values: AppLinkAssociation[]): Promise<void> {
-    const store = await PreferencesStore.open(context, PREFERENCES)
+  private async write(context: Context, values: AppLinkAssociation[]): Promise<void> {
+    const store = await PreferencesStore.open(this.use(context), PREFERENCES)
     await store.put(KEY, JSON.stringify(normalize(values)))
     await store.flush()
   }

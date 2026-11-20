@@ -14,7 +14,7 @@ import { titleCountInline } from './TitleCountInline'
 import { titleCounts } from '../ui/TitleCountPresentation'
 import { CoreTitleCount } from '../services/NativeCoreService'
 import { AppLinkAssociation, AppLinkCatalogEntry } from '../models/OrgTask'
-import { AppLinkService, appLinkName } from '../services/AppLinkService'
+import { AppLinkManager, appLinkName } from '../services/AppLinkService'
 
 interface MapAppChoice {
   title: string
@@ -483,7 +483,7 @@ export struct LinkView {
     try {
       const context = this.getUIContext().getHostContext()! as common.UIAbilityContext
       await choice.select()
-      await AppLinkService.upsert(context, choice.association)
+      await AppLinkManager.shared.upsert(context, choice.association)
       if (this.active && generation === this.generation) this.chooserVisible = false
     } catch (_) {
       if (generation === this.generation) this.notify('无法打开应用，请确认应用仍然可用。')
@@ -814,7 +814,7 @@ async function openExternalLink(context: common.UIAbilityContext, href: string, 
   } else if (scheme === 'app') {
     const name = appLinkName(href)
     if (!name) throw new Error('应用链接缺少应用名称')
-    const association = await AppLinkService.find(context, name)
+    const association = await AppLinkManager.shared.find(context, name)
     if (association) {
       try {
         await context.startAbility(appLinkWant(association, href))
@@ -829,7 +829,7 @@ async function openExternalLink(context: common.UIAbilityContext, href: string, 
 
 async function openAppChooser(context: common.UIAbilityContext, href: string, name: string,
   chooser: (choices: AppLinkChoice[]) => void): Promise<void> {
-  const catalog = await AppLinkService.catalog(context)
+  const catalog = await AppLinkManager.shared.catalog(context)
   const choices: AppLinkChoice[] = []
   const bundles = new Set<string>()
   for (const app of catalog) {

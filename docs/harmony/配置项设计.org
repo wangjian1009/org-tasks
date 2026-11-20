@@ -74,7 +74,7 @@ interface RepoConfig {
 | WebDAV 密码 | ~repos[].webdavPassword~ | Asset Store | Preferences 只保留空值占位；运行时载入，不能写入日志和 core 记录。 |
 | WebDAV 过滤目录 | ~repos[].excludedDirectories~ | Preferences | 同步调用时作为 ~SyncOptions~ 传入 core；默认值由 Rust 提供，当前为 ~archive~ 。 |
 | 应用目录 | ~app-links/apps.json~ | 随版本发布的 rawfile | 首版银行应用目录，保存应用 ~id~（Bundle Name）和名称；读取目录后只保留已安装且能读取 ~iconResource~ 的应用，目录随版本更新。 |
-| 应用链接关联 | ~appLinkAssociations~ | Preferences 的 ~org_tasks_config~ | 保存 ~app:名称~ 与目录应用的 ~bundleName~ 、~moduleName~ 和 ~abilityName~ ；首次点击链接时从随版本发布的目录中选择，设置页只能修改或删除已有记录，不能手动新增。 |
+| 应用链接关联 | ~appLinkAssociations~ | 应用级 ~AppLinkManager~ 读写 Preferences 的 ~org_tasks_config~ | 保存 ~app:名称~ 与目录应用的 ~bundleName~ 、~moduleName~ 和 ~abilityName~；设置页添加时通过 Core ~has.app~ 查询合并候选，首次点击链接时也从目录中选择，不能手动新增任意应用。 |
 
 关闭 ~repos[].webdavEnabled~ 时不构造 WebDAV ~SyncPolicy~ ，仓库仍是本地 ~OrgRepo~ ，目录、远端参数、密码及过滤规则保持原值，便于重新启用。
 

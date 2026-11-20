@@ -17,6 +17,7 @@ import { DeviceBadgeService } from '../services/DeviceBadgeService'
 import { HttpApiService } from '../services/HttpApiService'
 import { NotificationPermissionService } from '../services/NotificationPermissionService'
 import { SystemRepositoryService } from '../services/SystemRepositoryService'
+import { AppLinkManager } from '../services/AppLinkService'
 
 interface MainPageStorage { entryView?: string; entryMemoCreate?: boolean; entryMemoId?: string }
 
@@ -31,6 +32,7 @@ export default class EntryAbility extends UIAbility {
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     this.readDestination(want)
     NativeCoreService.start()
+    AppLinkManager.shared.start(this.context)
     await SystemRepositoryService.ensure(this.context)
     AppDataManager.shared(this.context).start().catch((error: Error): void => { console.error(`初始化共享数据失败：${error.message}`) })
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
@@ -135,6 +137,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onDestroy(): void {
+    AppLinkManager.shared.stop()
     DeviceBadgeService.stop()
     AppDataManager.close().catch((): void => { console.error('关闭共享数据失败') })
     HttpApiService.attachWindow(undefined)

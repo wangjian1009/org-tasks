@@ -8,10 +8,10 @@ import { addRepository } from '../services/RepositoryNavigation'
 import { validateConfiguration } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
 import { common } from '@kit.AbilityKit'
-import { AppConfig, AppLinkAssociation, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
+import { AppConfig, AppLinkAssociation, AppLinkCatalogEntry, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
-import { AppLinkService } from '../services/AppLinkService'
-import { CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTaskState, CoreSettingsObject } from '../services/NativeCoreService'
+import { AppLinkManager, appLinkName } from '../services/AppLinkService'
+import { CoreAppLink, CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTask, CoreTaskState, CoreSettingsObject, taskResult } from '../services/NativeCoreService'
 import { NotebookGroup, NotebookService } from '../services/NotebookService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/controls/MessageBar'
@@ -25,8 +25,10 @@ import { configuredFileTarget, FileTargetKind } from '../services/FileTargetServ
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
 import { isSystemRepository } from '../models/SystemRepository'
 import { NotificationPermissionService, NotificationPermissionState } from '../services/NotificationPermissionService'
+import { PageQueryService } from '../services/PageQueryService'
 
 interface SettingsParams { section?: string }
+interface AppLinkCandidate { name: string; bundleName: string; icon: Resource; selected: boolean }
 
 @Entry
 @Component
@@ -66,6 +68,10 @@ struct Settings {
   @State appLinkModuleDraft: string = ''
   @State appLinkAbilityDraft: string = ''
   @State appLinkBusy: boolean = false
+  @State appLinkAddOpen: boolean = false
+  @State appLinkAddBusy: boolean = false
+  @State appLinkCandidatesLoaded: boolean = false
+  @State appLinkCandidates: AppLinkCandidate[] = []
   @State notificationState: NotificationPermissionState | 'loading' | 'error' = 'loading'
   @State notificationBusy: boolean = false
   @State calendarState: CalendarPermissionState | 'loading' | 'error' = 'loading'
@@ -80,7 +86,7 @@ struct Settings {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.saving && !this.categoryBusy && !this.filePickerOpen && !this.filePickerBusy &&
-      !this.notificationBusy && !this.calendarBusy && !this.appLinkBusy && this.editingCategory < 0 &&
+      !this.notificationBusy && !this.calendarBusy && !this.appLinkBusy && !this.appLinkAddBusy && this.editingCategory < 0 &&
       this.editingAppLink < 0 && !this.preferenceSave.hasPending())
     this.stopReminder?.()
     this.stopReminder = ReminderManager.subscribe((): void => { this.reminderSummary = ReminderManager.summary() })
@@ -194,8 +200,9 @@ struct Settings {
       `\n\n当前状态：${this.reminderSummary}`
   }
   onBackPress(): boolean {
+    if (this.appLinkAddOpen) { if (!this.appLinkAddBusy) this.appLinkAddOpen = false; return true }
     if (this.filePickerOpen) { if (!this.filePickerBusy) this.filePickerOpen = false; return true }
-    if (this.saving || this.categoryBusy || this.notificationBusy || this.calendarBusy || this.appLinkBusy) return true
+    if (this.saving || this.categoryBusy || this.notificationBusy || this.calendarBusy || this.appLinkBusy || this.appLinkAddBusy) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
     if (this.editingAppLink >= 0) { this.cancelAppLinkEdit(); return true }
@@ -208,6 +215,9 @@ struct Settings {
 
   async load() {
     try {
+      this.appLinkAddOpen = false
+      this.appLinkCandidatesLoaded = false
+      this.appLinkCandidates = []
       await this.preferenceSave.flush()
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       if (!this.loaded) {
@@ -221,7 +231,7 @@ struct Settings {
       this.retentionDraft = `${await TrashSettingsService.retentionDays(this.getUIContext().getHostContext()!)}`
       this.savedRetentionDays = Number(this.retentionDraft)
       this.config = config
-      this.appLinks = await AppLinkService.load(this.getUIContext().getHostContext()!)
+      this.appLinks = await AppLinkManager.shared.load(this.getUIContext().getHostContext()!, true)
       this.coreSettings = config.coreSettings
       this.fileDisplayMode = config.fileDisplayMode
       this.defaultStates = await NativeCoreService.defaultTaskStates()
@@ -266,8 +276,8 @@ struct Settings {
     if (!value.name || !value.bundleName) { this.message = '请填写应用名称和 Bundle Name'; return }
     this.appLinkBusy = true; this.message = ''
     try {
-      await AppLinkService.update(this.getUIContext().getHostContext()!, this.appLinks[index].name, value)
-      this.appLinks = await AppLinkService.load(this.getUIContext().getHostContext()!)
+      await AppLinkManager.shared.update(this.getUIContext().getHostContext()!, this.appLinks[index].name, value)
+      this.appLinks = await AppLinkManager.shared.load(this.getUIContext().getHostContext()!)
       this.editingAppLink = -1
     } catch (error) { this.message = `保存应用关联失败：${(error as Error).message || '请重试'}` }
     finally { this.appLinkBusy = false }
@@ -284,11 +294,65 @@ struct Settings {
   private async removeAppLink(name: string): Promise<void> {
     this.appLinkBusy = true; this.message = ''
     try {
-      await AppLinkService.remove(this.getUIContext().getHostContext()!, name)
-      this.appLinks = await AppLinkService.load(this.getUIContext().getHostContext()!)
+      await AppLinkManager.shared.remove(this.getUIContext().getHostContext()!, name)
+      this.appLinks = await AppLinkManager.shared.load(this.getUIContext().getHostContext()!)
       this.editingAppLink = -1
     } catch (error) { this.message = `删除应用关联失败：${(error as Error).message || '请重试'}` }
     finally { this.appLinkBusy = false }
+  }
+
+  async openAppLinkAdd(): Promise<void> {
+    if (this.appLinkAddBusy || this.appLinkBusy) return
+    if (!this.appLinkCandidatesLoaded) await this.loadAppLinkCandidates()
+    this.appLinkAddOpen = true
+  }
+
+  private async loadAppLinkCandidates(): Promise<void> {
+    this.appLinkAddBusy = true; this.message = ''
+    try {
+      const context = this.getUIContext().getHostContext()!
+      const config = await AppConfigService.load(context, false)
+      const catalog = await AppLinkManager.shared.catalog(context)
+      const result = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { expression: 'has.app' } }]))[0])
+      const existing = await AppLinkManager.shared.load(context)
+      const names = new Set<string>()
+      const candidates: AppLinkCandidate[] = []
+      for (const task of result.tasks as CoreTask[]) {
+        for (const link of (task.appLinks || []) as CoreAppLink[]) {
+          const name = appLinkName(link.uri)
+          if (!name || names.has(name)) continue
+          const app = catalog.find((item: AppLinkCatalogEntry): boolean => item.name === name)
+          if (!app?.iconResource) continue
+          names.add(name)
+          candidates.push({ name, bundleName: app.id, icon: app.iconResource,
+            selected: existing.some((item: AppLinkAssociation): boolean => item.name === name) })
+        }
+      }
+      candidates.sort((left: AppLinkCandidate, right: AppLinkCandidate): number => left.name.localeCompare(right.name))
+      this.appLinkCandidates = candidates
+      this.appLinkCandidatesLoaded = true
+    } catch (error) { this.message = `读取应用链接失败：${(error as Error).message || '请重试'}` }
+    finally { this.appLinkAddBusy = false }
+  }
+
+  toggleAppLinkCandidate(index: number): void {
+    if (this.appLinkAddBusy || !this.appLinkCandidates[index]) return
+    this.appLinkCandidates[index].selected = !this.appLinkCandidates[index].selected
+    this.appLinkCandidates = this.appLinkCandidates.slice()
+  }
+
+  async saveAppLinkCandidates(): Promise<void> {
+    if (this.appLinkAddBusy) return
+    this.appLinkAddBusy = true; this.message = ''
+    try {
+      const context = this.getUIContext().getHostContext()!
+      for (const candidate of this.appLinkCandidates.filter((item: AppLinkCandidate): boolean => item.selected)) {
+        await AppLinkManager.shared.upsert(context, { name: candidate.name, bundleName: candidate.bundleName, moduleName: '', abilityName: '' })
+      }
+      this.appLinks = await AppLinkManager.shared.load(context, true)
+      this.appLinkAddOpen = false
+    } catch (error) { this.message = `保存应用关联失败：${(error as Error).message || '请重试'}` }
+    finally { this.appLinkAddBusy = false }
   }
 
   fileTargetTitle(kind: FileTargetKind): string {
@@ -375,7 +439,7 @@ struct Settings {
       SettingsRow({ title: '任务状态分类', value: '5 类', icon: $r('app.media.ui_state'), action: (): void => { this.openSection('任务状态分类') } })
       SettingsChoiceRow({ title: '文件展示方式', value: this.fileDisplayMode === 'source' ? '原文' : '渲染',
         icon: $r('app.media.ui_body'), divider: false, disabled: this.saving, items: this.displayModeChoices() })
-      SettingsRow({ title: '应用关联', value: `${this.appLinks.length} 个`, icon: $r('app.media.ui_link_other'), divider: false,
+      SettingsRow({ title: '应用关联', value: `${this.appLinks.length} 个`, icon: $r('app.media.ui_link_app'), divider: false,
         action: (): void => { this.openSection('应用关联') } })
     }
     SettingsGroup({ title: '应用程序', detail: '通知授权和通知类型可在系统设置中管理；数字角标还需在系统设置中开启桌面角标。' }) {
@@ -471,7 +535,12 @@ struct Settings {
 
   @Builder
   appLinksSettings() {
-    SettingsGroup({ title: 'app: 链接关联', detail: 'Org 链接使用 app:名称 表示外部应用。第一次点击时从随版本发布的银行应用目录中选择并自动保存；这里只能修改或删除已经建立的关联，不能手动新增。' }) {
+    Row() {
+      Button('添加').height(40).fontSize(14).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+        .accessibilityText('添加应用关联').enabled(!this.appLinkBusy && !this.appLinkAddBusy)
+        .onClick((): void => { this.openAppLinkAdd() })
+    }.width('100%').justifyContent(FlexAlign.Start).padding({ left: 4, top: 8 })
+    SettingsGroup({ title: 'app: 链接关联' }) {
       if (this.appLinks.length === 0) {
         Text('尚未建立应用关联。点击 Org 中的 app: 链接后即可选择并保存。').fontSize(14).fontColor(UiColor.secondary)
           .width('100%').padding(16)
@@ -494,7 +563,7 @@ struct Settings {
           }.width('100%').padding(14)
         } else {
           SettingsRow({ title: `app:${value.name}`, value: value.bundleName, detail: `${value.moduleName ? value.moduleName + ' · ' : ''}${value.abilityName}`,
-            icon: $r('app.media.ui_link_other'), action: (): void => { this.beginAppLinkEdit(index) }, disabled: this.appLinkBusy })
+            icon: $r('app.media.ui_link_app'), action: (): void => { this.beginAppLinkEdit(index) }, disabled: this.appLinkBusy })
         }
       }, (value: AppLinkAssociation) => value.name)
       if (this.editingAppLink >= 0) {
@@ -502,6 +571,37 @@ struct Settings {
           action: (): void => { this.deleteAppLink(this.editingAppLink) }, disabled: this.appLinkBusy })
       }
     }
+  }
+
+  @Builder
+  appLinkAddSheet() {
+    Column() {
+      Text('添加应用关联').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+        .width('100%').padding({ left: 24, top: 8, bottom: 4 }).textAlign(TextAlign.Start)
+      if (this.appLinkAddBusy) {
+        LoadingProgress().width(32).height(32).color(UiColor.primary).margin(24)
+      } else if (this.appLinkCandidates.length === 0) {
+        Text('没有找到已安装且出现在 app 链接任务中的应用。').fontSize(14).fontColor(UiColor.secondary)
+          .width('100%').padding(24)
+      } else {
+        Scroll() {
+          Column() {
+            ForEach(this.appLinkCandidates, (candidate: AppLinkCandidate, index: number) => {
+              Row({ space: 12 }) {
+                Image(candidate.icon).width(36).height(36).objectFit(ImageFit.Contain).borderRadius(8)
+                Text(candidate.name).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
+                Button(candidate.selected ? '✓' : '').width(36).height(36).padding(0).fontSize(20)
+                  .fontColor(UiColor.primary).backgroundColor(candidate.selected ? UiColor.selected : UiColor.field)
+              }.width('100%').padding({ left: 24, right: 24, top: 10, bottom: 10 })
+                .onClick((): void => { this.toggleAppLinkCandidate(index) })
+            }, (candidate: AppLinkCandidate) => candidate.name)
+          }
+        }.width('100%').height(260)
+        Button('添加').height(44).margin({ left: 24, right: 24, top: 8, bottom: 18 })
+          .enabled(this.appLinkCandidates.some((candidate: AppLinkCandidate): boolean => candidate.selected))
+          .onClick((): void => { this.saveAppLinkCandidates() })
+      }
+    }.width('100%').backgroundColor(UiColor.surface).borderRadius({ topLeft: 28, topRight: 28 })
   }
 
   @Builder
@@ -562,7 +662,7 @@ struct Settings {
   build() {
     Column() {
       AppShell({ title: this.section || '设置', activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
-        back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy || this.appLinkBusy,
+        back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy || this.appLinkBusy || this.appLinkAddBusy,
         backAction: (): void => { this.onBackPress() }, titleIcon: $r('app.media.nav_settings') }) {
         Column() {
           MessageBar({ message: this.message, error: true })
@@ -600,6 +700,11 @@ struct Settings {
         height: '70%', detents: ['70%', '90%'], preferType: SheetType.BOTTOM,
         backgroundColor: UiColor.container, showClose: true,
         onWillDismiss: (action): void => { if (!this.filePickerBusy) action.dismiss() }
+      })
+      .bindSheet($$this.appLinkAddOpen, this.appLinkAddSheet, {
+        height: '55%', detents: ['55%', '85%'], preferType: SheetType.BOTTOM,
+        backgroundColor: UiColor.container, showClose: true,
+        onWillDismiss: (): void => { this.appLinkAddOpen = false }
       })
   }
 }

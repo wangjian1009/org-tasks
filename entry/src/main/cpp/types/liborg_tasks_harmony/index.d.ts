@@ -20,6 +20,10 @@ export interface AddressLink {
   readonly uri: string;
   readonly label: string;
 }
+export interface AppLink {
+  readonly uri: string;
+  readonly label: string;
+}
 
 export interface CoreError extends Error {
   readonly code: 'invalidInput' | 'invalidState' | 'store' | 'bridge' | 'previewUnavailable' | 'previewExpired' | 'previewVersionMismatch' | 'sourceVersionMismatch' | 'conflictTargetRequired' | 'invalidConflictTarget' | 'conflictDecisionRequired' | 'mixedPreviewOperation';
@@ -83,7 +87,7 @@ export interface DataTaskRecord {
   editContent: TaskEditContent; supportTags: SupportTags | null; category: string | null;
   line: number; column: number; byteOffset: number; level: number;
   state: TaskState | null; stateType: 'Todo' | 'Done' | 'None'; priority: TaskPriority | null;
-  ownTags: string[]; inheritedTags: string[]; title: string; body: string; addressLinks: AddressLink[];
+  ownTags: string[]; inheritedTags: string[]; title: string; body: string; addressLinks: AddressLink[]; appLinks: AppLink[];
   isRepeating: boolean; isHabit: boolean; reminderAt: number | null; properties: Record<string, string>; hasAttach: boolean;
   scheduled: DataDateRecord | null; deadline: DataDateRecord | null;
   scheduledWarning: string | null; deadlineWarning: string | null;
@@ -205,6 +209,7 @@ export class Task {
   readonly body: string;
   readonly bodyFirstLine: string | null;
   readonly addressLinks: AddressLink[];
+  readonly appLinks?: AppLink[];
   readonly bodyHtml: string;
   readonly logbookHtml: string;
   readonly logs: TaskLog[];

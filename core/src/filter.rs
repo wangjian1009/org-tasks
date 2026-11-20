@@ -45,6 +45,9 @@ enum FilterExpression {
     HasAddressLink {
         negated: bool,
     },
+    HasAppLink {
+        negated: bool,
+    },
     IsHabit {
         negated: bool,
     },
@@ -156,6 +159,7 @@ pub struct FilterTask {
     pub(crate) title: String,
     pub(crate) body: String,
     pub(crate) address_links: Vec<AddressLink>,
+    pub(crate) app_links: Vec<AppLink>,
     /// 当前任务的计划或截止时间含重复器；不展开重复日期。
     pub(crate) is_repeating: bool,
     /// 当前标题自身的 STYLE 属性为 habit；不继承父标题或文件默认值。
@@ -183,6 +187,13 @@ pub struct FilterTask {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddressLink {
+    pub uri: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppLink {
     pub uri: String,
     pub label: String,
 }
@@ -309,6 +320,10 @@ impl FilterTask {
 
     pub fn address_links(&self) -> &[AddressLink] {
         &self.address_links
+    }
+
+    pub fn app_links(&self) -> &[AppLink] {
+        &self.app_links
     }
 
     pub fn is_repeating(&self) -> bool {
@@ -578,6 +593,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             None => FilterStateType::None,
         };
         let address_links = extract_address_links(&headline);
+        let app_links = extract_app_links(&headline);
         let created = property_time(&headline, "CREATED");
         let deleted = if headline.headlines().next().is_none()
             && crate::model::properties::own(&headline, "SOURCE_TRASH_ID")
@@ -614,6 +630,7 @@ pub(crate) fn tasks_from_file(repository: &OrgRepo, file: &crate::OrgFile) -> Ve
             title: headline.title_raw().trim_end().to_owned(),
             body,
             address_links,
+            app_links,
             has_attach: headline.tags().any(|tag| tag == crate::model::ATTACH_TAG),
             is_repeating: planning_repeats(&headline),
             is_habit: crate::model::properties::own(&headline, "STYLE").as_deref() == Some("habit"),
@@ -687,6 +704,22 @@ fn extract_address_links(headline: &Headline) -> Vec<AddressLink> {
                 uri,
                 label: link.description_raw(),
             })
+        })
+        .collect()
+}
+
+fn extract_app_links(headline: &Headline) -> Vec<AppLink> {
+    headline
+        .syntax()
+        .children()
+        .filter(|node| !Headline::can_cast(node.kind()))
+        .flat_map(|node| node.descendants())
+        .filter_map(Link::cast)
+        .filter_map(|link| {
+            let uri = link.path().to_string();
+            let scheme = uri.split_once(':').map(|(scheme, _)| scheme).unwrap_or("");
+            (scheme.eq_ignore_ascii_case("app") && uri.split_once(':').is_some_and(|(_, value)| !value.is_empty()))
+                .then(|| AppLink { uri, label: link.description_raw() })
         })
         .collect()
 }
@@ -939,6 +972,7 @@ fn matches_expression(expression: &FilterExpression, task: &FilterTask, today: N
         FilterExpression::HasAddressLink { negated } => {
             apply_negation(!task.address_links.is_empty(), *negated)
         }
+        FilterExpression::HasAppLink { negated } => apply_negation(!task.app_links.is_empty(), *negated),
         FilterExpression::IsHabit { negated } => apply_negation(task.is_habit(), *negated),
         FilterExpression::HasReminder { negated } => apply_negation(task.reminder_at().is_some(), *negated),
         FilterExpression::Date {
@@ -1314,6 +1348,9 @@ fn parse_condition(token: &str) -> Option<FilterExpression> {
         .map_or((false, token), |value| (true, value));
     if token == "has.address" {
         return Some(FilterExpression::HasAddressLink { negated });
+    }
+    if token == "has.app" {
+        return Some(FilterExpression::HasAppLink { negated });
     }
     if token == "is.habit" {
         return Some(FilterExpression::IsHabit { negated });

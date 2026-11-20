@@ -44,6 +44,6 @@ pub mod workspace;
 mod workspace_tasks;
 pub use workspace::{OrgWorkspace, OrgWorkspaceValidationError};
 
-pub use filter::{AddressLink, FilterDate, FilterStateType, FilterTask};
+pub use filter::{AddressLink, AppLink, FilterDate, FilterStateType, FilterTask};
 pub use merge::merge;
 pub use model::*;

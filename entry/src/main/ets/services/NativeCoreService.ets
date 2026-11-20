@@ -82,6 +82,7 @@ import {
   LinkValue as NativeLinkValue,
   TaskLinkChange as NativeTaskLinkChange,
   AddressLink as NativeAddressLink,
+  AppLink as NativeAppLink,
   TitleCount as NativeTitleCount,
   QueryRepositoryBinding as NativeQueryRepositoryBinding,
   CoreQuery as NativeCoreQuery,
@@ -140,6 +141,7 @@ export type CoreTextLink = NativeTextLink
 export type CoreLinkValue = NativeLinkValue
 export type CoreTaskLinkChange = NativeTaskLinkChange
 export type CoreAddressLink = NativeAddressLink
+export type CoreAppLink = NativeAppLink
 export type CoreTitleCount = NativeTitleCount
 export type CoreQueryRepositoryBinding = NativeQueryRepositoryBinding
 export type CoreQuery = NativeCoreQuery

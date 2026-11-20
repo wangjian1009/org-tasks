@@ -52,7 +52,7 @@ function fixture() {
     '@ohos.arkui.UIContext': { FrameCallback: class {} },
     '../ui/TaskInlineFocus': focusModule.exports,
     '../ui/LinkPresentation': linkPresentation,
-    '../services/AppLinkService': { AppLinkService: { async find() { return undefined; }, async upsert() {} }, appLinkName: value => value.startsWith('app:') ? value.slice(4) : '' },
+    '../services/AppLinkService': { AppLinkManager: { shared: { async find() { return undefined; }, async upsert() {}, async catalog() { return []; } } }, appLinkName: value => value.startsWith('app:') ? value.slice(4) : '' },
     '@kit.MapKit': { petalMaps: { async openMapTextSearch(...args) { calls.push(['search', ...args]); await search(...args); } } },
     '../ui/Theme': { UiSize: { taskFont: 16 }, UiColor: { surface: '#2D2C2B', text: '#D8D8D8',
       primary: '#64C4BA', secondary: '#AEACA9', field: '#3A3E3F', error: '#FF7592' } }

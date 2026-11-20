@@ -41,6 +41,7 @@ i.todo (i.doing or t.work)
 | ~tn.<tag>~ | 仅自身标签。 |
 | ~is.habit~ / ~.is.habit~ | 当前标题自身具有／不具有 ~STYLE=habit~ 属性；独立于重复器。 |
 | ~has.address~ / ~.has.address~ | 当前标题或自身正文包含／不包含真实的 ~geo:~ 或 ~addr:~ 链接；不包含子标题的链接。 |
+| ~has.app~ / ~.has.app~ | 当前标题或自身正文包含／不包含真实的 ~app:~ 或 ~app://~ 链接；不包含子标题的链接，并在任务投影中返回应用链接列表。 |
 | ~e.<interval>~ | 正文中的活动 timestamp。 |
 | ~s.<interval>~ / ~d.<interval>~ / ~c.<interval>~ / ~cr.<interval>~ | 计划、截止、关闭、创建时间。 |
 | ~text~ / ~"text with spaces"~ | 在标题、正文和标签中匹配文本。 |
