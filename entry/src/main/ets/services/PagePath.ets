@@ -2,6 +2,7 @@ import { CoreTask } from './NativeCoreService'
 
 export interface PageParameters {
   readonly repoId?: string
+  readonly coreRepoId?: string
   readonly path?: string
   readonly syncId?: string
   readonly repositoryName?: string

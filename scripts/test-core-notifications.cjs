@@ -31,8 +31,7 @@ function fixture() {
   const writes=[], callbacks=[], scopes=[], context={}, config={repos:[
     {id:'config-a',name:'个人仓库',rootDirectory:'/a',webdavEnabled:true,webdavUrl:'https://example.test/dav/'},
     {id:'config-b',name:'工作资料',rootDirectory:'/b',webdavEnabled:false,webdavUrl:''}]};
-  let configChanged, coreId='core-a', stops=0, initial=[], failure, gate, nativeRevision=0, nativeValues=[];
-  const repo={get id(){return coreId;},async load(){}};
+  let configChanged, stops=0, initial=[], failure, gate, nativeRevision=0, nativeValues=[];
   const workspace={async repos(){return [{id:'core-a',rootDirectory:'/a'},{id:'core-b',rootDirectory:'/b'}];},
     async watchNotifications(callback,scope){
       if(failure){const error=failure;failure=undefined;throw error;}
@@ -43,7 +42,7 @@ function fixture() {
   let current=workspace;
   const service=load('services/NotificationManager',{
     './AppConfigService':{AppConfigService:{async load(){return config;},watchChanges(fn){configChanged=fn;},stopWatchingChanges(fn){if(configChanged===fn)configChanged=undefined;}}},
-    './NativeCoreService':{NativeCoreService:{async workspaceFor(){return current;},async repository(_,configured){assert.equal(configured.id,'config-a');return repo;}}},
+    './NativeCoreService':{NativeCoreService:{async workspaceFor(){return current;}}},
     '../ui/Theme':{repositoryLabel:repo=>repo.name}
   },{setOrCreate(key,value){assert.equal(key,'coreNotifications');writes.push(value);}});
   return {...service,config,context,workspace,writes,callbacks,scopes,stops:()=>stops,
@@ -52,7 +51,7 @@ function fixture() {
       const changes=before.filter(item=>!list.some(value=>JSON.stringify(item)===JSON.stringify(value))).map(notification=>({kind:'removed',notification}));
       changes.push(...list.filter(item=>!before.some(value=>JSON.stringify(item)===JSON.stringify(value))).map(notification=>({kind:'added',notification})));
       nativeValues=list.slice(); callbacks.at(-1)({type:'changed',fromRevision,revision:nativeRevision,changes});
-    },delta(event){callbacks.at(-1)(event);},revision:()=>nativeRevision,setCoreId(value){coreId=value;},values(value){initial=value;},
+    },delta(event){callbacks.at(-1)(event);},revision:()=>nativeRevision,values(value){initial=value;},
     fail(error){failure=error;},hold(){gate=deferred();return gate;},configChanged(){configChanged?.();},setWorkspace(value){current=value;},
     settle:()=>new Promise(resolve=>setImmediate(resolve))};
 }
@@ -62,8 +61,8 @@ test('订阅携带远程仓库范围，首次列表直接发布，页面启动�
   const f=fixture();f.values([{type:'syncRequired'}]);await f.NotificationManager.start(f.context);
   assert.deepEqual(f.scopes,[['core-a']]);assert.equal(f.writes.length,1);
   await f.NotificationManager.start(f.context);assert.equal(f.callbacks.length,1);
-  f.config.repos[0].webdavEnabled=false;await f.NotificationManager.refresh();assert.deepEqual(f.scopes.at(-1),[]);
-  f.config.repos[0].webdavEnabled=true;f.config.repos[0].webdavUrl=' ';await f.NotificationManager.refresh();assert.deepEqual(f.scopes.at(-1),[]);
+  f.config.repos[0].webdavEnabled=false;f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),[]);
+  f.config.repos[0].webdavEnabled=true;f.config.repos[0].webdavUrl=' ';f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),[]);
   f.NotificationManager.stop();
 });
 test('列表回调更新共享快照，多仓库同名文件保持身份，重复列表不推进版本',async()=>{
@@ -72,23 +71,23 @@ test('列表回调更新共享快照，多仓库同名文件保持身份，重�
   f.emit([conflict(),conflict('core-b')]);assert.equal(f.writes.length,1);
   f.emit([]);assert.equal(f.writes.length,2);assert.deepEqual(f.writes.at(-1).notifications,[]);f.NotificationManager.stop();
 });
-test('首次异步加载完成前等待共享快照，冲突列表不触发后台同步',async()=>{
-  const f=fixture(),gate=f.hold();f.values([conflict()]);const started=f.NotificationManager.start(f.context);
-  let finished=false;const check=f.NotificationManager.hasSyncRequired().then(value=>{finished=true;return value;});
-  await f.settle();assert.equal(finished,false);gate.resolve();await started;assert.equal(await check,false);
-  f.emit([{type:'syncRequired'}]);assert.equal(await f.NotificationManager.hasSyncRequired(),true);
-  f.NotificationManager.stop();assert.equal(await f.NotificationManager.hasSyncRequired(),false);
+test('首次异步绑定后向订阅者推送空快照，后续推送列表变化',async()=>{
+  const f=fixture(),gate=f.hold();const started=f.NotificationManager.start(f.context);
+  const received=[];f.NotificationManager.subscribe(snapshot=>received.push(snapshot.notifications));
+  await f.settle();assert.deepEqual(received,[]);gate.resolve();await started;assert.deepEqual(received,[[]]);
+  f.emit([{type:'syncRequired'}]);assert.deepEqual(received.at(-1),[{type:'syncRequired'}]);
+  f.NotificationManager.stop();assert.equal(received.length,2);
 });
 test('配置重绑和停止后，旧回调不能覆盖新快照',async()=>{
   const f=fixture();await f.NotificationManager.start(f.context);const old=f.callbacks[0];
-  f.values([{type:'syncRequired'}]);await f.NotificationManager.refresh();old([]);
+  f.values([{type:'syncRequired'}]);f.configChanged();await f.settle();old({type:'snapshot',revision:0,notifications:[]});
   assert.deepEqual(f.writes.at(-1).notifications,[{type:'syncRequired'}]);
   f.NotificationManager.stop();f.emit([]);assert.equal(f.writes.length,1);
 });
 test('订阅注册失败保留旧快照，下一次绑定恢复',async()=>{
   const f=fixture();f.values([{type:'syncRequired'}]);await f.NotificationManager.start(f.context);const first=f.writes[0];
-  f.fail(new Error('注册失败'));await assert.rejects(f.NotificationManager.refresh(),/注册失败/);assert.equal(f.writes.at(-1),first);
-  f.values([]);await f.NotificationManager.refresh();assert.equal(f.writes.length,2);f.NotificationManager.stop();
+  f.fail(new Error('注册失败'));f.configChanged();await f.settle();assert.equal(f.writes.at(-1),first);
+  f.values([]);f.NotificationManager.resume();await f.settle();assert.equal(f.writes.length,2);f.NotificationManager.stop();
 });
 test('异步注册期间停止重启，旧生命周期回调被忽略',async()=>{
   const f=fixture(),gate=f.hold();f.values([{type:'syncRequired'}]);const old=f.NotificationManager.start(f.context);
@@ -99,16 +98,18 @@ test('配置变化重新订阅，相同 Workspace 也替换范围',async()=>{
   const f=fixture();await f.NotificationManager.start(f.context);f.config.repos[1].webdavEnabled=true;f.config.repos[1].webdavUrl='https://example.test/work/';
   f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),['core-a','core-b']);f.NotificationManager.stop();
 });
-test('角标监听共享列表及冲突计数，取消监听后不再回调',async()=>{
-  const f=fixture();await f.NotificationManager.start(f.context);let changes=0;const listener=()=>changes++;
-  f.NotificationManager.watchChanges(listener);f.emit([conflict(),{type:'syncRequired'}]);
-  assert.equal(await f.NotificationManager.conflictCount(),1);assert.equal(changes,1);
-  f.NotificationManager.stopWatchingChanges(listener);f.emit([]);assert.equal(changes,1);f.NotificationManager.stop();
+test('订阅者立即收到已绑定的共享内容，解除后不再接收变化',async()=>{
+  const f=fixture();await f.NotificationManager.start(f.context);const received=[];
+  const unsubscribe=f.NotificationManager.subscribe(snapshot=>received.push(snapshot));
+  assert.deepEqual(received[0].notifications,[]);
+  f.emit([conflict(),{type:'syncRequired'}]);assert.equal(received[1].notifications.length,2);
+  unsubscribe();f.emit([]);assert.equal(received.length,2);f.NotificationManager.stop();
 });
-test('冲突入口重新校验仓库身份，拒绝旧仓库映射',async()=>{
-  const f=fixture();f.values([conflict()]);await f.NotificationManager.start(f.context);
-  assert.deepEqual(await f.NotificationManager.syncConflictTarget(f.context,conflict()),{repoId:'config-a',path:'same.org'});
-  f.setCoreId('replacement');await assert.rejects(f.NotificationManager.syncConflictTarget(f.context,conflict()),/存储库已发生变化/);f.NotificationManager.stop();
+
+test('健康订阅恢复前台时继续使用原回调',async()=>{
+  const f=fixture();await f.NotificationManager.start(f.context);
+  f.NotificationManager.resume();await f.settle();
+  assert.equal(f.callbacks.length,1);assert.equal(f.stops(),0);f.NotificationManager.stop();
 });
 
 test('完整值替换基线异常，增量原子去重且旧版本不覆盖缓存',async()=>{

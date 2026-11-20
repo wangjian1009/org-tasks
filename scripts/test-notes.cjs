@@ -112,7 +112,7 @@ test('Core 版本冲突原样返回给页面，不以新版本自动重试覆盖
 });
 
 // 仅转译页面的状态与提交方法，ArkUI 布局由实际 HAP 编译检查。
-function page(name, service, router, notifications = { async refresh() {} }, findMemo = async () => undefined) {
+function page(name, service, router, findMemo = async () => undefined) {
   const filename = path.resolve('entry/src/main/ets/pages/' + name + '.ets');
   let source = fs.readFileSync(filename, 'utf8');
   source = source.slice(0, source.indexOf('\n  build()')) + '\n}';
@@ -128,9 +128,7 @@ function page(name, service, router, notifications = { async refresh() {} }, fin
     if (dependency.endsWith('/NoteService')) return { NoteService: service };
     if (dependency.endsWith('/TaskRepeatDialog')) return { TaskRepeatDialog: class {} };
     if (dependency.endsWith('/AppConfigService')) return { AppConfigService: { async load() { return {repos:[]}; } } };
-    if (dependency.endsWith('/PageQueryService')) return { PageQueryService: { async query() { await notifications.refresh(); return []; } } };
-    if (dependency.endsWith('/NotificationManager')) return { NotificationManager: notifications,
-      emptyCoreNotificationsState: () => ({ notifications: [], repositories: [], revision: 0 }) };
+    if (dependency.endsWith('/NotificationManager')) return { emptyCoreNotificationsState: () => ({ notifications: [], repositories: [], revision: 0 }) };
     if (dependency.endsWith('/NativeCoreService')) return { coreErrorMessage: error => error.message };
     if (dependency.endsWith('/ui/Theme')) return { UiColor: { error: '#FF7592' } };
     throw new Error('缺少页面替身: ' + dependency);
@@ -140,32 +138,16 @@ function page(name, service, router, notifications = { async refresh() {} }, fin
   return instance;
 }
 
-test('备忘编辑刷新通知不重读路由或覆盖正在编辑的标题与正文', async () => {
-  let refreshes = 0;
-  const memo = page('MemoEdit', {}, { getParams() { assert.fail('通知刷新不重读路由'); } }, {
-    async refresh() { refreshes++; }
-  });
-  memo.heading = '未保存的标题'; memo.body = '未保存的正文\n第二行';
-  await memo.refreshNotifications();
-  assert.equal(refreshes, 1);
-  assert.equal(memo.heading, '未保存的标题');
-  assert.equal(memo.body, '未保存的正文\n第二行');
-  assert.equal(memo.committed, false);
-});
-
-test('备忘通知读取失败保留已有通知、编辑草稿及保存错误', async () => {
-  const memo = page('MemoEdit', {}, {}, { async refresh() { throw new Error('通知暂不可用'); } });
+test('备忘页面显示时保留共享通知及编辑草稿', () => {
+  const memo = page('MemoEdit', {}, { getParams() { assert.fail('页面显示时不重读路由'); } });
   const snapshot = { notifications: [{ type: 'syncConflict' }], repositories: [], revision: 1 };
   memo.notificationState = snapshot;
   memo.heading = '草稿标题'; memo.body = '草稿正文'; memo.message = '文件版本已变化';
-  const messages = [];
-  memo.getUIContext = () => ({ getHostContext: () => ({}),
-    getPromptAction: () => ({ showToast: value => messages.push(value.message) }) });
-  await memo.refreshNotifications();
+  memo.onPageShow();
   assert.equal(memo.notificationState, snapshot);
   assert.equal(memo.heading, '草稿标题'); assert.equal(memo.body, '草稿正文');
   assert.equal(memo.message, '文件版本已变化');
-  assert.deepEqual(messages, ['读取通知失败：通知暂不可用']);
+  memo.onPageHide();
 });
 
 test('新建提交成功而导航失败后，仅重试返回，不重复创建', async () => {
@@ -198,17 +180,17 @@ test('空白新建返回不写入，保存空标题提示修正', async () => {
 
 test('直接加载编辑页按 memoId 取最新记录，不依赖备忘列表查询完成', async () => {
   const latest = { id: 'm', heading: '最新标题', body: '最新正文' }; let reads = 0;
-  const memo = page('MemoEdit', {}, { getParams: () => ({}) }, undefined, async (_, id) => {
+  const memo = page('MemoEdit', {}, { getParams: () => ({}) }, async (_, id) => {
     assert.equal(id, 'm'); reads++; return latest;
   });
   memo.entryMemoId = 'm'; memo.aboutToAppear();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(memo.memo, latest); assert.equal(memo.heading, '最新标题'); assert.equal(reads, 1);
-  await memo.refreshNotifications(); assert.equal(reads, 1);
+  memo.onPageShow(); assert.equal(reads, 1);
 });
 
 test('直接加载新建页不查询备忘；路由参数优先于残留的启动参数', () => {
-  const memo = page('MemoEdit', {}, { getParams: () => undefined }, undefined, () => assert.fail('新增不应读取记录'));
+  const memo = page('MemoEdit', {}, { getParams: () => undefined }, () => assert.fail('新增不应读取记录'));
   memo.entryMemoCreate = true; memo.aboutToAppear(); assert.equal(memo.creating, true);
   const current = { heading: '列表点选', body: '对应正文' };
   const pushed = page('MemoEdit', {}, { getParams: () => ({ task: current }) });
@@ -221,7 +203,7 @@ test('失效 memoId 不打开其他记录，退出后迟到读取不覆盖页面
   missing.aboutToAppear(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(missing.memo, undefined); assert.match(missing.message, /变更或删除/);
   let release;
-  const memo = page('MemoEdit', {}, { getParams: () => ({ memoId: 'm' }) }, undefined,
+  const memo = page('MemoEdit', {}, { getParams: () => ({ memoId: 'm' }) },
     () => new Promise(resolve => { release = resolve; }));
   memo.aboutToAppear(); memo.aboutToDisappear(); release({ heading: '迟到标题', body: '正文' });
   await new Promise(resolve => setImmediate(resolve)); assert.equal(memo.memo, undefined);

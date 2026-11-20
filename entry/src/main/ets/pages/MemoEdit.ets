@@ -1,7 +1,5 @@
 import { MemoNavigation } from '../services/MemoNavigation'
 import { PageNavigator } from '../services/PageNavigator'
-import { AppConfigService } from '../services/AppConfigService'
-import { PageQueryService } from '../services/PageQueryService'
 import { CoreTask } from '../services/NativeCoreService'
 import { NoteService } from '../services/NoteService'
 import { MemoEditor } from '../components/editors/MemoEditor'
@@ -58,20 +56,9 @@ struct MemoEdit {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.working && !this.loadingMemo && (this.committed || this.heading === (this.memo?.heading || '') && this.body === (this.memo?.body || '')))
-    this.refreshNotifications()
   }
   onPageHide(): void { this.stopExternalGuard?.(); this.stopExternalGuard = undefined }
   aboutToDisappear(): void { this.memoRequest++; this.stopExternalGuard?.() }
-
-  async refreshNotifications() {
-    try {
-      await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), [])
-    } catch (e) {
-      try {
-        this.getUIContext().getPromptAction().showToast({ message: `读取通知失败：${coreErrorMessage(e as CoreBridgeError)}` })
-      } catch (_) { console.error('显示备忘通知读取错误失败') }
-    }
-  }
 
   onBackPress(): boolean {
     this.saveAndBack(true)

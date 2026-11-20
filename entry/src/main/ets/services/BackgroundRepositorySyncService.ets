@@ -3,7 +3,7 @@ import { backgroundTaskManager } from '@kit.BackgroundTasksKit'
 import { AppConfigService } from './AppConfigService'
 import { BackgroundSyncPresentation } from './BackgroundSyncPresentation'
 import { DataSetManager } from './DataSetManager'
-import { NotificationManager } from './NotificationManager'
+import { CoreNotificationsState, NotificationManager } from './NotificationManager'
 import { RepositorySyncService, RepositorySyncState, SyncStartPolicy, SyncStartResult } from './RepositorySyncService'
 
 // 每次退后台至多一个会话；是否新建会话由共享本地同步通知决定。
@@ -22,12 +22,14 @@ export class BackgroundRepositorySyncService {
   private static async run(context: common.UIAbilityContext): Promise<void> {
     let delayId: number = -1
     let expired: boolean = false
+    let cancelNotificationWait: (() => void) | undefined = undefined
     const presentation = new BackgroundSyncPresentation(context)
     const observer = (state: RepositorySyncState): void => { presentation.update(state) }
     try {
       // 保护排队修改、通知归并及配置读取，取得长时任务后释放短时任务。
       delayId = backgroundTaskManager.requestSuspendDelay('检查并同步本地修改', (): void => {
         expired = true
+        cancelNotificationWait?.()
         if (delayId !== -1) {
           try { backgroundTaskManager.cancelSuspendDelay(delayId) }
           catch (_) { console.error('释放到期同步检查任务失败') }
@@ -42,7 +44,16 @@ export class BackgroundRepositorySyncService {
       catch (_) { console.error('页面缓存保存失败') }
       if (expired) return
       if (!requested) {
-        if (!await NotificationManager.hasSyncRequired() || expired) return
+        let complete = (_required: boolean): void => {}
+        const decision = new Promise<boolean>((resolve): void => { complete = resolve })
+        cancelNotificationWait = (): void => { complete(false) }
+        const unsubscribe = NotificationManager.subscribe((snapshot: CoreNotificationsState): void => {
+          complete(snapshot.notifications.some(item => item.type === 'syncRequired'))
+        })
+        const syncRequired = await decision
+        unsubscribe()
+        cancelNotificationWait = undefined
+        if (!syncRequired || expired) return
         const config = await AppConfigService.load(context, false)
         if (!config.repos.some(repo => repo.webdavEnabled) || expired) return
         if (RepositorySyncService.runningSync()) {

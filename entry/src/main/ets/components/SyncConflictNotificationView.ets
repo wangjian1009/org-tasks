@@ -1,6 +1,6 @@
 import { PageNavigator } from '../services/PageNavigator'
 import { CoreSyncConflictNotification, coreErrorMessage, CoreBridgeError } from '../services/NativeCoreService'
-import { NotificationManager, NotificationRepository } from '../services/NotificationManager'
+import { NotificationRepository } from '../services/NotificationManager'
 import { syncConflictRepositoryName } from '../ui/CoreNotificationPresentation'
 import { UiColor } from '../ui/Theme'
 
@@ -17,13 +17,14 @@ export struct SyncConflictNotificationView {
     if (this.disabled || this.opening) return
     this.opening = true
     try {
-      const target = await NotificationManager.syncConflictTarget(this.getUIContext().getHostContext()!, this.notification)
-      await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/ConflictFile', params: { repoId: target.repoId, path: target.path } })
+      const target = this.repositories.find(repo => repo.coreRepoId === this.notification.repoId)
+      if (!target) throw new Error('此存储库已不存在，请重试')
+      await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/ConflictFile',
+        params: { repoId: target.configRepoId, coreRepoId: target.coreRepoId, path: this.notification.path } })
     } catch (e) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: `无法打开冲突文件：${coreErrorMessage(e as CoreBridgeError)}` })
       } catch (_) { console.error('显示冲突文件读取错误失败') }
-      try { await NotificationManager.refresh() } catch (_) {}
     } finally {
       this.opening = false
     }

@@ -10,21 +10,24 @@ const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openhar
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve;const promise=new Promise(done=>resolve=done);return{promise,resolve};}
 function fixture(){
- const writes=[],listeners=new Map(),notices=new Set();let count=5,conflicts=1,ready=true,failWrite=false,startGate,noticeGate,loads=0,started,active=false;
+ const writes=[],listeners=new Map(),notices=new Set();let count=5,conflicts=1,ready=true,failWrite=false,startGate,loads=0,started,active=false,noticeReady=true;
  const app={dataSet(name){if(!listeners.has(name))listeners.set(name,new Set());return{subscribe(fn){listeners.get(name).add(fn);return()=>listeners.get(name).delete(fn);}};},
   manager:{async flush(){}},async start(){if(!started)started=(async()=>{loads++;if(startGate)await startGate.promise})();await started;},badgeCount(){return ready?count:undefined}};
  const mocks={
   './AppDataManager':{AppDataManager:{get active(){return active?app:undefined;},shared:()=>{active=true;return app;}}},
-  './NotificationManager':{NotificationManager:{watchChanges:fn=>notices.add(fn),stopWatchingChanges:fn=>notices.delete(fn),
-   async conflictCount(){const value=conflicts;if(noticeGate){const gate=noticeGate;noticeGate=undefined;await gate.promise;}return value;}}},
+  './NotificationManager':{NotificationManager:{subscribe(fn){
+   notices.add(fn);
+   if(noticeReady)fn({notifications:Array.from({length:conflicts},()=>({type:'syncConflict'}))});
+   return()=>notices.delete(fn);
+  }}},
   '@kit.NotificationKit':{notificationManager:{async setBadgeNumber(value){if(failWrite)throw new Error('系统服务不可用');writes.push(value);}}}
  };
  const module={exports:{}};const filename='entry/src/main/ets/services/DeviceBadgeService.ets';
  const source=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  vm.runInNewContext(source,{module,exports:module.exports,console:{error(){}},require:name=>{assert.ok(name in mocks,'角标不能访问查询或配置服务: '+name);return mocks[name];}});
  return{closeShared(){active=false;},service:module.exports.DeviceBadgeService,writes,listeners,notices,loads:()=>loads,
-  count(value){count=value;},conflicts(value){conflicts=value;for(const fn of notices)fn();},ready(value){ready=value;},fail(value){failWrite=value;},
-  holdStart(){startGate=deferred();return startGate;},holdNotice(){noticeGate=deferred();return noticeGate;},
+  count(value){count=value;},conflicts(value){conflicts=value;for(const fn of notices)fn({notifications:Array.from({length:conflicts},()=>({type:'syncConflict'}))});},ready(value){ready=value;},fail(value){failWrite=value;},
+  holdStart(){startGate=deferred();return startGate;},holdNotice(){noticeReady=false;},
   emit(name='badgeDeadline'){for(const fn of listeners.get(name)??[])fn();}};
 }
 
@@ -41,17 +44,17 @@ test('等待共享数据时连续请求合并输出最新计数，首次加载�
  const f=fixture(),gate=f.holdStart();const first=f.service.refresh({});await tick();f.count(1);f.conflicts(0);
  const second=f.service.refresh({});f.service.refresh({});gate.resolve();await Promise.all([first,second]);assert.deepEqual(f.writes,[1]);assert.equal(f.loads(),1);
 });
-test('前台只订阅共享收件箱与截止数据和通知，后台解除输出订阅且不关闭共享数据',async()=>{
+test('前台只订阅共享收件箱与截止数据和通知，后台停止任务监听并保留通知快照，销毁时解除订阅',async()=>{
  const f=fixture(),context={};f.service.start(context);await f.service.refresh(context);
  assert.deepEqual([...f.listeners.keys()],['badgeDeadline','inboxTasks','inboxFile']);assert.equal(f.notices.size,1);
  f.count(2);f.emit('inboxTasks');await f.service.refresh(context);assert.equal(f.writes.at(-1),3);
  f.conflicts(3);await f.service.refresh(context);assert.equal(f.writes.at(-1),5);
- const before=f.writes.length;f.service.stop();assert.equal(f.notices.size,0);assert.ok([...f.listeners.values()].every(set=>set.size===0));
+ const before=f.writes.length;f.service.stop();assert.equal(f.notices.size,1);assert.ok([...f.listeners.values()].every(set=>set.size===0));
  f.count(10);f.emit();await tick();assert.equal(f.writes.length,before);
- f.service.start(context);await f.service.refresh(context);assert.equal(f.writes.at(-1),13);assert.equal(f.loads(),1);f.service.stop();
+ f.service.start(context);await f.service.refresh(context);assert.equal(f.writes.at(-1),13);assert.equal(f.loads(),1);f.service.close();assert.equal(f.notices.size,0);
 });
 test('停止时排除尚未完成的旧输出，后台显式刷新继续复用同一份数据',async()=>{
- const f=fixture(),gate=f.holdNotice();f.service.start({});await tick();f.service.stop();gate.resolve();await tick();assert.equal(f.writes.length,0);
+ const f=fixture();f.holdNotice();f.service.start({});await tick();f.service.stop();f.conflicts(1);await tick();assert.equal(f.writes.length,0);
  await f.service.refresh({});assert.deepEqual(f.writes,[6]);assert.equal(f.loads(),1);
 });
 

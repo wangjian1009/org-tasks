@@ -550,10 +550,11 @@ function sharedConsumers(f) {
  const sidebar=load('entry/src/main/ets/services/SidebarDataManager.ets',{'./AppDataManager':shared,'./FileTargetService':targets,
   './NativeCoreService':native,'./PageDataEquality':equality});
  const writes=[],notices=new Set();let conflicts=0;
+ const snapshot=()=>({notifications:Array.from({length:conflicts},()=>({type:'syncConflict'}))});
  const badge=load('entry/src/main/ets/services/DeviceBadgeService.ets',{'./AppDataManager':shared,
   '@kit.NotificationKit':{notificationManager:{async setBadgeNumber(value){writes.push(value)}}},
-  './NotificationManager':{NotificationManager:{watchChanges:fn=>notices.add(fn),stopWatchingChanges:fn=>notices.delete(fn),async conflictCount(){return conflicts}}}});
- return{...shared,...sidebar,...badge,writes,conflicts(value){conflicts=value;for(const fn of notices)fn()}};
+  './NotificationManager':{NotificationManager:{subscribe(fn){notices.add(fn);fn(snapshot());return()=>notices.delete(fn)}}}});
+ return{...shared,...sidebar,...badge,writes,conflicts(value){conflicts=value;for(const fn of notices)fn(snapshot())}};
 }
 
 test('今天、侧边栏与角标共享唯一管理器，首次读取与反复打开抽屉只有一个查询批次',async()=>{

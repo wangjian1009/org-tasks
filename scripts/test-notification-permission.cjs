@@ -26,7 +26,8 @@ function load(name, mocks, globals = {}) {
     if (name.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
     if (name.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
     if (name.endsWith('/CalendarPermissionService') && !Object.hasOwn(mocks, name)) return {CalendarPermissionService:{state:async()=> 'disabled', request:async()=>true,manage:async()=>{}}};
-    if (name.endsWith('/AppLinkService')) return {AppLinkService:{load:async()=>[],update:async()=>{},remove:async()=>{}}};
+    if (name.endsWith('/AppLinkService')) return { AppLinkManager: { shared: { start() {}, stop() {} } },
+      AppLinkService: { load: async () => [], update: async () => {}, remove: async () => {} } };
     if (name.endsWith('/SettingsAutoSave')) return {SettingsAutoSave:class{hasPending(){return false;}async flush(){}schedule(){}}};
     if (name.endsWith('/TaskReminderSettings')) return {TaskReminderSettings:{load:async()=>({enabled:false}),save:async()=>{}}};
     if (name.endsWith('/ReminderManager') && !Object.hasOwn(mocks, name)) return {ReminderManager:{start(){},stop(){},refresh:async()=>{},configuration:async()=>({enabled:false,eventDurationMinutes:5}),permissionState:async()=> 'disabled',setEnabled:async()=>{},managePermission:async()=>{},summary:()=>'',subscribe:()=>()=>{}}};
@@ -164,8 +165,8 @@ test('主窗口与前台两个条件均满足才检查授权，后台及销毁�
     '../services/DataSetManager': { DataSetManager: { async flushAll() {} } },
     '../services/RepositorySyncService': { emptyRepositorySyncState() {},
       SyncStartPolicy: { Reuse: 'Reuse' }, RepositorySyncService: { start() {} } },
-    '../services/DeviceBadgeService': { DeviceBadgeService: { start() {}, stop() {} } },
-    '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
+    '../services/DeviceBadgeService': { DeviceBadgeService: { start() {}, stop() {}, close() {} } },
+    '../services/NotificationManager': { NotificationManager: { async start() {}, resume() {}, stop() {} } },
     '../services/HttpApiService': { HttpApiService: { attachWindow() {}, async start() {}, async stop() {} } },
     '../services/NotificationPermissionService': { NotificationPermissionService: {
       async start(context) { starts.push(context); }, stop() { stops.push(true); }
@@ -204,7 +205,7 @@ function settingsFixture() {
     '../services/NotebookService': {},
     '../services/NativeCoreService': { coreErrorMessage: error => error.message },
     '../ui/Theme': {}, '../services/FileTargetService': {},
-    '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
+    '../services/NotificationManager': { NotificationManager: { async start() {}, resume() {}, stop() {} } },
     '../services/HttpApiService': { HttpApiService: { attachWindow() {}, async start() {}, async stop() {} } },
     '../services/NotificationPermissionService': { NotificationPermissionService: {
       isForeground() { return foreground; },

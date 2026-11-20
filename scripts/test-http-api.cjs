@@ -20,6 +20,7 @@ function load(name, mocks, globals = {}) {
     if (name.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
     if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     if (name.endsWith('/ReminderManager')) return {ReminderManager:{refresh:async()=>{}}};
+    if (name.endsWith('/AppLinkService')) return { AppLinkManager: { shared: { start() {}, stop() {} } } };
     if (name.endsWith('/AppDataManager')) return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
     if (name.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{ensure:async()=>({id:'org-tasks-system',rootDirectory:'/system'})}};
     assert.ok(name in mocks, '缺少替身 ' + name); return mocks[name];
@@ -67,12 +68,12 @@ test('普通启动不启用 HTTP，仅显式布尔测试参数生效，销毁停
   const Ability = load('entryability/EntryAbility', {
     '../services/NativeCoreService': { NativeCoreService: { start() {} } },
     '@kit.AbilityKit': { UIAbility: class {}, ConfigurationConstant: { ColorMode: { COLOR_MODE_DARK: 1 } } },
-    '../services/NotificationManager': { NotificationManager: { async start() {}, async refresh() {}, stop() {} } },
+    '../services/NotificationManager': { NotificationManager: { async start() {}, resume() {}, stop() {} } },
     '../services/HttpApiService': { HttpApiService: { attachWindow() {}, async start() { starts++; }, async stop() { stops++; } } },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': {},
     '../services/RepositorySyncService': { emptyRepositorySyncState() { return {}; } },
-    '../services/DeviceBadgeService': { DeviceBadgeService: { stop() {} } },
+    '../services/DeviceBadgeService': { DeviceBadgeService: { close() {} } },
     '../services/DataSetManager': {},
     '../services/NotificationPermissionService': { NotificationPermissionService: { stop() {} } },
     '../ui/Theme': {}

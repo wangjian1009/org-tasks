@@ -110,7 +110,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 上层将远端 Policy 和目录过滤绑定到 Core 的稳定仓库 ID，凭据仍由宿主安全存储提供，仅由 Policy 在运行时持有。启动自动同步调用 Workspace 的无参 ~check_remote_changes()~ ，取得各已绑定仓库的 ~Unchanged~ 、 ~Changed~ 、 ~Unknown~ 或独立错误；只读检查不获取仓库文件锁、不等待同步屏障、不写历史或扫描本地修改。上层选择有变化或未知的仓库 ID 列表调用 ~sync_repos~ ，检查失败的仓库单独反馈，其他仓库继续处理。Core 不因检查自动同步，实际同步开始时间由 Core 生成；手动与退后台入口直接提交指定仓库列表。
 
-主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主先等待页面已提交的修改与缓存处理完成，再等待 NotificationManager 的首次通知列表及当前订阅绑定完成，只有共享快照包含 ~syncRequired~ 且配置启用 WebDAV 时才新建同步。没有通知时不读取同步配置，不另建 Workspace 或额外查询；比较文件与远端基线的规则仍由 Core 实现。短时任务保护排队修改、通知归并与配置读取，数据传输长时任务保护实际同步。 ~RepositorySyncService.start~ 同步返回受理结果与会话句柄，以 ~completion~ 异步返回完成结果。启动使用 ~Reuse~ 返回当前句柄，退后台使用 ~Reject~ 拒绝新建但可继续保护已有会话，手动使用 ~Wait~ 按受理顺序逐轮执行。会话先保留再异步启动，队列轮到时重新读取配置和文件；前一轮失败不阻止后续请求。队列、句柄与进度仅在 Harmony 进程内保存，不进入 Core 或 Preferences；页面切换不取消同步，返回前台不打断当前会话。
+主界面 ~EntryAbility.onBackground~ 通过 ~BackgroundRepositorySyncService~ 触发单次文件同步。宿主先等待页面已提交的修改与缓存处理完成，再通过 NotificationManager 订阅接收当前绑定的共享快照。仅当快照包含 ~syncRequired~ 且配置启用 WebDAV 时才新建同步。没有通知时不读取同步配置，不另建 Workspace 或额外查询；比较文件与远端基线的规则仍由 Core 实现。短时任务保护排队修改、通知归并与配置读取，数据传输长时任务保护实际同步。 ~RepositorySyncService.start~ 同步返回受理结果与会话句柄，以 ~completion~ 异步返回完成结果。启动使用 ~Reuse~ 返回当前句柄，退后台使用 ~Reject~ 拒绝新建但可继续保护已有会话，手动使用 ~Wait~ 按受理顺序逐轮执行。会话先保留再异步启动，队列轮到时重新读取配置和文件；前一轮失败不阻止后续请求。队列、句柄与进度仅在 Harmony 进程内保存，不进入 Core 或 Preferences；页面切换不取消同步，返回前台不打断当前会话。
 
 ~BackgroundSyncPresentation~ 使用后台任务返回的通知 ID 更新系统代理创建的实况窗，保留系统类型码与通知槽，胶囊和展开内容复用共享进度。连续事件只保留最新快照，每秒最多更新一次，最终状态写入完成后再释放长时任务，避免迟到更新重建提示；无变化、失败和短时任务到期路径均清理宿主资源。退后台触发不写入日历同步状态、不新增配置、不在后台请求授权；同步失败后仍以共享通知中的 ~syncRequired~ 决定下次是否重试。
 
@@ -140,7 +140,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * 应用共享通知管理
 
-~NotificationManager~ 为应用级快照与增量订阅管理器，由 EntryAbility 启停；启动、恢复前台和配置变化只注册或重绑订阅。范围只包含启用 WebDAV 且远端地址非空的仓库。文件状态 process 负责受保护基线、版本比较与冲突事实，通知 process 只维护贡献集合；首次发送缓存快照，随后推送增删改，不扫描文件。未读取文件没有相关提示。页面批次及角标不查询通知，角标复用共享冲突数量。完整边界见 [[file:core/通知订阅设计.org][通知订阅设计]]。
+~NotificationManager~ 为应用级快照与增量订阅管理器，由 EntryAbility 启停。启动注册订阅，配置变化重绑，恢复前台只重试异常订阅。范围只包含启用 WebDAV 且远端地址非空的仓库。文件状态 process 负责受保护基线、版本比较与冲突事实，通知 process 只维护贡献集合；首次发送缓存快照，随后推送增删改，不扫描文件。未读取文件没有相关提示。页面使用 AppStorage 快照，角标和后台同步订阅同一共享快照。完整边界见 [[file:core/通知订阅设计.org][通知订阅设计]]。
 
 页面通过 AppStorage 的 ~coreNotifications~ 共享只读快照，不持有管理对象。通知及仓库展示上下文按内容比较，结果相同不发布；过期请求不能覆盖新结果，失败保留最近成功快照。任务仍由页面 DataSetManager 处理增量确认，通知刷新不驱动今天页任务重查。详细生命周期见 [[file:harmony/页面数据集设计.org][页面数据集设计]]。
 

@@ -90,7 +90,13 @@ function fixture() {
     } } };
     if (dependency === './DeviceBadgeService') return { DeviceBadgeService: { async refresh() { calls.push('badge'); if (badgeFailure) throw new Error('角标失败'); } } };
     if (dependency === './NativeCoreService') return native;
-    if (dependency === './NotificationManager') return { NotificationManager: { async hasSyncRequired() { calls.push('check'); if (checkGate) await checkGate.promise; return changed; } } };
+    if (dependency === './NotificationManager') return { NotificationManager: { subscribe(listener) {
+      calls.push('check');
+      let watching = true;
+      const deliver = () => { if (watching) listener({ notifications: changed ? [{ type: 'syncRequired' }] : [] }); };
+      if (checkGate) checkGate.promise.then(deliver); else deliver();
+      return () => { watching = false; };
+    } } };
     if (dependency === './DataSetManager') return { DataSetManager: { async flushAll() { calls.push('flush'); if (flushGate) await flushGate.promise; } } };
     if (dependency === '../models/OrgTask') return {};
     if (dependency.startsWith('./')) {
@@ -209,8 +215,8 @@ test('主界面首次显示且在前台时同步一次，恢复前台和重新�
         SyncStartPolicy: { Reuse: 'Reuse' }, emptyRepositorySyncState() {},
         RepositorySyncService: { start(actual, options) { requests.push({ actual, ...options }); } }
       };
-      if (name === '../services/NotificationManager') return { NotificationManager: { async start(){},async refresh(){},stop(){} } };
-      if (name === '../services/DeviceBadgeService') return { DeviceBadgeService: { start() {}, stop() {} } };
+      if (name === '../services/NotificationManager') return { NotificationManager: { async start(){},resume(){},stop(){} } };
+      if (name === '../services/DeviceBadgeService') return { DeviceBadgeService: { start() {}, stop() {}, close() {} } };
       if (name === '../services/AppDataManager') return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
       if (name === '../services/ReminderManager') return { ReminderManager: { start() {}, refresh() {}, stop() {} } };
       if (name === '../services/NotificationPermissionService') return { NotificationPermissionService: { async start() {}, stop() {} } };
@@ -300,7 +306,7 @@ test('短时任务到期或长时任务被拒绝时不开始网络同步并释�
   const f = fixture(), gate = deferred(); f.holdCheck(gate);
   const operation = f.service.start(f.context); await tick(); f.expire();
   assert.equal(f.calls.at(-1), 'cancelDelay', '查询结束前立即释放到期任务');
-  gate.resolve(); await operation;
+  await operation; gate.resolve();
   assert(!f.calls.includes('sync')); assert.equal(f.calls.at(-1), 'cancelDelay');
   const rejected = fixture(); rejected.retainFail(); await rejected.service.start(rejected.context);
   assert(!rejected.calls.includes('sync')); assert.equal(rejected.calls.at(-1), 'cancelDelay');

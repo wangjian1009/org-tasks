@@ -27,7 +27,6 @@ export default class EntryAbility extends UIAbility {
   private foreground: boolean = false
   private contentReady: boolean = false
   private startupSyncRequested: boolean = false
-  private notificationBackgrounded: boolean = false
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     this.readDestination(want)
@@ -117,10 +116,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
-    if (this.notificationBackgrounded) {
-      this.notificationBackgrounded = false
-      NotificationManager.refresh().catch((error: Error): void => { console.error(`刷新通知失败：${error.message}`) })
-    }
+    NotificationManager.resume()
     this.foreground = true
     this.startStartupSync()
     DeviceBadgeService.start(this.context)
@@ -129,7 +125,6 @@ export default class EntryAbility extends UIAbility {
   }
 
   onBackground(): void {
-    this.notificationBackgrounded = true
     this.foreground = false
     NotificationPermissionService.stop()
     DeviceBadgeService.stop()
@@ -138,7 +133,7 @@ export default class EntryAbility extends UIAbility {
 
   onDestroy(): void {
     AppLinkManager.shared.stop()
-    DeviceBadgeService.stop()
+    DeviceBadgeService.close()
     AppDataManager.close().catch((): void => { console.error('关闭共享数据失败') })
     HttpApiService.attachWindow(undefined)
     PageNavigator.shared.close().catch((): void => { console.error('关闭页面导航失败') })

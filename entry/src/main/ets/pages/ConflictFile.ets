@@ -9,7 +9,7 @@ import { CoreBridgeError, CoreConflictPreview, CoreConflictPreviewChanges, CoreC
 import { UiColor, repositoryLabel } from '../ui/Theme'
 import { ConflictTargetNode, ConflictTargetRow, conflictTargetTree, conflictTargetRows } from '../ui/ConflictTargetTree'
 
-interface ConflictParams { repoId: string; path: string }
+interface ConflictParams { repoId: string; coreRepoId?: string; path: string }
 
 @Entry
 @Component
@@ -93,6 +93,9 @@ struct ConflictFile {
       if (!repository) throw new Error('此存储库已不存在')
       const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
+      if (params.coreRepoId !== undefined && repo.id !== params.coreRepoId) {
+        throw new Error('存储库已发生变化，请重新打开')
+      }
       await workspace.setPreviewRoot(`${context.cacheDir}/org-conflict-previews`)
       const file = await repo.file(params.path)
       let conflicts = file.conflicts()
