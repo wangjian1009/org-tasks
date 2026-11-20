@@ -1,12 +1,17 @@
 {
   "version": 2,
   "apps": [
-    { "id": "com.icbc.harmonyclient", "name": "中国工商银行", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
-    { "id": "com.ccb.mobilebank.hm", "name": "中国建设银行", "launch": { "moduleName": "main", "abilityName": "CcbMainAbility" } },
-    { "id": "com.boc.bocsoft.mbs.personal", "name": "中国银行", "launch": { "moduleName": "app", "abilityName": "AppAbility" } },
-    { "id": "com.cmbchina.harmony", "name": "招商银行", "launch": { "moduleName": "app", "abilityName": "EntryAbility" } },
-    { "id": "com.pingan.bank.pocket", "name": "平安口袋银行", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
-    { "id": "cn.citicbank.wap", "name": "中信银行", "launch": { "moduleName": "phone", "abilityName": "EntryAbility" } },
-    { "id": "cn.com.cmbc.ohmbank", "name": "民生银行", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } }
+    { "id": "com.icbc.harmonyclient", "name": "中国工商银行", "aliases": ["工商银行"], "icon": "app-links/icons/com.icbc.harmonyclient.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
+    { "id": "com.ccb.mobilebank.hm", "name": "中国建设银行", "aliases": ["建设银行"], "icon": "app-links/icons/com.ccb.mobilebank.hm.png", "launch": { "moduleName": "main", "abilityName": "CcbMainAbility" } },
+    { "id": "com.boc.bocsoft.mbs.personal", "name": "中国银行", "icon": "app-links/icons/com.boc.bocsoft.mbs.personal.png", "launch": { "moduleName": "app", "abilityName": "AppAbility" } },
+    { "id": "com.cmbchina.harmony", "name": "招商银行", "icon": "app-links/icons/com.cmbchina.harmony.png", "launch": { "moduleName": "app", "abilityName": "EntryAbility" } },
+    { "id": "com.pingan.bank.pocket", "name": "平安口袋银行", "aliases": ["平安银行"], "icon": "app-links/icons/com.pingan.bank.pocket.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
+    { "id": "cn.citicbank.wap", "name": "中信银行", "icon": "app-links/icons/cn.citicbank.wap.png", "launch": { "moduleName": "phone", "abilityName": "EntryAbility" } },
+    { "id": "cn.com.cmbc.ohmbank", "name": "民生银行", "icon": "app-links/icons/cn.com.cmbc.ohmbank.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
+    { "id": "com.xueqiu.hm", "name": "雪球", "icon": "app-links/icons/com.xueqiu.hm.png", "launch": { "moduleName": "app", "abilityName": "EntryAbility" } },
+    { "id": "cn.cicc.wm", "name": "中金财富", "icon": "app-links/icons/cn.cicc.wm.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
+    { "id": "com.citiccard.ohap.dkkj", "name": "动卡空间", "icon": "app-links/icons/com.citiccard.ohap.dkkj.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
+    { "id": "cn.com.njcb.app.mobilebank", "name": "南京银行", "icon": "app-links/icons/cn.com.njcb.app.mobilebank.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
+    { "id": "com.boc.bocsoft.phone.enterprise.harm", "name": "中行企业银行", "icon": "app-links/icons/com.boc.bocsoft.phone.enterprise.harm.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } }
   ]
 }

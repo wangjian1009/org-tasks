@@ -393,7 +393,7 @@ DataSet 接收确认文件事件后，同步推进该文件中未修改记录的
 
 * 应用关联数据集
 
-~AppDataManager~ 通过 ~appLinkTasks~ 共享订阅 ~has.app~ ，沿用系统废纸篓排除及任务缓存规则。设置页读取任务快照中的 ~appLinks~ ，以链接名称与 Preferences 中的关联去重合并，应用安装状态由 HarmonyOS 查询。任务增删改通过 DataSet 更新引用列表，已有绑定仍保留在 Preferences 中。
+~AppDataManager~ 通过 ~appLinkTasks~ 共享订阅 ~has.app~ ，沿用系统废纸篓排除及任务缓存规则。设置页读取任务快照中的 ~appLinks~ ，匹配已配置的目录名称或别名，再以链接名称与 Preferences 中的全部关联去重合并，应用安装状态由 HarmonyOS 查询。任务增删改通过 DataSet 更新引用列表，已有绑定仍保留在 Preferences 中。
 
 * 全局提醒管理数据集
 

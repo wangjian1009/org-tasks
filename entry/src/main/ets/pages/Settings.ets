@@ -69,7 +69,7 @@ struct Settings {
   @State appLinkCandidates: AppLinkCatalogEntry[] = []
   @State appLinkPickerName: string = ''
   @State appLinkPickerBundle: string = ''
-  @State appLinkCatalogNames: Map<string, string> | undefined = undefined
+  @State appLinkCatalog: AppLinkCatalogEntry[] | undefined = undefined
   @State requiredAppLinks: string[] = []
   @State appLinkTargets: Map<string, AppLinkTargetStatus> = new Map()
   private stopAppLinkTasks: (() => void) | undefined = undefined
@@ -255,7 +255,7 @@ struct Settings {
 
   deleteAppLink(name: string): void {
     if (this.appLinkBusy || this.appLinkPickerBusy) return
-    this.getUIContext().showAlertDialog({ title: '解除应用绑定？', message: `以后点击 app:${name} 时需要重新选择应用。`,
+    this.getUIContext().showAlertDialog({ title: '解除应用绑定？', message: `以后点击“${name}”的链接时需要重新选择应用。`,
       primaryButton: { value: '取消', action: () => {} },
       secondaryButton: { value: '解除绑定', fontColor: UiColor.error, action: (): void => { this.removeAppLink(name) } } })
   }
@@ -293,7 +293,10 @@ struct Settings {
   }
 
   private appLinkNames(): string[] {
-    return Array.from(new Set(this.appLinks.map((item: AppLinkAssociation): string => item.name).concat(this.requiredAppLinks)))
+    const configured = this.requiredAppLinks.filter((name: string): boolean => this.appLinkCatalog?.some(
+      (app: AppLinkCatalogEntry): boolean => app.launch !== undefined &&
+        (app.name === name || app.aliases?.includes(name) === true)) === true)
+    return Array.from(new Set(this.appLinks.map((item: AppLinkAssociation): string => item.name).concat(configured)))
   }
 
   private appLinkBundle(name: string): string {
@@ -304,8 +307,16 @@ struct Settings {
     const status = this.appLinkTargets.get(bundleName)?.availability
     if (status === 'missing') return '未安装'
     if (status === 'disabled') return '已停用'
-    if (!this.appLinkCatalogNames) return '已绑定'
-    return this.appLinkCatalogNames.get(bundleName) ?? '目录中无此应用'
+    if (!this.appLinkCatalog) return '已绑定'
+    return this.appLinkCatalog.find((app: AppLinkCatalogEntry): boolean => app.id === bundleName)?.name ?? '目录中无此应用'
+  }
+
+  private appLinkIcon(bundleName: string): Resource | undefined {
+    if (!bundleName) return undefined
+    const target = this.appLinkTargets.get(bundleName)?.icon
+    if (target) return target
+    const app = this.appLinkCatalog?.find((entry: AppLinkCatalogEntry): boolean => entry.id === bundleName)
+    return app?.icon ? $rawfile(app.icon) : undefined
   }
 
   private async refreshAppLinks(): Promise<void> {
@@ -319,12 +330,10 @@ struct Settings {
     try {
       const catalog = await AppLinkManager.shared.catalog(context)
       if (revision !== this.appLinkTargetRevision) return
-      const names = new Map<string, string>()
-      catalog.forEach((app: AppLinkCatalogEntry): void => { names.set(app.id, app.name) })
-      this.appLinkCatalogNames = names
+      this.appLinkCatalog = catalog
     } catch (_) {
       if (revision !== this.appLinkTargetRevision) return
-      this.appLinkCatalogNames = undefined
+      this.appLinkCatalog = undefined
     }
     const bundleNames = Array.from(new Set(this.appLinks.map((item: AppLinkAssociation): string => item.bundleName)))
     const statuses = await Promise.all(bundleNames.map((bundleName: string): Promise<AppLinkTargetStatus> =>
@@ -551,21 +560,21 @@ struct Settings {
       } else {
         Scroll() {
           Column() {
-            SettingsGroup({ title: '应用关联' }) {
+            Column() {
               ForEach(this.appLinkNames(), (name: string) => {
                 this.appLinkRow(name, this.appLinkBundle(name))
               }, (name: string) => JSON.stringify([name, this.appLinkBundle(name)]))
-            }
-          }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
-        }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
+            }.width('100%').backgroundColor(UiColor.container).borderRadius(12).clip(true)
+          }.width('100%').padding({ left: 16, right: 16, top: 16, bottom: 32 })
+        }.width('100%').layoutWeight(1).align(Alignment.TopStart).scrollBar(BarState.Off)
       }
     }.width('100%').layoutWeight(1)
   }
 
   @Builder
   appLinkRow(name: string, bundleName: string) {
-    SettingsRow({ title: `app:${name}`, value: bundleName ? this.appLinkTargetLabel(bundleName) : '未绑定',
-      icon: this.appLinkTargets.get(bundleName)?.icon ?? $r('app.media.ui_link_app'),
+    SettingsRow({ title: name, value: bundleName ? this.appLinkTargetLabel(bundleName) : '未绑定',
+      appIcon: this.appLinkIcon(bundleName) ?? $r('app.media.ui_link_app'),
       action: (): void => { this.chooseAppLink(name) }, disabled: this.appLinkBusy })
   }
 
@@ -574,7 +583,7 @@ struct Settings {
     Column() {
       Text('选择应用').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
         .width('100%').padding({ left: 24, top: 8, bottom: 4 }).textAlign(TextAlign.Start)
-      Text(`app:${this.appLinkPickerName}`).fontSize(14).fontColor(UiColor.secondary)
+      Text(this.appLinkPickerName).fontSize(14).fontColor(UiColor.secondary)
         .width('100%').padding({ left: 24, bottom: 10 }).textAlign(TextAlign.Start)
       if (this.appLinkPickerBusy) {
         EmptyState({ title: '正在读取应用列表', busy: true })
@@ -589,7 +598,8 @@ struct Settings {
           Column() {
             ForEach(this.appLinkCandidates, (candidate: AppLinkCatalogEntry) => {
               Row({ space: 12 }) {
-                Image(candidate.iconResource ?? $r('app.media.ui_link_app')).width(36).height(36).objectFit(ImageFit.Contain)
+                Image(candidate.iconResource ?? (candidate.icon ? $rawfile(candidate.icon) : $r('app.media.ui_link_app')))
+                  .width(36).height(36).objectFit(ImageFit.Contain)
                   .borderRadius(8).accessibilityLevel('no')
                 Text(candidate.name).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
                 if (candidate.id === this.appLinkPickerBundle) {
@@ -603,11 +613,13 @@ struct Settings {
                 .onClick((): void => { this.bindAppLink(candidate) })
             }, (candidate: AppLinkCatalogEntry) => candidate.id)
           }
-        }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
+        }.width('100%').layoutWeight(1).align(Alignment.TopStart).scrollBar(BarState.Off)
       }
       if (this.appLinkPickerBundle && !this.appLinkPickerBusy) {
-        SettingsRow({ title: '解除绑定', icon: $r('app.media.ui_delete'), divider: false, danger: true,
-          disabled: this.appLinkBusy, action: (): void => { this.deleteAppLink(this.appLinkPickerName) } })
+        Row() {
+          Button('解除绑定').height(44).fontSize(14).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+            .enabled(!this.appLinkBusy).onClick((): void => { this.deleteAppLink(this.appLinkPickerName) })
+        }.width('100%').justifyContent(FlexAlign.End).padding({ left: 24, right: 24, bottom: 8 })
       }
     }.width('100%').height('100%').backgroundColor(UiColor.surface).borderRadius({ topLeft: 28, topRight: 28 })
   }

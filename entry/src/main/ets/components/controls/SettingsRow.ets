@@ -6,6 +6,7 @@ export struct SettingsRow {
   @Prop value: string = ''
   @Prop detail: string = ''
   @Prop icon: Resource | undefined = undefined
+  @Prop appIcon: Resource | undefined = undefined
   @Prop divider: boolean = true
   @Prop disclosure: boolean = true
   @Prop disclosureIcon: Resource = $r('app.media.ui_next')
@@ -15,7 +16,11 @@ export struct SettingsRow {
 
   build() {
     Row({ space: 12 }) {
-      if (this.icon) { Image(this.icon).width(20).height(20).fillColor(UiColor.secondary).accessibilityLevel('no') }
+      if (this.appIcon) {
+        Image(this.appIcon).width(24).height(24).objectFit(ImageFit.Contain).accessibilityLevel('no')
+      } else if (this.icon) {
+        Image(this.icon).width(20).height(20).fillColor(UiColor.secondary).accessibilityLevel('no')
+      }
       Column({ space: 4 }) {
         Row({ space: 12 }) {
           Text(this.title).fontSize(16).fontColor(this.danger ? UiColor.error : UiColor.text).layoutWeight(1)

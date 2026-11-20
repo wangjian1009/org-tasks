@@ -79,6 +79,8 @@ export interface AppLinkLaunch {
 export interface AppLinkCatalogEntry {
   id: string
   name: string
+  aliases?: string[]
+  icon?: string
   launch?: AppLinkLaunch
   iconResource?: Resource
 }

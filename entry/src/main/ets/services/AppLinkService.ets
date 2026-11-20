@@ -63,11 +63,12 @@ export class AppLinkManager {
     const candidates = await Promise.all(catalog.map(async (app: AppLinkCatalogEntry): Promise<AppLinkCatalogEntry | undefined> => {
       const status = await this.targetStatus(app.id)
       if (status.availability === 'missing' || status.availability === 'disabled') return undefined
-      return { id: app.id, name: app.name, launch: app.launch, iconResource: status.icon }
+      return { id: app.id, name: app.name, aliases: app.aliases, icon: app.icon, launch: app.launch, iconResource: status.icon }
     }))
     const result = candidates.filter((app: AppLinkCatalogEntry | undefined): boolean => app !== undefined) as AppLinkCatalogEntry[]
     return result.sort((left: AppLinkCatalogEntry, right: AppLinkCatalogEntry): number =>
-      Number(right.name === name) - Number(left.name === name))
+      Number(right.name === name || right.aliases?.includes(name) === true) -
+      Number(left.name === name || left.aliases?.includes(name) === true))
   }
 
   async load(context?: Context, reload: boolean = false): Promise<AppLinkAssociation[]> {
@@ -178,7 +179,7 @@ function normalizeCatalog(values: AppLinkCatalogEntry[]): AppLinkCatalogEntry[] 
     const abilityName = value.launch?.abilityName?.trim()
     const launch: AppLinkLaunch | undefined = moduleName && abilityName ?
       { moduleName, abilityName, forwardLink: value.launch?.forwardLink === true } : undefined
-    result.push({ id, name, launch })
+    result.push({ id, name, aliases: value.aliases, icon: value.icon, launch })
   })
   return result
 }

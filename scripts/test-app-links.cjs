@@ -65,11 +65,13 @@ function page(manager) {
   return Object.assign(new Page(), { appLinkCandidates: [], appLinks: [], requiredAppLinks: [],
     getUIContext: () => ({ getHostContext: () => ({}) }), refreshAppLinks: async () => {} });
 }
-test('列表合并已保存的关联与当前引用，同名项只显示一次', () => {
+test('列表合并已保存的关联与有启动配置的文档引用，同名项只显示一次', () => {
   const state = page({});
   state.appLinks = [{ name: '中国工商银行' }, { name: '中国建设银行' }];
-  state.requiredAppLinks = ['中国工商银行', '中国银行', '中国银行'];
-  assert.deepEqual(state.appLinkNames(), ['中国工商银行', '中国建设银行', '中国银行']);
+  state.requiredAppLinks = ['中国工商银行', '中国银行', '中国银行', '平安银行', '未知应用', '无启动项'];
+  const { apps } = require('../entry/src/main/resources/rawfile/app-links/apps.json');
+  state.appLinkCatalog = apps.concat([{ name: '无启动项' }]);
+  assert.deepEqual(state.appLinkNames(), ['中国工商银行', '中国建设银行', '中国银行', '平安银行']);
 });
 test('已绑定与未绑定的行复用选择面板，点选应用只保存关系', async () => {
   const gate = deferred();
