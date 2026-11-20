@@ -9,11 +9,13 @@ import { UiColor } from '../ui/Theme'
 import { TitleText } from './TitleText'
 import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 import { ProjectFileHeader, ProjectHeaderNavigation } from './ProjectFileHeader'
-import { CoreFileHeaderEntry, CoreFileHeaderValueChange } from '../services/NativeCoreService'
+import { CoreFileHeaderEntry, CoreFileHeaderValueChange, CoreTaskPath } from '../services/NativeCoreService'
 import { samePageValue } from '../services/PageDataEquality'
+import { samePagePath } from '../services/PageDataSnapshot'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 
 export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
+  locateSection: (path: CoreTaskPath) => Promise<boolean> = async (): Promise<boolean> => false
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
   followInternalLink: (target: string) => Promise<void> = async (): Promise<void> => { throw new Error('项目文档尚未载入') }
 }
@@ -66,8 +68,8 @@ export struct ProjectDocumentView {
     let priority = Infinity
     let found: ProjectReadingSection | undefined = undefined
     for (const section of this.sections) {
+      if (!this.visibleKeys.includes(section.key)) continue
       for (const destination of section.linkTargets) {
-        if (this.readingItems.length > 0 && !this.visibleKeys.includes(section.key)) continue
         if (destination.target === target && destination.priority < priority) { found = section; priority = destination.priority }
       }
     }
@@ -77,6 +79,7 @@ export struct ProjectDocumentView {
   private scroller: Scroller = new Scroller()
   private offsets: Map<string, number> = new Map()
   private active: boolean = false
+  private navigationRevision: number = 0
   private pendingOffset: number | undefined = undefined
   private headerHeight: number = 0
   private contentHeight: number = 0
@@ -109,12 +112,19 @@ export struct ProjectDocumentView {
     this.initialOffsetApplied = this.readOffset() !== undefined
     this.stopTasks = this.dataSet?.subscribeStructure((): void => { this.updateDocument() })
     this.updateDocument()
+    this.navigation.locateSection = (path: CoreTaskPath): Promise<boolean> => this.locateSection(path)
     this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
       this.active && this.showing && this.linkSection(target) !== undefined
     this.navigation.followInternalLink = async (target: string): Promise<void> => {
       const section = this.linkSection(target)
       if (!section || !this.active || !this.showing) throw new Error('内部链接目标不存在或项目文档已隐藏')
-      if (!await this.openChapter(section)) throw new Error('无法定位内部链接，请先完成当前编辑后重试')
+      const located = section.node
+        ? await this.navigation.locateSection(section.node.fullPath)
+        : await this.scrollToSection((): ProjectReadingSection | undefined => {
+          const current = this.linkSection(target)
+          return current?.key === section.key ? current : undefined
+        })
+      if (!located) throw new Error('无法定位内部链接，请先完成当前编辑后重试')
     }
     this.pendingOffset = this.readOffset()
     this.navigation.captureReadingState = async (): Promise<string> => JSON.stringify({ scroll: this.scroller.currentOffset().yOffset })
@@ -131,12 +141,13 @@ export struct ProjectDocumentView {
   aboutToDisappear() { this.stopTasks?.(); this.stopTasks = undefined; this.active = false; this.outlineVisible = false }
 
   visibilityChanged() {
-    if (!this.showing) { this.swipeMenus.close(); return }
+    if (!this.showing) { this.navigationRevision++; this.swipeMenus.close(); return }
     this.pendingOffset = this.readOffset()
     this.initialOffsetApplied = this.pendingOffset !== undefined
   }
 
   snapshotChanged() {
+    this.navigationRevision++
     this.swipeMenus.close()
     this.offsets.clear()
     this.outlineVisible = false
@@ -148,12 +159,24 @@ export struct ProjectDocumentView {
     this.ready()
   }
 
-  async openChapter(section: ProjectReadingSection): Promise<boolean> {
-    const revision = this.revision
-    if (!await TaskInlineSession.end(false) || !this.active || !this.showing || revision !== this.revision) return false
-    if (this.readingItems.length > 0 && !this.visibleKeys.includes(section.key)) return false
+  private locateSection(path: CoreTaskPath): Promise<boolean> {
+    return this.scrollToSection((): ProjectReadingSection | undefined => this.sections.find(section => {
+      const node = this.dataSet?.getTask(section.key) ?? section.node
+      return node !== null && samePagePath(node.fullPath, path)
+    }))
+  }
+
+  private async scrollToSection(resolve: () => ProjectReadingSection | undefined): Promise<boolean> {
+    const revision = this.navigationRevision
+    if (!this.active || !this.showing || !resolve() || !await TaskInlineSession.end(false)) return false
+    if (!this.active || !this.showing || revision !== this.navigationRevision) return false
+    const section = resolve()
+    if (!section || !this.visibleKeys.includes(section.key)) return false
     const offset = this.offsets.get(section.key)
     if (offset === undefined) return false
+    this.pendingOffset = undefined
+    this.initialOffsetApplied = true
+    this.swipeMenus.close()
     this.outlineVisible = false
     this.scroller.scrollTo({ xOffset: 0, yOffset: Math.max(0, offset - 12), animation: false })
     return true
@@ -220,7 +243,9 @@ export struct ProjectDocumentView {
                   .padding({ left: Math.min(section.node.level - 1, 4) * 20, top: 12, bottom: 12 })
                   .constraintSize({ minHeight: section.node.level === 1 ? 56 : 48 })
               }.width('100%').margin({ top: section.node.level === 1 ? 16 : 0 })
-                .priorityGesture(TapGesture().onAction((): void => { this.openChapter(section) }), GestureMask.IgnoreInternal)
+                .priorityGesture(TapGesture().onAction((): void => {
+                  if (section.node) this.navigation.locateSection(section.node.fullPath)
+                }), GestureMask.IgnoreInternal)
                 .accessibilityDescription(`${section.node.level} 级章节，点击定位正文`)
             }
           }

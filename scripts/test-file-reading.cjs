@@ -622,7 +622,7 @@ test('项目目录仅列普通章节，保留任务下的章节与重名路径�
 function nativeProjectFixture() {
   let save = async () => true;
   const { View } = load(base + 'components/ProjectDocumentView.ets', {
-    '../services/DataSetManager': { DataSetManager: class {} },
+    '../services/PageDataSnapshot': load(base + 'services/PageDataSnapshot.ets'),
     '../ui/ProjectReadingPresentation': projectReading,
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
     './ProjectFileHeader': { ProjectHeaderNavigation: class { close() { return false; } } },
@@ -632,26 +632,37 @@ function nativeProjectFixture() {
     .replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
     .replace('export struct ProjectDocumentView', 'class View') + '}\nmodule.exports = { View };');
   const view = new View(); view.aboutToAppear();
-  return { view, save: fn => { save = fn; } };
+  function section(key, title, offset, linkTargets = [], occurrence = 1) {
+    const fullPath = { repoId: 'r', file: 'p.org', titles: ['上级', title], occurrence };
+    view.sections.push({ key, node: { fullPath, level: 2, property: () => null, editContent: { ownTags: [] } }, linkTargets });
+    view.updateDocument();
+    view.offsets.set(key, offset);
+    return fullPath;
+  }
+  return { view, section, save: fn => { save = fn; } };
 }
 
 test('原生项目目录保存草稿后按完整路径定位，不改变任务卡片展开状态', async () => {
   const f = nativeProjectFixture(); f.view.outlineVisible = true;
-  f.view.offsets.set('second-occurrence', 300);
+  f.section('first-occurrence', '重名', 100);
+  const path = f.section('second-occurrence', '重名', 300, [], 2);
   f.save(async collapse => { assert.equal(collapse, false); return true; });
-  await f.view.openChapter({ key: 'second-occurrence' });
+  assert.equal(await f.view.navigation.locateSection({ ...path, file: 'other.org' }), false);
+  assert.equal(await f.view.navigation.locateSection({ ...path, titles: ['其他上级', '重名'] }), false);
+  assert.equal(await f.view.navigation.locateSection(path), true);
   assert.equal(f.view.scroller.lastScroll.yOffset, 288);
   assert.equal(f.view.outlineVisible, false);
   f.view.outlineVisible = true; f.save(async () => false);
-  await f.view.openChapter({ key: 'second-occurrence' });
+  assert.equal(await f.view.navigation.locateSection(path), false);
   assert.equal(f.view.outlineVisible, true);
 });
 
 test('原生项目离开或切换版本后，迟到目录定位失效；切回正文恢复原位置', async () => {
   const f = nativeProjectFixture(); let finish;
-  f.view.offsets.set('old', 999); f.save(() => new Promise(resolve => { finish = resolve; }));
-  const pending = f.view.openChapter({ key: 'old' });
-  f.view.revision = 'new'; f.view.snapshotChanged(); finish(true); await pending;
+  const path = f.section('old', '旧章节', 999);
+  f.save(() => new Promise(resolve => { finish = resolve; }));
+  const pending = f.view.navigation.locateSection(path);
+  f.view.revision = 'new'; f.view.snapshotChanged(); finish(true); assert.equal(await pending, false);
   assert.equal(f.view.scroller.lastScroll.yOffset, 0);
   assert.equal(f.view.offsets.size, 0);
   f.view.readingState = '{"scroll":345}'; f.view.showing = false; f.view.visibilityChanged();
@@ -756,10 +767,9 @@ test('原生项目内部链接共用 Core 目标索引，优先定位专用目�
   const f=nativeProjectFixture(), page=projectPageFixture().page;
   page.navigation=f.view.navigation;
   f.view.internalLinkProcessor=page.internalLinks;
-  f.view.sections=[{key:'heading',linkTargets:[{target:'目标',priority:2}]},
-    {key:'named',linkTargets:[{target:'目标',priority:1}]},
-    {key:'dedicated',linkTargets:[{target:'目标',priority:0}]}];
-  f.view.offsets.set('heading',100);f.view.offsets.set('named',200);f.view.offsets.set('dedicated',400);
+  f.section('heading', '目标', 100, [{target:'目标',priority:2}]);
+  f.section('named', '命名项', 200, [{target:'目标',priority:1}]);
+  f.section('dedicated', '专用项', 400, [{target:'目标',priority:0}]);
   assert.equal(await page.internalLinks.isValid('目标'),true);
   assert.equal(await page.internalLinks.isValid('不存在'),false);
   await page.internalLinks.process('目标');assert.equal(f.view.scroller.lastScroll.yOffset,388);
@@ -772,8 +782,7 @@ test('原生项目内部链接共用 Core 目标索引，优先定位专用目�
 test('项目页面隐藏、原文模式及刷新期间禁用内部跳转，保存期间隐藏文档也不滚动', async () => {
   const f=nativeProjectFixture(), page=projectPageFixture().page;
   page.navigation=f.view.navigation;
-  f.view.sections=[{key:'chapter',linkTargets:[{target:'*章节',priority:2}]}];
-  f.view.offsets.set('chapter',400);
+  f.section('chapter', '章节', 400, [{target:'*章节',priority:2}]);
   for (const state of ['pageVisible','sourceMode','refreshing']) {
     const previous=page[state];
     page[state]=state!=='pageVisible';
