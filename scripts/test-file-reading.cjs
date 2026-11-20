@@ -30,6 +30,8 @@ const projectPresentation = load(base + 'ui/ProjectDocumentPresentation.ets');
 const projectHeader = load(base + 'ui/ProjectHeaderPresentation.ets');
 const tagFilter = load(base + 'ui/TaskTagFilterPresentation.ets');
 const projectReading = load(base + 'ui/ProjectReadingPresentation.ets');
+const swipeMenus = load(base + 'components/controls/RightSwipe.ets', {}, source => source.split('@Component')[0]);
+const taskActions = load(base + 'ui/TaskActionPresentation.ets');
 const internalLinkProcessors = load(base + 'ui/InternalLinkProcessor.ets');
 const theme = load(base + 'ui/Theme.ets');
 const presentation = load(base + 'ui/OrgDocumentPresentation.ets', { './Theme': theme });
@@ -624,6 +626,7 @@ function nativeProjectFixture() {
     '../ui/ProjectReadingPresentation': projectReading,
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
     './ProjectFileHeader': { ProjectHeaderNavigation: class { close() { return false; } } },
+    './controls/RightSwipe': swipeMenus,
     '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args), active: () => false } }
   }, source => source.split('  @Builder\n')[0]
     .replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
@@ -802,6 +805,7 @@ test('项目章节按稳定任务身份订阅，属性修改保留正文修订�
  const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);let active=false,listener,stopped=false;
  const {Section}=load(base+'components/ProjectTaskSection.ets',{
   '../services/PageDataEquality':{samePageValue:equal},'../services/TaskInlineService':{TaskInlineSession:{active:()=>active}},
+  '../ui/TaskActionPresentation':taskActions,
   '../ui/Theme':theme
  },source=>source.split('  build()')[0].replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
  const value=(body='正文',extra={})=>({id:'a',heading:'标题',modifiedAt:null,fileVersion:'v1',editContent:{blocks:[{id:'10',kind:'text',source:body,html:'<p>'+body+'</p>',paragraph:true,blankLinesBefore:0,items:[]}]},...extra});
@@ -995,6 +999,7 @@ test('项目属性编辑期间父级分类候选继续更新，不覆盖本地�
 test('项目单章节保存直接读取来源最新版本，删除通知清除节点且退出取消 Monitor', async()=>{
  let callback,cancelled=false;const source={task:{fileVersion:'v1',editContent:{blocks:[]}},monitor(fn){callback=fn;fn({task:this.task});return()=>cancelled=true}};
  const {Section}=load(base+'components/ProjectTaskSection.ets',{
+  '../ui/TaskActionPresentation':taskActions,
   '../services/TaskInlineService':{TaskInlineSession:{active:()=>false}},'../ui/Theme':theme
  },text=>text.split('  build()')[0].replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
  const section=new Section(),writes=[];section.taskId='row';section.dataSet={taskSource:()=>source,async updateTask(...args){writes.push(args);return source.task}};

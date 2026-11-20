@@ -11,6 +11,7 @@ import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPrio
 import { ProjectFileHeader, ProjectHeaderNavigation } from './ProjectFileHeader'
 import { CoreFileHeaderEntry, CoreFileHeaderValueChange } from '../services/NativeCoreService'
 import { samePageValue } from '../services/PageDataEquality'
+import { SwipeMenuCoordinator } from './controls/RightSwipe'
 
 export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
@@ -57,6 +58,7 @@ export struct ProjectDocumentView {
   @State outlineVisible: boolean = false
   @State outlineItems: ProjectReadingSection[] = []
   private headerNavigation: ProjectHeaderNavigation = new ProjectHeaderNavigation()
+  private swipeMenus: SwipeMenuCoordinator = new SwipeMenuCoordinator()
   private stopTasks: (() => void) | undefined = undefined
   private updatePending: boolean = false
 
@@ -116,9 +118,10 @@ export struct ProjectDocumentView {
     }
     this.pendingOffset = this.readOffset()
     this.navigation.captureReadingState = async (): Promise<string> => JSON.stringify({ scroll: this.scroller.currentOffset().yOffset })
-    this.navigation.openOutline = (): void => { this.updateOutline(); this.outlineVisible = true }
+    this.navigation.openOutline = (): void => { this.swipeMenus.close(); this.updateOutline(); this.outlineVisible = true }
     this.navigation.closePanel = (): boolean => {
       if (this.headerNavigation.close()) return true
+      if (this.swipeMenus.close()) return true
       if (!this.outlineVisible) return false
       this.outlineVisible = false
       return true
@@ -128,12 +131,13 @@ export struct ProjectDocumentView {
   aboutToDisappear() { this.stopTasks?.(); this.stopTasks = undefined; this.active = false; this.outlineVisible = false }
 
   visibilityChanged() {
-    if (!this.showing) return
+    if (!this.showing) { this.swipeMenus.close(); return }
     this.pendingOffset = this.readOffset()
     this.initialOffsetApplied = this.pendingOffset !== undefined
   }
 
   snapshotChanged() {
+    this.swipeMenus.close()
     this.offsets.clear()
     this.outlineVisible = false
     const offset = this.readOffset()
@@ -246,6 +250,7 @@ export struct ProjectDocumentView {
             }
             if (section.node) {
               ProjectTaskSection({ dataSet: this.taskDataSet(), taskId: section.key, hasChildren: this.parentKeys.includes(section.key), contextOnly: this.contextKeys.includes(section.key),
+                menuCoordinator: this.swipeMenus, interactionEnabled: this.showing && this.visibleKeys.includes(section.key),
                 internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
             } else if (section.blocks.length > 0) {
               ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
@@ -273,6 +278,7 @@ export struct ProjectDocumentView {
     }.id('project_document_scroll').width('100%').height('100%').align(Alignment.Top)
       .scrollBar(BarState.Auto)
       .onAppear((): void => { this.ready() })
+      .onScrollStart((): void => { this.swipeMenus.close() })
       .onDidScroll((): void => { if (this.showing) this.scrolled(this.scroller.currentOffset().yOffset) })
       .onAreaChange((_old: Area, area: Area): void => {
         this.viewportHeight = Number(area.height)

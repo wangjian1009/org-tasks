@@ -4,11 +4,12 @@ import { samePageValue } from '../services/PageDataEquality'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
-import { TaskOperation } from '../ui/TaskActionPresentation'
+import { taskPageActionPolicy } from '../ui/TaskActionPresentation'
 import { UiColor } from '../ui/Theme'
 import { TaskSwipeItem } from './TaskSwipeItem'
 import { OrgHeadingView } from './OrgHeadingView'
 import { ProjectSectionBody } from './ProjectSectionBody'
+import { SwipeMenuCoordinator } from './controls/RightSwipe'
 
 interface ProjectBlockItemValue { text: string; checked: boolean; partial: boolean; depth: number }
 interface ProjectBlockValue { kind: string; source: string; html: string; paragraph: boolean; blankLinesBefore: number; items: ProjectBlockItemValue[] }
@@ -21,8 +22,11 @@ export struct ProjectTaskSection {
   @Prop specialTags: string[] = []
   @Prop hasChildren: boolean = false
   @Prop contextOnly: boolean = false
+  @Prop interactionEnabled: boolean = true
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   scrollHost: Scroller = new Scroller()
+  menuCoordinator: SwipeMenuCoordinator | undefined = undefined
+  private actionPolicy = taskPageActionPolicy('today')
   @State node: CoreTask | undefined = undefined
   @State bodyRevision: number = 1
   @StorageLink('taskInlineActive') @Watch('inlineChanged') inlineActive: string = ''
@@ -68,7 +72,9 @@ export struct ProjectTaskSection {
     Column() {
       if (this.node) {
         if (this.node.state) {
-          TaskSwipeItem({ listItem: false, rightSwipeAction: TaskOperation.Schedule, dataSet: this.dataSet!, taskId: this.taskId, internalLinkProcessor: this.internalLinkProcessor,
+          TaskSwipeItem({ listItem: false, menuCoordinator: this.menuCoordinator, interactionEnabled: this.interactionEnabled,
+            singleOperations: this.actionPolicy.singleOperations, rightSwipeAction: this.actionPolicy.rightSwipeAction,
+            menuIdPrefix: 'project_swipe', dataSet: this.dataSet!, taskId: this.taskId, internalLinkProcessor: this.internalLinkProcessor,
             contentHidden: this.hasChildren || this.contextOnly, hiddenTags: this.specialTags, instanceKey: `project:${this.taskId}`,
             dateDisplay: TaskDateDisplay.Schedule, regionAreaPolicy: RegionAreaPolicy.None,
             scrollHost: this.scrollHost, scrollHostId: 'project_document_scroll' }).width('100%')

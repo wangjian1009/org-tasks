@@ -9,7 +9,7 @@ import { ProjectCreateSheet } from './editors/ProjectCreateSheet'
 import { DataSet } from '../services/DataSet'
 import { CoreTask, CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskSwipeOperations } from './TaskSwipeOperations'
-import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy } from '../ui/TaskActionPresentation'
+import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy, taskSwipeMenuWidth } from '../ui/TaskActionPresentation'
 import { TaskStateCategory, taskStateToggleCategory, taskStateToggleWaitCategory } from '../ui/TaskStatePresentation'
 import { TaskEditorController } from '../ui/TaskEditorController'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
@@ -17,7 +17,7 @@ import { RegionAreaPolicy, TaskDateDisplay, TaskTimeDisplay } from '../ui/TaskLi
 import { TaskSwipeActions } from './TaskSwipeActions'
 import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskEditor } from './editors/TaskEditor'
-import { RightSwipe } from './controls/RightSwipe'
+import { RightSwipe, SwipeMenuCoordinator } from './controls/RightSwipe'
 
 // 列表和文档共用双向滑动入口；页面专属菜单与动作通过插槽和回调接入。
 @Component
@@ -28,6 +28,7 @@ export struct TaskSwipeItem {
   @Prop busy: boolean = false
   @Prop interactionEnabled: boolean = true
   @Prop listItem: boolean = true
+  menuCoordinator: SwipeMenuCoordinator | undefined = undefined
   @Prop listOutset: number = 0
   @Prop itemId: string = ''
   selection: TaskSelectionController | undefined = undefined
@@ -257,8 +258,8 @@ export struct TaskSwipeItem {
     finally { this.submitting = false }
   }
 
-  swipeMenuItems(): TaskActionItem[] {
-    const activate = (action: TaskOperation): void => { this.activateOperation(action) }
+  swipeMenuItems(close?: () => void): TaskActionItem[] {
+    const activate = (action: TaskOperation): void => { close?.(); this.activateOperation(action) }
     return this.selection ? taskSwipeMenu(taskActionPolicy({ singleOperations: this.singleOperations }), activate, this.toggleStateCategory, this.toggleWaitCategory) :
       taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory, this.toggleWaitCategory)
   }
@@ -267,6 +268,12 @@ export struct TaskSwipeItem {
   swipeMenu(_activate: (action: TaskOperation) => void) {
     TaskSwipeActions({ busy: this.gesturesBlocked(), idPrefix: this.menuIdPrefix,
       items: this.swipeMenuItems() })
+  }
+
+  @Builder
+  documentSwipeMenu(close: () => void) {
+    TaskSwipeActions({ busy: this.gesturesBlocked() || this.submitting, idPrefix: this.menuIdPrefix,
+      items: this.swipeMenuItems(close) })
   }
 
   @Builder
@@ -308,11 +315,13 @@ export struct TaskSwipeItem {
   swipeContent() {
     Column() {
       RightSwipe({ disabled: !this.interactionEnabled || this.readOnly || this.busy || this.rightSwipeAction === undefined,
-        canActivate: (): boolean => this.rightSwipeAvailable(), action: (): void => {
+        content: (): void => { this.content(this.controller) }, menuCoordinator: this.menuCoordinator,
+        endMenu: (close: () => void): void => { this.documentSwipeMenu(close) },
+        menuWidth: this.menuCoordinator && !this.gesturesBlocked() && !this.submitting ? taskSwipeMenuWidth(this.swipeMenuItems()) : 0,
+        canOpenMenu: (): boolean => !this.submitting && !this.blocked(),
+        canActivate: (): boolean => (this.listItem || !this.submitting) && this.rightSwipeAvailable(), action: (): void => {
           if (this.rightSwipeAction !== undefined) this.activateOperation(this.rightSwipeAction)
-        } }) {
-        this.content(this.controller)
-      }
+        } })
     }.width('100%').bindSheet($$this.projectOpen, this.projectPanel, {
       height: SheetSize.FIT_CONTENT, preferType: SheetType.BOTTOM,
       backgroundColor: '#363A38', showClose: false,

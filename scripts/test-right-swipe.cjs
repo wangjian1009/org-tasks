@@ -11,7 +11,7 @@ const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openhar
 const source = fs.readFileSync('entry/src/main/ets/components/controls/RightSwipe.ets', 'utf8');
 // 使用产品中的状态和方法，去除 ArkUI 声明及渲染 DSL。
 const fields = source.slice(source.indexOf('  @State'), source.indexOf('  @Builder\n'))
-  .replace('@State ', '');
+  .replaceAll('@State ', '');
 const methods = source.slice(source.indexOf('  aboutToAppear()'), source.indexOf('  build()'));
 const code = ts.transpileModule('class Swipe {' + fields + methods + '} globalThis.Swipe = Swipe;', {
   compilerOptions: { target: ts.ScriptTarget.ES2021 }
