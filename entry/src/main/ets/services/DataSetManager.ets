@@ -45,6 +45,7 @@ export class DataSetManager {
   private readonly parent: DataSetManager | undefined
   private initialFilesDelivered: boolean = false
   private captureFiles: ((result: DataLoadResult) => void) | undefined = undefined
+  private readonly fileListeners: Set<(result: DataLoadResult) => Promise<void> | void> = new Set()
   private initialized: boolean = false
   private closed: boolean = false
   private closing: boolean = false
@@ -110,6 +111,12 @@ export class DataSetManager {
     if (own) return own
     return this.parent ? this.parent.dataSet(name) : this.ownDataSet(name)
   }
+  // 完整文件只作为外部失效恢复的一次性结果交付，不进入 DataSet 或缓存。
+  subscribeFiles(listener: (result: DataLoadResult) => Promise<void> | void): () => void {
+    this.fileListeners.add(listener)
+    return (): void => { this.fileListeners.delete(listener) }
+  }
+  async refreshFiles(name: string): Promise<void> { this.requestRefresh([name]); await this.settleExternalRefresh() }
   private ownDataSet(name: string): DataSet {
     let dataSet = this.sets.get(name)
     if (!dataSet) {
@@ -254,11 +261,22 @@ export class DataSetManager {
       while (this.externalPending.size && !this.closed && !this.closing) {
         const names = Array.from(this.externalPending)
         this.externalPending.clear()
-        await Promise.all(names.map(async (name: string): Promise<void> => {
-          const dataSet = this.sets.get(name)
-          if (!dataSet?.hasValidScope()) return
-          try { await dataSet.refresh() } catch (error) { dataSet.reportError(error as Error) }
-        }))
+        const generation = this.generation
+        const loaded: DataLoadResult[] = []
+        const capture = this.fileListeners.size ? (result: DataLoadResult): void => { loaded.push(result) } : undefined
+        this.captureFiles = capture
+        try {
+          await Promise.all(names.map(async (name: string): Promise<void> => {
+            const dataSet = this.sets.get(name)
+            if (!dataSet?.hasValidScope()) return
+            try { await dataSet.refresh() } catch (error) { dataSet.reportError(error as Error) }
+          }))
+        } finally { if (this.captureFiles === capture) this.captureFiles = undefined }
+        if (this.closed || this.closing || generation !== this.generation) continue
+        for (const result of loaded) for (const listener of this.fileListeners) {
+          if (this.closed || this.closing || generation !== this.generation) break
+          try { await listener(result) } catch (error) { this.sets.get(result.name)?.reportError(error as Error) }
+        }
       }
     })().finally((): void => { if (this.externalRunning === work) this.externalRunning = undefined; this.scheduleExternalRefresh() })
     this.externalRunning = work
@@ -325,7 +343,7 @@ export class DataSetManager {
             this.subscriptions.set(entry.name, result.subscriptionId)
             if (result.data.type === 'task') {
               const files = result.data.result.fullFiles ?? []
-              if (capture && files.length) capture({ name: entry.name, fullFiles: files })
+              if (capture && entry.request.query.type === 'task' && entry.request.query.query.fullFiles?.length) capture({ name: entry.name, fullFiles: files })
               result.data.result.fullFiles = []
             }
             entry.resolve(result)
@@ -388,6 +406,7 @@ export class DataSetManager {
     } finally {
       if (this.externalWatch) this.workspace?.stopWatchingExternalFileChanges(this.externalWatch)
       this.externalWatch = 0; clearTimeout(this.externalTimer); clearInterval(this.dayTimer); this.externalPending.clear()
+      this.fileListeners.clear()
       this.closed = true; this.captureFiles = undefined; clearTimeout(this.saveTimer)
       for (const name of Array.from(this.subscriptions.keys())) this.stopSubscription(name)
       for (const stop of this.stops.values()) stop()

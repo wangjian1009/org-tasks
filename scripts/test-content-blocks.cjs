@@ -367,3 +367,13 @@ test('编译后的任务编辑清单在新快照条目 ID 全部移动后仍显�
   const current=checklist.paramsGenerator_();
   assert.deepEqual(current.items,blocks[0].items);assert.equal(current.blockId,'21');assert.equal(current.showAdd,true);
 });
+
+test('项目正文会话从来源取得最新版本，草稿开始后冻结版本且失败保留输入',async()=>{
+ const f=projectFixture();let latest={...f.task,fileVersion:'live-v2'};f.editor.readTask=()=>latest;
+ await f.editor.session();assert.equal(f.editor.current,latest);
+ const frozen=f.editor.current;latest={...latest,fileVersion:'live-v3'};
+ f.fail(new Error('文件版本冲突'));f.editor.editingId='42';f.editor.editingText='保留草稿';
+ assert.equal(await f.editor.saveCheck(false),false);
+ assert.equal(f.writes[0].snapshot,frozen);assert.equal(f.writes[0].snapshot.fileVersion,'live-v2');
+ assert.equal(f.editor.editingText,'保留草稿');assert.equal(f.editor.current,frozen);
+});

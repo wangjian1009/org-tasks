@@ -17,6 +17,7 @@ function load(filename, mocks = {}, transform = source => source) {
   }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports,Scroller){' + source + '\n})', { filename })(name => {
+    if (name.endsWith('/PageDataEquality')) return { samePageValue: (a,b) => JSON.stringify(a) === JSON.stringify(b) };
     if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     assert.ok(name in mocks, `缺少替身：${name}`);
     return mocks[name];
@@ -427,6 +428,8 @@ function projectPageFixture() {
     '../services/DataManager': { DataManager: class {
       static create(context,page,definitions,options){assert.equal(definitions.length,3);assert.ok(options.parent);assert.ok(definitions.every(item=>item.query.query.includeFiles?.[0]?.path==='project.org'));assert.equal(options.cache,false);assert.equal(definitions[0].query.type,'task');assert.deepEqual(definitions[0].query.query.fullFiles,[{repoId:'core',path:'project.org'}]);return new this();}
       dataSet(){return this;}
+      subscribeFiles(fn){this.fileListener=fn;return()=>this.fileListener=undefined;}
+      async refreshFiles(){await this.refresh();await this.fileListener?.({name:'tasks',fullFiles:[this.file]});}
       get document(){return this.file?{file:this.file,tasks:this.file.nodes()}:undefined;}
       get data(){return this.getConfirmed().data;}
       get error(){return this.failure??'';}
@@ -434,6 +437,7 @@ function projectPageFixture() {
       hasValidScope(){return true;}
       subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn);}
       getFile(){return this.file;}
+      snapshot(){return {optimistic:false};}
       getConfirmed(){return{data:{type:'task',result:{tasks:this.file?.nodes()??[]}}};}
       taskKey(id){return id;}
       async start(){await this.refresh();if(this.failure)throw new Error(this.failure);return[{name:'tasks',fullFiles:[this.file]}];}
@@ -713,7 +717,7 @@ test('项目任务展开后可从更多菜单查看和收起日志，没有日�
   const logsPresentation = load(base + 'ui/TaskLogPresentation.ets');
   const { Card } = load(filename, { './TaskLogPresentation': logsPresentation }, source => {
     const start = source.indexOf('  moreItems():');
-    const end = source.indexOf('  @Builder\n  attributes()', start);
+    const end = source.indexOf('  @Builder\n', start);
     return 'import { taskEventLogs } from "./TaskLogPresentation";\nconst LogShowPolicy = {LogShowBySwitch: \'LogShowBySwitch\', LogShowAlways: \'LogShowAlways\'};\nfunction $r(name: string): string { return name }\nexport class Card {\n' + source.slice(start, end) + '\n}';
   });
   const card = new Card();
@@ -778,7 +782,7 @@ test('项目页面隐藏、原文模式及刷新期间禁用内部跳转，保�
   let finish;
   f.save(()=>new Promise(resolve=>{finish=resolve;}));
   const pending=page.internalLinks.process('*章节');
-  f.view.showing=false;finish(true);
+  await new Promise(resolve=>setImmediate(resolve));f.view.showing=false;finish(true);
   await assert.rejects(pending,/无法定位/);
   assert.equal(f.view.scroller.lastScroll,undefined);
   assert.equal(await page.internalLinks.isValid('*章节'),false);
@@ -801,7 +805,8 @@ test('项目章节按稳定任务身份订阅，属性修改保留正文修订�
   '../ui/Theme':theme
  },source=>source.split('  build()')[0].replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
  const value=(body='正文',extra={})=>({id:'a',heading:'标题',modifiedAt:null,fileVersion:'v1',editContent:{blocks:[{id:'10',kind:'text',source:body,html:'<p>'+body+'</p>',paragraph:true,blankLinesBefore:0,items:[]}]},...extra});
- const section=new Section();section.taskId='stable-a';section.dataSet={watchTask(id,fn){assert.equal(id,'stable-a');listener=fn;fn({task:value()});return()=>stopped=true;}};
+ const source={task:value(),monitor(fn){listener=change=>{source.task=change.task;fn(change)};fn({task:source.task});return()=>stopped=true}};
+ const section=new Section();section.taskId='stable-a';section.dataSet={taskSource(id){assert.equal(id,'stable-a');return source}};
  section.aboutToAppear();const revision=section.bodyRevision;
  listener({task:value('正文',{fileVersion:'v2',priority:{name:'A'}})});assert.equal(section.bodyRevision,revision);assert.equal(section.node.fileVersion,'v2');
  listener({task:value('新正文',{fileVersion:'v3'})});assert.equal(section.bodyRevision,revision+1);
@@ -985,4 +990,44 @@ test('项目属性编辑期间父级分类候选继续更新，不覆盖本地�
  ]}:{type:'file',result:[]}})};
  const sections=f.page.sections;f.page.refreshDocument();assert.deepEqual(f.page.categoryOptions,['新增分类']);
  assert.equal(f.page.sections,sections);assert.equal(f.page.title,'');
+});
+
+test('项目单章节保存直接读取来源最新版本，删除通知清除节点且退出取消 Monitor', async()=>{
+ let callback,cancelled=false;const source={task:{fileVersion:'v1',editContent:{blocks:[]}},monitor(fn){callback=fn;fn({task:this.task});return()=>cancelled=true}};
+ const {Section}=load(base+'components/ProjectTaskSection.ets',{
+  '../services/TaskInlineService':{TaskInlineSession:{active:()=>false}},'../ui/Theme':theme
+ },text=>text.split('  build()')[0].replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
+ const section=new Section(),writes=[];section.taskId='row';section.dataSet={taskSource:()=>source,async updateTask(...args){writes.push(args);return source.task}};
+ section.aboutToAppear();source.task={...source.task,fileVersion:'v2'};
+ assert.equal(section.node.fileVersion,'v1');await section.modify([{field:'PRIORITY',value:'A'}]);assert.equal(writes[0][2],'v2');
+ source.task=undefined;callback({removed:true});assert.equal(section.node,undefined);await assert.rejects(section.modify([]),/已移除/);
+ section.aboutToDisappear();assert.equal(cancelled,true);
+});
+
+test('项目普通任务事件不重算章节与全文，结构事件才归并成员', async()=>{
+ const f=projectPageFixture();await f.page.loadFile();const manager=f.page.dataManager;
+ const sections=f.page.sections;f.page.matchedIds=[];
+ for(const fn of manager.listeners)fn({type:'update',added:[],removed:[],updated:['a'],structureChanged:false});
+ assert.equal(f.page.sections,sections);assert.equal(f.page.structurePending,false);assert.equal(f.page.linkSnapshotDirty,true);
+ for(const fn of manager.listeners)fn({type:'refresh',added:['a'],removed:[],updated:[],structureChanged:true});
+ assert.equal(f.page.structurePending,false);assert.equal(f.page.fileVersion,'v1');
+});
+
+test('项目链接索引按需确认不重建阅读会话，普通任务事件只标记待确认',async()=>{
+ const f=projectPageFixture();await f.page.loadFile();const revision=f.page.renderRevision,session=f.page.documentSession;
+ for(const fn of f.page.dataManager.listeners)fn({type:'update',added:[],removed:[],updated:['a'],structureChanged:false});
+ f.setOpen(async()=>({...f.file('v2'),documentSections:()=>[{path:null,html:'最新链接索引',blocks:[],linkTargets:[{target:'新目标',priority:0}]}]}));
+ assert.equal(await f.page.ensureLinkSnapshot(),true);assert.equal(f.page.sections[0].linkTargets[0].target,'新目标');
+ assert.equal(f.page.renderRevision,revision);assert.equal(f.page.documentSession,session);assert.equal(f.page.content,'项目原文');
+ assert.equal(f.page.linkSnapshotDirty,false);
+});
+
+test('项目完整恢复等待排队修改确认，旧版本完整文件不能覆盖新任务',async()=>{
+ const f=projectPageFixture();await f.page.loadFile();const manager=f.page.dataManager;
+ f.page.pendingFile={file:f.file('v2'),tasks:[]};manager.snapshot=()=>({optimistic:true});
+ await f.page.applyPendingFile();assert.ok(f.page.pendingFile);assert.equal(f.page.fileVersion,'v1');
+ manager.snapshot=()=>({optimistic:false});await f.page.applyPendingFile();assert.equal(f.page.fileVersion,'v2');
+ let refreshes=0;manager.refreshFiles=async()=>{refreshes++};
+ manager.file={...f.file('v3'),nodes:()=>[{fileVersion:'v3'}]};f.page.pendingFile={file:f.file('v2'),tasks:[]};
+ await f.page.applyPendingFile();assert.equal(refreshes,1);assert.equal(f.page.fileVersion,'v2');assert.equal(f.page.pendingFile,undefined);
 });

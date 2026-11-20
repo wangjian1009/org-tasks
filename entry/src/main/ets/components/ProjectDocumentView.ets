@@ -10,6 +10,7 @@ import { TitleText } from './TitleText'
 import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 import { ProjectFileHeader, ProjectHeaderNavigation } from './ProjectFileHeader'
 import { CoreFileHeaderEntry, CoreFileHeaderValueChange } from '../services/NativeCoreService'
+import { samePageValue } from '../services/PageDataEquality'
 
 export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
@@ -32,7 +33,7 @@ export struct ProjectDocumentView {
   @State visibleKeys: string[] = []
   @State contextKeys: string[] = []
   @State parentKeys: string[] = []
-  @StorageLink('taskInlineActive') @Watch('updateDocument') inlineActive: string = ''
+  @StorageLink('taskInlineActive') @Watch('inlineChanged') inlineActive: string = ''
   @Prop headerEntries: CoreFileHeaderEntry[] = []
   @Prop headerVersion: string = ''
   @Prop categoryOptions: string[] = []
@@ -57,6 +58,7 @@ export struct ProjectDocumentView {
   @State outlineItems: ProjectReadingSection[] = []
   private headerNavigation: ProjectHeaderNavigation = new ProjectHeaderNavigation()
   private stopTasks: (() => void) | undefined = undefined
+  private updatePending: boolean = false
 
   linkSection(target: string): ProjectReadingSection | undefined {
     let priority = Infinity
@@ -103,7 +105,7 @@ export struct ProjectDocumentView {
   aboutToAppear() {
     this.active = true
     this.initialOffsetApplied = this.readOffset() !== undefined
-    this.stopTasks = this.dataSet?.subscribe((): void => { this.updateDocument() })
+    this.stopTasks = this.dataSet?.subscribeStructure((): void => { this.updateDocument() })
     this.updateDocument()
     this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
       this.active && this.showing && this.linkSection(target) !== undefined
@@ -161,17 +163,23 @@ export struct ProjectDocumentView {
   }
 
   updateDocument(): void {
-    if (TaskInlineSession.active()) return
+    if (TaskInlineSession.active()) { this.updatePending = true; return }
+    this.updatePending = false
     const current = this.sections.map((section: ProjectReadingSection): ProjectReadingSection => ({
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     }))
     this.readingItems = projectReadingItems(current, this.tagFiltered ? this.matchedIds : null)
-    this.visibleKeys = this.readingItems.filter(item => item.visible).map(item => item.section.key)
-    this.contextKeys = this.readingItems.filter(item => item.contextOnly).map(item => item.section.key)
-    this.parentKeys = this.readingItems.filter(item => item.hasChildren).map(item => item.section.key)
+    const visible = this.readingItems.filter(item => item.visible).map(item => item.section.key)
+    const contexts = this.readingItems.filter(item => item.contextOnly).map(item => item.section.key)
+    const parents = this.readingItems.filter(item => item.hasChildren).map(item => item.section.key)
+    if (!samePageValue(this.visibleKeys, visible)) this.visibleKeys = visible
+    if (!samePageValue(this.contextKeys, contexts)) this.contextKeys = contexts
+    if (!samePageValue(this.parentKeys, parents)) this.parentKeys = parents
     if (this.outlineVisible) this.updateOutline()
   }
+
+  inlineChanged(): void { if (!this.inlineActive && this.updatePending) this.updateDocument() }
 
   @Builder
   outlineSheet() {

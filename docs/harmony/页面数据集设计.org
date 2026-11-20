@@ -299,9 +299,9 @@ version 是提交阶段，revision 是显示数据修订号，两者独立。管
 
 项目页创建 ~DataManager~ ，显式指定 ~cache: false~ 。每次打开重新启动查询订阅：使用空表达式获取全部标题， ~includeFiles~ 与 ~fullFiles~ 指向真实 Core 仓库和目标路径， ~includeIgnored: true~ 保留已打开文件的全部可编辑标题。任务、普通标题、完成与取消节点均保留，冲突子树继续按 Core 规则排除。
 
-~start(): Promise<DataLoadResult[]>~ 返回命名查询的一次性文件数组，管理器在交给 DataSet 前移除完整文件。首次成功后不保存文件或包含文件的已完成 Promise；后续刷新、外部更新与配置接入都不再请求 ~fullFiles~ 。页面从文件提取导言、文件标签、源文本与文档分段，用完整 ~path~ 关联 Task，随后释放文件对象；查看原文使用本次打开时的源文本，显式“刷新项目”开启新的阅读会话重新取得一次完整文件；会话身份驱动文档组件重建，即使文件版本相同也重新绑定新 DataSet，并恢复阅读偏移。
+~start(): Promise<DataLoadResult[]>~ 返回命名查询的一次性文件数组，管理器在交给 DataSet 前移除完整文件。首次成功后不保存文件或包含文件的已完成 Promise；普通任务增量不再请求 ~fullFiles~ ；管理器检测到外部失效时，可向注册 ~subscribeFiles~ 的宿主一次性交付新的完整文件，完整文件仍不进入 DataSet 或缓存。页面从文件提取导言、文件标签、源文本与文档分段，用完整 ~path~ 关联 Task，随后释放文件对象；查看原文使用本次打开时的源文本，显式“刷新项目”开启新的阅读会话重新取得一次完整文件；会话身份驱动文档组件重建，即使文件版本相同也重新绑定新 DataSet，并恢复阅读偏移。
 
-DataSet 不提供 document、getFile 或完整文件事件，不再有文件确认重读。编辑统一使用 updateTask，Core 的原始提交事件维护改名、移动和重名出现序号的映射，控件按稳定行 ID 订阅 Task。每个 ProjectTaskSection 维护自己的标题与段落，Task 修改时间和实际字段变化只驱动该章节；正文从 Task.editContent.blocks 取得。位置 ID 与文件版本仅更新编辑上下文，可见正文未变化时保留 HTML 修订号；属性修改不重建文档容器或其他章节。
+DataSet 不提供 document、getFile 或完整文件事件，不再有文件确认重读。编辑统一使用 updateTask，Core 的原始提交事件维护改名、移动和重名出现序号的映射，控件按稳定行 ID 订阅 Task。每个 ProjectTaskSection 直接取得 ~taskSource(rowId)~ 并注册 Monitor，维护自己的标题与段落；退出时取消。Task 的实际字段变化只驱动该章节，页面不接收整批变化后再遍历分发；正文从 Task.editContent.blocks 取得。只有来源更新而可见内容相同时，新正文会话直接读取来源中的最新文件版本，不依赖尚未重绘的 node；草稿进入编辑后冻结源版本，提交继续携带该版本，外部变化后不能静默覆盖。位置 ID 与文件版本仅更新编辑上下文，可见正文未变化时保留 HTML 修订号；属性修改不重建文档容器或其他章节。
 
 新增、删除及顺序变化只调整受影响章节的成员；保留其他章节实例和滚动位置。目录打开时读取最新任务名称与状态。编辑会话期间延迟应用章节外部快照，结束后应用最新 Task，避免打断草稿；失败沿用原有定向回滚和禁止重复提交规则。页级阅读状态与任务数据缓存分离，不读取或写入 page-data 目录。flush 仍等待提交及事件确认。
 
@@ -351,7 +351,7 @@ SnapshotDataManager 为非任务查询结果提供统一的 start、refresh、su
 
 NotebookDataManager 发布仓库分组与当前配置；FileDataManager 发布普通文件或指定同步历史备份和读取上下文；SyncLogDataManager 发布排序后的同步记录、仓库身份与展示名，展开详情由 SyncLogDetailDataManager 按固定同步 ID 发布完整记录。完整文件、历史与同步规则仍调用既有 Core 接口，管理类不解析 Org。页面的渲染、原文切换、目录定位与展开状态只使用管理对象快照；普通文件变为项目时沿用既有导航。
 
-项目页首次获取文件，随后通过 Task 更新标题与正文，属性修改不重建整个文档；外部更新由管理器合并刷新任务，不重新获取完整文件。项目正文控件只接收修改回调，组合层将回调转交 updateTask，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的重新订阅也统一调用 NotificationManager，不由通知控件拼装底层查询。
+项目页首次获取文件，随后通过 Task 更新标题与正文，属性修改不重建整个文档；来自同一 Workspace 的 UI／HTTP 操作由完整任务事件直接归并；同步、reset 或磁盘外部失效由管理器合并刷新，项目宿主注册的一次性文件接收者同时取得最新导言和链接索引。项目正文控件只接收修改回调，组合层将回调转交 updateTask，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的重新订阅也统一调用 NotificationManager，不由通知控件拼装底层查询。
 
 \begin{center}
 \begin{tikzpicture}
@@ -566,3 +566,46 @@ Monitor 回调允许继续发起编辑。嵌套更新发生后，来源不再向
 \end{tikzpicture}
 
 2026-11-19 已完成 187 项相关宿主回归及独立模拟器实时验收，覆盖连续三字段编辑、逐项确认不重绘、失败保留后续值、外部更新时保留草稿，以及改名、删除、同名重建和冷启动。详细结果及环境限制见 [[file:任务记录Monitor模拟器验收.org][任务记录 Monitor 验收报告]]。
+
+* 项目运行中的定向刷新与结构更新
+
+单任务的标题、状态、正文和清单直接通过 DataSet 的 ~taskSource(rowId).monitor()~ 更新；项目容器不监听这些字段后逐项回查。DataSet 合并完整确认事件和所有待提交字段后，先推进全部来源快照，再定向通知实际变化的记录。排序键与文件版本仅作为上下文推进，不单独引起任务控件重绘；排序结果变化仍触发容器结构事件。
+
+~subscribeStructure~ 只交付稳定行成员、源顺序、层级、普通标题／任务类别以及 ARCHIVE／VISIBILITY 变化。项目页面只在这些变化时归并章节，文档容器只在结构或筛选命中身份变化时重算可见路径；普通字段确认、无关任务编辑会话结束不触发容器遍历。当前有输入草稿时延迟应用结构和当前章节的外部快照，会话结束后只处理已积累的变化。
+
+同文件移动仍提交已有 Movement，Core 负责保真写回及父子树的真实变化。DataSet 按整批 before／after 身份映射保留稳定行及来源对象，消费 Core 的排序键与最新层级后重排章节；任务控件继续沿用同一个 Monitor。新增、删除和重名出现序号变化也走同一入口，不增加页面查询或 Core 对外协议。
+
+事件缺少 after.view 或确认版本不连续时，不消费半批内容，由管理器合并恢复查询。项目通过 ~subscribeFiles~ 接收一次性完整文件，更新导言、原文和链接索引，读取失败保留当前文档。编辑期间暂存完整文件；应用前若任务已推进到更新版本，重新请求同版本文件，不以旧完整快照覆盖新任务。
+
+任务事件未携带完整的 documentSections.linkTargets，运行中的普通修改只标记链接索引待确认；实际执行内部跳转时，通过管理器按需读取完整文件并替换链接目标投影，保留文档会话、控件键和滚动位置。宿主不从标题或正文猜测 Org 目标。只读原文仍表示打开或完整恢复时的源文本，普通任务增量不在 ArkTS 拼接 Org 原文。
+
+\begin{tikzpicture}
+\renewcommand{\tikzumlDefaultFont}{\scriptsize}
+\umlclass[x=0,y=0]{DataSet}{stable rows / confirmed tasks}{taskSource(rowId) / subscribeStructure()}
+\umlclass[x=8,y=0]{TaskDataSource}{current task / monitors}{monitor()}
+\umlclass[x=8,y=-4]{ProjectTaskSection}{source / node / pending}{接收单任务变化 / 读取最新版本}
+\umlclass[x=0,y=-4]{ProjectDocumentView}{sections / visibility}{仅归并结构与筛选变化}
+\umlcompo{DataSet}{TaskDataSource}
+\umluniassoc{ProjectTaskSection}{TaskDataSource}
+\umldep{ProjectDocumentView}{DataSet}
+\end{tikzpicture}
+
+** 2026-11-20 验证结果
+
+相关宿主回归 246 项通过，覆盖来源定向通知、无关行不刷新、同文件移动与稳定行保持、来源版本推进、正文草稿冻结版本、连续排队字段与定向失败回滚、事件缺少显示快照及版本跳跃的恢复、完整文件一次性交付与过期快照保护。修正阅读回归中提取 moreItems 的截断位置，使其不再误包含后续 Builder。
+
+在独立 OrgTaskMonitorQA 模拟器与隔离仓库中新建专用项目文件，通过同一 APP Workspace 的 HTTP API 和界面操作验证：
+
+| 场景 | 实际结果 |
+|-
+| HTTP 修改当前任务标题、优先级及正文 | 当前页面直接显示新值；当前任务、无关任务和普通章节的 accessibilityId 保持 |
+| HTTP 移动含子任务的同文件子树 | 父任务与子任务进入正确新路径；原任务文字控件身份保持，无关任务实例不变 |
+| 界面输入标题期间 HTTP 修改备注和优先级 | 输入控件身份及未提交标题草稿保持；界面收起保存后 API 确认新标题与外部备注、优先级同时保留 |
+| 界面完成任务并由 API 恢复待办 | 状态正确切换，正文保持，无需离开项目 |
+| 非法 TODO 状态 | Core 拒绝请求，文件版本与当前内容不变 |
+| 最终包冷启动后改名、删除与同名重建 | 改名保留当前文字控件身份，删除即时移除，同名新建显示新正文 |
+| 增量新增后点击导言内部链接 | 按需确认链接索引，目标标题从 y=1262 移到 y=435；文档滚动控件身份保持 |
+
+Debug 构建成功且无编译告警。原始 API 响应、布局和截图保存在 [[file:../../output/qa/project-live-refresh-20261120/][本次验收证据]]。模拟器未直接改磁盘文件，不以重开项目代替运行中更新验证；外部失效恢复与版本跳跃由真实管理器宿主回归验证。
+
+收尾停止验收进程后已确认接口不可连接；普通重启没有恢复 HTTP 测试监听，宿主端口转发已移除。测试数据只位于独立模拟器的隔离仓库。

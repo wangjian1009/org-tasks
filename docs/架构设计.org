@@ -136,7 +136,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 ~AppDataManager~ 位于 ~entry/src/main/ets/services/AppDataManager.ets~ ，由 EntryAbility 在初始化 Workspace 和系统仓库后启动，后台保留订阅，销毁时关闭；独立入口需要角标时可懒创建并复用同一实例。普通任务页和笔记本直接消费共享 DataSet；分类候选统一由全局 categories DataSet 运行时维护，复用今天排序原有文件范围，项目属性编辑与转换项目不另行扫描。SidebarDataManager 只把这些 DataSet 投影成计数、文件入口与项目列表，不查询、不持有独立缓存；DeviceBadgeService 只订阅共享收件箱、截止任务和通知快照并写系统角标，不查询或注册 Core 监控。页面离开或抽屉关闭只移除展示订阅，不能关闭全局 Manager。计划筛选与废纸篓过期成员由 App 按需配置命名数据集，关闭筛选不改变基础范围；导航返回直接读取共享收件箱计数。完整生命周期见 [[file:harmony/页面数据集设计.org::*应用级共享数据入口][应用级共享数据入口]] 。
 
-全部普通任务页面引用应用级共享 DataSetManager，查询定义集中于 AppDataManager，由管理器处理配置和缓存，由 Manager 合并底层订阅调用并管理各 ID，每个 DataSet 自己处理按 ID 访问、编辑及事件；非任务结果由 SnapshotDataManager 及 NotebookDataManager、FileDataManager、SyncLogDataManager、SyncLogDetailDataManager 发布快照。项目详情禁用 DataManager 缓存，首次查询附带的完整文件直接返回页面，管理器与 DataSet 均不持有；后续通过 Task 订阅局部更新标题与正文。AppShell 只组合界面，不监听 Core、不广播数据版本、不回调刷新正文；完整职责见 [[file:harmony/页面数据集设计.org::*全部页面退出外壳刷新机制][页面统一数据管理]]。
+全部普通任务页面引用应用级共享 DataSetManager，查询定义集中于 AppDataManager，由管理器处理配置和缓存，由 Manager 合并底层订阅调用并管理各 ID，每个 DataSet 自己处理按 ID 访问、编辑及事件；非任务结果由 SnapshotDataManager 及 NotebookDataManager、FileDataManager、SyncLogDataManager、SyncLogDetailDataManager 发布快照。项目详情禁用 DataManager 缓存，首次查询附带的完整文件直接返回页面，管理器与 DataSet 均不持有；后续由任务控件直接向稳定行来源注册 Monitor，局部更新标题与正文；容器只订阅成员、顺序及可见层级变化。外部失效时管理器可一次性交付恢复用完整文件，仍不保存完整文件到 DataSet 或缓存。AppShell 只组合界面，不监听 Core、不广播数据版本、不回调刷新正文；完整职责见 [[file:harmony/页面数据集设计.org::*全部页面退出外壳刷新机制][页面统一数据管理]]。
 
 * 应用共享通知管理
 

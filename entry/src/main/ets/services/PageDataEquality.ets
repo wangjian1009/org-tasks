@@ -22,6 +22,8 @@ export function samePageTask(left: CoreTask, right: CoreTask): boolean {
   if (left === right) return true
   const a = taskRecord(left); const b = taskRecord(right)
   a.value.fileVersion = ''; b.value.fileVersion = ''
+  // 排序键属于容器结构；来源仍推进快照，但单条控件不因位置标量变化而重绘。
+  a.value.orderKey = undefined; b.value.orderKey = undefined
   // 原文供编辑定位使用；阅读内容已由 bodyHtml、editContent 等字段表达。
   a.value.body = ''; b.value.body = ''
   return samePageValue(a, b)

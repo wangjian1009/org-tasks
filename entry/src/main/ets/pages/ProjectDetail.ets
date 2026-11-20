@@ -14,6 +14,7 @@ import { projectHeaderTitle, projectTagExpression } from '../ui/ProjectHeaderPre
 import { toggleTaskTag, reconcileTaskTags } from '../ui/TaskTagFilterPresentation'
 import { AppDataManager } from '../services/AppDataManager'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
+import { samePageValue } from '../services/PageDataEquality'
 
 interface ProjectFileState { snapshot?: ProjectFileSnapshot; message: string }
 interface ProjectFileSnapshot { file: CoreOrgFile | undefined; tasks: CoreTask[] }
@@ -59,9 +60,10 @@ struct ProjectDetail {
   private navigation: ProjectDocumentNavigation = new ProjectDocumentNavigation()
   private internalLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
     async (target: string): Promise<boolean> =>
-      this.pageVisible && !this.sourceMode && !this.refreshing && await this.navigation.isValidInternalLink(target),
+      this.pageVisible && !this.sourceMode && !this.refreshing && await this.ensureLinkSnapshot() && await this.navigation.isValidInternalLink(target),
     async (target: string): Promise<void> => {
       if (!this.pageVisible || this.sourceMode || this.refreshing) throw new Error('当前页面无法执行内部跳转')
+      if (!await this.ensureLinkSnapshot()) throw new Error('内部链接索引尚未确认，请稍后重试')
       await this.navigation.followInternalLink(target)
     }
   )
@@ -70,6 +72,10 @@ struct ProjectDetail {
   private needsReload: boolean = false
   private fileVersion: string = ''
   private fileIdentity: string = ''
+  private structurePending: boolean = false
+  private pendingFile: ProjectFileSnapshot | undefined = undefined
+  private linkSnapshotDirty: boolean = false
+  private linksRefreshing: boolean = false
   @State pageVisible: boolean = true
 
   aboutToDisappear(): void {
@@ -126,6 +132,7 @@ struct ProjectDetail {
     if (force || this.message || this.refreshMessage || !this.dataManager || !this.dataManager.hasValidScope() || this.repoId !== repoId || this.path !== path) {
       this.refreshing = true; this.filterRequest++; this.filtering = false
       this.stopFile?.(); this.dataManager?.close().catch((): void => {})
+      this.pendingFile = undefined
       if (this.repoId !== repoId || this.path !== path) { this.selectedTags = []; this.selectedCategory = '' }
       this.repoId = repoId; this.path = path
       const context = this.getUIContext().getHostContext()!
@@ -141,13 +148,29 @@ struct ProjectDetail {
       this.fileDataSet = fileDataSet
       const stopTasks = fileDataSet.subscribe((event: DataSetEvent): void => {
         if (fileDataSet !== this.fileDataSet) return
+        if (event.added?.length || event.removed?.length || event.updated?.length) this.linkSnapshotDirty = true
         if (event.type === 'error' && !event.targetKey) this.applyFileState({ message: fileDataSet.error })
-        else this.refreshDocument()
+        else if (event.structureChanged) { this.structurePending = true; this.refreshDocument() }
+        if (event.type === 'complete' && this.pendingFile) this.applyPendingFile()
       })
       const stopMatches = manager.dataSet('matches').subscribe((): void => { this.refreshDocument() })
       const stopMetadata = manager.dataSet('metadata').subscribe((): void => { this.refreshDocument() })
       const stopCategories = manager.dataSet('categories').subscribe((): void => { this.refreshDocument() })
-      this.stopFile = (): void => { stopTasks(); stopMatches(); stopMetadata(); stopCategories() }
+      const stopFiles = manager.subscribeFiles(async result => {
+        if (manager !== this.dataManager || result.name !== 'tasks') return
+        if (!this.pageVisible) { this.needsReload = true; return }
+        const data = fileDataSet.data
+        if (this.linksRefreshing && result.fullFiles[0] && data?.type === 'task') {
+          const sections = projectReadingSections(result.fullFiles[0], data.result.tasks)
+          for (const section of sections) if (section.node) section.key = fileDataSet.taskKey(section.node.id)
+          this.sections = sections
+          this.linkSnapshotDirty = false
+          return
+        }
+        this.pendingFile = { file: result.fullFiles[0], tasks: data?.type === 'task' ? data.result.tasks : [] }
+        await this.applyPendingFile()
+      })
+      this.stopFile = (): void => { stopTasks(); stopMatches(); stopMetadata(); stopCategories(); stopFiles() }
       try {
         const results = await manager.start()
         if (manager !== this.dataManager) return
@@ -215,12 +238,17 @@ struct ProjectDetail {
       if (expression !== this.tagExpression() || selectedCategory !== this.selectedCategory) { this.updateTagQuery(); return }
     }
     const matches = this.dataManager?.dataSet('matches').data
-    if (matches?.type === 'task' && !this.filtering && !this.filterMessage) this.matchedIds = matches.result.tasks.map(task => task.id)
+    if (matches?.type === 'task' && !this.filtering && !this.filterMessage) {
+      const ids = matches.result.tasks.map(task => task.id)
+      if (!samePageValue(this.matchedIds, ids)) this.matchedIds = ids
+    }
+    if (!this.structurePending) return
     const data = this.fileDataSet?.data
     if (data?.type !== 'task') return
     const sections = reconcileProjectSections(this.sections, data.result.tasks,
       (task: CoreTask): string => this.fileDataSet!.taskKey(task.id))
     if (sections !== this.sections) this.sections = sections
+    this.structurePending = false
   }
 
   async saveHeader(changes: CoreFileHeaderValueChange[], version: string): Promise<void> {
@@ -229,7 +257,34 @@ struct ProjectDetail {
     this.refreshDocument()
   }
 
-  projectInlineChanged(): void { if (!this.projectInlineActive) this.refreshDocument() }
+  projectInlineChanged(): void {
+    if (TaskInlineSession.active()) return
+    if (this.pendingFile) this.applyPendingFile()
+    else this.refreshDocument()
+  }
+
+  private async applyPendingFile(): Promise<void> {
+    if (TaskInlineSession.active() || this.fileDataSet?.snapshot()?.optimistic) return
+    const snapshot = this.pendingFile
+    this.pendingFile = undefined
+    const current = this.fileDataSet?.data
+    if (snapshot?.file && current?.type === 'task' && current.result.tasks.some(task => task.fileVersion !== snapshot.file!.fileVersion)) {
+      this.dataManager?.refreshFiles('tasks').catch((): void => {})
+      return
+    }
+    if (snapshot) await this.applyFileState({ snapshot, message: '' })
+  }
+
+  // 任务通知不含完整链接目标；实际跳转时才按需确认索引，普通修改不重读全文。
+  private async ensureLinkSnapshot(): Promise<boolean> {
+    if (!this.linkSnapshotDirty) return true
+    if (!await TaskInlineSession.end(false) || !this.pageVisible || this.sourceMode || !this.dataManager) return false
+    const manager = this.dataManager
+    this.linksRefreshing = true
+    try { await manager.refreshFiles('tasks') }
+    finally { this.linksRefreshing = false }
+    return manager === this.dataManager && this.pageVisible && !this.sourceMode && !this.linkSnapshotDirty
+  }
 
   async applyFileState(state: ProjectFileState): Promise<void> {
     if (!this.pageVisible || TaskInlineSession.active() || (!state.snapshot && !state.message)) return
@@ -256,6 +311,8 @@ struct ProjectDetail {
       const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion || this.documentSession !== this.fileDataSet!.identity
       this.title = projectHeaderTitle(file.category() || '', file.project() || '')
       this.sections = sections
+      this.structurePending = false
+      this.linkSnapshotDirty = false
       this.headerEntries = file.headerEntries()
       this.headerVersion = file.fileVersion
       this.category = file.category() ?? ''

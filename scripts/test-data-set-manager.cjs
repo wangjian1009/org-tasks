@@ -791,3 +791,65 @@ test('Monitor 回调中继续编辑时，后续接收者不会被外层旧快照
   assert.deepEqual(seen,[{}, {ONE:'外层编辑',TWO:'回调内编辑'}]);
  }finally{await f.cleanup()}
 });
+
+test('项目结构订阅忽略单任务字段和改名，只在顺序、层级、折叠及成员变化时交付', async()=>{
+ const f=await fixture();try{
+  f.addRow();const manager=f.manager('project');await manager.start();const set=manager.dataSet('tasks');
+  const a=set.taskSource('A'),b=set.taskSource('B'),structure=[],other=[];
+  const stop=set.subscribeStructure(()=>structure.push(set.data.result.tasks.map(task=>set.taskKey(task.id))));
+  b.monitor(change=>other.push(change));const initialOther=other.length;
+  await set.updateTask('A',[{field:'PRIORITY',value:'A'}]);await manager.flush();
+  await set.updateTask('A',[{field:'TITLE',value:'重命名'}]);await manager.flush();
+  assert.equal(set.taskSource('renamed-重命名'),a);assert.equal(structure.length,0);assert.equal(other.length,initialOther);
+  const rows=set.data.result.tasks.slice();const moved=rows.map((row,index)=>task(row.id,{...row,
+    level:index===0?2:1,orderKey:[{value:1-index,descending:false,missingLast:false}]}));
+  const raw=view=>({task:{id:view.id,fullPath:view.fullPath,fileVersion:view.fileVersion},view,position:{parent:{repoId:'repo',file:'a.org',titles:[]}}});
+  const subscription=Array.from(f.subscriptions.values())[0];
+  subscription.callback({repoId:'repo',operationId:null,files:[],changes:rows.map((row,index)=>({kind:'moved',before:raw(row),after:raw(moved[index])}))});
+  assert.equal(structure.length,1);assert.deepEqual(set.data.result.tasks.map(row=>row.id),['B','renamed-重命名']);
+  assert.equal(set.taskSource('renamed-重命名'),a);assert.equal(set.taskSource('B'),b);
+  await set.updateTask('B',[{field:'PROPERTY',value:{name:'VISIBILITY',value:'folded'}}]);await manager.flush();
+  assert.ok(structure.length>=2);
+  const count=structure.length;stop();await set.removeTask('B');await manager.flush();assert.equal(structure.length,count);
+  assert.equal(f.calls.length,1);
+ }finally{await f.cleanup()}
+});
+
+test('项目外部失效由管理器一次性重取完整文件，普通修改不请求全文',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager('project',[{name:'tasks',query:{type:'task',query:{includeFiles:[{repoId:'repo',path:'a.org'}],fullFiles:[{repoId:'repo',path:'a.org'}]}}}]);
+  const files=[];const stop=manager.subscribeFiles(async result=>{files.push(result);await tick()});
+  const initial=await manager.start();assert.equal(initial[0].fullFiles.length,1);assert.equal(files.length,0);
+  await manager.dataSet('tasks').updateTask('A',[{field:'PRIORITY',value:'A'}]);await manager.flush();assert.equal(f.calls.length,1);
+  f.addRow();f.external();await until(()=>files.length===1);assert.equal(files[0].fullFiles[0].nodes().length,2);
+  assert.equal(f.calls.at(-1).query.fullFiles.length,1);assert.equal(manager.dataSet('tasks').data.result.fullFiles.length,0);
+  await manager.refreshFiles('tasks');assert.equal(files.length,2);
+  stop();await manager.refreshFiles('tasks');assert.equal(files.length,2);assert.deepEqual(f.calls.at(-1).query.fullFiles,[]);
+ }finally{await f.cleanup()}
+});
+
+test('不完整任务事件不产生半批状态，由管理器恢复完整文件；关闭后不再交付文件',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager('project',[{name:'tasks',query:{type:'task',query:{fullFiles:[{repoId:'repo',path:'a.org'}]}}}]);
+  const files=[];manager.subscribeFiles(result=>{files.push(result)});await manager.start();
+  const set=manager.dataSet('tasks'),source=set.taskSource('A'),old=source.task;
+  const callback=Array.from(f.subscriptions.values())[0].callback;
+  f.setRows([task('A',{heading:'恢复后的标题'})]);
+  callback({repoId:'repo',operationId:null,files:[],changes:[{kind:'updated',before:{task:{id:'A',fullPath:old.fullPath}},after:{task:{id:'A',fullPath:old.fullPath}}}]});
+  assert.equal(source.task,old);await until(()=>files.length===1);assert.equal(source.task.heading,'恢复后的标题');
+  await manager.close();f.external();await tick();assert.equal(files.length,1);
+ }finally{await f.cleanup()}
+});
+
+test('项目版本跳跃不回放过期事件，文件接收者失败不阻断后续恢复',async()=>{
+ const f=await fixture();try{
+  const manager=f.manager('project',[{name:'tasks',query:{type:'task',query:{fullFiles:[{repoId:'repo',path:'a.org'}]}}}]);
+  await manager.start();const set=manager.dataSet('tasks'),source=set.taskSource('A'),old=source.task;
+  const stop=manager.subscribeFiles(()=>{throw new Error('接收完整文档失败')});
+  f.setRows([task('A',{fileVersion:'gap-new',heading:'完整恢复'})]);
+  Array.from(f.subscriptions.values())[0].callback({repoId:'repo',operationId:null,
+   files:[{beforeVersion:'gap-old',afterVersion:'gap-new',after:metadata(),afterView:metadata()}],changes:[]});
+  assert.equal(source.task,old);await until(()=>set.error==='接收完整文档失败');assert.equal(source.task.heading,'完整恢复');
+  stop();const restored=[];manager.subscribeFiles(result=>{restored.push(result)});await manager.refreshFiles('tasks');assert.equal(restored.length,1);
+ }finally{await f.cleanup()}
+});

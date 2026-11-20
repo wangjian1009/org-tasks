@@ -13,6 +13,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI'
 @Component
 export struct TaskDocumentContent {
   modify: (task: CoreTask, changes: CoreTaskModification[]) => Promise<CoreTask> = async (): Promise<CoreTask> => { throw new Error('未提供正文数据管理接口') }
+  readTask: (() => CoreTask | undefined) | undefined = undefined
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop @Watch('snapshotChanged') task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
@@ -53,7 +54,8 @@ export struct TaskDocumentContent {
     if (this.isReadonly() || this.blocked || this.working) return false
     if (!await TaskInlineSession.begin(this.owner, async (): Promise<boolean> => this.finish())) return false
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
-    if (!this.current && this.task) this.current = this.task
+    // 会话开始取得来源的最新上下文；进入编辑后冻结源版本，保存时不静默改用新版本。
+    if (!this.current) this.current = this.readTask ? this.readTask() : this.task ?? undefined
     return this.current !== undefined
   }
 

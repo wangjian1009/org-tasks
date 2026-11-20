@@ -1,5 +1,5 @@
 import { CoreTask, CoreTaskModification, CoreContentBlock, CoreTaskChecklistItem } from '../services/NativeCoreService'
-import { DataSet } from '../services/DataSet'
+import { DataSet, TaskDataSource } from '../services/DataSet'
 import { samePageValue } from '../services/PageDataEquality'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
@@ -26,26 +26,33 @@ export struct ProjectTaskSection {
   @State node: CoreTask | undefined = undefined
   @State bodyRevision: number = 1
   @StorageLink('taskInlineActive') @Watch('inlineChanged') inlineActive: string = ''
-  private latest: CoreTask | undefined = undefined
+  private source: TaskDataSource | undefined = undefined
+  private pending: boolean = false
   private stop: (() => void) | undefined = undefined
 
   aboutToAppear(): void {
-    this.stop = this.dataSet!.watchTask(this.taskId, change => {
-      if (change.task) {
-        this.latest = change.task
-        if (!TaskInlineSession.active()) this.applyTask()
-      }
+    this.source = this.dataSet!.taskSource(this.taskId)
+    this.stop = this.source.monitor((): void => {
+      this.pending = true
+      if (!TaskInlineSession.active()) this.applyTask()
     })
   }
 
-  aboutToDisappear(): void { this.stop?.(); this.stop = undefined }
-  inlineChanged(): void { if (!this.inlineActive) this.applyTask() }
+  aboutToDisappear(): void { this.stop?.(); this.stop = undefined; this.source = undefined }
+  inlineChanged(): void { if (!this.inlineActive && this.pending) this.applyTask() }
 
   applyTask(): void {
-    const task = this.latest
-    if (!task) return
+    this.pending = false
+    const task = this.source?.task
+    if (!task) { this.node = undefined; return }
     if (!this.node || !samePageValue(this.bodyValues(this.node.editContent.blocks), this.bodyValues(task.editContent.blocks))) this.bodyRevision++
     this.node = task
+  }
+
+  async modify(changes: CoreTaskModification[], sourceVersion?: string): Promise<CoreTask> {
+    const task = this.source?.task
+    if (!task) throw new Error('当前章节已移除')
+    return await this.dataSet!.updateTask(this.taskId, changes, sourceVersion ?? task.fileVersion)
   }
 
   // 位置 ID 和文件版本是编辑上下文；只在可见正文改变时更新 HTML 修订号。
@@ -68,13 +75,14 @@ export struct ProjectTaskSection {
         } else {
           OrgHeadingView({ internalLinkProcessor: this.internalLinkProcessor, node: this.node, specialTags: this.specialTags,
             modify: async (changes: CoreTaskModification[]): Promise<void> => {
-              await this.dataSet!.updateTask(this.taskId, changes, this.node!.fileVersion)
+              await this.modify(changes)
             } }).width('100%')
         }
         if (!this.node.state || this.hasChildren) {
           ProjectSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
-            return await this.dataSet!.updateTask(this.taskId, changes, task.fileVersion)
-          }, internalLinkProcessor: this.internalLinkProcessor, task: this.node, blocks: this.node.editContent.blocks,
+            return await this.modify(changes, task.fileVersion)
+          }, readTask: (): CoreTask | undefined => this.source?.task,
+            internalLinkProcessor: this.internalLinkProcessor, task: this.node, blocks: this.node.editContent.blocks,
             contentRevision: `${this.bodyRevision}`, contentBackground: UiColor.surface }).width('100%')
             .margin({ bottom: this.hasChildren && this.node.editContent.blocks.length > 0 ? 24 : 8 })
             .visibility(this.contextOnly || this.node.property('VISIBILITY') === 'folded' || this.node.editContent.ownTags.includes('ARCHIVE') ? Visibility.None : Visibility.Visible)

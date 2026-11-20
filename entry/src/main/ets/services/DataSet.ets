@@ -41,6 +41,7 @@ export interface DataSetEvent {
   added: string[]
   removed: string[]
   updated: string[]
+  structureChanged?: boolean
   message?: string
   targetKey?: string
   rejectedChanges?: TaskModification[]
@@ -231,6 +232,10 @@ export class DataSet {
   subscribe(listener: (event: DataSetEvent) => void): () => void {
     this.listeners.add(listener)
     return (): void => { this.listeners.delete(listener) }
+  }
+  // 文档容器只接收成员、顺序和可见层级变化；单条内容由 TaskDataSource 定向交付。
+  subscribeStructure(listener: () => void): () => void {
+    return this.subscribe((event: DataSetEvent): void => { if (event.structureChanged) listener() })
   }
   findTask(name: string, key: string): CoreTask | undefined {
     return this.taskIndex.get(name)?.get(key)
@@ -535,6 +540,16 @@ export class DataSet {
     if (!data) return
     const version = this.eventVersion(event.operationId) ?? this.eventVersion(refreshId) ?? 1
     const operationId = event.operationId ?? refreshId
+    const incomplete = data.type === 'task' ? event.changes.some(change => change.after && !change.after.view) :
+      event.files?.some(file => !file.afterView)
+    const discontinuous = data.type === 'task' && event.files?.some(file => file.beforeVersion && data.result.tasks.some(task =>
+      task.repoId === file.after.repoId && task.filePath === file.after.path &&
+      task.fileVersion !== file.beforeVersion && task.fileVersion !== file.afterVersion))
+    if (incomplete || discontinuous) {
+      this.emitError(name, operationId, new Error(incomplete ? '数据事件缺少显示快照，正在恢复' : '文件版本不连续，正在恢复'))
+      this.clock?.refresh(name)
+      return
+    }
     const edit = this.pending.find(item => item.id === event.operationId)
     if (edit) edit.observed.add(name)
     // 在前序提交改名或移动后，把尚未提交的操作组衔接到 Core 返回的新路径。
@@ -665,6 +680,14 @@ export class DataSet {
       if (rowId) { this.taskIndex.get(name)?.set(rowId, task); rows.set(rowId, task) }
     }
     this.taskRows.set(name, rows)
+    const previousOrder = Array.from(previousRows.keys())
+    const structureChanged = data.type === 'task' && (previousOrder.length !== rows.size ||
+      Array.from(rows.entries()).some((entry, index): boolean => {
+        const before = previousRows.get(entry[0]), after = entry[1]
+        return previousOrder[index] !== entry[0] || !before || before.level !== after.level ||
+          !!before.state !== !!after.state || before.property('VISIBILITY') !== after.property('VISIBILITY') ||
+          before.editContent.ownTags.includes('ARCHIVE') !== after.editContent.ownTags.includes('ARCHIVE')
+      }))
     const sources = this.taskSources.get(name)
     const sourceUpdates: TaskSourceUpdate[] = []
     const added = Array.from(new Set(Array.from(after.keys()).filter(key => !before.has(key)).concat(addedRecords)))
@@ -685,7 +708,7 @@ export class DataSet {
       const change = source?.replace(task, visibleChanged)
       if (source && change) sourceUpdates.push({ source, change })
     }
-    const changed = added.length > 0 || removed.length > 0 || updated.length > 0 || !samePageValue(previous?.data.type === 'task' ? previous.data.result.categories : [], data.type === 'task' ? data.result.categories : []) || !previous
+    const changed = structureChanged || added.length > 0 || removed.length > 0 || updated.length > 0 || !samePageValue(previous?.data.type === 'task' ? previous.data.result.categories : [], data.type === 'task' ? data.result.categories : []) || !previous
     if (changed) {
       const view = this.views.get(name)!
       this.views.set(name, { name, revision: (previous?.revision ?? 0) + 1, version: view.version,
@@ -700,7 +723,7 @@ export class DataSet {
     }
     if (changed) {
       this.publish({ name, type: added.length && !removed.length && !updated.length ? 'insert' : removed.length && !added.length && !updated.length ? 'remove' : updated.length && !added.length && !removed.length ? 'update' : 'refresh',
-        version: this.eventVersion(operationId) ?? version, dataVersion: version, operationId, optimistic, added, removed, updated, identities })
+        version: this.eventVersion(operationId) ?? version, dataVersion: version, operationId, optimistic, added, removed, updated, identities, structureChanged })
     }
   }
   private publish(event: DataSetEvent): void {

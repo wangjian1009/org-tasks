@@ -7,6 +7,7 @@ import { UiColor } from '../ui/Theme'
 @Component
 export struct ProjectSectionBody {
   modify: (task: CoreTask, changes: CoreTaskModification[]) => Promise<CoreTask> = async (): Promise<CoreTask> => { throw new Error('未提供项目数据管理接口') }
+  readTask: (() => CoreTask | undefined) | undefined = undefined
   @Prop task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
@@ -26,7 +27,7 @@ export struct ProjectSectionBody {
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       this.bodyGuide()
-      TaskDocumentContent({ modify: this.modify, internalLinkProcessor: this.internalLinkProcessor, task: this.task,
+      TaskDocumentContent({ modify: this.modify, readTask: this.readTask, internalLinkProcessor: this.internalLinkProcessor, task: this.task,
         blocks: this.blocks, contentRevision: this.contentRevision, readonly: this.task === null, projectReading: true, contentBackground: this.contentBackground }).width('100%')
         .padding({ left: this.task ? (this.task.state ? 28 : 8) : 0 })
         .onAreaChange((_old: Area, area: Area): void => { this.bodyHeight = Math.max(0, Number(area.height)) })
