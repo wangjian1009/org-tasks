@@ -119,7 +119,7 @@ struct FileExecuteError {
 
 ~FileExecuteResult~ 只表示内存修改成功，不代表落盘。~result_path~ 是这一步完成后的准确位置，主任务据此推进有关联的后续操作。节点改名、同名出现次序与源删除顺序由主任务和文件内节点绑定共同维护，不把旧路径当作不可变化的实体身份。
 
-execute 的成功与失败直接表示为 ~Result<FileExecuteResult, FileExecuteError>~ ，两者均携带相同的派发 ~order_id~ ，外层 Executed 不再重复保存该 ID。~notification~ 为本次操作产生的暂存变化，没有变化时为空；错误回复不携带成功通知。
+execute 的成功与失败直接表示为 ~Result<FileExecuteResult, FileExecuteError>~ ，两者均携带相同的派发 ~order_id~ ，外层 Executed 不再重复保存该 ID。 ~notification~ 为本次操作产生的暂存变化，没有变化时为空；错误回复不携带成功通知。
 
 不新增插入拒绝或错误分类。主任务依据 ~order_id~ 找到原操作与当前步骤：Restore 目标插入返回 Err 时不派发来源删除，保留废纸篓记录并继续处理其他操作；其他操作返回 Err 时，使整个请求失败并放弃本次修改。
 
@@ -207,19 +207,12 @@ Trash 的备份属性统一使用 ~SOURCE_~ 前缀，恢复时按前缀清除所
 
 Trash 创建独立副本前清除旧 SOURCE_ 属性，再写入本次来源信息。祖先标签只复制缺失值；本节点直接声明的同名标签在恢复后保留，废纸篓中新增的其他标签也保留。普通 Creation 复用 TaskPosition.after 作为位置提示，找不到或不属于指定父节点时插入首位，不增加公开参数；Movement 保持严格定位。Restore 将 SOURCE_BROTHER 带入同一位置提示规则，通过内部 Insert 新建副本，不使用普通 Creation 的自动时间和状态日志逻辑，保留原 CREATED、CLOSED 与日志。
 
-
 当前 Restore 原仓库、文件或父节点缺失时保留来源，前一兄弟缺失时插入父节点的第一个子节点；不自动新建文件或回退到根部，且不会生成空文件。目标 TODO 配置不兼容同样保留来源。来源信息损坏、非叶节点、版本冲突和 task 异常仍是请求失败。恢复来源文件之外的依赖从上下文动态确定，外层 Workspace 暂时将 Restore 请求作为独占命令调度，保障与查询、同步及其他修改的先后关系。
 
 * 验证
 
 真实仓库测试覆盖跨仓库通知提交边界、普通错误丢弃全组、同名任务批量删除恢复、Restore 部分插入失败、目标文件／仓库缺失、不生成空文件、叶节点限制、过期版本、自定义 TODO、保留属性覆盖清理与跨文件移动后删除。内部通道测试覆盖 FIFO 内存修改、Save 候选移交与 task panic 不挂起；Harmony bridge 验证既有结构化操作入口可提交 Trash／Restore。
 
-2026-11-17 完整 Cargo workspace 回归通过 582 项测试，Harmony Debug 构建无告警。独立模拟器通过 APP 内嵌接口提交批量 Trash 与 Restore，核对当前随时页真实刷新、系统废纸篓业务查询排除、Restore 插入失败保留来源、成功项保留原创建时间和清除系统删除属性，以及其他普通错误使整组文件版本和正文保持原值。验收后关闭临时 HTTP 服务。
-
 * 自动加载的读取复用
 
 文件 task 使用本请求私有的 ReadCache 复用不可变读取结果。每个路径由首次需要它的文件 task 执行实际读取，其余 task 等待同一个 OnceCell 结果；主任务不访问读取缓存的数据。业务文件同时作为 SETUPFILE 或模板依赖时也只读一次，避免启动顺序造成重复读取或死锁。缓存只覆盖本次请求，不跨请求保留；提交前继续检查业务文件身份与配置依赖，业务文件的配置引用复用文件身份校验，不额外读正文。
-
-新增回归覆盖同一文件只启动一个 task、Metadata 尚未接收即可连续派发修改、任务启动后才读取文件并生成 Metadata／完整文件，以及加载错误先于 Execute 派发时仍返回原始版本错误。保存后的最终 Metadata 和变化投影在文件 task 内生成，调度器不再调用 metadata 或创建完整文件副本。
-
-自动加载调整后的完整 Cargo workspace 回归通过 585 项测试，Harmony Debug 构建无告警。独立模拟器再次验证批量 Trash／Restore、插入失败保留来源、当前页面真实刷新与普通错误整组不落盘。文件读取、初始和最终 FileMetadata、完整文件副本均由文件 task 生成，主调度器仅接收 channel 结果。

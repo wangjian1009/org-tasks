@@ -39,9 +39,9 @@ Org Tasks 是一个 HarmonyOS NEXT 应用，用于展示和操作 org-mode 任�
 | 任务查询 | [查询语言设计](docs/core/查询语言设计.org) |
 | Harmony bridge 与配置 | [Rust bridge 设计](<docs/harmony/Rust bridge设计.org>)、[配置项设计](docs/harmony/配置项设计.org) |
 | HTTP 宿主 | [服务命令行设计](docs/http/服务命令行设计.org) |
-| 手机 UI | [entry 模块规范](entry/AGENTS.md)、[UI 导航设计](docs/harmony/UI导航设计.org)、[手机应用功能清单](docs/手机应用功能清单.org) |
+| 手机 UI | [entry 模块规范](entry/AGENTS.md)、[UI 导航设计](docs/harmony/UI导航设计.org)、[手机应用功能设计](docs/手机应用功能设计.org) |
 
-手机应用用户可见的功能、入口或交付状态变化必须同步更新功能清单；Core、CLI、HTTP 和测试程序的能力不记入该清单。
+手机应用用户可见的功能、入口或交付状态变化必须同步更新功能设计；Core、CLI、HTTP 和测试程序的能力不记入该清单。
 
 ## 常用操作
 

@@ -10,15 +10,7 @@
 
 本文件记录已确认并实施的接口与交互。已增加 ~TaskOperation::FileHaderModification~ ，通过现有 ~OrgWorkspace.execute_task_operations~ 与 ~Workspace.executeTaskOperations~ 提交；读取增加文件头快照与编辑能力投影，复用既有查询订阅、版本校验和事务。
 
-依据为 [[file:../架构设计.org][架构设计]]、[[file:接口文档.org][Core 接口]]、[[file:数据模型.org][数据模型]]、[[file:同步核心设计.org][同步设计]]、[[file:../harmony/页面数据集设计.org][页面数据集设计]] 与 [[file:../harmony/项目页面设计.org][项目页设计]]。本轮只设计 property 区域的长按编辑及配套接口。
-
-* 现有接口的不足
-
-1. ~FileHeaderEntry~ 只有名称、值、关键字标记和标签；没有精确条目身份或编辑能力。名称不能区分重复 TAGS、重复 FILETAGS、PROPERTY 声明与顶部属性抽屉。
-2. ~TaskModification::Property~ 操作标题节点自身的属性，不承担文件头关键字编辑；将空标题路径传入现有 Modification 会违反节点定位约定。
-3. ~OrgFileEdit::ReplaceRange~ 是 Core 的保真编辑工具，不是带持久化、并发保护的宿主文件头写入协议。
-4. 项目页目前只在初始完整文件中取得 headerEntries；现有 File 元信息没有可订阅的文件头内容与版本，保存后不能只更新当前页的本地数组。
-5. ~merge(B,L,R)~ 当前始终采用远端文件前言。本地文件头编辑遇到双方文件均有修改时，存在被远端前言覆盖的风险，必须配套修正后再开放交付。
+依据为 [[file:../架构设计.org][架构设计]]、[[file:接口文档.org][Core 接口]]、[[file:数据模型.org][数据模型]]、[[file:同步核心设计.org][同步设计]]、[[file:../harmony/页面数据集设计.org][页面数据集设计]] 与 [[file:../harmony/项目页面设计.org][项目页设计]]。文件头通过独立操作编辑，标题节点的通用 PROPERTY 不承担文件头关键字修改。
 
 * 整区长按与原位编辑
 
@@ -467,15 +459,3 @@ TAGS 的标签数组请求仅删除对应名称的配置 token 并追加新候�
 \umlcompo[mult2=0..*]{OrgFileMetadata}{FileHeaderEntry}
 \end{tikzpicture}
 \end{center}
-
-* 实施与验证记录
-
-Core 已接入 FileHaderModification、条目 ID 和编辑能力、严格文件版本检查、同组初始身份定位、原有事务与任务投影通知；Harmony Rust、C++、类型定义、页面快照与 DataSet 已同步接入。FileQuery 保持不变，OrgFileMetadata 始终携带 file_version 与 header_entries。
-
-项目属性区域长按直接进入原位编辑，阅读状态短按继续筛选。TITLE、PROJECT_NAME、CATEGORY、FILETAGS 和 TAGS 支持按类型编辑；未知属性仍只读，原有 project／todo 不可取消。文件标签的保留部分保持原顺序和内部空白，TAGS 分组可跨多条声明，修改只替换目标值区间。
-
-Core 回归覆盖局部字节保真、CRLF／无末尾换行、重复声明、空文件、属性追加、版本失效、保护标签、混合任务与文件头操作、元信息通知、三方合并及文件头冲突采用。界面回归覆盖草稿版本竞争、已提交后的确认错误防重复保存、只读字段、批量提交、标签原位增删、取消及长按筛选保护。
-
-2026-11-17 在专用模拟器的独立 QA 仓库验证：长按整个属性区域直接进入原位编辑；FILETAGS 添加普通标签、TAGS 删除及添加候选后统一保存，查询核对仅对应声明改变；文件原有 project 无删除入口，Core 同时拒绝移除。取消标签删除不写入；外部分类更新时文本草稿保持，旧版本保存被拒绝，取消后展示新确认快照。验收后通过同一 Core 操作恢复全部字段，文件 hash 与验收前一致。
-
-属性编辑沿用任务详情的透明背景原位输入方式，保持阅读态的 10fp 字号、14vp 行高、96vp 名称列、12vp 列间距、20vp 控件高度与至少 24vp 行高。字段不新增整行输入框或分类选择行，已有分类从同一行末尾的下拉入口选择。保存／取消位于区域末尾，既有属性的名称、值和标签起点保持对齐。

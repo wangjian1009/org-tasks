@@ -1,21 +1,9 @@
-#+TITLE: 检查清单排序交互方案
+#+TITLE: 检查清单排序交互设计
 #+DATE: 2026-11-10
 
 * 状态与范围
 
 已按用户确认的方案接入 Core、Harmony bridge 与共享任务卡片。本方案补充 [[file:UI导航设计.org::*检查清单][检查清单交互]] ，适用于共享任务展开卡片；只读正文不显示排序手柄。界面图谱在 [[file:../../design/当前实现/检查清单.fig][检查清单]] 的“49 Harmony 检查清单排序（当前实现）”画板维护，预览见 [[file:../../design/previews/49 Harmony 检查清单排序（当前实现）.png][三态界面]] 。41、42 号画板继续记录已交付的完成状态与删除交互。
-
-* Things 3 的已确认行为
-
-2026-11-10 查阅 Cultured Code 的 [[https://culturedcode.com/things/support/articles/2803582/#bpaiw][Using Gestures / Edit a checklist]] 。官方原文：
-
-#+begin_quote
-Tap and hold on the grip (three horizontal lines) on the far right of a checklist item to drag it up or down. Tap the circle in front to complete it, or swipe left to delete it.
-#+end_quote
-
-由此确认 iPhone／iPad 的入口是条目最右侧的三横线手柄，长按后上下拖动调整顺序；圆圈、文字和手柄承担不同操作，左滑删除继续可用。不是按标题或完成状态自动排序。
-
-同一节的 [[https://culturedcode.com/frozen/2026/01/gestures-editchecklist.mp4][官方演示视频]] 可见展开任务中的逐行清单、行尾常显的浅灰手柄、左侧状态圆圈，以及勾选后文字变灰、条目留在原位、左滑露出删除入口。视频主要演示勾选与删除，没有完整展示拖动排序过程。不可据此断言 Things 3 的拖动阴影、动画时长、触发阈值、自动滚动、错误反馈或内部保存实现；下面这些参数均为本应用拟定方案。Things 3 的内部代码与持久化方式没有公开证据，本方案不推测其实现。
 
 * 界面与手势
 
@@ -105,9 +93,3 @@ C++、Rust Harmony bridge、native 类型声明、ArkTS wrapper 和调用方一�
 | 保存失败、外部文件版本变化、重读失败 | 恢复或读取可靠顺序，保留展开与草稿，拒绝旧 ID 重试 |
 | LF、CRLF、无末尾换行、Unicode、编号列表 | 原字节移动，连接处合法，其他内容保持原样 |
 | 无障碍上移／下移 | 与拖动使用同一操作，边界方向不可用 |
-
-* 实施顺序
-
-Core 已实现移动、同级分组和保真改写，bridge 与共享卡片已接入，49 号画板和手机功能清单同步记录当前实现。验证覆盖同级与嵌套移动、空行槽位、LF／CRLF 与无末尾换行、版本冲突、实际行高预览及提交失败；应用可构建为签名 Debug HAP。
-
-模拟器已验证完成项移到末尾、父项携带两个子项整体移动、长文字自然换行及拖出任务范围取消；移动后的文件保留完成与部分完成状态，取消时文件字节不变。验证使用的文件与配置均已恢复原字节，本轮未进行真机验收。

@@ -16,7 +16,7 @@
 
 * 范围与状态
 
-本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，不持有文件快照；同步记录独立落盘于根目录的 ~.sync/history/~ 。仓库控制目录的持久化布局和本次重构目标见 [[file:同步核心设计.org][同步核心设计]]。
+本文定义以 ~OrgWorkspace~ 为全局入口、以 ~OrgRepo~ 为文件仓库边界的核心领域模型。一个应用通常只构造一个 ~OrgWorkspace~ ，其中包含零到多个仓库。每个仓库由构造时传入的根目录指定，不持有文件快照；同步记录独立落盘于根目录的 ~.sync/history/~ 。仓库控制目录的持久化布局见 [[file:同步核心设计.org][同步核心设计]]。
 
 ~OrgFile~ 使用 ~orgize~ 提供无损运行时解析，并以 Emacs ~org-element~ 作为语义基准； ~OrgRepoSyncRecord~ 与 ~OrgRepoSyncFileRecord~ 描述一次仓库同步及其中各文件的同步结果； ~TaskOperationGroup~ 是统一任务修改输入， ~OrgRepoWriteIntent~ 是待上传的路径与哈希。当前 ~core~ 已实现保真编辑接口和仓库级服务端口；Harmony 与 HTTP 已仅使用仓库同步记录持久化接口，不再保留旧作业模型。
 
@@ -52,7 +52,7 @@
 
 ~SyncBinding~ 是私有运行时对象，持有 Policy 和规范化目录过滤，通过引用计数共享到已发布快照。配置替换或移除不修改已经开始检查的快照。通用组合层仅对返回的策略专属字段进行 JSON 编组；持久化和策略内部仍使用关联类型。绑定和凭据不写入 Org、历史或 Preferences。
 
-~RemoteCheckContext~ 由 Core 提供只读仓库和已绑定过滤，不包含开始时间、触发原因或取消令牌。~RepoRemoteChange~ 为每个已配置仓库保存 ~Result<RemoteChangeState, CoreError>~ ，状态为 ~Unchanged~ 、 ~Changed~ 或 ~Unknown~ 。~RepoSyncResult~ 按输入仓库列表保存各自的同步记录或错误。它们是请求返回值，不是持久化实体；检查不会触发同步。
+~RemoteCheckContext~ 由 Core 提供只读仓库和已绑定过滤，不包含开始时间、触发原因或取消令牌。 ~RepoRemoteChange~ 为每个已配置仓库保存 ~Result<RemoteChangeState, CoreError>~ ，状态为 ~Unchanged~ 、 ~Changed~ 或 ~Unknown~ 。 ~RepoSyncResult~ 按输入仓库列表保存各自的同步记录或错误。它们是请求返回值，不是持久化实体；检查不会触发同步。
 
 \begin{center}
 \begin{tikzpicture}
@@ -201,7 +201,7 @@ file\_versions: Vec\textless TaskFileVersion\textgreater}{}
 
 ~OrgFileMetadata.category~ 是同一文件快照的文件级 CATEGORY，保留缺失与显式空值，不进入持久化。
 
-~OrgFileMetadata.task_state_counts~ 是完整文件快照的运行时聚合，不持久化。~TaskStateCount~ 保留原始状态名、Core 状态分类与数量，只返回出现过的状态并沿用有效 TODO 声明顺序；统计全部层级，排除无状态标题、忽略文件和受保护冲突子树。项目进度使用全部数量之和作为总数，仅 ~Done~ 分类计入已完成数，~Cancel~ 只计入总数。
+~OrgFileMetadata.task_state_counts~ 是完整文件快照的运行时聚合，不持久化。 ~TaskStateCount~ 保留原始状态名、Core 状态分类与数量，只返回出现过的状态并沿用有效 TODO 声明顺序；统计全部层级，排除无状态标题、忽略文件和受保护冲突子树。项目进度使用全部数量之和作为总数，仅 ~Done~ 分类计入已完成数， ~Cancel~ 只计入总数。
 
 * 查询投影中的标题层级
 
@@ -464,7 +464,6 @@ Group 的 taskId：null
 
 明文身份仅用于运行时查询与宿主日历映射，不进入同步日志、outbox 或错误摘要。冲突比较中的 Org ID 优先级与原文单元 key 保持独立；不以任务身份替代内容版本校验。
 
-
 任务查询结果另外保留同次文件读取产生的 ~file_version()~ 和 ~edit_content()~ ，后者为 ~TaskEditContent~ 值对象。它们不引用仓库或完整语法树，用于宿主直接投影版本和编辑内容；源文件后续变化不会修改已返回结果。
 
 * 完整结构路径与插入位置
@@ -569,7 +568,7 @@ pub struct OrgRepoWriteIntent {
 
 ~OrgRepoSyncRecord~ 记录一次已发起的仓库同步及其最终结果。它由 ~OrgRepo.load::<P>~ 返回或由同步策略产生，不作为 ~OrgRepo~ 的字段保存，且包含零到多个 ~OrgRepoSyncFileRecord~ 。未扫描到文件、列举失败或在首个文件前失败时，文件记录可以为空；这不代表仓库没有文件。
 
-~OrgRepoSyncRecord.trigger_reason~ 保存本轮调用的触发原因，独立于策略和执行结果；新完成记录均由仓库服务写入 ~Some~ ，失败、取消和中断记录同样保留。旧 JSON 缺失该字段时读取为 ~None~ ，不推断或补写原因，列表摘要与详情保持一致。
+旧 JSON 缺失该字段时读取为 ~None~ ，不推断或补写原因，列表摘要与详情保持一致。
 
 ~OrgRepoSyncFileRecord~ 记录一次同步中一个相对路径的结果。WebDAV 运行结果通过 ~detail.synced_source~ 携带完整同步后文件快照；新历史写入时提取为独立原文并保存 source_hash，显式完整读取时才重新装配；其他元数据、错误摘要与 outbox 不保存正文，所有记录均不保存绝对路径、远端 URL、认证 header 或配置凭据。
 
@@ -617,11 +616,6 @@ Uploaded / Failed / Skipped / Legacy}{}
 
 ~OrgWorkspace~ 的构造、目录扫描与仓库集合管理由 core 提供；宿主负责选择仓库目录、发起调用和日历投影。 ~core::webdav~ 负责 WebDAV HTTP 传输、认证、同步决策和磁盘提交；具体 HTTP 客户端和认证材料不得反向成为核心结构字段。
 
-* 旧接口
-
-旧的任务记录、同步状态、完整内容 outbox 与冲突记录不是当前核心数据结构；当前 outbox 仅保存 ~OrgRepoWriteIntent~ 元数据。当前实现不读取、不转换这些数据；任务投影、队列与 UI 流程由宿主按当前仓库级接口重新建立。
-
-
 * 同步文件版本与原文
 
 ~WebDavSyncContextDetail.format_version~ 为历史布局版本；当前同步写入 ~4~ ，默认 DTO 仍保留版本 2 的兼容构造，旧单元结构的 ~null~ 兼容解码为 ~0~ ，旧布局对象沿原有路径读取。未知版本拒绝同步，详细恢复规则统一见 [[file:同步核心设计.org][同步核心设计]]。
@@ -656,7 +650,7 @@ pub struct WebDavSyncFileDetail {
 
 * 同步基准的仓库归属
 
-每个仓库自行恢复历史，按原相对路径回溯最近 ~Synchronized~ 文件记录；整体失败中的成功文件依然有效。无历史时单端文件直接传输，两端均存在时保存固定远端并等待显式解决。解决时的本地缺失状态独立于空内容，持久化位置和完整恢复规则见 [[file:同步核心设计.org][同步核心设计]]。
+每个仓库独立维护 ~remote_base~ 。已确认远端状态与本地共同祖先分开保存；远端下载、上传或删除成功后可独立发布远端事实，本地工作文件提交失败不撤回远端事实，也不推进本地共同祖先。无基线时按首次同步规则处理文件集合，两端都存在的内容以空 B 执行三方合并；历史记录只供展示与恢复材料查询，不作为当前变化判断的基线。布局、事务与恢复规则见 [[file:同步核心设计.org][同步核心设计]]。
 
 * 文件 TODO 元信息与外部全局默认
 
@@ -738,7 +732,7 @@ pub struct TodoMetadata {
 
 ** 任务运行状态分类
 
-~TaskStateCategory~ 枚举定义 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 和 ~Cancel~ 。其中 ~Done~ 与 ~Cancel~ 为终态，其余为未完成状态； 统一输出 ~Cancel~ ；旧 JSON 分类值和 Org 分类声明中的 ~Cancle~ 仅作为读取兼容别名，原文件未涉及的字节不改写。任务的 ~state()~ 返回可空 ~TaskState~，无状态标题返回 ~None~；状态自身的 ~category~ 也可以为空 。它与文件 ~CATEGORY~ 分类及普通 ~TAGS~ 候选标签相互独立。
+~TaskStateCategory~ 枚举定义 ~Todo~ 、 ~Doing~ 、 ~Wait~ 、 ~Done~ 和 ~Cancel~ 。其中 ~Done~ 与 ~Cancel~ 为终态，其余为未完成状态； 统一输出 ~Cancel~ ；旧 JSON 分类值和 Org 分类声明中的 ~Cancle~ 仅作为读取兼容别名，原文件未涉及的字节不改写。任务的 ~state()~ 返回可空 ~TaskState~ ，无状态标题返回 ~None~ ；状态自身的 ~category~ 也可以为空 。它与文件 ~CATEGORY~ 分类及普通 ~TAGS~ 候选标签相互独立。
 
 | 分类 | 展示名称 | 不可修改的默认状态值 |
 |-
@@ -748,7 +742,7 @@ pub struct TodoMetadata {
 | ~Done~ | 已完成 | ~DONE~ |
 | ~Cancel~ | 已取消 | ~CNCL~ |
 
-默认状态与分类映射由 Core 内部固定维护，通过 ~TaskState::defaults()~ 提供独立的只读默认值列表，不提供修改默认映射的接口。~CoreSettings.addition_states~ 保存附加的 ~TaskState~ 列表；通过 Workspace 的 ~get_settings()~ 与 ~set_settings()~ 获取和整体替换，附加值的 ~category~ 可以为空。默认名称不可加入附加列表，附加名称不可重复，名称大小写敏感。
+默认状态与分类映射由 Core 内部固定维护，通过 ~TaskState::defaults()~ 提供独立的只读默认值列表，不提供修改默认映射的接口。 ~CoreSettings.addition_states~ 保存附加的 ~TaskState~ 列表；通过 Workspace 的 ~get_settings()~ 与 ~set_settings()~ 获取和整体替换，附加值的 ~category~ 可以为空。默认名称不可加入附加列表，附加名称不可重复，名称大小写敏感。
 
 全局 ~CoreSettings~ 提供附加分类；仓库内 ~SETUPFILE~ 和文件的真实 ~#+TASK_STATE_CATEGORY:~ 声明仍由 Core 内部读取。文件覆盖 TODO 流程时继续使用同一份 Core 设置。示例：
 
@@ -761,7 +755,7 @@ pub struct TodoMetadata {
 ,#+TASK_STATE_CATEGORY: Cancel ABORTED
 #+end_src
 
-声明来自 ~orgize~ CST，源码与示例块的字面文本不参与配置。分类只解释有效 TODO 流程中已识别的状态，不自动增加文件关键词。默认状态按固定分类判断；未配置分类的自定义流程状态沿用 Org 分隔规则归为 ~Todo~ 或 ~Done~。通过 ~CoreSettings~ 显式设置为 ~None~ 的状态保留未分类，仍为任务，但不作为完成或取消终态，也不匹配任何 ~task_state_of(category)~ 目标。查询、HTML、日志、重复调度、TRIGGER 与标题统计共用分类结果。
+声明来自 ~orgize~ CST，源码与示例块的字面文本不参与配置。分类只解释有效 TODO 流程中已识别的状态，不自动增加文件关键词。默认状态按固定分类判断；未配置分类的自定义流程状态沿用 Org 分隔规则归为 ~Todo~ 或 ~Done~ 。通过 ~CoreSettings~ 显式设置为 ~None~ 的状态保留未分类，仍为任务，但不作为完成或取消终态，也不匹配任何 ~task_state_of(category)~ 目标。查询、HTML、日志、重复调度、TRIGGER 与标题统计共用分类结果。
 
 任务修改目标通过 ~Task.task_state_of(category)~ 或 ~OrgFileMetadata.task_state_of(category)~ 获取。完成使用首个 ~Done~ 状态，捕捉与“将来，也许”使用首个 ~Todo~ 状态；缺失时禁用或返回中文错误，不替换为其他分类。重复任务恢复优先使用所属流程的 ~Todo~ 状态，其次为其他未完成状态；显式 ~REPEAT_TO_STATE~ 与类型流程沿用既有语义。
 
@@ -1250,7 +1244,7 @@ pub struct TaskOperationHistory { pub entries: Vec<TaskOperationRecord> }
 
 ** 模板文件创建
 
-~FileNew(TaskFileNew)~ 与 ~Creation~ 平级，由同一 ~TaskOperationGroup~ 执行。目标是 ~path: TaskPath~ 文件根路径，不覆盖已经存在的文件。~template_content~ 非空时优先使用内联模板，否则读取同一仓库的 ~template_path~ ；两者为空时创建空文档。~arguments~ 是字符串映射，扫描模板中的 ~{{name}}~ 后逐项取值，缺少参数或占位符无效时整组失败。~init_tasks~ 是新任务的数据参数，不是既有记录路径；完整语义见 [[file:文件模板与项目转换设计.org][模板与项目转换设计]]。
+~FileNew(TaskFileNew)~ 与 ~Creation~ 平级，由同一 ~TaskOperationGroup~ 执行。目标是 ~path: TaskPath~ 文件根路径，不覆盖已经存在的文件。 ~template_content~ 非空时优先使用内联模板，否则读取同一仓库的 ~template_path~ ；两者为空时创建空文档。 ~arguments~ 是字符串映射，扫描模板中的 ~{{name}}~ 后逐项取值，缺少参数或占位符无效时整组失败。 ~init_tasks~ 是新任务的数据参数，不是既有记录路径；完整语义见 [[file:文件模板与项目转换设计.org][模板与项目转换设计]]。
 
 #+begin_src rust
 pub struct TaskFileNew {
@@ -1384,7 +1378,6 @@ pub struct TaskFileInitialTask {
 
 各文件 task 独占本文件的变更日志；Execute 通过 Result<FileExecuteResult, FileExecuteError> 返回 order_id 与暂存通知，主任务收集但不发布。跨文件移动只通过 channel 转交记录文本、原始快照和事务内节点令牌数据，不共享可变文件或日志状态；最终在主任务中归并移动链及“移动后删除”，避免产生重复和幽灵事件。SaveReady 通过 channel 移交纯字节候选；统一落盘后主任务通过 channel 确认，各文件任务在自己的执行上下文生成最终 Metadata 与任务投影并返回 Saved，主任务只汇总通知。
 
-
 ~MutationJournal~ 是一次操作组私有的内存对象。文件加载后按当前树序号分配事务内节点令牌，初始任务投影只生成一次；令牌不持久化、不暴露给宿主，也不使用字节偏移或路径作为稳定身份。普通 ~OrgFile.clone()~ 不复制日志，验证探针与预览不会产生真实提交事件。
 
 ~replace~ 在真实写入时登记更新，完全相同的字节替换不登记。创建、删除与移动在执行分支直接登记各自的语义；移动把源子树令牌移交给目标文件，同文件移动复用同一内存文件，不推断为删除加创建。重名序号、位置、文件版本与继承数据可能影响同文件其他记录，因此写入同时维护该文件已有节点的更新投影。完整主树替换明确删除旧树、创建新树，不猜测节点对应关系。
@@ -1488,7 +1481,6 @@ operations: Vec\textless TaskOperation\textgreater \\ file\_versions: Vec\textle
 
 ~sync_history_summaries~ 接受按开始时间升序恢复的完整历史，按原顺序返回摘要。冲突路径仅根据当次记录的结果取得，完成后不再随当前文件改变。当前冲突通知独立按文件标记生成，不回写历史或维护已解决计数。
 
-
 ** 按记录读取同步详情
 
 ~WebDavSyncRecordDetail~ 包含一条摘要、文件结果列表和原记录已有的错误信息。 ~sync_history_detail(history, sync_id)~ 按仓库内同步 ID 精确定位，并读取当次固定文件结果；ID 不存在时返回错误。 ~WebDavSyncFileSummary~ 提供原相对路径、展示结果、Core 分区及可空备份元信息， ~WebDavSyncHistoryError~ 只提供关联的相对路径与已有脱敏消息；成功文件的正文快照、远端元数据和版本哈希不进入此投影。
@@ -1544,7 +1536,7 @@ path: String}{}
 
 ~CoreNotification~ 是从当前仓库文件和已确认基线派生的只读事件，不写通知记录，也不消费事件。
 
-文件状态、通知贡献及首次快照与差量回调的模型和内嵌 UML 见 [[file:文件状态与通知重构设计.org][文件状态与通知重构设计]]。相关运行时对象不持久化。
+文件状态、通知贡献及首次快照与差量回调的模型和内嵌 UML 见 [[file:文件状态与通知设计.org][文件状态与通知重构设计]]。相关运行时对象不持久化。
 
 #+begin_src rust
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -1601,7 +1593,7 @@ ConfilictSelection}{}
 
 * 通知订阅运行时模型
 
-~FileStateManager~ 的 process 独占仓库基线与已观察文件状态，每文件保存内容版本、冲突情况和 revision；未知路径不进入 map，已确认删除保留 tombstone。 ~NotificationCenter::process~ 独占通知贡献及 monitor，接收文件服务主动推送，不保存基线、不读取文件。首次回调发送 ~NotificationSnapshot~ ，后续发送 ~NotificationDelta~ ，句柄析构取消订阅。公开类型与完整顺序见 [[file:文件状态与通知重构设计.org][文件状态与通知实现]]。
+~FileStateManager~ 的 process 独占仓库基线与已观察文件状态，每文件保存内容版本、冲突情况和 revision；未知路径不进入 map，已确认删除保留 tombstone。 ~NotificationCenter::process~ 独占通知贡献及 monitor，接收文件服务主动推送，不保存基线、不读取文件。首次回调发送 ~NotificationSnapshot~ ，后续发送 ~NotificationDelta~ ，句柄析构取消订阅。公开类型与完整顺序见 [[file:文件状态与通知设计.org][文件状态与通知设计]]。
 
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FileStateManager}{sender / epochs}{process() / query()}
@@ -1767,7 +1759,7 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 
 同一标题既有列表又有子任务时，两类数量不相加。Info 明确规定未固定来源的统计显示最后变化的一类； ~COOKIE_DATA: checkbox~ 固定为列表，TODO 变化不覆盖该计数； ~COOKIE_DATA: todo~ 固定为子任务，checkbox 变化不覆盖该计数。更新标题时也遵循显式来源。
 
-checkbox 默认只统计本节最外层条目，部分完成计入总数但不计为完成；本标题的 ~COOKIE_DATA~ 包含 ~recursive~ 时统计嵌套 checkbox。TODO 默认只统计直属子标题中有有效任务状态的记录，完成集合取自文件有效的 ~TodoMetadata.done_keywords~ ，不硬编码状态名；无状态标题不计入总数。~COOKIE_DATA: todo recursive~ 统计整个子树的任务；后代任务状态变化时，从直属父级逐级更新，直至最近定义该递归属性的祖先，外部祖先不更新。内层 ~COOKIE_DATA~ 覆盖继承设置，固定为 ~checkbox~ 的节点阻止 TODO 统计继续向上传播。
+checkbox 默认只统计本节最外层条目，部分完成计入总数但不计为完成；本标题的 ~COOKIE_DATA~ 包含 ~recursive~ 时统计嵌套 checkbox。TODO 默认只统计直属子标题中有有效任务状态的记录，完成集合取自文件有效的 ~TodoMetadata.done_keywords~ ，不硬编码状态名；无状态标题不计入总数。 ~COOKIE_DATA: todo recursive~ 统计整个子树的任务；后代任务状态变化时，从直属父级逐级更新，直至最近定义该递归属性的祖先，外部祖先不更新。内层 ~COOKIE_DATA~ 覆盖继承设置，固定为 ~checkbox~ 的节点阻止 TODO 统计继续向上传播。
 
 分数写为 ~[completed/total]~ ，百分比向下取整；空列表写为 ~[0/0]~ 与 ~[0%]~ 。仅修改真实统计语法节点，没有统计节点时不补建；标题中的链接、代码、逐字文本以及未涉及的正文和源码块字节保持原样。父级计数变化可改变后代的完整标题路径和字节偏移，Core 在操作内维护定位，不要求宿主自行计算新路径。全部统计与原始修改共同提交、回退和校验版本，最终无字节变化不广播，失败不发布部分更新；父任务状态不随计数自动切换。
 
@@ -1939,11 +1931,11 @@ pub struct TaskPriority {
 
 默认优先级来自 [[info:org#Priorities][Org Info：Priorities]]：未声明时使用 B，文件头 ~#+PRIORITIES~ 的第三项覆盖 SETUPFILE 默认值。Core 在同次解析中生成 ~OrgFileMetadata.default_priority~ ，任务通过 ~default_priority()~ 读取共享快照， ~effective_priority()~ 取显式值或此默认值；Harmony 投影为任务和文件元信息的只读 ~defaultPriority: TaskPriority~ 。文件与 SETUPFILE 均未声明时使用 Core 内置 ~A C B~ 配置，候选 A、B、C 分别归为 ~Hight~ 、 ~Middle~ 、 ~Low~ ，默认 B 归为 ~Middle~ ；默认值不产生标题色块、不写入 Org 原文。优先级升降序与 ~p.<letter>~ 使用有效字母， ~ps.<letter>~ 只查询显式值，相同优先级沿用源次序。
 
-~OrgFileMetadata.priority_options~ 保存可序列化的候选值对象；~priority_options()~ 返回独立副本。最小字母归为 ~Hight~ ，最大字母归为 ~Low~ ，中间字母均为 ~Middle~ ；只有一项时归为 ~Hight~ ，两项时没有 ~Middle~ 。~task_priority_of(category)~ 返回候选中按字母升序排列的首个匹配副本，没有匹配项时为空。
+~OrgFileMetadata.priority_options~ 保存可序列化的候选值对象； ~priority_options()~ 返回独立副本。最小字母归为 ~Hight~ ，最大字母归为 ~Low~ ，中间字母均为 ~Middle~ ；只有一项时归为 ~Hight~ ，两项时没有 ~Middle~ 。 ~task_priority_of(category)~ 返回候选中按字母升序排列的首个匹配副本，没有匹配项时为空。
 
 ~FilterTask.priority()~ 返回当前显式 ~TaskPriority~ 的可空引用；原值不在候选中时保留 ~name~ 且 ~category=None~ ，未设置时整个对象为空。任务的 ~priority_options()~ 和 ~task_priority_of(category)~ 委托同一共享文件元信息，因此与文件结果使用相同配置和版本。取得的旧快照不受文件重载影响。PeriodCategory 仅表示优先级，与循环、习惯和状态分类独立。
 
-创建和字段修改统一校验目标字母属于当前文件有效候选；未配置文件可直接设置 A、B、C，清除原值始终允许。非法分级使整个操作组回滚，不产生部分字段修改、历史或上传意图。优先级排序与 ~p.<letter>~ 按显式字母或所属文件默认字母求值；~ps.<letter>~ 仅匹配显式值。排序同值时沿用文件路径与源位置次序，不以分类代替实际字母；TRIGGER 的优先级循环使用文件有效范围与默认字母。
+创建和字段修改统一校验目标字母属于当前文件有效候选；未配置文件可直接设置 A、B、C，清除原值始终允许。非法分级使整个操作组回滚，不产生部分字段修改、历史或上传意图。优先级排序与 ~p.<letter>~ 按显式字母或所属文件默认字母求值； ~ps.<letter>~ 仅匹配显式值。排序同值时沿用文件路径与源位置次序，不以分类代替实际字母；TRIGGER 的优先级循环使用文件有效范围与默认字母。
 
 \begin{tikzpicture}
 \umlclass[x=0,y=0,type=enumeration]{PeriodCategory}{Hight \\ Middle \\ Low}{}
@@ -1956,7 +1948,6 @@ pub struct TaskPriority {
 \umluniassoc[mult1=1,mult2=0..*]{OrgFileMetadata}{TaskPriority}
 \umlnote[x=9,y=-9,width=6cm]{OrgFileMetadata}{未声明时使用内置 A C B：候选 A、B、C，默认 B；不回填原文。}
 \end{tikzpicture}
-
 
 * 结构化任务日志
 
@@ -2029,7 +2020,7 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 
 * Task 查询附带完整文件
 
-~TaskQuery.full_files: Vec<OrgFileRef>~ 指定本次结果需要附带的完整文件，默认空数组； ~TaskQueryResult.full_files: Vec<OrgFile>~ 返回独立文件值。Harmony 与 JSON 对应 ~fullFiles~ ，查询种类仍为 ~task~ 。完整文件与节点复用同批加载和已解析语法树，不另调 ~file_at~ ，同批重复文件不重新解析。文件克隆共享不可变语法树，修改时重建自己的语法树，原始字节仍独立持有。
+Harmony 与 JSON 对应 ~fullFiles~ ，查询种类仍为 ~task~ 。完整文件与节点复用同批加载和已解析语法树，不另调 ~file_at~ ，同批重复文件不重新解析。文件克隆共享不可变语法树，修改时重建自己的语法树，原始字节仍独立持有。
 
 ~full_files~ 必须属于本项外层仓库范围和包含／排除后的文件范围，越界、未知仓库或非法路径使整批失败。返回文件不受表达式与分类命中影响：零节点、零命中与零字节文件仍可返回；不存在的文件不返回。重复引用去重并保留首次请求顺序。完整原文保留冲突内容，节点和文档分段继续排除受保护冲突子树。
 
@@ -2063,14 +2054,13 @@ TAGS 原位编辑提交该条声明的完整目标标签数组；Core 删除对�
 
 * 删除时间只读投影
 
-Trash 与 Restore 的持久来源属性统一使用 ~SOURCE_~ 前缀。原节点 ~ID~ 暂存为 ~SOURCE_ID~ ，恢复时还原；祖先标签中本节点未直接声明的部分复制到节点，并以 JSON 数组记入 ~SOURCE_PARENT_TAGS~ ，恢复时移除这些复制标签。可选 ~SOURCE_BROTHER~ 为前一兄弟的完整 TaskPath，仅作插入提示，缺失或不在原父节点下时插到父节点第一个位置；父节点必须存在。 ~SOURCE_FILE_TITLE~ 与 ~SOURCE_FILE_ID~ 保存原文件标题及文件头 ID，无值时为空，当前不参与恢复定位。所有 ~SOURCE_~ 属性在恢复时按前缀清除；旧格式不兼容。完整属性说明见 [[file:废纸篓接口设计.org][废纸篓接口设计]]。
+Trash 与 Restore 的持久来源属性统一使用 ~SOURCE_~ 前缀。原节点 ~ID~ 暂存为 ~SOURCE_ID~ ，恢复时还原；祖先标签中本节点未直接声明的部分复制到节点，并以 JSON 数组记入 ~SOURCE_PARENT_TAGS~ ，恢复时移除这些复制标签。可选 ~SOURCE_BROTHER~ 为前一兄弟的完整 TaskPath，仅作插入提示，缺失或不在原父节点下时插到父节点第一个位置；父节点必须存在。 ~SOURCE_FILE_TITLE~ 与 ~SOURCE_FILE_ID~ 保存原文件标题及文件头 ID，无值时为空，当前不参与恢复定位。所有 ~SOURCE_~ 属性在恢复时按前缀清除；旧格式不兼容。完整属性说明见 [[file:任务修改调度设计.org][废纸篓接口设计]]。
 
 ~FilterTask.deleted_at()~ 仅从没有子节点、且自身带非空 ~SOURCE_TRASH_ID~ 的记录读取自身 ~SOURCE_TIME~ ，返回可空本地 Unix 毫秒值；缺失或无效时为 ~None~ 。同一时间的日期部分用于 ~deleted.*~ 自然日筛选，完整时刻用于排序和宿主显示。读取不继承、不修改原文，普通 Org 归档条目不会被自动清理。
 
 * 任务提醒投影
 
-任务只投影 ~reminder_at: Option<TimestampMs>~ ，不保留提醒配置对象、次数、间隔或任务级开关。读取复用 ~CREATED~ 的 ~property_time~ ，不继承、不补值；缺失、无效或范围为 ~None~ ，日期无时刻按本地零点。~TaskModification::SetReminder~ 接收可空毫秒时间戳，Core 封装属性名和 Org 原文写入，不生成 ID。完整契约见 [[file:../harmony/任务提醒设计.org][任务提醒设计]]。
-
+任务只投影 ~reminder_at: Option<TimestampMs>~ ，不保留提醒配置对象、次数、间隔或任务级开关。读取复用 ~CREATED~ 的 ~property_time~ ，不继承、不补值；缺失、无效或范围为 ~None~ ，日期无时刻按本地零点。 ~TaskModification::SetReminder~ 接收可空毫秒时间戳，Core 封装属性名和 Org 原文写入，不生成 ID。完整契约见 [[file:../harmony/任务提醒设计.org][任务提醒设计]]。
 
 完成带重复器的任务时，如果已有有效提醒，Core 在修改前选择带重复器的规划字段作为提醒基准：优先 DEADLINE，其次 SCHEDULED；仅有一个字段带重复器时只使用该字段，普通规划日期不参与选择。以规划时间戳的本地开始时间计算推进量，只有日期时按本地零点；时间范围使用起点。按天、周、月或年推进时，提醒按相同自然日差移动，保留原提醒的时分和相对基准的日期差，例如原提醒为 10:00，推进日期后仍为 10:00；跨夏令时也保持本地时分。按小时重复时仍随本地小时推进。支持累加、追赶、完成后重复与重复窗口，具体推进仍复用原有规则；新提醒处于不存在的本地时刻时整组失败，时刻重叠取较早值。
 
@@ -2084,7 +2074,7 @@ Trash 与 Restore 的持久来源属性统一使用 ~SOURCE_~ 前缀。原节点
 
 * 容错同步日志模型
 
-运行中 ~OrgRepoSyncRecord~ 仍保持严格类型。持久化读取使用 ~SyncLogData~ ，各个 JSON 字段独立转为 Option；字符串原因不复用请求枚举，旧来源不会让其他字段失效。summary 的名值对也装入同一结构。 ~SyncLogRecord.key~ 是记录定位身份，内部 time 是目录时间，不冒充已校验的 started_at； ~issues~ 保存来源路径、可选字段名与中文诊断。 ~SyncLogDetail~ 保存摘要及独立文件结果，不包含原文。详细字段与限制见 [[file:同步历史兼容与恢复方案.org][同步日志拆分与容错读取方案]]。
+运行中 ~OrgRepoSyncRecord~ 仍保持严格类型。持久化读取使用 ~SyncLogData~ ，各个 JSON 字段独立转为 Option；字符串原因不复用请求枚举，旧来源不会让其他字段失效。summary 的名值对也装入同一结构。 ~SyncLogRecord.key~ 是记录定位身份，内部 time 是目录时间，不冒充已校验的 started_at； ~issues~ 保存来源路径、可选字段名与中文诊断。 ~SyncLogDetail~ 保存摘要及独立文件结果，不包含原文。详细字段与限制见 [[file:同步日志存储与兼容设计.org][同步日志存储与兼容设计]]。
 
 ~SyncLogData~ 的 id/kind/result/execution_result/trigger_reason/event、relative_path/action/state/outcome/source_hash 为可选文本；started_at/finished_at 为可选毫秒时间；file_count/downloaded_count/uploaded_count/conflict_count 为可选 usize；conflicts 为可选路径数组；local_version 为可选 LocalFileVersion；detail/error/context_detail 为可选 JSON 值。未知业务枚举值记为不可用并产生诊断，非必要来源保留原值。
 

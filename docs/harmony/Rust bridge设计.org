@@ -43,12 +43,6 @@ N-API 对象继续按既有引用计数保持会话存活。最后一个引用�
 
 跨语言必需的适配必须在本文列明，包括 Promise、命名转换、查询/设置文本解析和面向手机的结果投影；适配不能成为随意改变行为归属的理由。修改既有接口时必须迁移全部调用方，并验证对象方法、空值、错误传播、字节保真和异步生命周期。
 
-* 验证记录
-
-2026-11-16 在专用模拟器的独立 QA 仓库验证：HTTP 修改当前页面任务标题后无需重新打开页面即可收到增量更新；界面完成任务后，HTTP 查询读到 DONE。非法触发器提交失败时，文件版本和任务状态保持不变；验证完成后恢复 QA 标题与待办状态，并关闭测试监听。Core 同时覆盖相同目录与仓库 ID 的不同 Workspace 之间通知隔离、channel 顺序、停止排空与取消等待后继续收尾。
-
-2026-11-16 命令调度重构已验证：Core 在宿主当前 Tokio 上启动异步 task，查询批次、文件依赖、独占同步和停止排空的顺序回归通过；Harmony 与 APP 内嵌 HTTP 共用同一无整体 mutex 的命令句柄。专用模拟器确认 UI 与 HTTP 双向增量、跨文件失败回滚、缓存重启和普通启动不恢复测试监听。
-
 * 配置校验
 
 ~validateConfiguration({ todoDefaults?, coreSettings? }): Promise<CoreSettings>~ 是独立 native 函数，在 worker 中使用 Core 校验 TODO 声明与附加状态，并返回规范化的 CoreSettings。省略 coreSettings 时返回 Rust 默认值；兼容旧 Cancle 输入。AppConfigService 的读取迁移、保存校验及设置页草稿校验均使用该入口，不创建临时 Workspace，也不提前改变活动 Workspace 的设置。
@@ -219,8 +213,7 @@ class RepositorySyncService {
 
 空闲时三种策略都返回 ~started~ ，先保留会话再异步执行。存在会话时， ~Reuse~ 返回 ~reused~ 与同一个句柄， ~Reject~ 返回 ~rejected~ 与当前句柄， ~Wait~ 返回 ~queued~ 与独立句柄，按受理顺序执行。复用不改变原触发原因；拒绝不是同步错误，不创建历史或失败提示。配置、凭据与文件在每轮实际执行时读取，不在排队时固定快照。
 
-~completion~ 在本轮检查、所选仓库同步与角标刷新结束后返回成功或失败，不以 Promise 拒绝表达普通同步错误；角标刷新失败不改变文件同步结果。前一轮失败仍继续处理队列，失败快照独立保留供当前可见页面领取，不能被下一轮准备状态覆盖。手动入口只等待原位编辑保存，提交 ~Wait~ 请求后立即释放入口状态，不等待 ~completion~ 或禁用后续 UI 操作。同步启动接口不申请系统后台任务或发布通知，退后台保护由宿主单独管理；已有会话在保护准备期间完成时，不再补开一轮同步。
-
+前一轮失败仍继续处理队列，失败快照独立保留供当前可见页面领取，不能被下一轮准备状态覆盖。手动入口只等待原位编辑保存，提交 ~Wait~ 请求后立即释放入口状态，不等待 ~completion~ 或禁用后续 UI 操作。同步启动接口不申请系统后台任务或发布通知，退后台保护由宿主单独管理；已有会话在保护准备期间完成时，不再补开一轮同步。
 
 同步记录保留原有 ~result~ 、 ~conflicts~ 、时间与文件数，另增 ~executionResult~ 、 ~transfer~ 、 ~downloadedFiles~ 、 ~uploadedFiles~  、 ~errorCategory~ 与 ~errorMessage~ 。 ~result~ 继续承载原始作业结果，避免改变现有同步编排；日志行按 ~executionResult~ 展示结果图标，只有冲突而无执行错误时为 ~succeeded~ 。 ~transfer~ 为 ~unchanged~ 、 ~download~ 、 ~upload~ 或 ~bidirectional~ ，只统计 Core 已确认成功的文件动作。冲突路径仅反映当次固定结果，UI 显示固定冲突数，不再提供待处理／已解决计数。
 
@@ -268,18 +261,17 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 冲突选择使用 ~Workspace.executeTaskOperations~ 的 ~ConfilictSelection~ 变体，path 明确定位真实文件或当前 preview，动作包含 discard 与 useLocal。临时文件由 ConflictPreview 管理，其 finish 返回源路径操作组；真实提交继续通过同一个 Workspace.executeTaskOperations 完成。
 
-
 * 默认 TODO、查询与结果投影
 
 ~defaultTaskStates(): Promise<TaskState[]>~ 经 C++ 工作线程调用 Rust 导出的 ~TaskState::defaults()~ ，返回固定默认分类的独立数组。 ~NativeCoreService.defaultTaskStates()~ 仅透传结果，设置页按分类展示，不持有默认映射副本，也不把这些值保存到 Preferences 或附加状态列表。
 
 ~defaultTodoSettings~ 从 Rust 默认配置生成原生 Org 声明文本。 ~Workspace.setTodoDefaults~ 由 core 解析、验证并用于后续每次文件解析；文件内声明和仓库内 ~SETUPFILE~ 按 core 的现有规则处理。TS 从 ~OrgFile.todo~ 读取流程、待办/完成状态、快捷键和日志标记；任务 ~state.category~ 来自 Rust 有效配置后的分类，不能以 DONE/CNCL 字面值猜测。
 
-~Workspace.query~ 将结构化请求交给 ~OrgWorkspace.query~ ，由 Core 内部解析表达式并求值。返回结果中的 ~tasks~ 为原生 ~Task~ 对象，用于列表、日历和详情； ~Task.id~ 保留通用展示身份， ~Task.taskId~ 透传 Core 的可空任务专属身份 ，为仓库路径、文件相对路径及归一化任务标题链的明文 JSON 编码；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
+~Workspace.query~ 将结构化请求交给 ~OrgWorkspace.query~ ，由 Core 内部解析表达式并求值。返回结果中的 ~tasks~ 为原生 ~Task~ 对象，用于列表、日历和详情； ~Task.id~ 保留通用展示身份， ~Task.taskId~ 透传 Core 的可空任务专属身份 ，为仓库路径、文件相对路径及归一化任务标题链的明文 JSON 编码；算法见 [[file:../core/数据模型.org::*任务逻辑身份][任务逻辑身份]]。 ~repoId~ 与 ~filePath~ 继续标识来源文件， ~level~ 保留真实标题层级，源字节偏移只在 Core 当前快照内定位。ArkTS 服务可以组合这些对象用于显示，但不另建 AST 或过滤算法。
 
 ~Workspace.getSettings()~ 与 ~Workspace.setSettings(CoreSettings)~ 由 C++ 通过 ~napi_create_async_work~ 在工作线程调用 Core，ArkTS wrapper 透传 ~CoreSettings~ 。
 
-~Task.state: TaskState | null~ 透传当前状态，~Task.taskStateOf(category)~ 与 ~OrgFileMetadata.taskStateOf(category)~ 返回所属文件首个有效目标状态或 ~null~。Core 负责选择，C++ 只持有私有快照并透传结果，每次返回独立值。UI 使用 ~state.category~ 判断样式、使用返回值的 ~name~ 提交修改；~isDone()~ 保留既有查询行为。
+~Task.state: TaskState | null~ 透传当前状态， ~Task.taskStateOf(category)~ 与 ~OrgFileMetadata.taskStateOf(category)~ 返回所属文件首个有效目标状态或 ~null~ 。Core 负责选择，C++ 只持有私有快照并透传结果，每次返回独立值。UI 使用 ~state.category~ 判断样式、使用返回值的 ~name~ 提交修改； ~isDone()~ 保留既有查询行为。
 
 * 错误与扩展
 
@@ -374,13 +366,13 @@ interface TaskStateCount {
 }
 #+end_src
 
-~OrgFileMetadata.category~ 透传 Core 的文件级 CATEGORY，~null~ 与空字符串保留原义；ArkTS 只按该字段组织分类分区，缺失或空值在界面统一显示“未分类”并置末。项目行使用圆形进度表达完成比例，数值计数保留在辅助功能说明中。
+~OrgFileMetadata.category~ 透传 Core 的文件级 CATEGORY， ~null~ 与空字符串保留原义；ArkTS 只按该字段组织分类分区，缺失或空值在界面统一显示“未分类”并置末。项目行使用圆形进度表达完成比例，数值计数保留在辅助功能说明中。
 
 FileQuery 在同一次 worker 调用中复用批次文件快照，只返回文件元信息，不传递 ~source~ 、 ~todo~ 或原始字节。完整文件继续通过 ~repo.file(path)~ 获取， ~file.title()~ 返回取得该对象时 Core 提取的标题，旧对象不随仓库刷新变化。两个接口都由 Core 读取文件头语法树，Bridge 和 ArkTS 不解析 TITLE。
 
 ~OrgFileMetadata.taskStateCounts~ 由 Core 对完整文件语法树按有效任务状态聚合，只返回出现过的状态并保留声明顺序；普通标题与受保护的冲突子树不计入，空文件或忽略文件返回空数组；不返回单一 ~taskCount~ ，不生成完整任务对象。 ~byteLength~ 是当前源字节数， ~modifiedAt~ 是本地磁盘修改时间的 Unix 毫秒值或 ~null~ ，由 Core 扫描时取得。ArkTS 仅格式化大小和本地时间，不自行读取文件属性。
 
-~TaskStateCount~ 是按 Core 有效 TODO 状态聚合的数组项：~state~ 保留原始状态名，~category~ 为 Core 分类，~count~ 为该状态在完整任务树中的数量。Bridge 透传数组顺序与字段，不转换为 ~Map~ ，不在 C++ 或 ArkTS 重新统计。项目侧边栏将数组中所有项的 ~count~ 相加得到总任务树数，以 ~category = Done~ 的项作为已完成数，作为圆形进度的已完成量与总量；空项目显示中性空圆环，辅助功能读取“已完成/总任务数”。
+~TaskStateCount~ 是按 Core 有效 TODO 状态聚合的数组项： ~state~ 保留原始状态名， ~category~ 为 Core 分类， ~count~ 为该状态在完整任务树中的数量。Bridge 透传数组顺序与字段，不转换为 ~Map~ ，不在 C++ 或 ArkTS 重新统计。项目侧边栏将数组中所有项的 ~count~ 相加得到总任务树数，以 ~category = Done~ 的项作为已完成数，作为圆形进度的已完成量与总量；空项目显示中性空圆环，辅助功能读取“已完成/总任务数”。
 
 Core 的 ~is_ignore~ 通过现有 Rust 元信息序列化、C++ worker 的结构化 JSON 投影映射为 ~isIgnore~ ，无需新增 native 方法或 getter。文件入口选择页据此排除忽略文件；常规存储库浏览仍取得完整元信息。选择提交、入口查询和捕捉写入前都通过统一 File 查询重新取得元信息 ，拒绝已经不存在或被忽略的确切目标，不能根据同名路径重新选择仓库。
 
@@ -433,7 +425,6 @@ interface TitleCount {
 
 ~TaskEditor~ 复用 ~OrgContentView~ 展示正文；阅读控件允许调用方提供背景色和嵌入左右内边距，仍使用同一安全 HTML 页面与链接拦截。展开／收起及内容测高属于 UI 状态，不发起 Core 请求、不写回文件。
 
-
 * 独立分享捕捉
 
 候选任务由 UI 将仓库配置与备忘文件身份组装为通用查询：所有已配置仓库中的 ~it.todo~ ，加上配置备忘文件中的 ~it.none~ ，再与 ~has.address~ 组合。未配置或失效的备忘文件不回退到其他文件。Core 返回的 ~address_links~ 原样映射到 ~Task.addressLinks~ ，宿主显示全部候选，不按条数截断、不解析正文。查询继续通过既有 ~expression~ 字段传入 worker，不新增 native 方法或界面专属查询字段。
@@ -444,10 +435,9 @@ interface TitleCount {
 
 ~Task.addressLinks~ 在 C++ 原生任务对象上以只读、可枚举属性保留。地址更新提交一个 Modification， ~path~ 使用 ~Task.fullPath~ ，字段为 ADDRESS_LINK。Core 返回操作后路径；地址更新完成后由主界面按既有查询读取新投影。FFI 返回既有释放函数管理的 JSON 字符串，C++ 只编组与构造对象。
 
-
 地址更新成功后以 ~page=inbox~ 唤起 ~EntryAbility~ ，直接加载收件箱并关闭分享窗口；不重查更新后的任务、不序列化任务快照，也不通过 ~LocalStorage~ 交接任务。写入成功后立即记录已更新状态，导航失败重试只打开收件箱，不再次替换链接。独立任务编辑页面与旧任务跳转参数已移除。
 
-~CaptureShareExtension~ 读取系统分享的标题和链接后启动独立 ~ShareLocationAbility~，不再启动 ~CaptureAbility~ 。页面解析花瓣地图坐标 URL、高德短链接和 ~geo:/addr:~ URI；创建任务调用 ~Workspace.executeTaskOperations~ 写入正文链接，更新任务调用 ~Workspace.executeTaskOperations~ 保留其他字节。解析失败只允许保存原始链接或返回地图。
+~CaptureShareExtension~ 读取系统分享的标题和链接后启动独立 ~ShareLocationAbility~ ，不再启动 ~CaptureAbility~ 。页面解析花瓣地图坐标 URL、高德短链接和 ~geo:/addr:~ URI；创建任务调用 ~Workspace.executeTaskOperations~ 写入正文链接，更新任务调用 ~Workspace.executeTaskOperations~ 保留其他字节。解析失败只允许保存原始链接或返回地图。
 
 * 收件箱目标与任务整理
 
@@ -457,7 +447,7 @@ interface TitleCount {
 
 * Query 文件引用与创建日期扩展
 
-~TaskQuery.includeFiles~ 与 ~excludeFiles~ 使用 ~OrgFileRef[]~，按 Core 仓库 ID 与相对路径先包含再排除。创建时间查询继续使用 ~expression~；~Task.createdAt~ 、 ~Task.closedAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
+~TaskQuery.includeFiles~ 与 ~excludeFiles~ 使用 ~OrgFileRef[]~ ，按 Core 仓库 ID 与相对路径先包含再排除。创建时间查询继续使用 ~expression~ ； ~Task.createdAt~ 、 ~Task.closedAt~ 与 ~Task.modifiedAt~ 透传 Core 的可空时间，取消展示由 ~Task.state.category~ 判断。
 
 ~InboxService.recent~ 通过既有 ~Workspace.query~ 发送 ~cr.ge.-2d cr.le.today .o.created~ ，使用 ~excludeFiles: OrgFileRef[]~ 精确排除当前收件箱。 ~InboxPresentation~ 仅按 ~Task.createdAt~ 的本地日期组织连续列表，不追加创建日期、状态或文件过滤。分享地址候选的原有查询也继续使用同一 ~Workspace.query~ 入口，其搜索与截断问题的后续建议见查询语言设计。
 
@@ -472,7 +462,6 @@ interface TitleCount {
 ~RefileTargetQuery~ 含 ~files?: OrgFileRef[]~ 、 ~excludedFiles?: OrgFileRef[]~ 与 ~includeProjectRoots?: boolean~ ，经 C++ 原有工作线程和 Rust bridge 透传 Core。普通移动入口设置 ~includeProjectRoots=true~ ，由 Core 同时返回项目文件根节点（ ~fullPath.titles~ 为空， ~headingPath~ 与 ~titleParts~ 为空， ~position~ 为文件起点），沿用目标类型与异步工作线程，无需额外 native 方法或宿主解析。普通目标请求在生成 CATEGORY 前排除已配置的收件箱与某天两个具体文件；将来，也许入口不启用项目根节点，单独通过 ~files~ 查询某天文件，使用 Core 返回的第一个 REFILE 目标。配置仓库 ID 必须先映射到实际 Core 仓库 ID，不按路径跨仓库排除，也不在 ArkTS 过滤目标结果。
 
 快捷移动提交通用目标选项 ~todoState: 'TODO'~ 与 ~clearPlanning: true~ ，Core 验证目标状态并保真改写根标题、清理规划信息。目标文件未配置、失效、被忽略或没有 REFILE 时不回退到其他文件，不新建文件；缺少 TODO 状态时拒绝提交。备忘转换和普通移动沿用原有选项。
-
 
 * 待关注事件
 
@@ -631,7 +620,7 @@ Rust ~OrgRepo~ 不持有 ~files~ 或扫描规则，TS 也不暴露可复用的�
 
 ~Workspace.query(queries: CoreQuery[]): Promise<CoreQueryResult[]>~ 是唯一通用任务查询入口，旧单对象请求拒绝；单查询提交单项数组并取第零项结果。Rust、C ABI、C++ N-API 与 ArkTS wrapper 一次传递整批，C++ 将 Task 结果分支的 ~tasks~ 包装为 Task 对象。 ~results[i]~ 对应 ~queries[i]~ ，空结果和重复查询均保留位置。
 
-Harmony 每批提交一个 Workspace 查询命令，Core 每仓库加锁一次并加载一次。 ~Workspace.addRepo~ 在加入仓库前初始化稳定 ID，查询不再逐仓库调用 ~Repo.load~ 。空数组不读取业务文件。任一请求校验、文件加载、查询或编组失败使整个 Promise 拒绝，不返回部分结果。全部排除条件与快照契约见 [[file:../core/批量查询接口设计.org][批量查询接口设计]]。
+Harmony 每批提交一个 Workspace 查询命令，Core 每仓库加锁一次并加载一次。 ~Workspace.addRepo~ 在加入仓库前初始化稳定 ID，查询不再逐仓库调用 ~Repo.load~ 。空数组不读取业务文件。任一请求校验、文件加载、查询或编组失败使整个 Promise 拒绝，不返回部分结果。全部排除条件与快照契约见 [[file:../core/统一批量查询接口设计.org][批量查询接口设计]]。
 
 侧边栏将任务查询与目标文件元信息合为一个批次，并按输入位置显示计数。收件箱、某天和备忘以 Core 仓库 ID 与相对路径隔离同名文件，空文件与失效文件通过同批 File 结果区分。
 
@@ -663,14 +652,13 @@ FileConflict 经既有 conflicts 结果原样传递 displayAnchor、displayAtTar
 
 * 优先级值对象与分类目标
 
-~Task.priority~ 从字符串调整为 ~TaskPriority | null~ ，~TaskPriority~ 包含 ~name: string~ 与 ~category: PeriodCategory | null~ 。~PeriodCategory~ 的值为 ~Hight~ 、 ~Middle~ 、 ~Low~ ，大小写与 Core 序列化一致；枚举名仅指优先级，不表达循环或习惯。
+~Task.priority~ 从字符串调整为 ~TaskPriority | null~ ， ~TaskPriority~ 包含 ~name: string~ 与 ~category: PeriodCategory | null~ 。 ~PeriodCategory~ 的值为 ~Hight~ 、 ~Middle~ 、 ~Low~ ，大小写与 Core 序列化一致；枚举名仅指优先级，不表达循环或习惯。
 
 Task 与 OrgFileMetadata 均公开只读 ~priorityOptions: TaskPriority[]~ 和 ~taskPriorityOf(category): TaskPriority | null~ 。Rust 从 Core 的文件配置快照生成候选与各分类的首个目标；C++ 持有私有目标快照，参数非法时报错，合法但无匹配项时返回空，每次返回独立对象。文件元信息的私有目标映射不进入公开 JSON。
 
 Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，并作为可枚举实例方法穿过 ArkUI 属性深拷贝；方法不依赖拷贝对象上的 napi_wrap，JSON 序列化仍只包含数据。Core 的候选与当前对象均随查询结果投影，ArkTS wrapper 只导出类型，不解析 Org 或重新分类。
 
 界面按 ~priority.category~ 选择字母色块的前景及底色；点击候选提交原有 ~PRIORITY~ 字段，值为 ~name~ 或空值。快捷设置从 ~taskPriorityOf(Hight)~ 取目标，不在 ArkTS 中排序字母。卡片与详情共用紧凑标签式选择器；完整交互见 [[file:任务优先级界面设计.org][任务优先级接口与界面设计]]。
-
 
 * 结构化任务日志接入
 
@@ -688,7 +676,7 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 
 * 默认优先级快照
 
-~OrgFileMetadata.default_priority~ 与 ~FilterTask.default_priority()~ 映射为文件元信息及 Task 的只读 ~defaultPriority: TaskPriority~ ，与 ~priorityOptions~ 来自同次 Core 配置解析。Rust bridge 直接复制 Core 值，C++ 将任务字段注册为可枚举只读属性，文件元信息随原对象透传；ArkTS wrapper 沿用 native 类型，不另设默认值或排序。~priority~ 继续表达显式值，未设置时为 ~null~ 。默认值解析、优先级排序与有效优先级查询均由 Core 处理，见 [[file:../core/查询语言设计.org][查询语言设计]]。
+~OrgFileMetadata.default_priority~ 与 ~FilterTask.default_priority()~ 映射为文件元信息及 Task 的只读 ~defaultPriority: TaskPriority~ ，与 ~priorityOptions~ 来自同次 Core 配置解析。Rust bridge 直接复制 Core 值，C++ 将任务字段注册为可枚举只读属性，文件元信息随原对象透传；ArkTS wrapper 沿用 native 类型，不另设默认值或排序。 ~priority~ 继续表达显式值，未设置时为 ~null~ 。默认值解析、优先级排序与有效优先级查询均由 Core 处理，见 [[file:../core/查询语言设计.org][查询语言设计]]。
 
 * 公共链接与备注展示投影
 
@@ -736,7 +724,7 @@ Core 的 ~FilterTask.has_attach()~ 映射为 Harmony 任务快照的只读布尔
 
 ~watchDataChanges~ 沿用现有 JSON 事件转发，不增加写入入口。 ~DataChangeEvent~ 的 ~files~ 和 ~changes~ 携带 Core 提交时生成的文件、任务纯数据； ~operationId~ 继续透传。类型声明使用 ~DataFileRecord~ 、 ~DataTaskRecord~ 表示序列化记录，不能把它们强制转换为含 native 方法的 ~Task~ 或 ~OrgFileMetadata~ 对象。页面管理类通过独立只读快照适配这些数据，不把原始记录当作 native 对象。
 
-查询订阅已通过 Workspace 的 Harmony native 方法提供，首次结果与句柄由同一次 Core 查询返回。现有 JSON 数据事件类型声明增加可选 ~removedFiles~ 与 ~categories~ ，旧仓库事件省略它们，C++ 转发与现有页面处理保持原行为。
+现有 JSON 数据事件类型声明增加可选 ~removedFiles~ 与 ~categories~ ，旧仓库事件省略它们，C++ 转发与现有页面处理保持原行为。
 
 * 查询请求的仓库身份绑定
 
@@ -770,12 +758,11 @@ class Workspace {
 
 ~HttpServerInfo~ 只包含只读 ~address: string~ 。三个 Workspace 方法通过 N-API 工作线程调用 Rust，服务只持有当前 Workspace 的共享引用；bridge 保存服务句柄，不读取 APP 启动参数。默认端口为 8787，端口错误与监听失败正常拒绝 Promise。重复启动同一 Workspace 返回当前地址，其他 Workspace 启动前必须停止旧服务；释放拥有服务的 Workspace 时关闭监听。APP 层根据临时测试启动参数决定是否启动并管理生命周期，REST 接口单独见 [[file:../core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。
 
-
 ** 测试导航通道
 
 ~Workspace.startHttpServer(port?: number, handler?: HttpUiHandler)~ 在原有工作线程启动服务后，由 Harmony Rust 调用 ~EmbeddedHttpServer.register_handler~ 注册 ~/api/v1/ui/navigation~ 。Core 仅提供通用 HTTP 路径注册，导航路由和协议由 Harmony 持有。
 
-~HttpUiHandler~ 接收 ~HttpUiRequest { method: string, body: string }~ 和一次响应函数 ~respond(HttpUiResponse { status: number, body: string })~ ，两个 body 字段均为 JSON 文本。C++ 用独立 TSFN 将请求转交 UI 线程；响应函数只持有请求 ID，调用 ~org_tasks_harmony_http_ui_respond~ 归还等待通道，不执行 Core I/O。~NativeCoreService~ 原样转发类型与回调，~HttpApiService~ 提供主窗口 UIContext 并调用 ~HttpNavigationService~ 。目标读取仍走当前 Workspace 的异步方法。
+~HttpUiHandler~ 接收 ~HttpUiRequest { method: string, body: string }~ 和一次响应函数 ~respond(HttpUiResponse { status: number, body: string })~ ，两个 body 字段均为 JSON 文本。C++ 用独立 TSFN 将请求转交 UI 线程；响应函数只持有请求 ID，调用 ~org_tasks_harmony_http_ui_respond~ 归还等待通道，不执行 Core I/O。 ~NativeCoreService~ 原样转发类型与回调， ~HttpApiService~ 提供主窗口 UIContext 并调用 ~HttpNavigationService~ 。目标读取仍走当前 Workspace 的异步方法。
 
 Rust 持有监控对象至最后一个在途请求退出，超时和关闭清理等待表；C++ 用函数 finalizer 清理响应 ID。重复启动同一服务释放本次未采用的监控，保留当前路由处理器；服务停止、拥有者释放或工作线程失败均释放通道。ArkTS 处理前及异步校验后检查服务会话代次与请求截止时间，关闭或重启后不执行旧会话的迟到导航。GET／PUT 的业务协议与错误见 [[file:../core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。
 
@@ -793,11 +780,11 @@ Task.property(name) 是绑定到原快照的只读方法，ArkUI 深拷贝时继
 
 * FileNew 与收件箱项目转换
 
-~TaskOperationType~ 增加与 ~Creation~ 平级的 ~FileNew~ ，~TaskOperation.data~ 增加 ~TaskFileNew~ 。~TaskFileNew~ 包含 ~path: TaskPath~ 、可选 ~templatePath~ 、~templateContent~ 、~arguments: Record<string, string>~ 和 ~initTasks: TaskFileInitialTask[]~ ；~TaskFileInitialTask~ 使用 ~Creation~ 的标题、正文、状态、优先级、标签、计划和截止字段，不接受位置。
+~TaskOperationType~ 增加与 ~Creation~ 平级的 ~FileNew~ ， ~TaskOperation.data~ 增加 ~TaskFileNew~ 。 ~TaskFileNew~ 包含 ~path: TaskPath~ 、可选 ~templatePath~ 、 ~templateContent~ 、 ~arguments: Record<string, string>~ 和 ~initTasks: TaskFileInitialTask[]~ ； ~TaskFileInitialTask~ 使用 ~Creation~ 的标题、正文、状态、优先级、标签、计划和截止字段，不接受位置。
 
 Rust 由 Core 反序列化并执行新增枚举；C++ 继续通过既有 ~Workspace.executeTaskOperations~ 的结构化编组与 worker，ArkTS wrapper 提供对应类型别名，不在 bridge 扫描模板、判断根标题或生成 Org 内容。HTTP 和 CLI 的既有操作组入口同步获得该类型，不增加另一个创建文件接口。
 
-Harmony 从应用资源读取 ~templates/project.org~ ，以 ~templateContent~ 传入并提供项目名与位置所选 Region 的分类参数；随包模板声明 ~FILETAGS: :project:todo:~ ，顶部空 ~ID~ 由 Core 自动生成 UUID v4，空 SETUPFILE 由 Core 按目标库共享设置是否存在补全或保留，不提供这两个字段的模板参数。~ProjectCreateService~ 只组装同一操作组中的 ~FileNew~ 与 ~Movement~ ，携带原记录文件版本和 ~operationId~ ；不复制或重建正文、属性、日志与子条目。仓库候选使用 Core ID，通过真实目录关联宿主展示名称；用户默认选择转换收件箱所在仓库；按所选仓库的文件元信息汇总 Region 候选，新增 Region 以 CATEGORY 模板参数随新项目落地，不新增 Core 分类接口。
+Harmony 从应用资源读取 ~templates/project.org~ ，以 ~templateContent~ 传入并提供项目名与位置所选 Region 的分类参数；随包模板声明 ~FILETAGS: :project:todo:~ ，顶部空 ~ID~ 由 Core 自动生成 UUID v4，空 SETUPFILE 由 Core 按目标库共享设置是否存在补全或保留，不提供这两个字段的模板参数。 ~ProjectCreateService~ 只组装同一操作组中的 ~FileNew~ 与 ~Movement~ ，携带原记录文件版本和 ~operationId~ ；不复制或重建正文、属性、日志与子条目。仓库候选使用 Core ID，通过真实目录关联宿主展示名称；用户默认选择转换收件箱所在仓库；按所选仓库的文件元信息汇总 Region 候选，新增 Region 以 CATEGORY 模板参数随新项目落地，不新增 Core 分类接口。
 
 * 文件头顺序投影
 
@@ -821,9 +808,9 @@ TaskOperationType 增加 ~Trash~ 与 ~Restore~ ，数据分别为 ~TaskTrash { p
 
 * 废纸篓界面投影
 
-~FilterTask.deleted_at()~ 由 Rust 映射到 bridge 的可空 ~deletedAt~ 毫秒字段，C++ 创建只读可枚举属性，TypeScript、PageTask、缓存与路由保持一致；旧缓存字段缺失时恢复为 ~null~ 。~TaskDateDisplay.Deleted~ 和 ~TaskTimeDisplay.Deleted~ 只格式化该字段，不解析 Org 或以其他时间补齐。
+~FilterTask.deleted_at()~ 由 Rust 映射到 bridge 的可空 ~deletedAt~ 毫秒字段，C++ 创建只读可枚举属性，TypeScript、PageTask、缓存与路由保持一致；旧缓存字段缺失时恢复为 ~null~ 。 ~TaskDateDisplay.Deleted~ 和 ~TaskTimeDisplay.Deleted~ 只格式化该字段，不解析 Org 或以其他时间补齐。
 
-宿主 ~TrashService~ 继续通过 ~executeTaskOperations~ 提交一个操作组，删除组装 ~Trash~ 、恢复组装 ~Restore~ ，永久清除与自动清理组装 ~Deletion~ 。设置与查询由宿主组装，来源属性写入、保真复制、叶节点限制、跨文件原子提交与恢复失败保留由 Core 执行。批量 UI 等待 DataSet 通知归并后核对稳定行身份；~Promise<void>~ 的成功不代表所有 Restore 都完成插入。
+宿主 ~TrashService~ 继续通过 ~executeTaskOperations~ 提交一个操作组，删除组装 ~Trash~ 、恢复组装 ~Restore~ ，永久清除与自动清理组装 ~Deletion~ 。设置与查询由宿主组装，来源属性写入、保真复制、叶节点限制、跨文件原子提交与恢复失败保留由 Core 执行。批量 UI 等待 DataSet 通知归并后核对稳定行身份； ~Promise<void>~ 的成功不代表所有 Restore 都完成插入。
 
 * 外部文件监控
 
@@ -833,7 +820,7 @@ Workspace 新增 ~watchExternalFileChanges(monitor): Promise<number>~ 与 ~stopW
 
 * 日志备注操作与状态提示
 
-Rust 的 ~TaskNoteAddition { path, note }~ 以 ~{ type: 'Note', data: { path, note } }~ 通过原批量 worker 透传，不增加单次写入通道。~TaskEditContent.note_required_states~ 经原 ~editContent~ 对象映射为 ~noteRequiredStates~ ，C++ 和 ArkTS 均不解释 TODO 标记或继承属性。页面快照、缓存恢复与乐观字段投影保留该列表；最终状态规则仍由 Core 校验。
+Rust 的 ~TaskNoteAddition { path, note }~ 以 ~{ type: 'Note', data: { path, note } }~ 通过原批量 worker 透传，不增加单次写入通道。 ~TaskEditContent.note_required_states~ 经原 ~editContent~ 对象映射为 ~noteRequiredStates~ ，C++ 和 ArkTS 均不解释 TODO 标记或继承属性。页面快照、缓存恢复与乐观字段投影保留该列表；最终状态规则仍由 Core 校验。
 
 TaskEditor 的 ~startNote~ 返回纯操作组，由现有控制器及 DataSet 提交；完成、重新打开、开始、暂停、等待以及整理中的状态操作均通过统一备注提示。输入非空原因后通过原 Modification 的可选 note 与状态一起提交，取消与遮罩关闭仅省略 note；页面退出或任务删除结束等待并丢弃整个待提交动作。
 
@@ -847,7 +834,7 @@ TaskEditor 的 ~startNote~ 返回纯操作组，由现有控制器及 DataSet �
 
 * 文件状态推送与基线异常
 
-文件服务与通知 monitor 的完整 Rust 接口见 [[file:../core/文件状态与通知重构设计.org][文件状态与通知实现]]。 ~NotificationSnapshot~ 带 revision 与完整 notifications， ~NotificationDelta~ 带 fromRevision、revision 与 changes。 ~CoreNotification~ 增加 ~syncBaselineUnavailable~ ，包含 repoId、reason 及 bridge 附加的 rootDirectory；宿主不读取或修复索引，只展示共享异常提示。
+文件服务与通知 monitor 的完整 Rust 接口见 [[file:../core/文件状态与通知设计.org][文件状态与通知设计]]。 ~NotificationSnapshot~ 带 revision 与完整 notifications， ~NotificationDelta~ 带 fromRevision、revision 与 changes。 ~CoreNotification~ 增加 ~syncBaselineUnavailable~ ，包含 repoId、reason 及 bridge 附加的 rootDirectory；宿主不读取或修复索引，只展示共享异常提示。
 
 * 同步日志拆分读取
 

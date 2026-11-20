@@ -3,9 +3,9 @@
 #+OPTIONS: author:nil date:nil toc:nil
 #+LANGUAGE: zh-CN
 
-* 状态与本次新增
+* 范围与统一入口
 
-本文定义已实施的唯一通用批量查询入口，任务与文件元信息共用同次仓库访问，通知独立订阅。现行接口仍见 [[file:批量查询接口设计.org][批量查询接口设计]]。~CoreQuery~ 、 ~CoreQueryResult~ 与 ~FileQuery~ 使任务和文件元信息可以在同一个查询数组中表达；文件元信息与任务另增加 ~project()~ 访问方法。
+本文定义已实施的唯一通用批量查询入口，任务与文件元信息共用同次仓库访问，通知独立订阅。公开签名和错误约束见 [[file:接口文档.org][Core 接口文档]]。 ~CoreQuery~ 、 ~CoreQueryResult~ 与 ~FileQuery~ 使任务和文件元信息可以在同一个查询数组中表达；文件元信息与任务另增加 ~project()~ 访问方法。
 
 ~TaskQuery~ 通过 ~include_files~ 与 ~exclude_files~ 表达文件范围，替代旧 ~excluded_files~ 和表达式的文件条件；状态与排序继续使用表达式。 ~TaskQueryResult~ 增加可选请求所需的完整文件结果，仓库范围由外层 CoreQuery 承载。
 
@@ -40,11 +40,11 @@ impl OrgWorkspace {
 
 成功时结果数组与输入等长， ~results[i]~ 与 ~queries[i]~ 的位置和枚举种类严格对应。空结果与重复请求保留原位置；任一请求校验、共享加载、求值或编组失败，整批返回 ~Err~ ，Harmony 拒绝整个 Promise。空数组返回空数组，不加业务锁、不读盘。
 
-~CoreQuery::Task.repo_ids~ 是本次新增的外层仓库范围，不属于 ~TaskQuery~ 。空列表或省略表示整个 workspace，非空表示所列 Core 仓库的并集；空 ID 或不属于 workspace 的 ID 返回输入错误。它用于在同一批中查询不同仓库的同名文件，避免改变 ~TaskQuery~ 或让 UI 再过滤任务。宿主配置 ID 必须先通过已初始化 workspace 的仓库对象映射成 Core 仓库 ID，不得混用。
+~CoreQuery::Task.repo_ids~ 是外层仓库范围，不属于 ~TaskQuery~ 。空列表或省略表示整个 workspace，非空表示所列 Core 仓库的并集；空 ID 或不属于 workspace 的 ID 返回输入错误。它用于在同一批中查询不同仓库的同名文件，避免改变 ~TaskQuery~ 或让 UI 再过滤任务。宿主配置 ID 必须先通过已初始化 workspace 的仓库对象映射成 Core 仓库 ID，不得混用。
 
 * Task 查询附带完整文件
 
-~TaskQuery.full_files: Vec<OrgFileRef>~ 指定本次结果需要附带的完整文件，默认空数组； ~TaskQueryResult.full_files: Vec<OrgFile>~ 返回独立文件值。Harmony 与 JSON 对应 ~fullFiles~ ，查询种类仍为 ~task~ 。完整文件与节点复用同批加载和已解析语法树，不另调 ~file_at~ ，同批重复文件不重新解析。文件克隆共享不可变语法树，修改时重建自己的语法树，原始字节仍独立持有。
+Harmony 与 JSON 对应 ~fullFiles~ ，查询种类仍为 ~task~ 。完整文件与节点复用同批加载和已解析语法树，不另调 ~file_at~ ，同批重复文件不重新解析。文件克隆共享不可变语法树，修改时重建自己的语法树，原始字节仍独立持有。
 
 ~full_files~ 必须属于本项外层仓库范围和包含／排除后的文件范围，越界、未知仓库或非法路径使整批失败。返回文件不受表达式与分类命中影响：零节点、零命中与零字节文件仍可返回；不存在的文件不返回。重复引用去重并保留首次请求顺序。完整原文保留冲突内容，节点和文档分段继续排除受保护冲突子树。
 
@@ -175,29 +175,19 @@ JSON 请求使用与 TS 相同的 ~type~ 、 ~query~ 和可选 ~repoIds~ ；响�
 
 任务文件范围与 FileQuery 一样在扫描阶段参与候选集合计算，有限包含集合的祖先目录之外不再遍历。只有所有查询种类都不需要的文件，才允许在底层正文读取前排除。例如所有 TaskQuery 都排除某文件，但 FileQuery 需要其元信息，该文件仍加载一次；TaskQuery 的排除在其自身求值前执行。
 
-* 页面迁移目标
+* Harmony 页面读取
 
-| 页面 | 一次批次中的请求 |
-|-
-| 收件箱 | 所选仓库的收件箱 Task、整个 workspace 的最近新增 Task、收件箱 File。 |
-| 计划、随时、日志簿 | 当前视图 Task。 |
-| 今天 | 页面 DataSetManager 的任务与文件订阅初始查询；通知由应用级 NotificationManager 独立订阅。 |
-| 某天、备忘 | 所选仓库的文件 Task、目标 File。 |
-| 侧边栏 | 收件箱、今天、过期、计划、随时、某天、备忘、日志簿的 Task，三个目标 File。 |
+普通任务页、最近新增、笔记本文件列表、侧边栏、导航计数和角标通过应用级 ~AppDataManager~ 共享同一个 ~DataSetManager~ 与命名查询集合。全部基础查询共用启动批次；侧边栏仅投影共享快照，不单独查询。项目详情保留独立的、限定当前文件的管理器。各页查询范围和生命周期统一见 [[file:../harmony/页面数据集设计.org][页面数据集设计]]。
 
-未配置的文件入口不组装无范围任务查询，仍加载其他有效项目。任务页由 DataSetManager 维护查询订阅；通知由应用级 NotificationManager 消费列表订阅，缺失文件判断与标签候选统一消费 File 结果。
+未配置的文件入口不组装无范围任务查询，其他有效数据集继续加载。任务和元信息由固定查询订阅维护；通知由应用级 ~NotificationManager~ 独立消费列表订阅。标签筛选仅处理已加载快照，不新增查询。
 
-旧的独立文件元信息和通知查询入口已删除，任务与文件调用方通过此统一入口读取，通知改为列表订阅；项目访问方法与布局的现行定义见 [[file:接口文档.org::*文件与任务的项目名称][文件与任务的项目名称]] 和 [[file:../harmony/项目分类布局设计.org][项目分类布局设计]]。
+* 快照访问与业务读取
 
-* 页面读取与旧入口移除
+公开查询使用带 ~type~ 的 ~CoreQuery~ 数组，通知通过列表订阅取得。 ~FilterTask.file_metadata()~ 是已取得快照的同步借用，不读取文件；完整文件读取、编辑与同步操作保持各自资源接口。
 
-~OrgRepo.file_metadata~ 、 ~OrgRepo.notifications~ 、 ~OrgWorkspace.notifications~ 及其 FFI、N-API、类型声明和 ArkTS 查询封装已删除。旧的 TaskQuery 数组也不作为兼容协议继续接受，所有请求统一使用带 ~type~ 的 CoreQuery 数组。 ~FilterTask.file_metadata()~ 是已取得快照的同步借用，不读取文件，继续保留；完整文件读取、编辑与同步操作保持各自资源接口。
+~PageQueryService.query~ 用于业务服务的任务与文件混合读取，不附带通知查询，也不从结果发布通知。普通任务页面使用共享数据集订阅；抽屉开合不驱动或延迟正文读取。
 
-~PageQueryService.query~ 只提交页面的任务与文件查询；应用级通知由 NotificationManager 直接消费列表回调，既不附带通知查询，也不从页面结果发布通知。
-
-页面迁移为 DataSetManager 后，通过固定查询订阅取得初始数据并接收增量，通知由共享 NotificationManager 维护；本文普通批次契约继续适用于侧边栏与业务服务的混合读取。侧边栏和页面数据各自由管理对象处理失效，抽屉开合不再驱动或延迟正文读取。标签筛选继续只处理已加载的页面快照，不新增查询。
-
-默认 File 元信息读取不构造任务投影；只有 Task 请求或 File 的 file_tags 条件需要时才生成本批共享任务投影。任务标签按文件索引一次，多个 File 条件复用索引，避免逐文件反复扫描全部任务。
+默认 File 元信息读取不构造任务投影；只有 Task 请求或 File 的 ~file_tags~ 条件需要时才生成本批共享任务投影。任务标签按文件索引一次，多个 File 条件复用索引，避免逐文件反复扫描全部任务。
 
 * 数据集订阅的批量启动
 
