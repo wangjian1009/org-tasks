@@ -24,7 +24,7 @@ function fixture(shared = {}) {
   const native = shared.native ?? { events: new Map(), calendars: [], next: 1 };
   const calls = [], listeners = new Set(), timers = new Map();
   let tasks = [], view = [], ready = true, version = 1, dataError = '', permission = 'enabled';
-  let inventoryError, updateError, publishError, createGate, queryGate, queryError, starts = 0, closes = 0, creates = 0;
+  let inventoryError, updateError, deleteError, publishError, createGate, queryGate, queryError, starts = 0, closes = 0, creates = 0;
   class Clock extends Date { static now() { return clock.now; } }
   const calendar = native.calendar = {
     id: 15, getAccount: () => ({ name: 'org-tasks.reminders', type: 0 }),
@@ -47,7 +47,7 @@ function fixture(shared = {}) {
       if (updateError) throw updateError;
       assert(native.events.has(event.id)); native.events.set(event.id, structuredClone(event)); calls.push(['update', event.id]);
     },
-    async deleteEvent(id) { assert(native.events.has(id)); native.events.delete(id); calls.push(['delete', id]); }
+    async deleteEvent(id) { if (deleteError) throw deleteError; assert(native.events.has(id)); native.events.delete(id); calls.push(['delete', id]); }
   };
   native.calendars = native.calendars.map(previous => previous.getAccount().name === 'org-tasks.reminders' ? calendar : previous);
   const kit = { calendarManager: { EventFilter: { filterById: ids => ({ ids }), filterByTime: (start, end) => ({ start, end }) }, CalendarType: { LOCAL: 0 }, EventType: { NORMAL: 0 }, getCalendarManager() { return {
@@ -95,7 +95,7 @@ function fixture(shared = {}) {
     tasks(value) { tasks = value.map(task => ({ ...task })); view = value; },
     emit(value, optimistic = false) { if (!optimistic) tasks = value.map(task => ({ ...task })); view = value; for (const listener of listeners) listener({ optimistic }); },
     ready(value) { ready = value; }, version(value) { version = value; }, error(value) { dataError = value; }, permission(value) { permission = value; },
-    inventoryError(value) { inventoryError = value; }, updateError(value) { updateError = value; }, publishError(value) { publishError = value; },
+    inventoryError(value) { inventoryError = value; }, updateError(value) { updateError = value; }, deleteError(value) { deleteError = value; }, publishError(value) { publishError = value; },
     holdCreate(value) { createGate = value; }, holdQuery(value) { queryGate = value; }, queryError(value) { queryError = value; },
     refresh: async () => { await app.start().catch(() => {}); await service.refresh(); }, async settle() { await tick(); await service.refresh(); },
     creates: () => creates, starts: () => starts, closes: () => closes,
@@ -331,4 +331,92 @@ test('停止管理器后拒绝仍在读取系统的旧结果', async () => {
   let release; f.holdQuery(new Promise(resolve => release = resolve));
   const result = f.service.checkRegistered(task); await tick(); await f.service.stop(); release();
   await assert.rejects(result, /已停止/);
+});
+
+test('操作日志记录启动同步与任务修改，包含系统增删改、提醒新旧时间且按最新在前排列', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); await f.refresh();
+  let logs = f.service.operationLogs(); assert.equal(logs.length, 1);
+  assert.equal(logs[0].operation, '新增'); assert.equal(logs[0].trigger, '启动同步');
+  assert.equal(logs[0].heading, task.heading); assert.equal(logs[0].reminderAt, task.reminderAt);
+  assert.equal(logs[0].eventId, [...f.native.events.keys()][0]); assert.equal(logs[0].succeeded, true);
+  const previous = task.reminderAt; task.reminderAt += 60000; f.emit([task]); await f.settle();
+  logs = f.service.operationLogs(); assert.equal(logs[0].operation, '修改'); assert.equal(logs[0].trigger, '任务修改');
+  assert.equal(logs[0].previousReminderAt, previous); assert.equal(logs[0].reminderAt, task.reminderAt);
+  f.emit([]); await f.settle(); logs = f.service.operationLogs();
+  assert.deepEqual(Array.from(logs, item => item.operation), ['删除', '修改', '新增']);
+  assert.deepEqual(Array.from(logs, item => item.id), [3, 2, 1]); assert.equal(logs[0].trigger, '任务修改');
+  const snapshot = f.service.operationLogs(); snapshot.pop(); assert.equal(f.service.operationLogs().length, 3);
+});
+
+test('无变化同步、状态查询和乐观修改不记录操作日志；日志订阅实时更新且可解除', async () => {
+  const f = fixture(), task = f.task(); let notifications = 0;
+  const stop = f.service.subscribeOperations(() => notifications++);
+  f.tasks([task]); await f.refresh(); assert.equal(notifications, 1);
+  await f.refresh(); await f.service.checkRegistered(task); f.emit([], true); await f.settle();
+  assert.equal(f.service.operationLogs().length, 1); assert.equal(notifications, 1);
+  stop(); f.emit([]); await f.settle(); assert.equal(f.service.operationLogs().length, 2); assert.equal(notifications, 1);
+  await f.service.stop(); assert.equal(f.service.operationLogs().length, 0);
+  const restarted = fixture(f.shared()); assert.equal(restarted.service.operationLogs().length, 0);
+});
+
+test('失败写入保留原因与错误码，恢复重试单独记录；设置开关删除事件标明设置变更', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); await f.refresh();
+  task.reminderAt += 60000; f.updateError(Object.assign(new Error('系统更新失败'), { code: 23900004 }));
+  f.emit([task]); await tick();
+  let latest = f.service.operationLogs()[0]; assert.equal(latest.operation, '修改'); assert.equal(latest.succeeded, false);
+  assert.equal(latest.trigger, '任务修改'); assert.match(latest.error, /系统更新失败.*23900004/);
+  f.updateError(undefined); await f.service.refresh('恢复同步'); latest = f.service.operationLogs()[0];
+  assert.equal(latest.operation, '修改'); assert.equal(latest.succeeded, true); assert.equal(latest.trigger, '恢复同步');
+  await f.service.setEnabled(false); await f.settle(); latest = f.service.operationLogs()[0];
+  assert.equal(latest.operation, '删除'); assert.equal(latest.trigger, '设置变更'); assert.equal(latest.succeeded, true);
+});
+
+test('启动清理失效和重复事件时每次系统删除均记录日志，不记录外来事件', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); await f.refresh(); await f.service.stop();
+  const event = [...f.native.events.values()][0], duplicate = f.native.next++;
+  f.native.events.set(duplicate, { ...structuredClone(event), id: duplicate });
+  const foreign = f.native.next++; f.native.events.set(foreign, { id: foreign, title: '外来事件', identifier: '外来事件' });
+  const resumed = fixture(f.shared()); resumed.tasks([]); await resumed.refresh();
+  const logs = resumed.service.operationLogs(); assert.equal(logs.length, 2);
+  assert.ok(logs.every(log => log.operation === '删除' && log.trigger === '启动同步' && log.succeeded));
+  assert.ok(!logs.some(log => log.eventId === foreign));
+});
+
+test('日志最多保留最近 500 项，停止期间成功的迟到写入不带入新会话', async () => {
+  const f = fixture(); const tasks = Array.from({ length: 501 }, (_, index) => f.task(`任务${index}`));
+  f.tasks(tasks); await f.refresh(); const logs = f.service.operationLogs();
+  assert.equal(logs.length, 500); assert.equal(logs[0].id, 501); assert.equal(logs[499].id, 2);
+  let release; f.holdCreate(new Promise(resolve => release = resolve)); f.emit([...tasks, f.task('迟到')]); await tick();
+  const stopping = f.service.stop(); release(); await stopping;
+  assert.equal(f.service.operationLogs().length, 0);
+});
+
+
+test('新增与删除失败分别记录结果，失败删除保留系统事件并可恢复', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); f.publishError(new Error('系统新增失败')); await f.refresh();
+  let latest = f.service.operationLogs()[0]; assert.equal(latest.operation, '新增'); assert.equal(latest.succeeded, false);
+  assert.equal(latest.eventId, null); assert.match(latest.error, /系统新增失败/);
+  f.publishError(undefined); await f.refresh(); const eventId = [...f.native.events.keys()][0];
+  f.deleteError(new Error('系统删除失败')); f.emit([]); await tick(); latest = f.service.operationLogs()[0];
+  assert.equal(latest.operation, '删除'); assert.equal(latest.succeeded, false); assert.equal(latest.eventId, eventId);
+  assert.match(latest.error, /系统删除失败/); assert.equal(f.native.events.size, 1);
+  f.deleteError(undefined); await f.service.refresh(); latest = f.service.operationLogs()[0];
+  assert.equal(latest.operation, '删除'); assert.equal(latest.succeeded, true); assert.equal(f.native.events.size, 0);
+});
+
+test('系统写入等待期间的新触发原因不会覆盖旧批次的操作原因', async () => {
+  const f = fixture(), task = f.task(); f.tasks([]); await f.refresh();
+  let release; f.holdCreate(new Promise(resolve => release = resolve)); f.emit([task]); await tick();
+  const refresh = f.service.refresh('设置变更'); release(); await refresh;
+  const logs = f.service.operationLogs(); assert.equal(logs.length, 1);
+  assert.equal(logs[0].operation, '新增'); assert.equal(logs[0].trigger, '任务修改');
+});
+
+
+test('首次授权并启用导致的系统写入标明设置变更，不误记为启动同步', async () => {
+  const f = fixture(), task = f.task(); f.tasks([task]); f.config.enabled = false; f.permission('disabled'); await f.refresh();
+  assert.equal(f.service.operationLogs().length, 0);
+  f.permission('enabled'); await f.service.setEnabled(true); await f.settle();
+  const logs = f.service.operationLogs(); assert.equal(logs.length, 1);
+  assert.equal(logs[0].operation, '新增'); assert.equal(logs[0].trigger, '设置变更');
 });

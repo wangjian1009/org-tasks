@@ -1,3 +1,4 @@
+import { BusinessError } from '@kit.BasicServicesKit'
 import { Context } from '@kit.AbilityKit'
 import { calendarManager } from '@kit.CalendarKit'
 import { cryptoFramework } from '@kit.CryptoArchitectureKit'
@@ -10,6 +11,16 @@ const DISPLAY_NAME = '小清单提醒'
 const EVENT_DURATION = 60 * 1000
 
 export interface ReminderCheckResult { registered: boolean; reason: string }
+export interface CalendarOperation {
+  readonly operation: '新增' | '修改' | '删除'
+  readonly heading: string
+  readonly reminderAt: number
+  readonly previousReminderAt: number | null
+  readonly eventId: number | null
+  readonly succeeded: boolean
+  readonly error: string
+}
+export type CalendarOperationRecorder = (operation: CalendarOperation) => void
 
 interface EventMarker { owner: string; taskKey: string; contentHash: string }
 interface MarkedEvent { event: calendarManager.Event; marker?: EventMarker }
@@ -99,7 +110,7 @@ export class CalendarSync {
     } catch (error) { throw error as Error }
   }
 
-  async synchronize(tasks: CoreTask[], enabled: boolean, current: () => boolean): Promise<boolean> {
+  async synchronize(tasks: CoreTask[], enabled: boolean, current: () => boolean, record: CalendarOperationRecorder): Promise<boolean> {
     try {
       this.initialized = false
       const desired: Map<string, DesiredEvent> = new Map()
@@ -130,15 +141,15 @@ export class CalendarSync {
       if (!current()) return false
       for (const item of desired.values()) {
         if (!current()) return false
-        await this.upsertDesired(item, current)
+        await this.upsertDesired(item, current, record)
       }
       for (const entry of Array.from(this.events.entries())) {
         if (!current()) return false
-        if (!desired.has(entry[0])) await this.delete(entry[0])
+        if (!desired.has(entry[0])) await this.delete(entry[0], record)
       }
       while (this.duplicates.length) {
         if (!current()) return false
-        await this.calendar!.deleteEvent(this.duplicates[0].id!)
+        await this.removeEvent(this.duplicates[0], record)
         this.duplicates.shift()
       }
       this.initialized = current()
@@ -146,7 +157,7 @@ export class CalendarSync {
     } catch (error) { this.invalidate(); throw error as Error }
   }
 
-  async apply(removed: CoreTask[], changed: CoreTask[], current: () => boolean): Promise<boolean> {
+  async apply(removed: CoreTask[], changed: CoreTask[], current: () => boolean, record: CalendarOperationRecorder): Promise<boolean> {
     try {
       if (!this.initialized) throw new Error('日历事件尚未完成初次同步')
       const prepared: DesiredEvent[] = []
@@ -155,45 +166,67 @@ export class CalendarSync {
       for (const task of removed) removedKeys.push(await sha256(task.id))
       for (const item of prepared) {
         if (!current()) { this.initialized = false; return false }
-        await this.upsertDesired(item, current)
+        await this.upsertDesired(item, current, record)
       }
       for (const taskKey of removedKeys) {
         if (!current()) { this.initialized = false; return false }
-        await this.delete(taskKey)
+        await this.delete(taskKey, record)
       }
       this.initialized = current()
       return this.initialized
     } catch (error) { this.invalidate(); throw error as Error }
   }
 
-  private async upsertDesired(item: DesiredEvent, current: () => boolean): Promise<void> {
+  private async upsertDesired(item: DesiredEvent, current: () => boolean, record: CalendarOperationRecorder): Promise<void> {
     try {
       const existing = this.events.get(item.marker.taskKey)
       if (item.event.startTime <= Date.now()) {
         // 已触发的同一事件保留到任务结束；不新建过去的提醒，也不把改期到过去的事件补发。
-        if (existing && (existing.startTime > Date.now() || existing.identifier !== item.event.identifier)) await this.delete(item.marker.taskKey)
+        if (existing && (existing.startTime > Date.now() || existing.identifier !== item.event.identifier)) await this.delete(item.marker.taskKey, record)
         return
       }
       if (!current()) return
       if (!this.calendar) throw new Error('应用提醒日历不可用')
       if (this.calendar.getConfig().enableReminder === false) throw new Error('请在系统日历中开启“小清单提醒”的提醒')
       if (existing && sameEvent(existing, item.event)) return
-      if (existing) { item.event.id = existing.id; await this.calendar.updateEvent(item.event) }
-      else item.event.id = await this.calendar.addEvent(item.event)
+      if (existing) {
+        item.event.id = existing.id
+        await this.writeEvent('修改', item.event, existing.startTime, record, async (): Promise<void> => { await this.calendar!.updateEvent(item.event) })
+      } else {
+        await this.writeEvent('新增', item.event, null, record, async (): Promise<void> => { item.event.id = await this.calendar!.addEvent(item.event) })
+      }
       // 即使等待系统写入期间来源换代，也记录已成功的实际 ID，供下一批增量继续处理。
       this.events.set(item.marker.taskKey, item.event)
 
     } catch (error) { throw error as Error }
   }
 
-  private async delete(taskKey: string): Promise<void> {
+  private async delete(taskKey: string, record: CalendarOperationRecorder): Promise<void> {
     try {
       const existing = this.events.get(taskKey)
       if (!existing) return
       if (!this.calendar) throw new Error('应用提醒日历不可用')
-      await this.calendar.deleteEvent(existing.id!)
+      await this.removeEvent(existing, record)
       this.events.delete(taskKey)
 
     } catch (error) { throw error as Error }
+  }
+
+  private async removeEvent(event: calendarManager.Event, record: CalendarOperationRecorder): Promise<void> {
+    await this.writeEvent('删除', event, null, record, async (): Promise<void> => { await this.calendar!.deleteEvent(event.id!) })
+  }
+
+  private async writeEvent(operation: '新增' | '修改' | '删除', event: calendarManager.Event,
+    previousReminderAt: number | null, record: CalendarOperationRecorder, write: () => Promise<void>): Promise<void> {
+    try { await write() }
+    catch (error) {
+      const code = (error as BusinessError).code
+      record({ operation, heading: event.title ?? '', reminderAt: event.startTime, previousReminderAt,
+        eventId: event.id ?? null, succeeded: false,
+        error: `${(error as Error).message || '系统日历写入失败'}${code === undefined ? '' : `（错误码 ${code}）`}` })
+      throw error as Error
+    }
+    record({ operation, heading: event.title ?? '', reminderAt: event.startTime, previousReminderAt,
+      eventId: event.id ?? null, succeeded: true, error: '' })
   }
 }

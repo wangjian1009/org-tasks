@@ -1,3 +1,4 @@
+import { ReminderOperationList } from '../components/ReminderOperationList'
 import { SettingsAutoSave } from '../services/SettingsAutoSave'
 import { ReminderManager, TaskReminderConfiguration, CalendarPermissionState } from '../services/ReminderManager'
 import { TaskReminderList } from '../components/TaskReminderList'
@@ -186,6 +187,7 @@ struct Settings {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
     if (this.preferenceSave.hasPending()) { this.preferenceSave.flush().then((): void => { this.onBackPress() }); return true }
+    if (this.section === '提醒操作日志') { this.section = '任务提醒'; this.message = ''; return true }
     if (this.section) { this.section = ''; this.message = ''; return true }
     PageNavigator.shared.back(this.getUIContext())
     return true
@@ -359,6 +361,8 @@ struct Settings {
       Text(this.reminderSummary).id('reminder_service_status').fontSize(13).fontColor(UiColor.secondary)
         .width('100%').padding({ left: 16, right: 16, top: 4, bottom: 12 })
       SettingsRow({ title: '日历授权', value: this.calendarDetail(), action: (): void => { this.manageCalendar() } })
+      SettingsRow({ title: '提醒操作日志', icon: $r('app.media.nav_logbook'), divider: false,
+        action: (): void => { this.openSection('提醒操作日志') } }).id('reminder_operation_entry')
     }
     SettingsGroup({ title: '有提醒的任务', detail: '与全局事件管理器共用同一任务数据集，展示设置了提醒时间的未完成任务，保留提醒时间已过的记录，排除完成和取消状态；按提醒时间排序，点击可修改或清除。' }) {
       TaskReminderList()
@@ -453,6 +457,11 @@ struct Settings {
                 LoadingProgress().width(32).height(32).color(UiColor.primary).margin(24)
               } else if (!this.section) { this.homepage() }
               else if (this.section === '任务提醒') { this.taskReminderSettings() }
+              else if (this.section === '提醒操作日志') {
+                SettingsGroup({ title: '本次运行', detail: '按最新操作在前显示系统提醒的新增、修改和删除记录，包括触发原因、执行结果和失败原因。仅保留本次运行的最近 500 条记录，重启应用后清空。' }) {
+                  ReminderOperationList()
+                }
+              }
               else if (this.section === '废纸篓') { this.trashSettings() }
               else if (this.section === '文件入口') { this.fileEntries() }
               else if (this.section === '任务状态分类') { this.categories() }

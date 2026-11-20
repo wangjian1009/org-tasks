@@ -31,7 +31,7 @@ JSON 修改项为 ~{"field":"SET_REMINDER","value":1795136400000}~ 或 ~{"field"
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{FilterTask}{reminder\_at : Option of TimestampMs}{reminder\_at()}
 \umlclass[x=7,y=0]{DataSet}{已确认快照和增量}{subscribe()}
-\umlclass[x=0,y=-4]{ReminderManager}{共享来源订阅 \\ 上次已应用快照}{register() \\ checkRegistered() \\ maintain()}
+\umlclass[x=0,y=-4]{ReminderManager}{共享来源订阅 \\ 上次已应用快照 \\ 内存操作日志}{register() \\ checkRegistered() \\ operationLogs() \\ maintain()}
 \umlclass[x=7,y=-4]{CalendarSync}{仅内存的事件索引}{synchronize() \\ apply()}
 \umlclass[x=0,y=-8]{AppDataManager}{唯一应用 DataSetManager}{start() \\ close()}
 \umlcompo{AppDataManager}{DataSet}
@@ -79,9 +79,19 @@ Core 逻辑身份不要求 Org 中存在 ID 属性；哈希仅用于日历标记
 
 提醒列表保留已过期但未完成的任务。点击任务使用既有日期时间控件修改或清除 ~SET_REMINDER~ ，不重复提交其他字段；完成和取消后由 Core 查询成员变化实时移出。列表的加载、错误重试和空态只影响展示，不关闭或重建全局事件管理器。
 
-设置页只调用 ~ReminderManager.configuration()~ 、 ~setEnabled()~ 、 ~permissionState()~ 和 ~managePermission()~ ；Preferences 与平台权限实现由管理器封装。启用时先申请日历读写权限，拒绝授权不保存开启值；保存成功后异步维护事件。
+设置页只调用 ~ReminderManager.configuration()~ 、 ~setEnabled()~ 、 ~permissionState()~ 和 ~managePermission()~ ，日志列表调用 ~operationLogs()~ 和 ~subscribeOperations()~ ；Preferences 与平台权限实现由管理器封装。启用时先申请日历读写权限，拒绝授权不保存开启值；保存成功后异步维护事件。
 
 本机偏好只有 Preferences ~org_tasks_reminders~ 的 ~enabled~ 键。移除代理提醒恢复日志和日历 eventId 映射的读写，不保留旧后端的运行时分支。事件同步不弹出权限窗口；日历授权仅在设置页明确操作时请求。
+
+* 内存操作日志
+
+~ReminderManager~ 维护本次运行的提醒操作日志，通过 ~operationLogs()~ 取得最新在前的只读记录快照，~subscribeOperations()~ 独立通知列表变化，不触发任务状态检查或 Core 查询。最多保留最近 500 条，停止管理器或重启应用后清空；不写 Preferences、页面缓存、Org、Core 同步记录或 WebDAV。
+
+每次实际调用系统日历的新增、修改或删除接口后记录一条结果，成功和失败均保留。字段包括稳定递增序号、操作时间、操作类型、触发原因、任务标题、提醒时间、修改前的提醒时间、系统事件 ID、成功标记及错误原因。失败保留平台消息与错误码；恢复重试另记一条，不覆盖失败记录。启动清理失效及重复事件同样逐次记录；只读库存、单项核实、无变化同步、跳过过去提醒和乐观修改不生成操作日志。已经写入成功但来源换代的操作仍如实记录，停止后的迟到回调不进入下一次会话。
+
+触发原因随维护批次固定，包括“启动同步”“任务修改”“设置变更”和“恢复同步”。正常启动的首次有效维护标记为启动同步，由首次启用或恢复授权触发的维护仍标记为设置变更；来源 DataSet 确认变化标记为任务修改；开关和日历授权变化标记为设置变更；后续恢复核对标记为恢复同步。等待系统写入期间发生的新变化不能改写旧批次的触发原因。
+
+设置 → 应用程序 → 任务提醒在日历授权下方提供“提醒操作日志”，进入同页只读列表。列表显示操作与成功／失败、任务、触发原因、操作时间和提醒时间；改期显示旧时间到新时间，失败展示完整原因。没有记录时显示“本次运行暂无提醒操作记录”，不显示加载转盘。打开、返回和关闭日志仅管理展示订阅，不重新同步提醒；返回先回到任务提醒设置。
 
 * 单项系统登记检查与展开状态
 
