@@ -299,6 +299,29 @@ async fn loki_insert_before_source_preserves_later_fields_in_the_same_modificati
 }
 
 #[tokio::test]
+async fn loki_spawn_created_event_keeps_the_target_reminder_clock_when_source_clock_differs() {
+    let source = "* TODO Task\nSCHEDULED: <2026-11-01 Sun 15:00>\n:PROPERTIES:\n:TRIGGER: next-sibling loki-spawn-next!(source \"+6m\")\n:END:\n* TODO Target\nSCHEDULED: <2026-11-10 Tue 08:00>\n:PROPERTIES:\n:REMIND_AT: [2026-11-09 Mon 10:00]\n:END:\n目标原文  \n";
+    let f = Fixture::new(&[("tasks.org", source)]).await;
+    let changes = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = changes.clone();
+    let _subscription = f.workspace.watch_data_changes(move |event| {
+        let DataChangeEvent::NotificationEvent { changes, .. } = event;
+        observed.lock().unwrap().extend(changes);
+    });
+    f.workspace.execute_task_operations(&f.group().await).await.unwrap();
+    let expected = chrono::Local.with_ymd_and_hms(2027, 4, 30, 10, 0, 0).earliest().unwrap().timestamp_millis();
+    let changes = changes.lock().unwrap();
+    let created = changes.iter().find(|change| change.kind == TaskDataChangeKind::Created).unwrap();
+    assert_eq!(created.after.as_ref().unwrap().task.reminder_at(), Some(expected));
+    drop(changes);
+    let after = f.source();
+    assert!(after.contains("SCHEDULED: <2027-05-01 Sat 15:00>"));
+    assert!(after.contains(":REMIND_AT: [2027-04-30 Fri 10:00]"));
+    assert!(after.contains("* TODO Target\nSCHEDULED: <2026-11-10 Tue 08:00>\n:PROPERTIES:\n:REMIND_AT: [2026-11-09 Mon 10:00]\n:END:\n目标原文  \n"));
+    f.assert_one_commit(source).await;
+}
+
+#[tokio::test]
 async fn loki_spawn_reminder_failure_rolls_back_completion_creation_and_notifications() {
     for (planning, reminder, trigger) in [
         ("<9999-12-30 Thu 10:00>", "[9999-12-31 Fri 11:00]", "self loki-spawn-next!(source \"+1d\")"),

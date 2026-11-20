@@ -327,7 +327,7 @@ pub(super) fn modify_without_triggers_with_note(
         Vec::new()
     };
     let repeating = !repeated.is_empty();
-    let reminder_offset = if repeating { repeat_reminder_offset(file, headline) } else { None };
+    let reminder_shift = if repeating { repeat_reminder_shift(file, headline) } else { None };
     let repeat_state = if repeating {
         repeat_state(file, headline, previous.as_deref())?
     } else {
@@ -345,10 +345,10 @@ pub(super) fn modify_without_triggers_with_note(
     for (range, value) in repeated.into_iter().rev() {
         replace(file, range, value.as_bytes())?;
     }
-    if let Some((kind, offset_ms)) = reminder_offset {
+    if let Some((kind, previous, reminder)) = reminder_shift {
         let updated = node_at(file, offset)?;
-        let next = planning_start_time(file, &updated, kind)
-            .and_then(|time| time.checked_add(offset_ms))
+        let next = planning_start(file, &updated, kind)
+            .and_then(|next| shift_reminder(reminder, previous, next))
             .ok_or(CoreError::InvalidInput("重复提醒时间超出有效日期范围"))?;
         super::task_operation_executor::modify(file, &updated, &super::TaskModification::SetReminder(Some(next)))?;
     }
@@ -912,21 +912,28 @@ fn repeat_timestamps(headline: &Headline) -> BTreeMap<usize, (usize, String)> {
     timestamps
 }
 
-// 复用规划投影和属性时间解析；只以带重复器的规划起始时刻计算固定时间差。
-pub(super) fn planning_start_time(file: &OrgFile, headline: &Headline, kind: SyntaxKind) -> Option<i64> {
+// 复用规划投影，保留本地日期与时刻，避免跨夏令时按固定毫秒差推进。
+pub(super) fn planning_start(file: &OrgFile, headline: &Headline, kind: SyntaxKind) -> Option<NaiveDateTime> {
     let info = super::task_repeat::planning_info(file, headline, kind)?;
     let date = NaiveDate::parse_from_str(&info.date, "%Y-%m-%d").ok()?;
     let time = info.time.map(|time| NaiveTime::parse_from_str(&time.start, "%H:%M")).transpose().ok()?
         .unwrap_or(NaiveTime::MIN);
-    Local.from_local_datetime(&date.and_time(time)).earliest().map(|time| time.timestamp_millis())
+    Some(date.and_time(time))
 }
 
-fn repeat_reminder_offset(file: &OrgFile, headline: &Headline) -> Option<(SyntaxKind, i64)> {
+// 日期间隔保持提醒的本地时分；小时重复仍按本地小时推进。
+pub(super) fn shift_reminder(reminder: i64, previous: NaiveDateTime, next: NaiveDateTime) -> Option<i64> {
+    let reminder = Local.timestamp_millis_opt(reminder).single()?.naive_local();
+    let shifted = reminder.checked_add_signed(next.signed_duration_since(previous))?;
+    Local.from_local_datetime(&shifted).earliest().map(|time| time.timestamp_millis())
+}
+
+fn repeat_reminder_shift(file: &OrgFile, headline: &Headline) -> Option<(SyntaxKind, NaiveDateTime, i64)> {
     let reminder = crate::filter::property_time(&metadata_node(file, headline), super::properties::REMINDER_PROPERTY)?.1;
     for kind in [SyntaxKind::PLANNING_DEADLINE, SyntaxKind::PLANNING_SCHEDULED] {
         let Some(raw) = super::task_repeat::planning_timestamp(file, headline, kind) else { continue };
         if raw.starts_with('<') && repeater(&raw).is_some() {
-            return Some((kind, reminder.checked_sub(planning_start_time(file, headline, kind)?)?));
+            return Some((kind, planning_start(file, headline, kind)?, reminder));
         }
     }
     None
@@ -950,10 +957,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn repeat_completion_moves_reminder_by_the_repeating_planning_offset() {
+    fn repeat_completion_moves_reminder_by_the_local_planning_interval() {
         let now = NaiveDateTime::parse_from_str("2026-11-17 12:00", "%Y-%m-%d %H:%M").unwrap();
         for (planning, reminder, expected, expected_planning) in [
             ("SCHEDULED: <2026-11-10 Tue 10:00 +1d>", "[2026-11-10 Tue 09:00]", "[2026-11-11 Wed 09:00]", "SCHEDULED: <2026-11-11 Wed 10:00 +1d>"),
+            ("SCHEDULED: <2026-03-07 Sat 10:00 +1d>", "[2026-03-07 Sat 10:00]", "[2026-03-08 Sun 10:00]", "SCHEDULED: <2026-03-08 Sun 10:00 +1d>"),
+            ("SCHEDULED: <2026-10-31 Sat 10:00 +1d>", "[2026-10-31 Sat 10:00]", "[2026-11-01 Sun 10:00]", "SCHEDULED: <2026-11-01 Sun 10:00 +1d>"),
             ("DEADLINE: <2026-11-10 Tue 10:00 +1w>", "[2026-11-09 Mon 09:00]", "[2026-11-16 Mon 09:00]", "DEADLINE: <2026-11-17 Tue 10:00 +1w>"),
             ("SCHEDULED: <2026-11-10 Tue 10:00 +1d> DEADLINE: <2026-11-10 Tue 10:00 +1w>", "[2026-11-10 Tue 09:00]", "[2026-11-17 Tue 09:00]", "SCHEDULED: <2026-11-11 Wed 10:00 +1d> DEADLINE: <2026-11-17 Tue 10:00 +1w>"),
             ("SCHEDULED: <2026-11-10 Tue 10:00 +1d> DEADLINE: <2026-12-01 Tue 10:00>", "[2026-11-10 Tue 09:00]", "[2026-11-11 Wed 09:00]", "DEADLINE: <2026-12-01 Tue 10:00>"),

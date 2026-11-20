@@ -89,12 +89,14 @@ fn loki_spawn_accepts_relative_intervals_and_preserves_the_selected_clock() {
 }
 
 #[test]
-fn loki_spawn_transfers_the_targets_reminder_offset_to_the_new_schedule() {
+fn loki_spawn_preserves_the_targets_reminder_clock_and_day_offset() {
     for (trigger, planning, reminder, expected) in [
         ("self loki-spawn-next!(today \"+6m\")", "<2026-11-10 Tue 10:00>", "[2026-11-10 Tue 09:00]", "[2027-05-19 Wed 09:00]"),
         ("self loki-spawn-next!(source mon wed fri)", "<2026-11-13 Fri 10:00>", "[2026-11-13 Fri 09:30]", "[2026-11-16 Mon 09:30]"),
         ("self loki-spawn-next!(target \"+1d\")", "<2026-11-13 Fri 10:00-11:00>", "[2026-11-13 Fri 11:30]", "[2026-11-14 Sat 11:30]"),
         ("self loki-spawn-next!(target \"+1d\")", "<2026-11-13 Fri>", "[2026-11-12 Thu 23:30]", "[2026-11-13 Fri 23:30]"),
+        ("self loki-spawn-next!(target \"+1d\")", "<2026-03-07 Sat 10:00>", "[2026-03-07 Sat 10:00]", "[2026-03-08 Sun 10:00]"),
+        ("self loki-spawn-next!(target \"+1d\")", "<2026-10-31 Sat 10:00>", "[2026-10-31 Sat 10:00]", "[2026-11-01 Sun 10:00]"),
     ] {
         let source = format!("* TODO Task\r\nSCHEDULED: {planning}\r\n:PROPERTIES:\r\n:TRIGGER: {trigger}\r\n:REMIND_AT: {reminder}\r\n:KEEP: source\r\n:END:\r\n正文  \r\n* Tail\r\n");
         let mut file = OrgFile::new("repo".into(), "tasks.org".into(), source.as_bytes().to_vec()).unwrap();
@@ -116,7 +118,7 @@ fn loki_spawn_source_base_uses_the_targets_reminder_not_the_sources() {
     let now = NaiveDateTime::parse_from_str("2026-11-19 12:34", "%Y-%m-%d %H:%M").unwrap();
     Context::new(&mut file, now, 0).todo(0, Some("DONE")).unwrap();
     let nodes = file.nodes();
-    assert_eq!(nodes[2].property("REMIND_AT"), Some("[2027-05-01 Sat 14:00]"));
+    assert_eq!(nodes[2].property("REMIND_AT"), Some("[2027-05-01 Sat 09:00]"));
     assert_eq!(nodes[1].property("REMIND_AT"), Some("[2026-11-10 Tue 09:00]"));
 }
 

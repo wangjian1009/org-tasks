@@ -1,7 +1,7 @@
 //! Loki 星期排程、相对日期后继创建；与普通修改共用日期编辑和创建原语。
 use super::{Call, Context, Result, Value, error, start, time};
 use crate::model::{TaskCreation, TaskPlanningEdit, TaskPlanningTime, TaskPosition};
-use chrono::{Datelike, Local, NaiveTime, TimeZone};
+use chrono::{Datelike, NaiveTime};
 use orgize::SyntaxKind;
 
 struct Rule<'a> {
@@ -176,20 +176,20 @@ impl Context<'_> {
         let reminder = crate::filter::property_time(
             &super::metadata_node(self.file, &node), crate::model::properties::REMINDER_PROPERTY,
         );
-        let reminder_offset = if let Some((_, reminder)) = reminder {
-            // 提醒属于复制目标；目标没有计划时，以动作的自然日／来源计划作为基准。
-            let base = crate::model::task_state::planning_start_time(self.file, &node, SyntaxKind::PLANNING_SCHEDULED)
+        let reminder_shift = if let Some((_, reminder)) = reminder {
+            // 提醒属于复制目标，只迁移自然日差，保留目标提醒自身的时分。
+            // 目标没有计划时，以动作的自然日／来源计划作为基准。
+            let base = crate::model::task_state::planning_start(self.file, &node, SyntaxKind::PLANNING_SCHEDULED)
                 .or_else(|| {
                     if rule.base == "today" {
-                        Local.from_local_datetime(&self.now.date().and_time(NaiveTime::MIN)).earliest()
-                            .map(|time| time.timestamp_millis())
+                        Some(self.now.date().and_time(NaiveTime::MIN))
                     } else {
                         self.node(source).ok().and_then(|source| {
-                            crate::model::task_state::planning_start_time(self.file, &source, SyntaxKind::PLANNING_SCHEDULED)
+                            crate::model::task_state::planning_start(self.file, &source, SyntaxKind::PLANNING_SCHEDULED)
                         })
                     }
                 }).ok_or(error("Loki 后继提醒缺少有效日期基准"))?;
-            Some(reminder.checked_sub(base).ok_or(error("Loki 后继提醒时间超出有效日期范围"))?)
+            Some((reminder, base.date().and_time(NaiveTime::MIN)))
         } else { None };
         let state = node.todo_keyword();
         let state = self
@@ -255,10 +255,12 @@ impl Context<'_> {
         if let Some(trigger) = trigger {
             self.set_property(next, "TRIGGER", &trigger)?;
         }
-        if let Some(offset) = reminder_offset {
+        if let Some((reminder, previous)) = reminder_shift {
             let node = self.node(next)?;
-            let reminder = crate::model::task_state::planning_start_time(self.file, &node, SyntaxKind::PLANNING_SCHEDULED)
-                .and_then(|base| base.checked_add(offset))
+            let reminder = crate::model::task_state::planning_start(self.file, &node, SyntaxKind::PLANNING_SCHEDULED)
+                .and_then(|next| crate::model::task_state::shift_reminder(
+                    reminder, previous, next.date().and_time(NaiveTime::MIN),
+                ))
                 .ok_or(error("Loki 后继提醒时间超出有效日期范围"))?;
             self.modify(next, super::TaskModification::SetReminder(Some(reminder)))?;
         }
