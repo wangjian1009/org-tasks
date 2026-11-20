@@ -94,7 +94,7 @@ test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终�
     const parts = new Map();
     const leaf = name => { const node = { parent: current() }; current().children.push(node); parts.set(name, node); };
     let expanded = 0;
-    const card = Object.assign(new module.exports.Card(), { expandOnRowClick: true, value: () => ({ state }),
+    const card = Object.assign(new module.exports.Card(), { value: () => ({ state }),
       observeComponentCreation2: callback => callback(1, true), ifElseBranchUpdateFunction: (_, callback) => callback(),
       compactTime() {}, leadingTime: () => false, stateIndicator: () => leaf('state'), toggle: () => expanded++,
       compactContent() { for (const name of ['title', 'link', 'priority', 'count', 'tag', 'repeat', 'indicator', 'duration', 'deadline', 'blank']) leaf(name); } });
@@ -108,8 +108,8 @@ test('今天页编译后的展开点击区覆盖全部内容，checkbox 始终�
       const before = expanded; gesture.action(); assert.equal(expanded, before + 1, name);
     }
     assert.equal(root.children[0].children.length, state === null ? 1 : 2);
-    root.children = []; card.expandOnRowClick = false; card.compactRow();
-    assert.equal(gestureFor(parts.get('title')), undefined, '未启用整行展开的入口保留原交互');
+    root.children = []; card.compactRow();
+    assert.equal(gestureFor(parts.get('title'))?.priority, 'high', '收起任务标题统一支持展开');
   }
 });
 

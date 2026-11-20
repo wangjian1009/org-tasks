@@ -379,7 +379,7 @@ export struct TaskPageContent {
             regionKeys: this.view === 'today' ? this.todayRegionKeys : [],
             todayFlag: this.view !== 'today',
             regionPreviewLimit: (this.view === 'anytime' || this.view === 'waiting') ? 3 : 0,
-            expandOnRowClick: this.view === 'today', dataSet: this.taskDataSet(),
+            dataSet: this.taskDataSet(),
             positionKey: this.view, readOnly: !this.pageReady })
         } else if (this.view === 'planned') {
           PlannedTaskList({ dataSet: this.taskDataSet(), readOnly: !this.pageReady, singleOperations: taskPageActionPolicy(this.view).singleOperations,

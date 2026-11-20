@@ -66,7 +66,6 @@ export struct TaskEditor {
   @Prop readOnly: boolean = false
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
   @Prop contentHidden: boolean = false
-  @Prop expandOnRowClick: boolean = false
   @Prop hiddenTags: string[] = []
   @Prop allowCompletion: boolean = false
   @Prop allowDeletion: boolean = false
@@ -1356,7 +1355,7 @@ export struct TaskEditor {
           }
         }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Start)
-          .onClick((): void => { this.toggleFromCompact() })
+          .onClick((): void => { if (!LinkEditController.interactionProtected()) this.toggleFromCompact() })
       }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(VerticalAlign.Center)
       if (titleCounts(this.value().headingParts).length > 0) {
         TitleCounts({ parts: this.value().headingParts, budget: this.countBudget() })
@@ -1424,8 +1423,7 @@ export struct TaskEditor {
 
   @Builder
   compactRow() {
-    if (this.expandOnRowClick) {
-      Row() {
+    Row() {
         if (this.leadingTime()) {
           Row() { this.compactTime() }.padding({ left: 8, right: 6 })
         }
@@ -1440,17 +1438,9 @@ export struct TaskEditor {
           .padding({ left: this.value().state === null ? (this.leadingTime() ? 0 : 8) : 6, right: 8 })
           .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
           // 整个内容区统一识别点击，避免子控件截获或重复触发展开；状态框位于手势区域之外。
-          .priorityGesture(TapGesture().onAction((): void => { this.toggleFromCompact() }), GestureMask.IgnoreInternal)
-      }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
-        .onTouch((event: TouchEvent) => { this.compactTouch(event) })
-    } else {
-      Row({ space: 6 }) {
-        this.compactTime()
-        this.stateIndicator()
-        this.compactContent()
-      }.width('100%').padding({ left: 8, right: 8 }).constraintSize({ minHeight: UiSize.taskRow })
-        .onTouch((event: TouchEvent) => { this.compactTouch(event) })
-    }
+          .priorityGesture(TapGesture().onAction((): void => { if (!LinkEditController.interactionProtected()) this.toggleFromCompact() }), GestureMask.IgnoreInternal)
+    }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
+      .onTouch((event: TouchEvent) => { this.compactTouch(event) })
   }
 
   @Builder

@@ -42,7 +42,6 @@ export struct TaskSwipeItem {
   @Prop selecting: boolean = false
   @Prop selectionBusy: boolean = false
   @Prop selectedIndex: number = -1
-  @Prop expandOnRowClick: boolean = false
   @Prop dateDisplay: TaskDateDisplay = TaskDateDisplay.None
   @Prop todayFlag: boolean = true
   @Prop timeDisplay: TaskTimeDisplay = TaskTimeDisplay.None
@@ -285,7 +284,7 @@ export struct TaskSwipeItem {
     TaskEditor({ dataSet: this.dataSet, taskId: this.taskId, controller,
       internalLinkProcessor: this.internalLinkProcessor,
       contentHidden: this.contentHidden, hiddenTags: this.hiddenTags, instanceKey: this.instanceKey,
-      readOnly: this.readOnly, expandOnRowClick: this.expandOnRowClick,
+      readOnly: this.readOnly,
       dateDisplay: this.dateDisplay, todayFlag: this.todayFlag, timeDisplay: this.timeDisplay, regionAreaPolicy: this.regionAreaPolicy,
       referenceTime: this.referenceTime, scrollHost: this.scrollHost, scrollHostId: this.scrollHostId })
   }
