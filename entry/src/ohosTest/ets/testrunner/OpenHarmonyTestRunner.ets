@@ -7,7 +7,7 @@ import { probeCalendarReminders } from './CalendarReminderProbe'
 
 interface EntryMonitor { abilityName: string }
 
-// 只向专用模拟器安装隔离数据；界面验收由宿主工具与 APP HTTP 接口完成。
+// 隔离数据只用于专用模拟器；显式 calendarProbe 使用独立日历，支持已授权真机诊断。
 export default class OpenHarmonyTestRunner implements TestRunner {
   onPrepare(): void {}
   onRun(): void {

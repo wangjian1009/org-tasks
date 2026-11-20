@@ -3,14 +3,14 @@ import { BusinessError } from '@kit.BasicServicesKit'
 import { CoreTask } from './NativeCoreService'
 import { DataSet, DataSetEvent } from './DataSet'
 import { CalendarPermissionService, CalendarPermissionState } from './CalendarPermissionService'
-import { CalendarSync, ReminderCheckResult, CalendarOperation } from './CalendarSync'
+import { CalendarSync, ReminderCheckResult, CalendarOperation, REMINDER_CLEANUP_DELAY } from './CalendarSync'
 import { TaskReminderSettings, TaskReminderConfiguration } from './TaskReminderSettings'
 
 export { TaskReminderConfiguration } from './TaskReminderSettings'
 export { CalendarPermissionState } from './CalendarPermissionService'
 export { ReminderCheckResult } from './CalendarSync'
 
-export type ReminderOperationTrigger = '启动同步' | '任务修改' | '设置变更' | '恢复同步'
+export type ReminderOperationTrigger = '启动同步' | '任务修改' | '设置变更' | '恢复同步' | '过期清理'
 export interface ReminderOperationLog extends CalendarOperation {
   readonly id: number
   readonly at: number
@@ -94,6 +94,7 @@ export class ReminderManager {
 
   // 合并同一任务的在途核实；每次展开仍读取系统状态，不把上次同步成功当成当前登记事实。
   static checkRegistered(task: CoreTask): Promise<ReminderCheckResult> {
+    if (task.reminderAt !== null && task.reminderAt !== undefined && task.reminderAt <= Date.now()) return Promise.resolve<ReminderCheckResult>({ registered: false, reason: '已过期' })
     const key = JSON.stringify([ReminderManager.generation, ReminderManager.revision, task.id, task.heading, task.reminderAt, task.state])
     const pending = ReminderManager.checks.get(key)
     if (pending) return pending
@@ -164,7 +165,7 @@ export class ReminderManager {
     if (task.reminderAt === null || task.reminderAt === undefined) return ''
     if (task.state === null) return '非任务记录不安排提醒'
     if (task.isDone()) return '任务已结束'
-    if (task.reminderAt <= Date.now()) return '提醒时间已过'
+    if (task.reminderAt <= Date.now()) return '已过期'
     const applied = ReminderManager.applied.get(task.id)
     if (applied && applied.heading === task.heading && applied.reminderAt === task.reminderAt &&
       ReminderManager.enabled && ReminderManager.permission === 'enabled' && ReminderManager.calendar?.isReady()) return '日历提醒已设置'
@@ -253,10 +254,15 @@ export class ReminderManager {
   private static updateTimer(tasks: CoreTask[]): void {
     if (ReminderManager.timer !== -1) clearTimeout(ReminderManager.timer)
     ReminderManager.timer = -1
-    const future = tasks.map(task => task.reminderAt!).filter(when => when > Date.now())
-    if (!future.length) return
+    const scheduledAt = Date.now()
+    const times = tasks.flatMap(task => [task.reminderAt!, task.reminderAt! + REMINDER_CLEANUP_DELAY]).filter(when => when > scheduledAt)
+    if (!times.length) return
     ReminderManager.timer = setTimeout((): void => {
-      ReminderManager.timer = -1; ReminderManager.publish(); ReminderManager.updateTimer(tasks)
-    }, Math.min(2147483647, Math.max(1, Math.min(...future) - Date.now() + 500)))
+      ReminderManager.timer = -1
+      const cleanupDue = tasks.some(task => task.reminderAt! + REMINDER_CLEANUP_DELAY > scheduledAt &&
+        task.reminderAt! + REMINDER_CLEANUP_DELAY <= Date.now())
+      if (cleanupDue) ReminderManager.schedule('过期清理')
+      else { ReminderManager.publish(); ReminderManager.updateTimer(tasks) }
+    }, Math.min(2147483647, Math.max(1, Math.min(...times) - scheduledAt + 500)))
   }
 }

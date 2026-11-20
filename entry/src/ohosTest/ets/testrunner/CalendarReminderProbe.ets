@@ -13,10 +13,11 @@ interface CalendarProbeReport {
 const NAME = 'org-tasks.calendar-probe'
 const MARKER = 'org-tasks-calendar-probe'
 
-// 仅在专用模拟器的测试入口运行；库存恢复、更新和实际投递使用独立日历。
+// 数据准备只用于专用模拟器；明确授权的真机诊断通过独立日历检查登记和实际投递。
 export async function probeCalendarReminders(context: common.Context, mode: string): Promise<void> {
   let stage = 'permission'
   try {
+    const creating = mode === 'create' || mode === 'create-long'
     if (await CalendarPermissionService.state() !== 'enabled') throw new Error('请先在应用设置中授予日历读写权限')
     stage = 'manager'
     const manager = calendarManager.getCalendarManager(context)
@@ -25,7 +26,7 @@ export async function probeCalendarReminders(context: common.Context, mode: stri
     const account = mode === 'events' ? 'org-tasks.reminders' : NAME
     stage = 'getCalendar'
     let calendar = mode === 'events' ? await manager.getCalendar({ name: account, type: calendarManager.CalendarType.LOCAL }) : calendars.find(value => value.getAccount().name === account)
-    if (!calendar && mode === 'create') {
+    if (!calendar && creating) {
       stage = 'createCalendar'
       calendar = await manager.createCalendar({ name: NAME, displayName: '小清单日历验收', type: calendarManager.CalendarType.LOCAL })
       stage = 'setConfig'
@@ -38,14 +39,14 @@ export async function probeCalendarReminders(context: common.Context, mode: stri
     if (calendar) {
       stage = 'getEvents'
       let events = await calendar.getEvents()
-      if (mode === 'cleanup' || mode === 'create') {
+      if (mode === 'cleanup' || creating) {
         for (const event of events) if (event.identifier?.startsWith(MARKER)) await calendar.deleteEvent(event.id!)
       }
-      if (mode === 'create') {
-        const target = Math.ceil((Date.now() + 60000) / 60000) * 60000
+      if (creating) {
+        const target = Math.ceil((Date.now() + (mode === 'create-long' ? 20000 : 60000)) / 60000) * 60000
         const identifier = `${MARKER}:${target}`
         const event: calendarManager.Event = { type: calendarManager.EventType.NORMAL, title: '日历提醒创建验收',
-          startTime: target, endTime: target + 60000, isAllDay: false, reminderTime: [0], identifier }
+          startTime: target, endTime: target + (mode === 'create-long' ? 30 * 60000 : 60000), isAllDay: false, reminderTime: [0], identifier }
         stage = 'addEvent'
         const id = await calendar.addEvent(event)
         stage = 'readBack'

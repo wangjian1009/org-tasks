@@ -69,11 +69,11 @@ function fixture(shared = {}) {
   const manager = { dataSet(name) { return dataSet; },
     async start() { starts++; if (dataError) throw new Error(dataError); }, async close() { closes++; } };
   const service = load('ReminderManager', {
-    './CalendarSync': { CalendarSync }, './CalendarPermissionService': { CalendarPermissionService: {
+    './CalendarSync': { CalendarSync, REMINDER_CLEANUP_DELAY: 30 * 60 * 1000 }, './CalendarPermissionService': { CalendarPermissionService: {
       async state() { return permission; }, async request() { return permission === 'enabled'; }, async manage() { permission = 'enabled'; }
     } },
     './TaskReminderSettings': { TaskReminderSettings: { async load() { return { ...config }; }, async save(_, value) { config.enabled = value.enabled; } } }
-  }, { Date: Clock, setTimeout(fn, delay) { const id = timers.size + 1; timers.set(id, { fn, delay }); return id; }, clearTimeout(id) { timers.delete(id); } });
+  }, { Date: Clock, setTimeout(fn, delay) { const id = timers.size + 1; timers.set(id, { fn: () => { timers.delete(id); fn(); }, delay }); return id; }, clearTimeout(id) { timers.delete(id); } });
   const taskQuery = () => ({ type: 'task', query: {} });
   const AppDataManager = load('AppDataManager', {
     './ReminderManager': { ReminderManager: service }, './AppConfigService': {},
@@ -194,7 +194,7 @@ test('系统写入失败不报告成功，下一次变更恢复后不重复创�
 
 test('过去的提醒不补发，已触发的事件保留，结束或清除后撤销', async () => {
   const f = fixture(), past = f.task('past', -60000), future = f.task(); f.tasks([past, future]); await f.refresh();
-  assert.equal(f.native.events.size, 1); assert.equal(f.service.status(past), '提醒时间已过');
+  assert.equal(f.native.events.size, 1); assert.equal(f.service.status(past), '已过期');
   f.clock.now = future.reminderAt + 1000; f.emit([past, future]); await f.settle(); assert.equal(f.native.events.size, 1);
   f.emit([]); await f.settle(); assert.equal(f.native.events.size, 0);
 });
@@ -274,7 +274,7 @@ test('全局管理器集中保存开关与申请权限，拒绝授权不写入�
 
 function cardFixture(check) {
   const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
-  const names = ['hasReminder', 'reminderExpansionChanged', 'reminderTaskChanged', 'checkReminder', 'reminderStatus'];
+  const names = ['hasReminder', 'reminderExpired', 'reminderExpansionChanged', 'reminderTaskChanged', 'checkReminder', 'reminderStatus'];
   const methods = names.map(name => {
     const match = new RegExp('  (?:private )?(?:async )?' + name + '\\(').exec(source);
     assert.ok(match, name); const start = source.indexOf('{', match.index); let depth = 0;
@@ -419,4 +419,47 @@ test('首次授权并启用导致的系统写入标明设置变更，不误记�
   f.permission('enabled'); await f.service.setEnabled(true); await f.settle();
   const logs = f.service.operationLogs(); assert.equal(logs.length, 1);
   assert.equal(logs[0].operation, '新增'); assert.equal(logs[0].trigger, '设置变更');
+});
+
+
+test('过期提醒的单项检查直接返回已过期，不访问系统日历；卡片不显示转盘', async () => {
+  const f = fixture(), task = f.task('past', -60000);
+  const result = await f.service.checkRegistered(task); assert.equal(result.reason, '已过期'); assert.equal(f.calls.length, 0);
+  let queries = 0; const card = cardFixture(() => { queries++; return Promise.resolve({registered:true,reason:''}); });
+  card.task.reminderAt = Date.now()-1000; card.reminderExpansionChanged(); await tick();
+  assert.equal(queries, 0); assert.equal(card.reminderChecking, false); assert.equal(card.reminderStatus(), '已过期');
+  assert.equal(card.reminderError, '');
+});
+
+test('提醒到点仅更新过期状态，满 30 分钟才按内存索引自动删除并记录过期清理', async () => {
+  const f = fixture(), task = f.task('expires', 60000); f.tasks([task]); await f.refresh();
+  let timer = [...f.timers.values()][0]; f.clock.now = task.reminderAt+500; timer.fn(); await tick();
+  assert.equal(f.native.events.size, 1); assert.equal(f.service.status(task), '已过期');
+  timer = [...f.timers.values()][0]; assert(timer.delay > 29*60000);
+  f.clock.now = task.reminderAt+30*60000+500; timer.fn(); await tick();
+  assert.equal(f.native.events.size, 0); assert.equal(f.timers.size, 0);
+  const log = f.service.operationLogs()[0]; assert.equal(log.operation, '删除'); assert.equal(log.trigger, '过期清理');
+  assert.equal(f.calls.filter(call=>call[0]==='inventory').length, 1);assert.equal(f.calls.filter(call=>call[0]==='lookup').length, 0);
+});
+
+test('设备休眠跨过提醒与清理时点后，恢复定时回调仍清理过期事件', async () => {
+  const f = fixture(), task = f.task('sleep',60000);f.tasks([task]);await f.refresh();
+  const timer = [...f.timers.values()][0];f.clock.now=task.reminderAt+31*60000;timer.fn();await tick();
+  assert.equal(f.native.events.size,0);assert.equal(f.service.operationLogs()[0].trigger,'过期清理');
+});
+
+test('重启时保留未满 30 分钟的到点事件，已超过保留时间则启动清理', async () => {
+  const f=fixture(),task=f.task();f.tasks([task]);await f.refresh();await f.service.stop();
+  f.clock.now=task.reminderAt+20*60000;const resumed=fixture(f.shared());resumed.tasks([task]);await resumed.refresh();
+  assert.equal(resumed.native.events.size,1);await resumed.service.stop();f.clock.now=task.reminderAt+30*60000;
+  const later=fixture(f.shared());later.tasks([task]);await later.refresh();assert.equal(later.native.events.size,0);
+  assert.equal(later.service.operationLogs()[0].operation,'删除');assert.equal(later.service.operationLogs()[0].trigger,'启动同步');
+});
+
+test('改期为过期时间时跳过新检查并丢弃旧查询的成功结果', async () => {
+  let release,calls=0;const card=cardFixture(()=>{calls++;return new Promise(resolve=>release=resolve);});
+  const pending=card.checkReminder();assert.equal(card.reminderChecking,true);
+  card.task={...card.task,reminderAt:Date.now()-1};card.reminderTaskChanged();
+  release({registered:true,reason:''});await pending;assert.equal(calls,1);assert.equal(card.reminderStatus(),'已过期');
+  assert.equal(card.reminderChecking,false);assert.equal(card.reminderChecked,false);assert.equal(card.reminderError,'');
 });

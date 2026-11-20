@@ -9,6 +9,7 @@ const OWNER = 'org-tasks'
 const ACCOUNT = 'org-tasks.reminders'
 const DISPLAY_NAME = '小清单提醒'
 const EVENT_DURATION = 60 * 1000
+export const REMINDER_CLEANUP_DELAY = 30 * 60 * 1000
 
 export interface ReminderCheckResult { registered: boolean; reason: string }
 export interface CalendarOperation {
@@ -95,6 +96,7 @@ export class CalendarSync {
 
   async checkRegistered(task: CoreTask): Promise<ReminderCheckResult> {
     try {
+      if (task.reminderAt !== null && task.reminderAt !== undefined && task.reminderAt <= Date.now()) return { registered: false, reason: '已过期' }
       const expected = await this.desired(task)
       const calendar = this.calendar ?? await this.open(false)
       if (!calendar) return { registered: false, reason: '系统中不存在“小清单提醒”日历' }
@@ -172,6 +174,10 @@ export class CalendarSync {
         if (!current()) { this.initialized = false; return false }
         await this.delete(taskKey, record)
       }
+      for (const entry of Array.from(this.events.entries())) {
+        if (!current()) { this.initialized = false; return false }
+        if (entry[1].startTime + REMINDER_CLEANUP_DELAY <= Date.now()) await this.delete(entry[0], record)
+      }
       this.initialized = current()
       return this.initialized
     } catch (error) { this.invalidate(); throw error as Error }
@@ -181,8 +187,8 @@ export class CalendarSync {
     try {
       const existing = this.events.get(item.marker.taskKey)
       if (item.event.startTime <= Date.now()) {
-        // 已触发的同一事件保留到任务结束；不新建过去的提醒，也不把改期到过去的事件补发。
-        if (existing && (existing.startTime > Date.now() || existing.identifier !== item.event.identifier)) await this.delete(item.marker.taskKey, record)
+        // 已到点实例保留 30 分钟供系统交付，之后按内存索引清理；不补发过去的提醒。
+        if (existing && (existing.startTime > Date.now() || existing.identifier !== item.event.identifier || existing.startTime + REMINDER_CLEANUP_DELAY <= Date.now())) await this.delete(item.marker.taskKey, record)
         return
       }
       if (!current()) return

@@ -536,7 +536,7 @@ export struct TaskEditor {
     this.ownerKey = this.instanceKey || this.recordSource.rowId
     this.appeared = true
     this.stopReminder = ReminderManager.subscribe((): void => {
-      if (!this.reminderChecking) this.checkReminder(true)
+      if (this.reminderExpired() || !this.reminderChecking) this.checkReminder(true)
     })
     this.controller?.bind(this)
     this.stopDataSet = this.recordSource.monitor((change: TaskDataChange): void => {
@@ -891,6 +891,10 @@ export struct TaskEditor {
     }
   }
   hasReminder(): boolean { return this.value().reminderAt !== null && this.value().reminderAt !== undefined }
+  private reminderExpired(): boolean {
+    const when = this.value().reminderAt
+    return when !== null && when !== undefined && when <= Date.now()
+  }
   private reminderExpansionChanged(): void {
     ++this.reminderCheckRequest
     this.reminderCheckKey = ''; this.reminderChecked = false; this.reminderChecking = false; this.reminderError = ''
@@ -904,8 +908,8 @@ export struct TaskEditor {
     if (!force && key === this.reminderCheckKey) return
     this.reminderCheckKey = key
     const request = ++this.reminderCheckRequest
-    this.reminderChecked = false; this.reminderError = ''; this.reminderChecking = this.hasReminder()
-    if (!this.hasReminder()) return
+    this.reminderChecked = false; this.reminderError = ''; this.reminderChecking = this.hasReminder() && !this.reminderExpired()
+    if (!this.hasReminder() || this.reminderExpired()) return
     const current = (): boolean => this.appeared && this.expanded && !this.removed && request === this.reminderCheckRequest
     try {
       const result = await ReminderManager.checkRegistered(task)
@@ -917,6 +921,7 @@ export struct TaskEditor {
     } finally { if (current()) this.reminderChecking = false }
   }
   reminderStatus(): string {
+    if (this.reminderExpired()) return '已过期'
     if (this.reminderChecking) return '正在检查…'
     if (this.reminderError) return '检查失败'
     return this.reminderChecked ? '✓ 已登记' : ''
@@ -1708,7 +1713,7 @@ export struct TaskEditor {
         Row({ space: 6 }) {
           Image($r('app.media.ui_reminder')).id('task_reminder_expanded_icon').width(18).height(18).fillColor(UiColor.secondary)
           Text(reminderTimeLabel(this.value())).id('task_reminder_time').fontSize(12).fontColor(UiColor.secondary)
-          if (this.reminderChecking) {
+          if (this.reminderChecking && !this.reminderExpired()) {
             LoadingProgress().id('task_reminder_checking').width(14).height(14).color(UiColor.secondary)
               .accessibilityText('正在检查系统提醒')
           }
