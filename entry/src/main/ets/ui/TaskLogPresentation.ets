@@ -22,7 +22,7 @@ function newestLogs(logs: CoreTaskLog[]): CoreTaskLog[] {
 
 export function taskNoteEntries(logs: CoreTaskLog[]): CoreTaskLog[] {
   return newestLogs(logs.filter((log: CoreTaskLog): boolean =>
-    log.type !== 'other' && log.type !== 'taskClock' && log.type !== 'taskStateChange' &&
+    log.type !== 'other' && log.type !== 'taskClock' &&
       log.noteHtml.replace(/<\/?(?:main|section|p)\b[^>]*>|<br\s*\/?>/gi, '').trim().length > 0))
 }
 
@@ -37,7 +37,10 @@ export function taskNoteTime(log: CoreTaskLog, year: number = new Date().getFull
 
 export function taskNoteHtml(log: CoreTaskLog): string {
   if (log.type === 'other' || log.type === 'taskClock') return ''
-  return `<article class="task-log task-note"><time class="task-note-time">${escapeLogText(taskNoteTime(log))}</time><div class="task-note-body">${log.noteHtml}</div></article>`
+  const body = log.type === 'taskStateChange'
+    ? `<div class="task-state-note"><span class="task-log-state" title="${escapeLogText(log.from || '无状态')} → ${escapeLogText(log.to || '无状态')}">${escapeLogText(log.to || '无状态')}</span><span>:</span><div class="task-state-note-body">${log.noteHtml}</div></div>`
+    : log.noteHtml
+  return `<article class="task-log task-note"><time class="task-note-time">${escapeLogText(taskNoteTime(log))}</time><div class="task-note-body">${body}</div></article>`
 }
 
 // 只按 Core 类型组织排版；时间与 Org 富文本均已在 Core 解析。
@@ -47,9 +50,6 @@ export function taskLogHtml(log: CoreTaskLog): string {
   if (log.type === 'taskClock') {
     const range = `${log.start}${log.end ? ` – ${log.end}` : ' · 计时中'}`
     return `<article class="task-log clock"><div class="task-log-heading"><span>计时${log.duration ? ` · ${escapeLogText(log.duration)}` : ''}</span><span class="task-log-time">${escapeLogText(range)}</span></div></article>`
-  }
-  if (log.type === 'taskStateChange' && log.noteHtml.replace(/<\/?(?:main|section|p)\b[^>]*>|<br\s*\/?>/gi, '').trim().length > 0) {
-    return `<article class="task-log taskStateChange"><div class="task-state-note"><span class="task-log-state" title="${escapeLogText(log.from || '无状态')} → ${escapeLogText(log.to || '无状态')}">${escapeLogText(log.to || '无状态')}</span><span>:</span><div class="task-state-note-body">${log.noteHtml}</div></div><div class="task-log-time">${escapeLogText(log.timestamp)}</div></article>`
   }
   let label = ''
   let detail = ''

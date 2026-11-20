@@ -656,10 +656,10 @@ test('来源文字追加项目名，分类缺失时单独显示项目，非项�
   assert.notEqual(taskRenderKey(task('same', { projectName: '旧项目' })), taskRenderKey(task('same', { projectName: '新项目' })));
 });
 
-test('备注与事件分区按时间倒序保留原条目，状态说明在日志内带标签显示', () => {
+test('备注与事件分区按时间倒序保留原条目，状态说明在备注区带标签显示', () => {
   const { taskLogHtml, taskNoteHtml, taskNoteEntries, taskEventLogs, taskNoteTime } = loadGrouping('TaskLogPresentation', {});
   const entries = Object.freeze([
-    { type: 'taskStateChange', from: '', to: '<img src=x onerror=alert(1)>', timestamp: '2026-11-17 10:30', noteHtml: '<p>等待<b>确认</b></p>' },
+    { type: 'taskStateChange', from: '', to: '<img src=x onerror=alert(1)>', timestamp: '2026-11-17 10:30', noteHtml: '<main><section><p>等待<b>确认</b></p></section></main>' },
     { type: 'taskNote', timestamp: '2026-11-16 16:20', noteHtml: '<p>笔记<a class="link" href="https://example.com">链接</a></p>' },
     { type: 'taskClosingNote', timestamp: '2025-12-31', noteHtml: '<p>完成说明</p>' },
     { type: 'taskReschedule', previous: '<2026-11-10 Tue +1w>', timestamp: '2026-11-11', noteHtml: '<ul><li>调整原因</li></ul>' },
@@ -670,13 +670,15 @@ test('备注与事件分区按时间倒序保留原条目，状态说明在日�
   ].map(Object.freeze));
   const original = JSON.stringify(entries);
   const notes = taskNoteEntries(entries), events = taskEventLogs(entries);
-  assert.deepEqual(notes, [entries[1], entries[3], entries[2]]);
+  assert.deepEqual(notes, [entries[0], entries[1], entries[3], entries[2]]);
   assert.deepEqual(events, [entries[0], entries[3], entries[6], entries[4], entries[5], entries[7]]);
   assert.ok(notes.every(log => entries.includes(log)));
   const html = events.map(taskLogHtml).join('');
   assert.ok(html.includes('无状态 → &lt;img'));
-  assert.ok(html.includes('class="task-log-state"'));
-  assert.ok(html.includes(entries[0].noteHtml));
+  const stateNote = taskNoteHtml(entries[0]);
+  assert.ok(stateNote.includes('class="task-log-state"'));
+  assert.ok(stateNote.includes('无状态 → &lt;img'));
+  assert.ok(!stateNote.includes('<img'));
   assert.ok(!html.includes('<img'));
   for (const log of notes) {
     assert.ok(taskNoteHtml(log).includes(log.noteHtml));
@@ -724,7 +726,7 @@ test('乱序备注跨年和同日按时间倒序，仅日期按零点比较，�
 test('空 HTML 容器不产生备注，图片等无文字内容仍保留', () => {
   const { taskNoteEntries } = loadGrouping('TaskLogPresentation', {});
   for (const noteHtml of ['', '  ', '<main></main>', '<main><section><p> \n<br /></p></section></main>']) {
-    assert.deepEqual(taskNoteEntries([{ type: 'taskStateChange', timestamp: '2026-11-17', noteHtml }]), []);
+    assert.deepEqual(taskNoteEntries([{ type: 'taskStateChange', from: 'TODO', to: 'WAIT', timestamp: '2026-11-17', noteHtml }]), []);
   }
   const image = { type: 'taskNote', timestamp: '2026-11-17', noteHtml: '<main><p><img src="image.png" /></p></main>' };
   assert.deepEqual(taskNoteEntries([image]), [image]);
