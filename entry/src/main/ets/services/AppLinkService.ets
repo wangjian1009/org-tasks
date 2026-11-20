@@ -31,21 +31,20 @@ export class AppLinkManager {
   async catalog(context?: Context): Promise<AppLinkCatalogEntry[]> {
     const current = this.use(context)
     if (AppLinkManager.catalogCache) return AppLinkManager.catalogCache.slice()
-    try {
-      const bytes = await current.resourceManager.getRawFileContent(CATALOG_FILE)
-      const value = JSON.parse(util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes)) as AppLinkCatalogDocument
-      const apps = Array.isArray(value.apps) ? value.apps : []
-      const catalog = normalizeCatalog(apps)
-      const installed: AppLinkCatalogEntry[] = []
-      for (const app of catalog) {
-        try {
-          const info = await bundleManager.getBundleInfo(app.id, bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION)
-          app.iconResource = info.appInfo.iconResource
-          if (app.iconResource) installed.push(app)
-        } catch (_) { /* 未安装、权限不足或资源缺失的目录项不显示。 */ }
-      }
-      AppLinkManager.catalogCache = installed
-    } catch (_) { AppLinkManager.catalogCache = [] }
+    let bytes: Uint8Array
+    try { bytes = await current.resourceManager.getRawFileContent(CATALOG_FILE) }
+    catch (error) { throw error as Error }
+    const value = JSON.parse(util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes)) as AppLinkCatalogDocument
+    const apps = Array.isArray(value.apps) ? value.apps : []
+    const catalog = normalizeCatalog(apps)
+    const installed = await Promise.all(catalog.map(async (app: AppLinkCatalogEntry): Promise<AppLinkCatalogEntry | undefined> => {
+      try {
+        const info = await bundleManager.getBundleInfo(app.id, bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION)
+        app.iconResource = info.appInfo.iconResource
+        return app.iconResource ? app : undefined
+      } catch (_) { return undefined }
+    }))
+    AppLinkManager.catalogCache = installed.filter((app: AppLinkCatalogEntry | undefined): boolean => app !== undefined) as AppLinkCatalogEntry[]
     return AppLinkManager.catalogCache.slice()
   }
 

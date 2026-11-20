@@ -8,13 +8,15 @@ import { addRepository } from '../services/RepositoryNavigation'
 import { validateConfiguration } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
 import { common } from '@kit.AbilityKit'
-import { AppConfig, AppLinkAssociation, AppLinkCatalogEntry, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
+import { AppConfig, AppLinkAssociation, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
-import { AppLinkManager, appLinkName } from '../services/AppLinkService'
-import { CoreAppLink, CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTask, CoreTaskState, CoreSettingsObject, taskResult } from '../services/NativeCoreService'
+import { AppLinkManager } from '../services/AppLinkService'
+import { CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTaskState, CoreSettingsObject } from '../services/NativeCoreService'
 import { NotebookGroup, NotebookService } from '../services/NotebookService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/controls/MessageBar'
+import { IconButton } from '../components/controls/IconButton'
+import { EmptyState } from '../components/controls/EmptyState'
 import { SettingsGroup } from '../components/controls/SettingsGroup'
 import { SettingsRow } from '../components/controls/SettingsRow'
 import { SettingsChoiceRow } from '../components/controls/SettingsChoiceRow'
@@ -25,7 +27,6 @@ import { configuredFileTarget, FileTargetKind } from '../services/FileTargetServ
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
 import { isSystemRepository } from '../models/SystemRepository'
 import { NotificationPermissionService, NotificationPermissionState } from '../services/NotificationPermissionService'
-import { PageQueryService } from '../services/PageQueryService'
 
 interface SettingsParams { section?: string }
 interface AppLinkCandidate { name: string; bundleName: string; icon: Resource; selected: boolean }
@@ -71,6 +72,7 @@ struct Settings {
   @State appLinkAddOpen: boolean = false
   @State appLinkAddBusy: boolean = false
   @State appLinkCandidatesLoaded: boolean = false
+  @State appLinkCandidateError: string = ''
   @State appLinkCandidates: AppLinkCandidate[] = []
   @State notificationState: NotificationPermissionState | 'loading' | 'error' = 'loading'
   @State notificationBusy: boolean = false
@@ -303,35 +305,26 @@ struct Settings {
 
   async openAppLinkAdd(): Promise<void> {
     if (this.appLinkAddBusy || this.appLinkBusy) return
-    if (!this.appLinkCandidatesLoaded) await this.loadAppLinkCandidates()
     this.appLinkAddOpen = true
+    if (!this.appLinkCandidatesLoaded) await this.loadAppLinkCandidates()
   }
 
   private async loadAppLinkCandidates(): Promise<void> {
-    this.appLinkAddBusy = true; this.message = ''
+    this.appLinkAddBusy = true; this.message = ''; this.appLinkCandidateError = ''
     try {
       const context = this.getUIContext().getHostContext()!
-      const config = await AppConfigService.load(context, false)
       const catalog = await AppLinkManager.shared.catalog(context)
-      const result = taskResult((await PageQueryService.query(config, [{ type: 'task', query: { expression: 'has.app' } }]))[0])
       const existing = await AppLinkManager.shared.load(context)
-      const names = new Set<string>()
       const candidates: AppLinkCandidate[] = []
-      for (const task of result.tasks as CoreTask[]) {
-        for (const link of (task.appLinks || []) as CoreAppLink[]) {
-          const name = appLinkName(link.uri)
-          if (!name || names.has(name)) continue
-          const app = catalog.find((item: AppLinkCatalogEntry): boolean => item.name === name)
-          if (!app?.iconResource) continue
-          names.add(name)
-          candidates.push({ name, bundleName: app.id, icon: app.iconResource,
-            selected: existing.some((item: AppLinkAssociation): boolean => item.name === name) })
-        }
+      for (const app of catalog) {
+        if (!app.iconResource) continue
+        candidates.push({ name: app.name, bundleName: app.id, icon: app.iconResource,
+          selected: existing.some((item: AppLinkAssociation): boolean => item.name === app.name) })
       }
       candidates.sort((left: AppLinkCandidate, right: AppLinkCandidate): number => left.name.localeCompare(right.name))
       this.appLinkCandidates = candidates
       this.appLinkCandidatesLoaded = true
-    } catch (error) { this.message = `读取应用链接失败：${(error as Error).message || '请重试'}` }
+    } catch (_) { this.appLinkCandidateError = '应用列表读取失败，请重试。' }
     finally { this.appLinkAddBusy = false }
   }
 
@@ -535,42 +528,47 @@ struct Settings {
 
   @Builder
   appLinksSettings() {
-    Row() {
-      Button('添加').height(40).fontSize(14).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
-        .accessibilityText('添加应用关联').enabled(!this.appLinkBusy && !this.appLinkAddBusy)
-        .onClick((): void => { this.openAppLinkAdd() })
-    }.width('100%').justifyContent(FlexAlign.Start).padding({ left: 4, top: 8 })
-    SettingsGroup({ title: 'app: 链接关联' }) {
+    Column() {
+      Row() {
+        IconButton({ icon: $r('app.media.ui_add'), label: '添加应用关联', disabled: this.appLinkBusy || this.appLinkAddBusy,
+          action: (): void => { this.openAppLinkAdd() } }).id('app_link_add')
+      }.width('100%').padding({ left: 4, top: 8 })
       if (this.appLinks.length === 0) {
-        Text('尚未建立应用关联。点击 Org 中的 app: 链接后即可选择并保存。').fontSize(14).fontColor(UiColor.secondary)
-          .width('100%').padding(16)
+        EmptyState({ title: '还没有应用关联' }).id('app_link_empty')
+      } else {
+        Scroll() {
+          Column() {
+            SettingsGroup({ title: '应用关联' }) {
+              ForEach(this.appLinks, (value: AppLinkAssociation, index: number) => {
+                if (this.editingAppLink === index) {
+                  Column({ space: 8 }) {
+                    TextInput({ text: this.appLinkNameDraft, placeholder: '应用名称（app: 后的值）' }).fontSize(14).backgroundColor(UiColor.field)
+                      .onChange((text: string): void => { this.appLinkNameDraft = text })
+                    TextInput({ text: this.appLinkBundleDraft, placeholder: 'Bundle Name' }).fontSize(14).backgroundColor(UiColor.field)
+                      .onChange((text: string): void => { this.appLinkBundleDraft = text })
+                    TextInput({ text: this.appLinkModuleDraft, placeholder: 'Module Name（可选）' }).fontSize(14).backgroundColor(UiColor.field)
+                      .onChange((text: string): void => { this.appLinkModuleDraft = text })
+                    TextInput({ text: this.appLinkAbilityDraft, placeholder: 'Ability Name' }).fontSize(14).backgroundColor(UiColor.field)
+                      .onChange((text: string): void => { this.appLinkAbilityDraft = text })
+                    Row({ space: 12 }) {
+                      Button('取消').height(40).backgroundColor(UiColor.field).fontColor(UiColor.text).onClick((): void => { this.cancelAppLinkEdit() })
+                      Button('保存').height(40).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).onClick((): void => { this.saveAppLink(index) })
+                    }.justifyContent(FlexAlign.End).width('100%')
+                  }.width('100%').padding(14)
+                } else {
+                  SettingsRow({ title: `app:${value.name}`, value: value.bundleName, detail: `${value.moduleName ? value.moduleName + ' · ' : ''}${value.abilityName}`,
+                    icon: $r('app.media.ui_link_app'), action: (): void => { this.beginAppLinkEdit(index) }, disabled: this.appLinkBusy })
+                }
+              }, (value: AppLinkAssociation) => value.name)
+              if (this.editingAppLink >= 0) {
+                SettingsRow({ title: '删除当前关联', icon: $r('app.media.ui_delete'), divider: false, danger: true,
+                  action: (): void => { this.deleteAppLink(this.editingAppLink) }, disabled: this.appLinkBusy })
+              }
+            }
+          }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
+        }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
       }
-      ForEach(this.appLinks, (value: AppLinkAssociation, index: number) => {
-        if (this.editingAppLink === index) {
-          Column({ space: 8 }) {
-            TextInput({ text: this.appLinkNameDraft, placeholder: '应用名称（app: 后的值）' }).fontSize(14).backgroundColor(UiColor.field)
-              .onChange((text: string): void => { this.appLinkNameDraft = text })
-            TextInput({ text: this.appLinkBundleDraft, placeholder: 'Bundle Name' }).fontSize(14).backgroundColor(UiColor.field)
-              .onChange((text: string): void => { this.appLinkBundleDraft = text })
-            TextInput({ text: this.appLinkModuleDraft, placeholder: 'Module Name（可选）' }).fontSize(14).backgroundColor(UiColor.field)
-              .onChange((text: string): void => { this.appLinkModuleDraft = text })
-            TextInput({ text: this.appLinkAbilityDraft, placeholder: 'Ability Name' }).fontSize(14).backgroundColor(UiColor.field)
-              .onChange((text: string): void => { this.appLinkAbilityDraft = text })
-            Row({ space: 12 }) {
-              Button('取消').height(40).backgroundColor(UiColor.field).fontColor(UiColor.text).onClick((): void => { this.cancelAppLinkEdit() })
-              Button('保存').height(40).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).onClick((): void => { this.saveAppLink(index) })
-            }.justifyContent(FlexAlign.End).width('100%')
-          }.width('100%').padding(14)
-        } else {
-          SettingsRow({ title: `app:${value.name}`, value: value.bundleName, detail: `${value.moduleName ? value.moduleName + ' · ' : ''}${value.abilityName}`,
-            icon: $r('app.media.ui_link_app'), action: (): void => { this.beginAppLinkEdit(index) }, disabled: this.appLinkBusy })
-        }
-      }, (value: AppLinkAssociation) => value.name)
-      if (this.editingAppLink >= 0) {
-        SettingsRow({ title: '删除当前关联', icon: $r('app.media.ui_delete'), divider: false, danger: true,
-          action: (): void => { this.deleteAppLink(this.editingAppLink) }, disabled: this.appLinkBusy })
-      }
-    }
+    }.width('100%').layoutWeight(1)
   }
 
   @Builder
@@ -579,10 +577,12 @@ struct Settings {
       Text('添加应用关联').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
         .width('100%').padding({ left: 24, top: 8, bottom: 4 }).textAlign(TextAlign.Start)
       if (this.appLinkAddBusy) {
-        LoadingProgress().width(32).height(32).color(UiColor.primary).margin(24)
+        EmptyState({ title: '正在查找可添加的应用', busy: true })
+      } else if (this.appLinkCandidateError) {
+        EmptyState({ title: this.appLinkCandidateError, actionLabel: '重试',
+          action: (): void => { this.loadAppLinkCandidates() } })
       } else if (this.appLinkCandidates.length === 0) {
-        Text('没有找到已安装且出现在 app 链接任务中的应用。').fontSize(14).fontColor(UiColor.secondary)
-          .width('100%').padding(24)
+        EmptyState({ title: '暂时没有可添加的应用' })
       } else {
         Scroll() {
           Column() {
@@ -596,12 +596,12 @@ struct Settings {
                 .onClick((): void => { this.toggleAppLinkCandidate(index) })
             }, (candidate: AppLinkCandidate) => candidate.name)
           }
-        }.width('100%').height(260)
+        }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
         Button('添加').height(44).margin({ left: 24, right: 24, top: 8, bottom: 18 })
           .enabled(this.appLinkCandidates.some((candidate: AppLinkCandidate): boolean => candidate.selected))
           .onClick((): void => { this.saveAppLinkCandidates() })
       }
-    }.width('100%').backgroundColor(UiColor.surface).borderRadius({ topLeft: 28, topRight: 28 })
+    }.width('100%').height('100%').backgroundColor(UiColor.surface).borderRadius({ topLeft: 28, topRight: 28 })
   }
 
   @Builder
@@ -666,33 +666,36 @@ struct Settings {
         backAction: (): void => { this.onBackPress() }, titleIcon: $r('app.media.nav_settings') }) {
         Column() {
           MessageBar({ message: this.message, error: true })
-          Scroll() {
-            Column() {
-              if (!this.loaded && this.message) {
-                Button('重新读取设置').height(44).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected).margin(24)
-                  .onClick((): void => { this.message = ''; this.load() })
-              } else if (!this.loaded) {
-                LoadingProgress().width(32).height(32).color(UiColor.primary).margin(24)
-              } else if (!this.section) { this.homepage() }
-              else if (this.section === '任务提醒') { this.taskReminderSettings() }
-              else if (this.section === '提醒操作日志') {
-                SettingsGroup({ title: '本次运行', detail: '按最新操作在前显示系统提醒的新增、修改和删除记录，包括触发原因、执行结果和失败原因。仅保留本次运行的最近 500 条记录，重启应用后清空。' }) {
-                  ReminderOperationList()
+          if (this.loaded && this.section === '应用关联') {
+            this.appLinksSettings()
+          } else {
+            Scroll() {
+              Column() {
+                if (!this.loaded && this.message) {
+                  Button('重新读取设置').height(44).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected).margin(24)
+                    .onClick((): void => { this.message = ''; this.load() })
+                } else if (!this.loaded) {
+                  LoadingProgress().width(32).height(32).color(UiColor.primary).margin(24)
+                } else if (!this.section) { this.homepage() }
+                else if (this.section === '任务提醒') { this.taskReminderSettings() }
+                else if (this.section === '提醒操作日志') {
+                  SettingsGroup({ title: '本次运行', detail: '按最新操作在前显示系统提醒的新增、修改和删除记录，包括触发原因、执行结果和失败原因。仅保留本次运行的最近 500 条记录，重启应用后清空。' }) {
+                    ReminderOperationList()
+                  }
                 }
-              }
-              else if (this.section === '废纸篓') { this.trashSettings() }
-              else if (this.section === '文件入口') { this.fileEntries() }
-              else if (this.section === '任务状态分类') { this.categories() }
-              else if (this.section === '存储库') { this.repositories() }
-              else if (this.section === '应用关联') { this.appLinksSettings() }
-              else {
-                SettingsGroup({ title: '小清单' }) {
-                  Text('浏览 Org 笔记本、按日期查看任务，支持 WebDAV 同步和快速捕捉。')
-                    .fontSize(16).fontColor(UiColor.secondary).lineHeight(26).width('100%').padding(16)
+                else if (this.section === '废纸篓') { this.trashSettings() }
+                else if (this.section === '文件入口') { this.fileEntries() }
+                else if (this.section === '任务状态分类') { this.categories() }
+                else if (this.section === '存储库') { this.repositories() }
+                else {
+                  SettingsGroup({ title: '小清单' }) {
+                    Text('浏览 Org 笔记本、按日期查看任务，支持 WebDAV 同步和快速捕捉。')
+                      .fontSize(16).fontColor(UiColor.secondary).lineHeight(26).width('100%').padding(16)
+                  }
                 }
-              }
-            }.width('100%').padding({ left: 16, right: 16, bottom: 32 }).enabled(!this.saving && !this.categoryBusy)
-          }.width('100%').layoutWeight(1).align(Alignment.TopStart)
+              }.width('100%').padding({ left: 16, right: 16, bottom: 32 }).enabled(!this.saving && !this.categoryBusy)
+            }.width('100%').layoutWeight(1).align(Alignment.TopStart)
+          }
         }.width('100%').height('100%')
       }
     }.width('100%').height('100%')

@@ -855,3 +855,13 @@ test('项目版本跳跃不回放过期事件，文件接收者失败不阻断�
   stop();const restored=[];manager.subscribeFiles(result=>{restored.push(result)});await manager.refreshFiles('tasks');assert.equal(restored.length,1);
  }finally{await f.cleanup()}
 });
+
+
+test('应用链接穿过页面缓存，旧缓存缺失时按空数组恢复',async()=>{
+ const f=await fixture();try{
+  const original=task('app',{appLinks:[{uri:'app:中国工商银行',label:'打开银行'}]});
+  const record=JSON.parse(JSON.stringify(f.snapshots.taskRecord(original)));
+  assert.deepEqual(new f.snapshots.PageTaskSnapshot(record).appLinks,original.appLinks);
+  delete record.value.appLinks;assert.deepEqual(new f.snapshots.PageTaskSnapshot(record).appLinks,[]);
+ }finally{await f.cleanup()}
+});

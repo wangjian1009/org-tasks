@@ -1,5 +1,5 @@
 import { TaskPath, TitlePart, TaskState, TaskStateCategory, TaskPriority, PeriodCategory, SupportTags,
-  QueryOrderPart, TaskEditContent, AddressLink, TaskLog, TaskStateCount, TaskCategory, FileHeaderEntry } from 'liborg_tasks_harmony.so'
+  QueryOrderPart, TaskEditContent, AddressLink, AppLink, TaskLog, TaskStateCount, TaskCategory, FileHeaderEntry } from 'liborg_tasks_harmony.so'
 import { CoreTask, CoreOrgFileMetadata, CoreQueryResult } from './NativeCoreService'
 
 export interface PageStateAnswer { category: TaskStateCategory; value: TaskState | null }
@@ -36,6 +36,7 @@ export interface PageTaskFields {
   body: string
   bodyFirstLine: string | null
   addressLinks: AddressLink[]
+  appLinks?: AppLink[]
   bodyHtml: string
   logbookHtml: string
   logs: TaskLog[]
@@ -124,6 +125,7 @@ export function taskRecord(value: CoreTask): PageTaskRecord {
     body: value.body,
     bodyFirstLine: value.bodyFirstLine,
     addressLinks: value.addressLinks,
+    appLinks: value.appLinks ?? [],
     bodyHtml: value.bodyHtml,
     logbookHtml: value.logbookHtml,
     logs: value.logs,
@@ -170,6 +172,7 @@ export class PageTaskSnapshot {
   readonly body: string
   readonly bodyFirstLine: string | null
   readonly addressLinks: AddressLink[]
+  readonly appLinks: AppLink[]
   readonly bodyHtml: string
   readonly logbookHtml: string
   readonly logs: TaskLog[]
@@ -218,6 +221,7 @@ export class PageTaskSnapshot {
     this.body = record.value.body
     this.bodyFirstLine = record.value.bodyFirstLine
     this.addressLinks = record.value.addressLinks
+    this.appLinks = record.value.appLinks ?? []
     this.bodyHtml = record.value.bodyHtml
     this.logbookHtml = record.value.logbookHtml
     this.logs = record.value.logs

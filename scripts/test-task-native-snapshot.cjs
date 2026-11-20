@@ -99,7 +99,7 @@ execFileSync('c++', ['-std=c++17', '-shared', '-undefined', 'dynamic_lookup',
 const native = require(addon);
 
 function snapshot(name = 'DONE', done = false, reminderAt = null) {
-  return native.create({ reminderAt, id: 'task', heading: '项目任务', hasAttach: true, properties: { VISIBILITY: 'folded', EMPTY: '' }, projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
+  return native.create({ reminderAt, id: 'task', heading: '项目任务', hasAttach: true, appLinks: [{uri:'app:中国工商银行',label:'打开银行'}], properties: { VISIBILITY: 'folded', EMPTY: '' }, projectName: '项目甲', isDone: done, createdAt: 1700000000000, closedAt: done ? 1700003600000 : null,
     headingParts: [{ text: '参考', href: 'https://example.com/', isLink: true, count: null,
       link: { start: 0, end: 31, source: '[[https://example.com/][参考]]', title: '参考', url: 'https://example.com/' } }],
     editContent: { ownTags: [], notes: 'https://example.com/', notesHtml: '<main><p><a class="link" href="https://example.com/">https://example.com/</a></p></main>',
@@ -265,4 +265,11 @@ test('查询事件使用真实任务和文件方法，队列只交付一次且�
   assert.equal(copy(received.changes[0].after.view).taskStateOf('Done').name, 'DONE');
   assert.equal(received.files[0].afterView.taskPriorityOf('Hight').name, 'A');
   assert.deepEqual(received.changes[0].after.task, { id: 'task' });
+});
+
+
+test('应用链接作为可枚举属性透传，复制与序列化不丢失',()=>{
+ const task=snapshot();const links=[{uri:'app:中国工商银行',label:'打开银行'}];
+ assert.deepEqual(task.appLinks,links);assert.deepEqual(copy(task).appLinks,links);
+ assert.deepEqual(JSON.parse(JSON.stringify(task)).appLinks,links);
 });

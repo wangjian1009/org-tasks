@@ -377,3 +377,12 @@ test('项目正文会话从来源取得最新版本，草稿开始后冻结版�
  assert.equal(f.writes[0].snapshot,frozen);assert.equal(f.writes[0].snapshot.fileVersion,'live-v2');
  assert.equal(f.editor.editingText,'保留草稿');assert.equal(f.editor.current,frozen);
 });
+
+
+test('隐藏日志首次不创建阅读器，首次打开后收起保留内容，默认展开立即创建',()=>{
+ const {TaskLogView:Logs}=load('components/editors/TaskLogView',{},prefix('TaskLogView'));
+ const hidden=Object.assign(new Logs(),{expanded:false,contentCreated:false});hidden.aboutToAppear();
+ assert.equal(hidden.contentCreated,false);hidden.expanded=true;hidden.expansionChanged();assert.equal(hidden.contentCreated,true);
+ hidden.expanded=false;hidden.expansionChanged();assert.equal(hidden.contentCreated,true);
+ const visible=Object.assign(new Logs(),{expanded:true,contentCreated:false});visible.aboutToAppear();assert.equal(visible.contentCreated,true);
+});

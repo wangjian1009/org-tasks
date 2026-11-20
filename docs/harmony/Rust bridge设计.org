@@ -150,6 +150,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~CoreQuery::File~ | ~workspace.query([{ type: 'file', query: {} }])~ | 返回文件结果分支，可与任务混合；不复制正文或生成文件对象。 |
 | ~OrgFile.title()~ | ~file.title()~ | 文件头 TITLE，多行按空格合并；未配置为 ~null~ ，显式空声明为空字符串。 |
 | ~OrgFile.title_parts()~ | ~file.titleParts()~ | Core 解析文件标题中的文字与外部链接，返回有序 ~TitlePart[]~ 。 |
+| ~FilterTask.app_links()~ | ~task.appLinks~ | 应用链接随任务查询与增量投影为可枚举只读属性，页面缓存保留该数组。 |
 | ~FilterTask.title_parts()~ | ~task.headingParts~ | bridge 在构造任务对象时投影，C++ 保留可枚举只读属性，路由传递不丢失链接。 |
 | ~OrgFile.category()~ | ~file.category()~ | 未配置或文件分类为 ~ARCHIVE~ 时为 ~null~ ，显式空声明为空字符串。 |
 | FilterTask.property(name)、properties() | task.property(name)、task.properties | 读取标题自身的通用属性；缺失为 null，空值为空字符串，名称按 ASCII 大写查找；属性表随查询、事件及缓存快照传递。 |

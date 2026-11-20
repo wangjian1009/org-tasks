@@ -137,6 +137,7 @@ function settingsFixture() {
       async load() { return structuredClone(config); }, async save(context, value) { if (saveFailure) throw saveFailure; saved = value; }
     } },
     '../services/NotebookService': {},
+    '../services/AppLinkService': { AppLinkManager: { shared: {} } },
     '../services/NativeCoreService': { ...errors, NativeCoreService: { async workspaceFor() {} } },
     '../ui/Theme': {}, '../services/FileTargetService': {},
     '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Done: 'Done', Cancel: 'Cancel' } },

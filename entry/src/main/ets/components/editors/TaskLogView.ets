@@ -8,12 +8,19 @@ export struct TaskLogView {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop logs: CoreTaskLog[] = []
   @Prop contentBackground: string = '#00000000'
-  @Prop expanded: boolean = true
+  @Prop @Watch('expansionChanged') expanded: boolean = true
+  @State private contentCreated: boolean = false
   @Prop notesOnly: boolean = false
 
+  aboutToAppear(): void { this.expansionChanged() }
+
+  expansionChanged(): void {
+    if (this.expanded) this.contentCreated = true
+  }
+
   build() {
-    if (this.logs.length > 0) {
-      // 收起时仅裁切布局，保留阅读器及其测量高度，避免重新展开时加载空白页。
+    if (this.logs.length > 0 && this.contentCreated) {
+      // 首次打开日志才创建阅读器；之后收起只裁切布局，保留测量高度。
       Column({ space: this.notesOnly ? 4 : 6 }) {
         Row({ space: 8 }) {
           Text(this.notesOnly ? '备注' : '日志').fontSize(12).fontColor(UiColor.secondary).flexShrink(0)
