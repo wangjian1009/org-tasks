@@ -573,6 +573,61 @@ test('今天、侧边栏与角标共享唯一管理器，首次读取与反复�
  }finally{c?.DeviceBadgeService.stop();await c?.AppDataManager.close();await f.cleanup()}
 });
 
+test('跨日与失败重试跳过未启用的查询，侧边栏继续显示最新快照', async () => {
+ const f = await fixture();
+ const originalSetInterval = global.setInterval;
+ const originalDateString = Date.prototype.toDateString;
+ let checkDay;
+ let consumers;
+ let sidebar;
+ global.setInterval = (handler, interval, ...args) => {
+  if (interval === 60000) checkDay = handler;
+  return originalSetInterval(handler, interval, ...args);
+ };
+ try {
+  f.config.inboxRepoId = 'config';
+  f.config.inboxFile = 'a.org';
+  consumers = sharedConsumers(f);
+  const app = consumers.AppDataManager.shared(f.context);
+  sidebar = new consumers.SidebarDataManager(f.context);
+  let snapshot;
+  sidebar.subscribe(value => { snapshot = value; });
+  await sidebar.start();
+  assert.equal(typeof checkDay, 'function');
+  const inactive = ['plannedFiltered', 'trashExpired'].map(name => app.dataSet(name));
+  assert.ok(inactive.every(dataSet => dataSet.query === undefined && dataSet.version === 1));
+  const errors = [];
+  for (const dataSet of inactive) {
+   dataSet.subscribe(event => { if (event.type === 'error') errors.push(event.message); });
+  }
+
+  f.addRow();
+  Date.prototype.toDateString = () => '次日';
+  checkDay();
+  Date.prototype.toDateString = originalDateString;
+  await app.manager.flush();
+  await until(() => snapshot.todayCount === 2);
+  assert.equal(f.batches.length, 2);
+  assert.deepEqual(errors, []);
+  assert.ok(inactive.every(dataSet => dataSet.version === 1));
+
+  inactive[0].reportError(new Error('此前的刷新失败'));
+  await sidebar.start();
+  assert.equal(snapshot.message, '');
+  assert.equal(f.batches.length, 2);
+
+  await app.manager.refresh();
+  assert.equal(f.batches.length, 3);
+  assert.ok(inactive.every(dataSet => dataSet.version === 1));
+ } finally {
+  Date.prototype.toDateString = originalDateString;
+  global.setInterval = originalSetInterval;
+  sidebar?.close();
+  await consumers?.AppDataManager.close();
+  await f.cleanup();
+ }
+});
+
 test('共享快照的界面编辑同时更新侧边栏，通知变化只重写角标，外部文件变化只补一个批次',async()=>{
  const f=await fixture();let c;try{
   f.config.inboxRepoId='config';f.config.inboxFile='a.org';c=sharedConsumers(f);const app=c.AppDataManager.shared(f.context);

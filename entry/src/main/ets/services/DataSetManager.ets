@@ -270,7 +270,7 @@ export class DataSetManager {
         try {
           await Promise.all(names.map(async (name: string): Promise<void> => {
             const dataSet = this.sets.get(name)
-            if (!dataSet?.hasValidScope()) return
+            if (!dataSet?.query || !dataSet.hasValidScope()) return
             try { await dataSet.refresh() } catch (error) { dataSet.reportError(error as Error) }
           }))
         } finally { if (this.captureFiles === capture) this.captureFiles = undefined }

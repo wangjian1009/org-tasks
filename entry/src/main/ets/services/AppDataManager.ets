@@ -126,7 +126,7 @@ export class AppDataManager {
     }
   }
   async retryFailed(): Promise<void> {
-    const failed = APP_DATA_SET_NAMES.map(name => this.dataSet(name)).filter(dataSet => !!dataSet.error)
+    const failed = APP_DATA_SET_NAMES.map(name => this.dataSet(name)).filter(dataSet => !!dataSet.query && !!dataSet.error)
     await Promise.all(failed.map(dataSet => dataSet.refresh()))
   }
   private hasTarget(kind: FileTargetKind): boolean { return !!this.config && !!fileTargetRepository(this.config, kind) }

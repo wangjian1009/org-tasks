@@ -284,7 +284,8 @@ export class DataSet {
   private async initialize(): Promise<void> {
     if (this.scopeChanged || !this.connection) throw new Error('数据集尚未配置')
     this.workspace = this.connection
-    if (!this.definition) {
+    const definition = this.definition
+    if (!definition) {
       this.applyFullResult(this.name, { type: 'task', result: { tasks: [], categories: [], fullFiles: [] } }, this.operationId(1, 'refresh'))
       this.ready = true
       this.publish({ name: this.name, type: 'ready', version: 1, operationId: this.operationId(1, 'refresh'), optimistic: false, added: [], removed: [], updated: [] })
@@ -292,10 +293,10 @@ export class DataSet {
     }
     // 缓存已由管理器发布；配置接入属于后台查询准备，不阻塞缓存恢复。
     // 初始化查询统一交给管理器收集，页面全部数据集共享首次批次。
-    await this.load(++this.sequence)
+    await this.load(definition, ++this.sequence)
   }
   private requestExternalRefresh(): void { this.clock?.refresh(this.name) }
-  private async load(version: number): Promise<void> {
+  private async load(definition: DataSetDefinition, version: number): Promise<void> {
     const workspace = this.workspace
     if (!workspace) throw new Error('底层连接尚未建立')
     if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
@@ -304,7 +305,6 @@ export class DataSet {
       this.generation = operationId
       this.initialEvents.clear(); this.initialEvents.set(this.name, [])
     }
-    const definition = this.definition!
     try {
       {
         if (!this.clock) throw new Error('数据集缺少订阅管理器')
@@ -344,9 +344,11 @@ export class DataSet {
     await this.start()
     if (this.closing || this.closed) throw new Error('页面数据集已关闭')
     if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
+    const definition = this.definition
+    if (!definition) return
     const version = this.clock ? this.clock.next() : this.sequence + 1
     this.sequence = version
-    const work = this.load(version)
+    const work = this.load(definition, version)
     this.track(work)
     return work
   }
