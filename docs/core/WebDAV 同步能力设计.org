@@ -26,6 +26,38 @@ WebDAV 是当前唯一规划的远端同步策略。WebDAV 地址和认证材料
 
 网络请求和响应正文读取使用 15 秒总超时。失败沿用 ~WebDavError~ 分类，错误不包含认证参数、完整 URL 或响应正文。连接检查不创建 ~OrgRepoSyncRecord~ ，不发送同步生命周期事件，也不加载仓库、修改文件或消费 outbox；检查成功不保证条件写入权限。
 
+* 保存仓库配置前预览覆盖范围（设计，尚未实现）
+
+拟新增 ~OrgWorkspace::preview_webdav_sync(request: WebDavSyncPreviewRequest, policy: &WebDavSyncPolicy) -> Result<WebDavSyncPreview, CoreError>~ 。调用方传入待保存配置对应的本机目录、可选 Core 仓库 ID 和目录过滤，通过 ~policy~ 提供本次远端的连接信息。本机目录未变时校验原 Core 仓库 ID。新建仓库或修改本机目录时读取目标目录及其身份。尚未创建的应用专用目录按空本机清单处理。读取使用拟保存的配置和现有同步比较规则，预览期间保持文件、工作区同步策略、配置和同步历史原状。
+
+#+begin_src rust
+pub struct WebDavSyncPreviewRequest {
+    pub root_directory: PathBuf,
+    pub repo_id: Option<OrgRepoId>,
+    pub excluded_directories: Vec<String>,
+}
+
+pub struct WebDavSyncPreview {
+    pub id: String,
+    pub files: Vec<WebDavSyncPreviewFile>,
+}
+
+pub struct WebDavSyncPreviewFile {
+    pub path: String,
+    pub effect: WebDavSyncEffect,
+}
+
+pub enum WebDavSyncEffect {
+    ReplaceLocal,
+    RemoveLocal,
+    Conflict,
+}
+#+end_src
+
+~ReplaceLocal~ 表示本机与远端内容不同，按当前同步规则将采用远端整份文件，~RemoveLocal~ 表示本机文件会因远端删除而移出工作目录，~Conflict~ 表示本机修改进入同步冲突候选，需要用户后续处理。结果按安全相对路径排序，同一路径只返回预计效果。两端字节相同、普通下载新文件、上传本机独有文件及可自动无损合并的文件不列入确认清单。设置页按结果显示相对路径和影响。清单为空时显示“没有需要覆盖的本机文件”。用户点击“确认保存”才提交草稿，点击“取消”回到表单。远端访问或本机读取失败时返回错误，设置页保留草稿。已有远端基线与草稿中的地址或账号不匹配时返回明确错误。WebDAV 停用时沿用切换为本地的确认。
+
+预览 ID 绑定本机文件版本、远端强 ETag 或下载内容哈希、基线版本、仓库身份和本次参数。用户确认后，Harmony 提交配置时重新校验预览，并为该配置标记已确认的首轮同步。同步执行沿用 ~sync_repos~ ，通过扩展现有请求传入预览 ID，实际写入前再次校验并沿用条件请求。版本改变时提示重新预览。确认前以及预览版本已失效时，启动、下拉和后台同步均跳过该仓库。同步失败重试遵循现有事务恢复，每次重试均校验已确认版本。进程退出后若无法验证已确认版本，则再次预览。
+
 * 只读远端变化检查
 
 ~WebDavSyncPolicy~ 实现 ~SyncPolicy.check_remote_changes(context)~ ，由 Workspace 的无参 ~check_remote_changes()~ 按已绑定仓库逐项调用。上下文中的仓库身份和目录过滤由 Core 提供，不由检查调用方传入。读取受保护远端索引与清单元数据，核对来源，并复用 ~Depth: 1~ 递归列举及同步过滤，不扫描或下载正文。现存路径集合与强 ETag 相同、双方提供的长度不矛盾时返回 ~Unchanged~ ；新增、删除、强版本不同或长度矛盾返回 ~Changed~ ；首次无基线、缺少强 ETag 返回 ~Unknown~ 。基线异常、来源变化和列举失败保留为该仓库错误。根目录 ~.orgzlyignore~ 属于检查范围，删除标记不作为现存文件比较。

@@ -47,15 +47,15 @@ struct RepositorySettings {
   @State directoryOpen: boolean = false
   @State directoryBusy: boolean = false
   @State cleanupPending: boolean = false
+  @State originalDraft: string = ''
   private loaded: boolean = false
-  private originalDraft: string = ''
 
   private stopExternalGuard: (() => void) | undefined = undefined
   onPageShow(): void {
     this.stopExternalGuard?.()
     this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       this.loaded && !this.loading && !this.saving && !this.testing && !this.deleting && !this.resetting &&
-      !this.directoryOpen && !this.directoryBusy && JSON.stringify(this.draft()) === this.originalDraft)
+      !this.directoryOpen && !this.directoryBusy && !this.hasChanges())
   }
   onPageHide(): void { this.stopExternalGuard?.(); this.stopExternalGuard = undefined }
   aboutToDisappear(): void { this.stopExternalGuard?.() }
@@ -63,10 +63,13 @@ struct RepositorySettings {
   onBackPress(): boolean {
     if (this.directoryOpen) { if (!this.directoryBusy) this.directoryOpen = false; return true }
     if (!this.loading && !this.saving && !this.testing && !this.deleting && !this.resetting) {
-      if (this.existing) this.save()
-      else PageNavigator.shared.back(this.getUIContext())
+      PageNavigator.shared.back(this.getUIContext())
     }
     return true
+  }
+
+  hasChanges(): boolean {
+    return JSON.stringify(this.draft()) !== this.originalDraft
   }
 
   draft(): RepoConfig {
@@ -211,7 +214,7 @@ struct RepositorySettings {
 
   async save() {
     if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
-    if (!this.loaded || (this.existing && JSON.stringify(this.draft()) === this.originalDraft)) { PageNavigator.shared.back(this.getUIContext()); return }
+    if (!this.loaded || (this.existing && !this.hasChanges())) return
     const saved = this.config.repos.find(item => item.id === this.repoId)
     if (this.cleanupPending && this.rootDirectory.trim() !== saved?.rootDirectory) {
       this.cannotSave('请先完成同步信息清理，再修改本地目录')
@@ -341,7 +344,7 @@ struct RepositorySettings {
     const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
     if (!repo) return
     if (this.rootDirectory.trim() !== repo.rootDirectory) {
-      this.message = '本地目录已修改，请先返回保存后再重置'
+      this.message = '本地目录已修改，请先点击“确定”保存后再重置'
       return
     }
     this.getUIContext().showAlertDialog({ title: '重置本地目录？',
@@ -390,12 +393,15 @@ struct RepositorySettings {
     Column() {
       AppShell({ title: this.existing ? '仓库' : '添加仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen,
         busy: this.loading || this.saving || this.testing || this.deleting || this.resetting || this.directoryBusy,
+        actionLabel: this.existing ? '重置本地目录' : '',
+        actionText: this.resetting ? '正在重置…' : '重置',
+        action: (): void => { this.confirmReset() },
         backAction: (): void => { this.onBackPress() } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
           Scroll() {
             Column() {
-              SettingsGroup({ title: '基本信息', detail: this.existing ? '名称可留空，默认使用目录名称。修改后返回保存。' : '默认使用应用专用目录，也可选择应用可访问的其他目录。' }) {
+              SettingsGroup({ title: '基本信息', detail: this.existing ? '名称可留空，默认使用目录名称。修改后点击底部“确定”保存。' : '默认使用应用专用目录，也可选择应用可访问的其他目录。' }) {
                 SettingsField({ title: '名称', text: this.name,
                   placeholder: !this.existing && this.rootDirectory === this.managedDirectory() ? (this.webdavEnabled ? 'WebDAV 仓库' : '本地仓库') : repositoryName(this.rootDirectory),
                   changed: (value: string): void => { this.name = value } })
@@ -443,19 +449,19 @@ struct RepositorySettings {
                     SettingsRow({ title: '重试初始化入口文件', disclosure: false,
                       action: (): void => { this.resetRepository(this.rootDirectory.trim(), true) } })
                   }
-                  SettingsRow({ title: this.resetting ? '正在重置…' : '重置本地目录', danger: true, disclosure: false, action: (): void => { this.confirmReset() } })
                   SettingsRow({ title: this.deleting ? '正在删除…' : '删除存储库', danger: true, disclosure: false, divider: false, action: (): void => { this.confirmDelete() } })
                 }
               }
             }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
               .enabled(!this.loading && this.loaded && !this.saving && !this.testing && !this.deleting && !this.resetting)
           }.width('100%').layoutWeight(1).align(Alignment.TopStart)
-          if (!this.loading && this.loaded && !this.existing) {
+          if (!this.loading && this.loaded && (!this.existing || this.hasChanges())) {
             Column() {
-              Button(this.saving ? '正在新建…' : '新建仓库').id('repository_create')
+              Button(this.existing ? (this.saving ? '正在保存…' : '确定') : (this.saving ? '正在新建…' : '新建仓库'))
+                .id(this.existing ? 'repository_confirm' : 'repository_create')
                 .width('100%').height(48).borderRadius(12)
                 .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
-                .enabled(!this.saving && !this.testing && !this.directoryBusy)
+                .enabled(!this.saving && !this.testing && !this.deleting && !this.resetting && !this.directoryBusy)
                 .onClick((): void => { this.save() })
             }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 16 })
           }

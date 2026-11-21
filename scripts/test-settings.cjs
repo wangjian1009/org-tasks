@@ -231,14 +231,24 @@ function repositoryFixture(existing = true) {
     failSync(message) { syncFailure = message; }, dialog: () => dialog,
     fail(e) { failure = e; }, hold(p) { gate = p; } };
 }
-test('已有仓库名称修改返回保存，保留身份、排除规则、入口和其他页面刚更新的设置', async () => {
+test('已有仓库返回放弃草稿，确定才保存并保留其他设置', async () => {
+  const cancelled = repositoryFixture(); await cancelled.page.load();
+  assert.equal(cancelled.page.hasChanges(), false);
+  cancelled.page.name = ' 草稿 ';
+  assert.equal(cancelled.page.hasChanges(), true);
+  cancelled.page.onBackPress();
+  assert.equal(cancelled.writes.length, 0);
+  assert.equal(cancelled.backed(), 1);
+  assert.equal(cancelled.dialog(), undefined);
+
   const f = repositoryFixture(); await f.page.load();
   assert.equal(f.page.loading, false); assert.equal(f.page.name, '旧名称');
+  f.page.name = ' 旧名称 ';
+  assert.equal(f.page.hasChanges(), false);
   f.page.name = ' 新名称 ';
   f.config.memoFile = 'new-memo.org';
-  f.page.onBackPress();
-  // 返回事件启动异步保存，等待其完成。
-  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.writes.length, 0);
+  await f.page.save();
   assert.equal(f.backed(), 1); assert.equal(f.writes.length, 1);
   assert.equal(f.writes[0].repos[0].id, 'repo-1'); assert.equal(f.writes[0].repos[0].name, '新名称');
   assert.deepEqual(f.writes[0].repos[0].excludedDirectories, ['private']);
