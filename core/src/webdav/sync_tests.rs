@@ -1342,6 +1342,43 @@ async fn first_sync_uploads_local_only_and_downloads_remote_only_files() {
     tokio::fs::remove_dir_all(root).await.unwrap();
 }
 #[tokio::test]
+async fn reattaching_after_removing_policy_uses_remote_for_matching_paths() {
+    use crate::{OrgWorkspace, RemoteChangeState, SyncTriggerReason};
+    let (mut repo, root) = repo().await;
+    let (policy, _, worker) = server(&[("same.org", b"* TODO Old remote\n")]).await;
+    sync(&mut repo, &policy, 1).await;
+    worker.abort();
+    tokio::fs::write(root.join("same.org"), b"* TODO Local edition\n").await.unwrap();
+    tokio::fs::write(root.join("local.org"), b"* TODO Local only\n").await.unwrap();
+    let identity = tokio::fs::read(root.join(".sync/id")).await.unwrap();
+    let repo_id = repo.id.clone();
+    let workspace = OrgWorkspace::start(vec![repo]).await.unwrap();
+    workspace.remove_sync_policy(&repo_id).await.unwrap();
+    assert_eq!(tokio::fs::read(root.join(".sync/id")).await.unwrap(), identity);
+    assert_eq!(tokio::fs::read(root.join("same.org")).await.unwrap(), b"* TODO Local edition\n");
+    assert!(!root.join(".sync/history").exists());
+    assert!(!root.join(".sync/remote_base").exists());
+    assert!(!root.join(".sync/outbox").exists());
+
+    let (policy, remote, worker) = server(&[
+        ("same.org", b"* TODO New remote\r\n"),
+        ("remote.org", b"* TODO Remote only\n"),
+    ]).await;
+    workspace.set_sync_policy(&repo_id, policy, vec![]).await.unwrap();
+    assert_eq!(workspace.check_remote_changes().await.unwrap()[0].result, Ok(RemoteChangeState::Unknown));
+    let result = workspace.sync_repos(&[repo_id], SyncTriggerReason::Manual, None, None).await.unwrap();
+    assert_eq!(result[0].result.as_ref().unwrap().result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(tokio::fs::read(root.join("same.org")).await.unwrap(), b"* TODO New remote\r\n");
+    assert_eq!(tokio::fs::read(root.join("local.org")).await.unwrap(), b"* TODO Local only\n");
+    assert_eq!(tokio::fs::read(root.join("remote.org")).await.unwrap(), b"* TODO Remote only\n");
+    assert_eq!(remote.lock().unwrap().files["local.org"].data, b"* TODO Local only\n");
+    assert!(!root.join(".sync/remote-detached").exists());
+    workspace.stop().await.unwrap();
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
 async fn downloaded_file_todo_declarations_override_external_defaults_and_survive_reload() {
     let (mut repo, root) = repo().await;
     repo.set_todo_defaults(crate::TodoConfig::from_settings("#+TODO: GLOBAL | CLOSED").unwrap())

@@ -161,7 +161,7 @@ function normalizeSyncOptions(options: SyncOptions): Promise<SyncOptions>
 | ~OrgFile.source_bytes()~ | ~file.sourceBytes()~ | 返回原始 UTF-8 字节的独立 ~Uint8Array~ 副本。 |
 | ~SyncOptions~ | ~SyncOptions~ | 结构化参数；默认值与校验来自 Rust。 |
 | ~OrgWorkspace.check_remote_changes()~ | ~await workspace.checkRemoteChanges()~ | 无参只读检查，逐仓库返回状态或错误；不加文件锁、不触发同步。 |
-| ~OrgWorkspace.set_sync_policy~ 、 ~remove_sync_policy~ | ~workspace.setSyncPolicy~ 、 ~removeSyncPolicy~ | 策略和过滤目录绑定到稳定仓库 ID，仅保存在运行时。 |
+| ~OrgWorkspace.set_sync_policy~ 、 ~remove_sync_policy~ | ~workspace.setSyncPolicy~ 、 ~removeSyncPolicy~ | 策略和过滤目录绑定到稳定仓库 ID。确认切换到本地后使用现有移除入口清理同步状态。 |
 | ~OrgWorkspace.sync_repos~ | ~workspace.syncRepos~ | 显式传入仓库 ID 列表和本轮原因，逐仓库返回结果；开始时间由 Core 生成。 |
 | ~OrgWorkspace.query(&[CoreQuery])~ | ~workspace.query(queries)~ | 结构化请求数组在一次 worker 调用中透传 Core，按输入顺序返回任务及分类统计数组。 |
 | ~OrgWorkspace.set_todo_defaults(TodoConfig)~ | ~workspace.setTodoDefaults(settings)~ | 宿主编辑 Org 设置文本，Rust 构造 ~TodoConfig~ 。 |

@@ -6,6 +6,7 @@ use std::path::Path;
 use tokio::fs;
 
 const WORK: &str = ".sync/reset";
+pub(crate) const DETACHED: &str = ".sync/remote-detached";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,6 +20,8 @@ struct Journal {
 struct ResetIntent {
     version: u32,
     repo_id: String,
+    #[serde(default)]
+    sync_only: bool,
 }
 
 fn io(error: std::io::Error) -> CoreError {
@@ -64,13 +67,24 @@ pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
         if crate::webdav::session::active(root).await? {
             return Err(CoreError::InvalidState("重置等待活动同步结束"));
         }
-        // 重置意图一旦落盘就继续清理；不让旧事务重新还原已声明清除的内容。
-        for directory in [root.to_path_buf(), root.join(".sync")] {
+        // 意图一旦落盘就继续清理；不让旧事务重新还原已声明清除的内容。
+        let control = root.join(".sync");
+        if intent.sync_only {
+            transaction::atomic_write(&transaction::target(root, DETACHED).await?, b"1\n").await?;
+        }
+        let directories = if intent.sync_only { vec![control] } else { vec![root.to_path_buf(), control] };
+        for directory in directories {
             let mut entries = fs::read_dir(&directory).await.map_err(io)?;
             while let Some(entry) = entries.next_entry().await.map_err(io)? {
                 let name = entry.file_name();
-                if (directory == root && (name == ".sync" || name == "reset"))
-                    || (directory != root && (name == "id" || name == ".transaction.lock" || name == ".sync.lock")) {
+                let clear = if intent.sync_only {
+                    matches!(name.to_str(), Some("remote_base" | "history" | "outbox" | "sessions" | "transactions"))
+                } else if directory == root {
+                    name != ".sync" && name != "reset"
+                } else {
+                    name != "id" && name != ".transaction.lock" && name != ".sync.lock"
+                };
+                if !clear {
                     continue;
                 }
                 let meta = fs::symlink_metadata(entry.path()).await.map_err(io)?;
@@ -160,6 +174,28 @@ pub(crate) async fn recover(root: &Path) -> Result<(), CoreError> {
 }
 
 impl OrgRepo {
+    pub(crate) async fn clear_sync_metadata(&self) -> Result<(), CoreError> {
+        let root = Path::new(&self.root_directory);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let guard = transaction::lock_before(root, deadline).await?;
+            if crate::webdav::session::active(root).await? {
+                drop(guard);
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(CoreError::InvalidState("正在同步，请稍后切换到本地仓库"));
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                continue;
+            }
+            super::access::recover(root, &self.id).await?;
+            let intent = ResetIntent { version: 1, repo_id: self.id.clone(), sync_only: true };
+            let bytes = serde_json::to_vec(&intent)
+                .map_err(|_| CoreError::InvalidState("无法编码同步清理标记"))?;
+            transaction::atomic_write(&transaction::target(root, "reset").await?, &bytes).await?;
+            return recover(root).await;
+        }
+    }
+
     /// 清空本地内容、历史、基线与意图；身份、根目录和宿主配置保持不变，不访问远端。
     pub async fn reset(&mut self, notifications: Option<&super::notification_center::NotificationCenter>) -> Result<(), CoreError> {
         let root = Path::new(&self.root_directory);
@@ -178,7 +214,7 @@ impl OrgRepo {
                 return Err(CoreError::InvalidState("仓库身份已改变，请重新打开"));
             }
             if transaction::read(root, "reset").await?.is_none() {
-                let intent = ResetIntent { version: 1, repo_id: id.clone() };
+                let intent = ResetIntent { version: 1, repo_id: id.clone(), sync_only: false };
                 let bytes = serde_json::to_vec(&intent)
                     .map_err(|_| CoreError::InvalidState("无法编码重置标记"))?;
                 transaction::atomic_write(&transaction::target(root, "reset").await?, &bytes).await?;
@@ -297,7 +333,7 @@ mod tests {
         let guard = transaction::lock(&root).await.unwrap();
         assert!(recover(&root).await.is_err());
         assert!(root.join("A.org").exists());
-        let intent = ResetIntent { version: 1, repo_id: repo.id.clone() };
+        let intent = ResetIntent { version: 1, repo_id: repo.id.clone(), sync_only: false };
         fs::write(root.join("reset"), serde_json::to_vec(&intent).unwrap()).await.unwrap();
         fs::create_dir_all(root.join(".sync/transactions/partial")).await.unwrap();
         fs::write(root.join(".sync/transactions/partial/journal.json"), b"invalid old transaction").await.unwrap();

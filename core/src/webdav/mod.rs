@@ -259,9 +259,11 @@ impl WebDavSyncPolicy {
         let options = crate::SyncOptions {
             excluded_directories: context.excluded_directories.to_vec(), ..Default::default()
         }.normalized()?;
-        let Some(mut baseline) = remote_base::remote_versions(
-            std::path::Path::new(&context.repo.root_directory), &self.origin(),
-        ).await? else { return Ok(Unknown) };
+        let root = std::path::Path::new(&context.repo.root_directory);
+        if transaction::read(root, crate::model::reset::DETACHED).await?.is_some() {
+            return Ok(Unknown);
+        }
+        let Some(mut baseline) = remote_base::remote_versions(root, &self.origin()).await? else { return Ok(Unknown) };
         baseline.retain(|path, _| !options.excludes_path(path));
         let remotes = runtime::list_remote_tree(
             &self.client, &self.username, &self.password, &self.endpoint, &options,

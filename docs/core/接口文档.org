@@ -607,7 +607,7 @@ impl WebDavSyncPolicy {
 
 ** Policy 绑定与多仓库检查
 
-宿主在配置接入时通过 ~set_sync_policy~ 将 Policy 和过滤目录绑定到稳定仓库 ID；Core 校验过滤规则并在运行时保存绑定，不复制或持久化 Policy 内的凭据。重新绑定替换原策略， ~remove_sync_policy~ 解除绑定，移除仓库时同时解除绑定。修改绑定使用 Workspace 配置屏障；只读检查克隆已发布快照后直接调用各策略，不进入同步屏障、不获取仓库文件锁。
+宿主在配置接入时通过 ~set_sync_policy~ 将 Policy 和过滤目录绑定到稳定仓库 ID；Core 校验过滤规则并在运行时保存绑定，不复制或持久化 Policy 内的凭据。重新绑定替换原策略， ~remove_sync_policy~ 在同一配置屏障解除绑定并清除该仓库的远端同步基线、同步历史和待上传记录，保留仓库身份与工作文件。移除仓库也会解除运行时绑定。修改绑定使用 Workspace 配置屏障；只读检查克隆已发布快照后直接调用各策略，不进入同步屏障、不获取仓库文件锁。
 
 #+begin_src rust
 pub struct RemoteCheckContext<'a> {

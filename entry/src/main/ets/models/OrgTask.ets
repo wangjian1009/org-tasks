@@ -40,6 +40,7 @@ export interface RepoConfig {
   webdavUrl: string
   webdavUsername: string
   webdavPassword: string
+  webdavCleanupPending?: boolean
   excludedDirectories: string[]
 }
 

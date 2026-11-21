@@ -164,12 +164,26 @@ export class RepositorySyncService {
     let coreSettings: CoreSettings = { additionStates: [] }
     try {
       const config = await AppConfigService.load(context)
+      if (options.beforeSync) await options.beforeSync(config)
       const selected = options.repositoryId
         ? config.repos.filter((repo: RepoConfig) => repo.id === options.repositoryId) : config.repos
-      if (options.repositoryId && !selected.some((repo: RepoConfig) => repo.webdavEnabled)) {
-        throw new Error('目标仓库不存在或未启用 WebDAV')
+      if (options.repositoryId && selected.length === 0) throw new Error('目标仓库不存在')
+      const pending = selected.filter((repo: RepoConfig) => repo.webdavCleanupPending)
+      if (pending.length > 0) {
+        const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+        const activeRepos = await workspace.repos()
+        for (const repository of pending) {
+          const repo = activeRepos.find(item => item.rootDirectory === repository.rootDirectory)
+          if (!repo) throw new Error('无法定位待清理的仓库，请重试')
+          await workspace.removeSyncPolicy(repo.id)
+        }
+        const current = await AppConfigService.load(context)
+        for (const repository of pending) {
+          const saved = current.repos.find(item => item.id === repository.id && item.rootDirectory === repository.rootDirectory)
+          if (saved?.webdavCleanupPending && !saved.webdavEnabled) saved.webdavCleanupPending = undefined
+        }
+        await AppConfigService.save(context, current)
       }
-      if (options.beforeSync) await options.beforeSync(config)
       repos = config.repos
       todoDefaults = config.todoDefaults
       coreSettings = config.coreSettings

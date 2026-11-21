@@ -436,12 +436,12 @@ test('远端无变化不调用同步，单仓库检查失败不阻止其他仓�
   assert.deepEqual(failed.calls.at(-1), ['sync', ['core-1'], 'remoteChanged']);
 });
 
-test('手动与退后台直接传指定仓库列表，关闭远端时解绑 Policy', async () => {
+test('手动与退后台跳过本地仓库，保持各自触发原因', async () => {
   for (const reason of ['manual', 'background']) {
     const f = remoteCheckFixture([false, false]);
     f.configs[1].webdavEnabled = false;
     await f.run(reason);
-    assert.deepEqual(f.calls, [['set', 'core-0', ['archive']], ['remove', 'core-1'], ['sync', ['core-0'], reason === 'background' ? 'localChanged' : 'manual']]);
+    assert.deepEqual(f.calls, [['set', 'core-0', ['archive']], ['sync', ['core-0'], reason === 'background' ? 'localChanged' : 'manual']]);
   }
 });
 

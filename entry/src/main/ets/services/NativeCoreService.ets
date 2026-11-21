@@ -463,8 +463,6 @@ export class NativeCoreService {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
         await workspace.setSyncPolicy(repo.id, policy, config.excludedDirectories, monitor)
         enabledIds.push(repo.id)
-      } else {
-        await workspace.removeSyncPolicy(repo.id)
       }
     }
     if (repositoryId && enabledIds.length === 0) throw new Error('目标仓库不存在或未启用 WebDAV')

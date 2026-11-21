@@ -46,6 +46,7 @@ struct RepositorySettings {
   @State drawerOpen: boolean = false
   @State directoryOpen: boolean = false
   @State directoryBusy: boolean = false
+  @State cleanupPending: boolean = false
   private loaded: boolean = false
   private originalDraft: string = ''
 
@@ -72,6 +73,7 @@ struct RepositorySettings {
     return { id: this.repoId, name: this.name.trim(), rootDirectory: this.rootDirectory.trim(),
       webdavEnabled: this.webdavEnabled, webdavUrl: this.webdavUrl.trim(),
       webdavUsername: this.webdavUsername.trim(), webdavPassword: this.webdavPassword,
+      webdavCleanupPending: this.cleanupPending || undefined,
       excludedDirectories: this.excludedDirectoriesText.split(',').map((value: string) => value.trim())
         .filter((value: string) => value.length > 0) }
   }
@@ -90,6 +92,10 @@ struct RepositorySettings {
 
   changeSyncMethod(enabled: boolean): void {
     if (!this.loaded || this.loading || this.saving || this.testing || this.deleting || this.resetting || this.webdavEnabled === enabled) return
+    if (this.cleanupPending) {
+      this.message = '请先完成同步信息清理'
+      return
+    }
     this.webdavEnabled = enabled
     this.clearTestResult()
   }
@@ -139,6 +145,7 @@ struct RepositorySettings {
       this.webdavUrl = repo.webdavUrl
       this.webdavUsername = repo.webdavUsername
       this.webdavPassword = repo.webdavPassword
+      this.cleanupPending = !!repo.webdavCleanupPending
       this.excludedDirectoriesText = repo.excludedDirectories.join(', ')
       if (!existing) {
         const defaults: NativeSyncOptions = await defaultSyncOptions()
@@ -205,6 +212,23 @@ struct RepositorySettings {
   async save() {
     if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     if (!this.loaded || (this.existing && JSON.stringify(this.draft()) === this.originalDraft)) { PageNavigator.shared.back(this.getUIContext()); return }
+    const saved = this.config.repos.find(item => item.id === this.repoId)
+    if (this.cleanupPending && this.rootDirectory.trim() !== saved?.rootDirectory) {
+      this.cannotSave('请先完成同步信息清理，再修改本地目录')
+      return
+    }
+    if (saved?.webdavEnabled && !this.webdavEnabled) {
+      if (this.rootDirectory.trim() !== saved.rootDirectory) {
+        this.cannotSave('请先保存本地目录的修改，再切换为本地仓库')
+        return
+      }
+      this.getUIContext().showAlertDialog({ title: '切换为本地仓库？',
+        message: '将清除本机保存的 WebDAV 地址、账号、密码、同步历史和待上传记录。本机与远端的文件都会保留。以后重新开启同步时，同路径文件将采用远端版本。',
+        primaryButton: { value: '取消', action: (): void => { this.changeSyncMethod(true) } },
+        secondaryButton: { value: '切换为本地', fontColor: UiColor.error,
+          action: (): void => { this.finishLocalConversion(saved.rootDirectory) } } })
+      return
+    }
     if (!this.rootDirectory.trim().startsWith('/')) { this.cannotSave('请输入本地 Org 文件目录的绝对路径'); return }
     if (this.webdavEnabled && (!this.webdavUrl.trim().startsWith('https://') || !this.webdavUsername.trim() || !this.webdavPassword)) {
       this.cannotSave('请填写 HTTPS WebDAV 地址、用户名和密码'); return
@@ -252,6 +276,44 @@ struct RepositorySettings {
     finally { this.saving = false }
   }
 
+  async finishLocalConversion(expectedRoot: string) {
+    if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
+    this.saving = true
+    this.message = ''
+    const context = this.getUIContext().getHostContext()!
+    try {
+      const result = RepositorySyncService.start(context, {
+        source: 'manual', policy: SyncStartPolicy.Wait, repositoryId: this.repoId,
+        beforeSync: async (config: AppConfig): Promise<void> => {
+          const repository = config.repos.find(item => item.id === this.repoId)
+          if (!repository || repository.rootDirectory !== expectedRoot) throw new Error('仓库配置已改变，请重新打开')
+          if (!repository.webdavEnabled) return
+          repository.name = this.name.trim()
+          repository.webdavEnabled = false
+          repository.webdavUrl = ''
+          repository.webdavUsername = ''
+          repository.webdavPassword = ''
+          repository.excludedDirectories = []
+          repository.webdavCleanupPending = true
+          await AppConfigService.save(context, config)
+          this.config = config
+          this.cleanupPending = true
+          this.webdavUrl = ''
+          this.webdavUsername = ''
+          this.webdavPassword = ''
+          this.excludedDirectoriesText = ''
+          this.originalDraft = JSON.stringify(this.draft())
+        }
+      })
+      if (result.kind === 'rejected') throw new Error('仓库正在同步，请重试')
+      const completion = await result.handle.completion
+      if (completion.status === 'failed') throw new Error(completion.message || '同步信息清理未完成')
+      this.cleanupPending = false
+      PageNavigator.shared.back(this.getUIContext())
+    } catch (e) { this.message = `切换为本地仓库未完成：${coreErrorMessage(e as CoreBridgeError)}` }
+    finally { this.saving = false }
+  }
+
   confirmDelete() {
     if (!this.existing || this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
@@ -275,6 +337,7 @@ struct RepositorySettings {
 
   confirmReset() {
     if (!this.existing || this.saving || this.testing || this.deleting || this.resetting || this.loading) return
+    if (this.cleanupPending) { this.message = '请先完成同步信息清理'; return }
     const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
     if (!repo) return
     if (this.rootDirectory.trim() !== repo.rootDirectory) {
@@ -340,9 +403,13 @@ struct RepositorySettings {
                   detail: this.rootDirectory, icon: $r('app.media.ui_folder'), divider: false,
                   action: (): void => { this.directoryOpen = true } })
               }
-              SettingsGroup({ title: '同步', detail: '不同步时仅使用本地文件；选择 WebDAV 后配置远端连接。切换方式保留已填写的连接参数。' }) {
+              SettingsGroup({ title: '同步', detail: '本地仓库仅使用本机文件。WebDAV 仓库切换为不同步时，需要确认清理同步信息。' }) {
                 SettingsChoiceRow({ title: '同步方式', value: this.webdavEnabled ? 'WebDAV' : '不同步',
                   divider: false, items: this.syncMethodChoices() })
+                if (this.cleanupPending) {
+                  SettingsRow({ title: '重试清理同步信息', divider: false, disclosure: false,
+                    action: (): void => { this.finishLocalConversion(this.rootDirectory) } })
+                }
               }
               if (this.webdavEnabled) {
                 SettingsGroup({ title: 'WebDAV 连接', detail: '测试连接验证认证与目录访问，不保存配置或同步文件；上传权限在实际同步时验证。' }) {

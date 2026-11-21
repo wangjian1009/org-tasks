@@ -91,6 +91,7 @@ impl WebDavSyncPolicy {
         let download_guard = super::session::enter(root, &repo.id, context.started_at,
             super::session::Phase::Downloading).await?;
         let mut files = repo.load_files_unlocked(&[]).await?;
+        let detached = transaction::read(root, crate::model::reset::DETACHED).await?;
         let origin = self.origin();
         let mut bases = Store::load(root, &origin).await?;
         bases.cleanup(root).await?;
@@ -285,7 +286,11 @@ impl WebDavSyncPolicy {
                 let decision = (|| -> Result<Option<Vec<u8>>, CoreError> {
                     if let Some(bytes) = &remote {
                         parse_snapshot(&repo, &path, bytes.clone(), &snapshots, &files)?;
+                        if detached.is_some() {
+                            return Ok(Some(bytes.clone()));
+                        }
                     }
+                    if detached.is_some() { return Ok(before.clone()); }
                     match (&baseline, &before, &remote) {
                         // 已跟踪远端删除：无论本地是否修改都采用删除。
                         (Some(Some(_)), _, None) => Ok(None),
@@ -615,6 +620,9 @@ impl WebDavSyncPolicy {
             }
         }
         bases.stage_applied(root, &prepared.iter().map(|item| item.path.clone()).collect::<Vec<_>>(), &mut plan).await?;
+        if detached.is_some() {
+            plan.set(root, crate::model::reset::DETACHED.into(), None).await?;
+        }
         // outbox 确认与正式文件、基线及完成历史同属一个本地事务。
         for (relative, _, intent) in captured_intents {
             if prepared.iter().any(|item| item.path == intent.relative_path

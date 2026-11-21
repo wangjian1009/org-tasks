@@ -77,6 +77,7 @@ export class AppConfigService {
         webdavUrl: repository.webdavUrl.trim(),
         webdavUsername: repository.webdavUsername.trim(),
         webdavPassword: '',
+        webdavCleanupPending: repository.webdavCleanupPending || undefined,
         excludedDirectories: repository.excludedDirectories || []
       })
     }
@@ -135,6 +136,7 @@ export class AppConfigService {
           webdavUrl: repository.webdavUrl,
           webdavUsername: repository.webdavUsername,
           webdavPassword: includeCredentials ? await CredentialService.getWebDavPassword(repository.id) : '',
+          webdavCleanupPending: repository.webdavCleanupPending || undefined,
           excludedDirectories: repository.excludedDirectories ?? defaults!.excludedDirectories.slice()
         })
       }

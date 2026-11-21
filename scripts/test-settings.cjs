@@ -178,7 +178,7 @@ function repositoryFixture(existing = true) {
     somedayRepoId: '', somedayFile: '', memoRepoId: 'repo-1', memoFile: 'memo.org',
     todoDefaults: '#+TODO: OPEN | CLOSED', coreSettings: { additionStates: [] }, fileDisplayMode: 'source' };
   const writes = [], directories = [], validations = [], connections = [], lifecycle = [];
-  let backed = 0, failure, gate, syncFailure;
+  let backed = 0, failure, gate, syncFailure, dialog;
   const page = load('pages/RepositorySettings', 'RepositorySettings', {
     '../services/AppConfigService': { AppConfigService: {
       async load() { return structuredClone(writes.at(-1) ?? config); },
@@ -226,9 +226,9 @@ function repositoryFixture(existing = true) {
   });
   page.getUIContext = () => ({ getHostContext: () => ({ filesDir: '/app/files' }),
     getRouter: () => ({ getParams: () => existing ? { repoId: 'repo-1' } : {}, back() { backed++; } }),
-    showAlertDialog() {}, getPromptAction: () => ({ showToast() {} }) });
+    showAlertDialog(value) { dialog = value; }, getPromptAction: () => ({ showToast() {} }) });
   return { page, config, writes, directories, validations, connections, lifecycle, backed: () => backed,
-    failSync(message) { syncFailure = message; },
+    failSync(message) { syncFailure = message; }, dialog: () => dialog,
     fail(e) { failure = e; }, hold(p) { gate = p; } };
 }
 test('已有仓库名称修改返回保存，保留身份、排除规则、入口和其他页面刚更新的设置', async () => {
@@ -274,7 +274,7 @@ test('WebDAV 重置先清空，再同步，失败后的重试沿用原因且不�
   assert.equal(f.page.syncRetry, '');
 });
 
-test('关闭同步保留目录、凭据和过滤草稿，清除连接结果；本地保存无需完整远端参数', async () => {
+test('切换为本地仓库须确认，取消保留连接，确认后清除远端配置', async () => {
   const f = repositoryFixture(); await f.page.load();
   f.page.testMessage = '连接成功'; f.page.testSucceeded = true;
   f.page.changeSyncMethod(false);
@@ -282,13 +282,23 @@ test('关闭同步保留目录、凭据和过滤草稿，清除连接结果；�
   await f.page.testConnection(); assert.equal(f.connections.length, 0);
   assert.deepEqual(f.page.syncMethodChoices().map(item=>[item.title,item.checked]), [['不同步',true],['WebDAV',false]]);
   f.page.changeSyncMethod(true);
-  assert.deepEqual(f.page.draft(), f.config.repos[0]);
+  assert.deepEqual(f.page.draft(), { ...f.config.repos[0], webdavCleanupPending: undefined });
   f.page.changeSyncMethod(false); f.page.webdavUrl = '';
   await f.page.save();
+  assert.match(f.dialog().message, /同路径文件将采用远端版本/);
+  assert.equal(f.writes.length, 0);
+  f.dialog().primaryButton.action();
+  assert.equal(f.page.webdavEnabled, true);
+  f.page.changeSyncMethod(false);
+  await f.page.save();
+  f.dialog().secondaryButton.action();
+  await new Promise(resolve => setImmediate(resolve));
   const saved = f.writes[0].repos[0];
   assert.equal(saved.webdavEnabled, false); assert.equal(saved.id, 'repo-1');
-  assert.equal(saved.rootDirectory, '/org/work'); assert.equal(saved.webdavPassword, 'secret');
-  assert.deepEqual(saved.excludedDirectories, ['private']);
+  assert.equal(saved.rootDirectory, '/org/work'); assert.equal(saved.webdavPassword, '');
+  assert.equal(saved.webdavUsername, '');
+  assert.equal(saved.webdavCleanupPending, true);
+  assert.deepEqual(saved.excludedDirectories, []);
 });
 
 test('新建本地仓库由添加提交；切换同步不覆盖用户所选目录', async () => {

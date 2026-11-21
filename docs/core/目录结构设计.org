@@ -74,6 +74,10 @@ workspace 由宿主提供独立 preview_root，Core 验证其在全部仓库根�
 
 逻辑定位为 ~{ repoId: "<preview>", file: UUID }~ ，原路径单独保存。finish 返回真实操作组并清理副本；真实修改仍由统一数据接口提交。详细契约见 [[file:冲突预览与合并设计.org][冲突预览与合并设计]]。
 
+* 解除远端关联
+
+Core 在 ~.sync/remote-detached~ 记录下次同步首轮采用远端优先。结束该轮本地提交时，与基线及工作文件在同一事务中移除标记。仓库相对路径存在于两端时采用远端版本，本机独有文件保留并上传。
+
 * 同步记录触发原因
 
 ~.sync/history/<started_at>/summary~ 的可选字段 ~trigger_reason~ 保存本轮原因，读取为原始字符串。当前请求严格限定 ~remoteChanged~ 、 ~localChanged~ 、 ~manual~ 、 ~repositoryCreated~ 与 ~repositoryReset~ ；旧 appStartup／appBackground 和未知原因不影响其他历史字段。旧整体 JSON 按需只读兼容，不启动迁移。新同步只枚举占用时间，不读取旧日志内容；详细布局与可选字段规则见 [[file:同步日志存储与兼容设计.org][同步历史兼容与恢复方案]]。

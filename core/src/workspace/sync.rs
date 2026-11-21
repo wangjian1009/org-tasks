@@ -69,6 +69,9 @@ impl OrgWorkspace {
     pub async fn remove_sync_policy(&self, repo_id: &OrgRepoId) -> Result<(), CoreError> {
         let id = repo_id.clone();
         self.request(Access::Exclusive, move |state| Box::pin(async move {
+            let repo = state.repo(&id).ok_or(CoreError::InvalidInput("仓库不属于 Workspace"))?;
+            repo.clear_sync_metadata().await?;
+            crate::model::external_files::publish(repo, &state.notifications, vec![], vec![], false).await?;
             state.sync_policies.remove(&id);
             Ok(())
         })).await
