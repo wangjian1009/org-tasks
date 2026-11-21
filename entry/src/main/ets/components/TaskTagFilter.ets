@@ -6,18 +6,19 @@ import { UiColor } from '../ui/Theme'
 struct TaskTagChip {
   @Prop label: string = ''
   @Prop selected: boolean = false
-  @Prop all: boolean = false
+  @Prop selectedBackground: string = '#6EA8FF'
+  @Prop selectedForeground: string = '#25282C'
   @Prop chipWidth: number = 0
   activate: () => void = () => {}
 
   build() {
     Button({ type: ButtonType.Normal }) {
       Text(this.label).fontSize(14).fontWeight(FontWeight.Medium)
-        .fontColor(this.selected ? '#25282C' : UiColor.secondary)
+        .fontColor(this.selected ? this.selectedForeground : UiColor.secondary)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         .constraintSize({ maxWidth: 88 })
         .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-        .backgroundColor(this.selected ? (this.all ? '#AEACA9' : '#6EA8FF') : Color.Transparent).borderRadius(16)
+        .backgroundColor(this.selected ? this.selectedBackground : Color.Transparent).borderRadius(16)
     }.width(this.chipWidth > 0 ? this.chipWidth : 'auto').height(32).padding(0).borderRadius(18)
       .backgroundColor(Color.Transparent).flexShrink(0)
       .accessibilityText(`${this.label}，${this.selected ? '已选中' : '未选中'}`)
@@ -117,13 +118,16 @@ export struct TaskTagFilter {
     Row({ space: 2 }) {
       Flex({ wrap: this.expanded ? FlexWrap.Wrap : FlexWrap.NoWrap, alignItems: ItemAlign.Center,
         space: { main: LengthMetrics.vp(2), cross: LengthMetrics.vp(0) } }) {
-        TaskTagChip({ label: '全部', selected: this.allSelected(), all: true, chipWidth: this.tagChipWidth('全部'), activate: (): void => {
+        TaskTagChip({ label: '全部', selected: this.allSelected(), selectedBackground: UiColor.secondary,
+          chipWidth: this.tagChipWidth('全部'), activate: (): void => {
           this.changed({ tags: [], includeUntagged: false }, false)
         } })
         if (this.enableRuningFilter) {
-          TaskTagChip({ label: '进行中', selected: this.runningOnly, chipWidth: this.tagChipWidth('进行中'), activate: (): void => {
-            this.changed(this.selection(), !this.runningOnly)
-          } })
+          TaskTagChip({ label: '进行中', selected: this.runningOnly,
+            selectedBackground: UiColor.taskDoingTint, selectedForeground: UiColor.text,
+            chipWidth: this.tagChipWidth('进行中'), activate: (): void => {
+              this.changed(this.selection(), !this.runningOnly)
+            } })
         }
         TaskTagChip({ label: '无标签', selected: this.includeUntagged, chipWidth: this.tagChipWidth('无标签'), activate: (): void => {
           this.changed({ tags: this.selectedTags, includeUntagged: !this.includeUntagged }, this.runningOnly)
