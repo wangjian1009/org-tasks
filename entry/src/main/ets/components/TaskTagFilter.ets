@@ -7,18 +7,19 @@ struct TaskTagChip {
   @Prop label: string = ''
   @Prop selected: boolean = false
   @Prop selectedBackground: string = '#6EA8FF'
-  @Prop selectedForeground: string = '#25282C'
+  @Prop unselectedBackground: ResourceColor = Color.Transparent
+  @Prop unselectedForeground: string = UiColor.secondary
   @Prop chipWidth: number = 0
   activate: () => void = () => {}
 
   build() {
     Button({ type: ButtonType.Normal }) {
       Text(this.label).fontSize(14).fontWeight(FontWeight.Medium)
-        .fontColor(this.selected ? this.selectedForeground : UiColor.secondary)
+        .fontColor(this.selected ? '#25282C' : this.unselectedForeground)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         .constraintSize({ maxWidth: 88 })
         .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-        .backgroundColor(this.selected ? this.selectedBackground : Color.Transparent).borderRadius(16)
+        .backgroundColor(this.selected ? this.selectedBackground : this.unselectedBackground).borderRadius(16)
     }.width(this.chipWidth > 0 ? this.chipWidth : 'auto').height(32).padding(0).borderRadius(18)
       .backgroundColor(Color.Transparent).flexShrink(0)
       .accessibilityText(`${this.label}，${this.selected ? '已选中' : '未选中'}`)
@@ -124,7 +125,7 @@ export struct TaskTagFilter {
         } })
         if (this.enableRuningFilter) {
           TaskTagChip({ label: '进行中', selected: this.runningOnly,
-            selectedBackground: UiColor.taskDoingTint, selectedForeground: UiColor.text,
+            unselectedBackground: UiColor.taskDoingTint, unselectedForeground: UiColor.text,
             chipWidth: this.tagChipWidth('进行中'), activate: (): void => {
               this.changed(this.selection(), !this.runningOnly)
             } })
