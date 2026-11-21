@@ -69,19 +69,20 @@ function managerFixture({ version = 1, expired = [task('expired')], fail = false
     async refresh(){this.version=1;},
     operate:async work=>{operated.push(name);if(failure)throw new Error('提交失败');await work('dataset/cleanup');},settle:async()=>{}});return sets.get(name);}
   dataSet('trash').query={type:'task',query:{expression:'.o.deleted',includeFiles:[{repoId:'org-tasks-system',path:'trash.org'}]}};
+  dataSet('trashExpired').query={type:'task',query:{expression:'deleted.lt.-7d',includeFiles:dataSet('trash').query.query.includeFiles}};
   dataSet('trash').repositoryBindings=[{id:'org-tasks-system',rootDirectory:'/sandbox/system'}];
   const manager={dataSet,async start(){starts++;},async close(){closes++;},async setQuery(name,query,repositoryBindings){definitions.push({name,query,repositoryBindings});dataSet(name).query=query;}};
   const {AppDataManager}=load('services/AppDataManager',{
-    './DataSetManager':{DataSetManager:{create:()=>manager}},'./AppConfigService':{},'./FileTargetService':{},'./TaskViewQueries':{},
+    './DataSetManager':{DataSetManager:{create:()=>manager}},'./ReminderManager':{ReminderManager:{register(){},start(){}}},'./AppConfigService':{},'./FileTargetService':{},'./TaskViewQueries':{},
     './TrashSettingsService':{TrashSettingsService:{retentionDays:async()=>7}},'./TrashService':{TrashService:backend.service}});
   const app=AppDataManager.shared({});
   const {TrashDataManager}=load('services/TrashDataManager',{'./AppDataManager':{AppDataManager},'./DataSetManager':{},'./TrashService':{TrashService:backend.service}});
   return{value:new TrashDataManager({}),app,backend,definitions,sets,operated,starts:()=>starts,closes:()=>closes,fail:v=>failure=v};
 }
-test('废纸篓复用 App 任务，只按需查询过期成员，并发打开只清理一次', async()=>{
+test('废纸篓复用启动时的过期查询，并发打开只清理一次', async()=>{
  const f=managerFixture();await Promise.all([f.value.start(),f.value.start()]);
- assert.equal(f.definitions.length,1);assert.equal(f.definitions[0].query.query.expression,'deleted.lt.-7d');
- assert.deepEqual(f.definitions[0].query.query.includeFiles,[{repoId:'org-tasks-system',path:'trash.org'}]);
+ assert.equal(f.definitions.length,0);
+ assert.equal(f.sets.get('trashExpired').query.query.expression,'deleted.lt.-7d');
  assert.deepEqual(f.operated,['trash']);assert.equal(f.backend.groups.length,1);
  await f.value.close();assert.equal(f.closes(),0,'页面关闭不关闭全局实例');
 });

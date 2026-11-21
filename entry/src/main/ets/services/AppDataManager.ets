@@ -6,7 +6,7 @@ import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
 import { DataSet, DataSetDefinition, DataSetManager } from './DataSetManager'
-import { CoreQuery, CoreQueryResult } from './NativeCoreService'
+import { CoreOrgFileRef, CoreQuery, CoreQueryResult } from './NativeCoreService'
 import { FileTargetKind, FileTargetService, configuredSpecialFileExclusions, fileTargetRepository, systemTrashExclusions } from './FileTargetService'
 import { TaskView, overviewTaskQuery, plannedRegionQuery, todayAttentionQuery, todayPriorityQuery } from './TaskViewQueries'
 
@@ -15,7 +15,7 @@ export const APP_DATA_SET_NAMES: string[] = ['todayTasks', 'todayPriority', 'fil
   'inboxTasks', 'inboxFile', 'somedayTasks', 'somedayFile', 'memoTasks', 'memoFile', 'inboxRecent', 'plannedFiltered', 'trashExpired', 'notebookFiles', 'reminderTasks', 'appLinkTasks']
 
 // 只定义 Core 查询；相同业务范围只保留一个 DataSet，各项共享同一批文件加载。
-export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
+export function appDataDefinitions(config: AppConfig, trashRetentionDays: number): DataSetDefinition[] {
   const trash = systemTrashExclusions(config)
   const task = (name: string, query: CoreQuery): DataSetDefinition => {
     if (query.type === 'task' && trash.files.length) query.query.excludeFiles = trash.files.slice()
@@ -28,6 +28,7 @@ export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
     { name: 'notebookFiles', query: { type: 'file', query: { includeIgnored: true } } },
     task('todayAttention', { type: 'task', query: todayAttentionQuery() }),
     task('planned', { type: 'task', query: overviewTaskQuery('planned') }),
+    task('plannedFiltered', plannedRegionQuery(null)),
     task('anytime', { type: 'task', query: overviewTaskQuery('anytime') }),
     task('waiting', { type: 'task', query: overviewTaskQuery('waiting') }),
     task('logbook', { type: 'task', query: overviewTaskQuery('logbook') }),
@@ -35,7 +36,9 @@ export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
   ]
   const special = configuredSpecialFileExclusions(config)
   definitions.push({ name: 'categories', query: { type: 'file', query: { excludeFiles: special.files } }, repositoryBindings: special.repositoryBindings })
-  if (trash.files.length) definitions.push({ name: 'trash', query: { type: 'task', query: { expression: '.o.deleted', includeFiles: trash.files } }, repositoryBindings: trash.repositoryBindings })
+  if (trash.files.length) definitions.push(
+    { name: 'trash', query: { type: 'task', query: { expression: '.o.deleted', includeFiles: trash.files } }, repositoryBindings: trash.repositoryBindings },
+    { name: 'trashExpired', query: trashExpirationQuery(trash.files, trashRetentionDays), repositoryBindings: trash.repositoryBindings })
   const inbox = FileTargetService.prepareConfigured(config, 'inbox')
   definitions.push({ name: 'badgeDeadline', query: { type: 'task', query: { expression: 'it.todo d.lt.tomorrow',
     excludeFiles: (inbox ? [inbox.reference] : []).concat(trash.files) } },
@@ -53,6 +56,10 @@ export function appDataDefinitions(config: AppConfig): DataSetDefinition[] {
   definitions.push(task('reminderTasks', { type: 'task', query: { expression: 'it.todo has.reminder reminder.ge.-30min o.reminder' } }))
   definitions.push(task('appLinkTasks', { type: 'task', query: { expression: 'has.app' } }))
   return definitions
+}
+
+function trashExpirationQuery(files: CoreOrgFileRef[] | undefined, days: number): CoreQuery {
+  return { type: 'task', query: { expression: `deleted.lt.-${days}d`, includeFiles: files } }
 }
 
 // 主界面会话共享的数据入口；组件只解除自己的订阅，不关闭全局管理器。
@@ -78,11 +85,11 @@ export class AppDataManager {
   }
   private constructor(context: Context) {
     this.context = context
-    this.manager = DataSetManager.create(context, 'app', (config: AppConfig): DataSetDefinition[] => {
+    this.manager = DataSetManager.create(context, 'app', async (config: AppConfig): Promise<DataSetDefinition[]> => {
       this.config = config
-      return appDataDefinitions(config)
-    }, { uncachedDataSets: ['reminderTasks'] })
-    for (const name of APP_DATA_SET_NAMES) this.manager.dataSet(name)
+      const days = await TrashSettingsService.retentionDays(context).catch((): number => 30)
+      return appDataDefinitions(config, days)
+    }, { names: APP_DATA_SET_NAMES, uncachedDataSets: ['reminderTasks'] })
     ReminderManager.register(context, this.manager.dataSet('reminderTasks'))
   }
   get configuration(): AppConfig | undefined { return this.config }
@@ -95,11 +102,11 @@ export class AppDataManager {
     const name = view === 'today' ? 'todayTasks' : view === 'memo' || view === 'someday' ? `${view}Tasks` : view
     return this.dataSet(name)
   }
-  async selectPlannedRegion(region: TaskRegionData | null): Promise<void> {
+  async selectPlannedRegion(region: TaskRegionData): Promise<void> {
     await this.start()
     const trash = systemTrashExclusions(this.config!)
-    const query = region ? plannedRegionQuery(region) : undefined
-    if (query?.type === 'task' && trash.files.length) query.query.excludeFiles = trash.files
+    const query = plannedRegionQuery(region)
+    if (query.type === 'task' && trash.files.length) query.query.excludeFiles = trash.files
     try { await this.manager.setQuery('plannedFiltered', query, trash.repositoryBindings) }
     catch (error) { this.dataSet('plannedFiltered').reportError(error as Error) }
   }
@@ -114,7 +121,7 @@ export class AppDataManager {
     const days = await TrashSettingsService.retentionDays(this.context)
     const trash = this.dataSet('trash')
     if (trash.query?.type !== 'task') throw new Error('系统仓库尚未初始化')
-    const query: CoreQuery = { type: 'task', query: { expression: `deleted.lt.-${days}d`, includeFiles: trash.query.query.includeFiles } }
+    const query = trashExpirationQuery(trash.query.query.includeFiles, days)
     const expired = this.dataSet('trashExpired')
     if (JSON.stringify(expired.query) !== JSON.stringify(query)) await this.manager.setQuery('trashExpired', query, trash.repositoryBindings)
     else if (expired.error) await expired.refresh()

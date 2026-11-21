@@ -102,10 +102,7 @@ export struct TaskPageContent {
     this.orderActive = false
     for (const stop of this.stops) stop()
     this.stops = []
-    if (this.view === 'planned') {
-      this.selectedPlanRegion = null
-      AppDataManager.active?.selectPlannedRegion(null).catch((): void => { console.error('释放计划筛选失败') })
-    }
+    if (this.view === 'planned') this.selectedPlanRegion = null
     this.dataManager = undefined
   }
 
@@ -224,7 +221,7 @@ export struct TaskPageContent {
     if (this.selection.selecting || this.selection.blocked()) return
     if (!await TaskInlineSession.end(true)) return
     this.selectedPlanRegion = region
-    await AppDataManager.shared(this.getUIContext().getHostContext()!).selectPlannedRegion(region)
+    if (region) await AppDataManager.shared(this.getUIContext().getHostContext()!).selectPlannedRegion(region)
     this.applyPageSnapshot()
   }
 
@@ -288,7 +285,6 @@ export struct TaskPageContent {
       this.planRegionOptions = plannedRegionOptions(range?.type === 'task' ? range.result.tasks : [])
       if (this.rangeDataSet?.isReady() && this.selectedPlanRegion && !this.planRegionOptions.some(region => region.key === this.selectedPlanRegion?.key)) {
         this.selectedPlanRegion = null
-        AppDataManager.active?.selectPlannedRegion(null).catch((): void => { console.error('释放失效计划筛选失败') })
       }
     }
     const dataSet = this.taskDataSet()

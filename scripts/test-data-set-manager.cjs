@@ -258,8 +258,8 @@ test('文件数据集改名后排队修改使用真实事件的新路径，记�
 
 test('页面定义函数由 DataSetManager 初始化，缓存恢复与查询均留在管理层',async()=>{
  const f=await fixture();try{let defined=0;const factory=(config)=>{defined++;assert.equal(config.todoDefaults,'DEFAULT');assert.equal(config.repos[0].id,'config');return[{name:'tasks',query:{type:'task',repoIds:[config.repos[0].id],query:{expression:'it.todo'}}}]};
- const first=f.manager('factory',factory);await first.start();assert.equal(defined,1);assert.equal(first.dataSet('tasks').snapshot().version,1);await first.close();
- const second=f.manager('factory',factory),versions=[];second.dataSet('tasks').subscribe(event=>versions.push(event.version));await second.start();assert.equal(defined,2);assert.ok(versions.includes(0));assert.ok(versions.includes(1));
+ const first=f.manager('factory',factory,{names:['tasks']});await first.start();assert.equal(defined,1);assert.equal(first.dataSet('tasks').snapshot().version,1);await first.close();
+ const second=f.manager('factory',factory,{names:['tasks']}),versions=[];second.dataSet('tasks').subscribe(event=>versions.push(event.version));await second.start();assert.equal(defined,2);assert.ok(versions.includes(0));assert.ok(versions.includes(1));
  const events=[];second.dataSet('tasks').subscribe(event=>events.push(event));f.configurationChanged();assert.equal(second.isReady(),false);assert.equal(events.at(-1).type,'refresh');
  }finally{await f.cleanup()}
 });
@@ -309,7 +309,7 @@ test('查询变化只影响对应数据集缓存匹配，范围数据集仍可�
 
 test('入口未配置时保留已声明的空数据集，不创建无范围查询',async()=>{
  const f=await fixture();try{
-  const manager=f.manager('某天',()=>[]);
+  const manager=f.manager('某天',()=>[],{names:['tasks','target']});
   const tasks=manager.dataSet('tasks'),target=manager.dataSet('target');
   await manager.start();
   assert.equal(manager.isReady(),true);
@@ -325,8 +325,8 @@ test('后台配置与查询尚未完成时，某天先发布两份只读缓存�
    {name:'tasks',query:{type:'task',query:{expression:'it.todo',includeFiles:[{repoId:'config',path:'a.org'}]}},repositoryBindings:[{id:'config',rootDirectory:'/repo'}]},
    {name:'target',query:{type:'file',query:{includeFiles:[{repoId:'config',path:'a.org'}]}},repositoryBindings:[{id:'config',rootDirectory:'/repo'}]}
   ];
-  const first=f.manager('某天',definitions);first.dataSet('tasks');first.dataSet('target');await first.start();await first.close();
-  const second=f.manager('某天',definitions),tasks=second.dataSet('tasks'),target=second.dataSet('target');
+  const first=f.manager('某天',definitions,{names:['tasks','target']});first.dataSet('tasks');first.dataSet('target');await first.start();await first.close();
+  const second=f.manager('某天',definitions,{names:['tasks','target']}),tasks=second.dataSet('tasks'),target=second.dataSet('target');
   const delay=f.holdWorkspace(),events=[];tasks.subscribe(event=>events.push(event.version));
   const start=second.start();await until(()=>!!tasks.data&&!!target.data);
   assert.equal(tasks.version,0);assert.equal(target.version,0);assert.equal(tasks.isReady(),false);
@@ -585,6 +585,7 @@ test('跨日与失败重试跳过未启用的查询，侧边栏继续显示最�
   return originalSetInterval(handler, interval, ...args);
  };
  try {
+  f.config.repos.push({ id: 'org-tasks-system', rootDirectory: '/sandbox/system' });
   f.config.inboxRepoId = 'config';
   f.config.inboxFile = 'a.org';
   consumers = sharedConsumers(f);
@@ -594,7 +595,12 @@ test('跨日与失败重试跳过未启用的查询，侧边栏继续显示最�
   sidebar.subscribe(value => { snapshot = value; });
   await sidebar.start();
   assert.equal(typeof checkDay, 'function');
-  const inactive = ['plannedFiltered', 'trashExpired'].map(name => app.dataSet(name));
+  const inactive = ['memoTasks', 'memoFile'].map(name => app.dataSet(name));
+  const planned = app.dataSet('plannedFiltered');
+  const expired = app.dataSet('trashExpired');
+  assert.equal(planned.version, 1);
+  assert.equal(expired.version, 1);
+  assert.equal(expired.query.query.expression, 'deleted.lt.-30d');
   assert.ok(inactive.every(dataSet => dataSet.query === undefined && dataSet.version === 1));
   const errors = [];
   for (const dataSet of inactive) {
@@ -609,11 +615,14 @@ test('跨日与失败重试跳过未启用的查询，侧边栏继续显示最�
   await until(() => snapshot.todayCount === 2);
   assert.equal(f.batches.length, 2);
   assert.deepEqual(errors, []);
+  assert.ok(planned.version > 1 && expired.version > 1);
   assert.ok(inactive.every(dataSet => dataSet.version === 1));
 
-  inactive[0].reportError(new Error('此前的刷新失败'));
   await sidebar.start();
   assert.equal(snapshot.message, '');
+  inactive[0].reportError(new Error('此前的刷新失败'));
+  await app.retryFailed();
+  assert.equal(inactive[0].version, 1);
   assert.equal(f.batches.length, 2);
 
   await app.manager.refresh();
@@ -695,19 +704,32 @@ test('共享文件刷新失败保留侧边栏快照，重开只合批重试失�
  }finally{await c?.AppDataManager.close();await f.cleanup()}
 });
 
-test('App 按需筛选仅新增一项订阅，取消释放该项并保留基础范围与文件上下文',async()=>{
- const f=await fixture();try{
-  const manager=f.manager('app',[{name:'planned',query:{type:'task',query:{expression:'it.todo'}}},{name:'files',query:{type:'file',query:{}}}]);
-  const filtered=manager.dataSet('filtered');await manager.start();
-  assert.equal(f.calls.length,2);const planned=manager.dataSet('planned'),key=planned.taskKey('A');
-  await manager.setQuery('filtered',{type:'task',query:{includeFiles:[{repoId:'config',path:'a.org'}],categories:['Work']}},[{id:'config',rootDirectory:'/repo'}]);
-  assert.equal(f.batches.length,2);assert.equal(f.batches[1].length,1);assert.deepEqual(f.calls.at(-1).query.includeFiles,[{repoId:'config',path:'a.org'}]);assert.deepEqual(f.batches[1][0].repositoryBindings,[{id:'config',rootDirectory:'/repo'}]);
-  assert.equal(planned.taskKey('A'),key);assert.equal(filtered.isReady(),true);
-  const reads=f.calls.length;await manager.setQuery('filtered',undefined);
-  assert.equal(f.calls.length,reads);assert.equal(filtered.query,undefined);assert.equal(filtered.data.result.tasks.length,0);
-  assert.equal(f.subscriptions.size,2);assert.equal(planned.taskKey('A'),key);
-  await manager.flush();const envelope=JSON.parse(await fsp.readFile(f.file('app'),'utf8'));assert.deepEqual(envelope.dataSets.map(item=>item.name),['planned','files','filtered']);
- }finally{await f.cleanup()}
+test('筛选数据集在构造时固定，切换查询仅重订阅已有筛选对象', async () => {
+ const f = await fixture();
+ try {
+  const manager = f.manager('app', [
+   { name: 'planned', query: { type: 'task', query: { expression: 'it.todo' } } },
+   { name: 'files', query: { type: 'file', query: {} } },
+   { name: 'filtered', query: { type: 'task', query: { expression: 'it.todo' } } }
+  ]);
+  const filtered = manager.dataSet('filtered');
+  assert.throws(() => manager.dataSet('undeclared'), /未定义数据集/);
+  await assert.rejects(manager.setQuery('undeclared', { type: 'task', query: {} }), /未定义数据集/);
+  await manager.start();
+  assert.equal(f.batches[0].length, 3);
+  const planned = manager.dataSet('planned');
+  const key = planned.taskKey('A');
+  const query = { type: 'task', query: { includeFiles: [{ repoId: 'config', path: 'a.org' }], categories: ['Work'] } };
+  const bindings = [{ id: 'config', rootDirectory: '/repo' }];
+  await manager.setQuery('filtered', query, bindings);
+  assert.equal(f.batches.length, 2);
+  assert.equal(f.batches[1].length, 1);
+  assert.deepEqual(f.batches[1][0].repositoryBindings, bindings);
+  assert.equal(manager.dataSet('filtered'), filtered);
+  assert.equal(filtered.isReady(), true);
+  assert.equal(f.subscriptions.size, 3);
+  assert.equal(planned.taskKey('A'), key);
+ } finally { await f.cleanup(); }
 });
 
 test('子 Manager 按名字透传父数据集，启动刷新与关闭只管理本地订阅',async()=>{

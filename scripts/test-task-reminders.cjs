@@ -79,12 +79,16 @@ function fixture(shared = {}) {
   const taskQuery = () => ({ type: 'task', query: {} });
   const AppDataManager = load('AppDataManager', {
     './ReminderManager': { ReminderManager: service }, './AppConfigService': {},
-    './TrashService': {}, './TrashSettingsService': {},
+    './TrashService': {}, './TrashSettingsService': { TrashSettingsService: { retentionDays: async () => 30 } },
     './DataSetManager': { DataSetManager: { create(context, name, factory, options) {
       creates++; assert.equal(name, 'app'); assert.deepEqual(Array.from(options.uncachedDataSets), ['reminderTasks']);
-      const definitions = factory({});
-      assert.equal(definitions.filter(item => item.name === 'reminderTasks').length, 1);
-      assert.equal(definitions.find(item => item.name === 'reminderTasks').query.query.expression, 'it.todo has.reminder reminder.ge.-30min o.reminder');
+      assert.equal(options.names.filter(name => name === 'reminderTasks').length, 1);
+      const start = manager.start.bind(manager);
+      manager.start = async () => {
+        const definitions = await factory({});
+        assert.equal(definitions.find(item => item.name === 'reminderTasks').query.query.expression, 'it.todo has.reminder reminder.ge.-30min o.reminder');
+        return await start();
+      };
       return manager;
     } } },
     './FileTargetService': { systemTrashExclusions: () => ({ files: [], repositoryBindings: [] }),

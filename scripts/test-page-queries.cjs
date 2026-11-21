@@ -51,7 +51,7 @@ function fixture() {
     const data=new Map(),sets=new Map(),overrides=new Map();let ready=false,started,definitions=[];
     const emit=name=>{for(const fn of sets.get(name)?.listeners??[])fn({name,type:'refresh'})};
     const query=async(requestSet,requestToken)=>{
-      let nextDefinitions=typeof source==='function'?source(config):source;
+      let nextDefinitions=typeof source==='function'?await source(config):source;
       nextDefinitions=nextDefinitions.filter(item=>!overrides.has(item.name));
       for(const definition of overrides.values())if(definition)nextDefinitions.push(definition);
       if(requestSet)nextDefinitions=nextDefinitions.filter(item=>item.name===requestSet);
@@ -597,7 +597,7 @@ test('侧边栏配置改变使旧查询与缓存失效，入口状态按新配�
   const f=fixture(),page=f.page('components/AppShell',['loadNavigation']);await page.loadNavigation();
   assert.equal(page.inboxCount,0);
   f.config.inboxFile='';f.configChanged();await page.sidebarManager.start();
-  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,18);
+  assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,20);
   assert.equal(f.disk.size,0,'侧边栏不再持有独立缓存');assert.equal(await page.sidebarManager.targetConfigured('inbox'),false);
 });
 
@@ -608,8 +608,8 @@ test('侧边栏所有非零计数按原批次位置读取，重复打开不再�
     ?{type:'task',result:{tasks:Array(index+1).fill({}),categories:[]}}
     :{type:request.type,result:request.type==='file'?[{}]:[]}));
   await page.loadNavigation();await page.loadNavigation();
-  assert.deepEqual([page.todayCount,page.todayAttentionCount,page.plannedCount,page.anytimeCount,page.logbookCount],[1,5,6,7,9]);
-  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[14,16,18]);assert.equal(page.waitingCount,8);assert.equal(f.batches.length,1);
+  assert.deepEqual([page.todayCount,page.todayAttentionCount,page.plannedCount,page.anytimeCount,page.logbookCount],[1,5,6,8,10]);
+  assert.deepEqual([page.inboxCount,page.somedayCount,page.memoCount],[15,17,19]);assert.equal(page.waitingCount,9);assert.equal(f.batches.length,1);
 });
 
 test('侧边栏关闭后在途查询不能覆盖展示或写入缓存',async()=>{
@@ -655,7 +655,7 @@ test('所有任务入口和最近新增复用唯一 App 实例，依次进入与
  assert.equal(inbox.tasksDataSet,app.dataSet('inboxTasks'));assert.equal(inbox.recentDataSet,app.dataSet('inboxRecent'));
  assert.equal(inbox.targetDataSet,app.dataSet('inboxFile'));assert.equal(inbox.loading,false,'共享数据已就绪时首次进入收件箱应立即显示');assert.equal(f.batches.length,1);
  assert.deepEqual(f.managers.map(item=>item.pageName),['app']);
- assert.ok(!f.batches[0].some(item=>item.query.categories),'启动不预取计划筛选');
+ assert.ok(!f.batches[0].some(item=>item.query.categories),'启动时计划筛选使用基础范围');
  assert.ok(!f.batches[0].some(item=>item.query.expression?.startsWith('deleted.lt.')),'启动不触发过期清理查询');
 });
 

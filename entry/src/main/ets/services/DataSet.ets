@@ -27,7 +27,7 @@ export interface DataSetClock {
   status: (name: string) => Promise<CoreQuerySubscriptionStatus>
   refresh: (name: string) => void
 }
-export type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[]
+export type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[] | Promise<DataSetDefinition[]>
 interface DataSetSubmission { readonly operationId: string; readonly completion: Promise<void> }
 export interface ManagedDataSet { readonly revision: number; readonly name: string; readonly version: number; readonly confirmedVersion: number; readonly data: CoreQueryResult; readonly optimistic: boolean }
 export interface DataSetIdentity { before: string; after: string }

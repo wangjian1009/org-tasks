@@ -9,7 +9,7 @@ import { DataSet, DataSetDefinition, DataSetDefinitionFactory, UserOperationQueu
 
 export { DataSet, DataSetDefinition, DataSetDefinitionFactory, DataSetQuery, DataSetEvent, TaskDataChange, DataSetWriteError } from './DataSet'
 
-export interface DataManagerOptions { cache?: boolean; parent?: DataSetManager; uncachedDataSets?: string[] }
+export interface DataManagerOptions { cache?: boolean; parent?: DataSetManager; uncachedDataSets?: string[]; names?: string[] }
 export interface DataLoadResult { name: string; fullFiles: CoreOrgFile[] }
 
 interface DataSetCacheRepository { id: string; rootDirectory: string; excludedDirectories: string[] }
@@ -33,7 +33,7 @@ export class DataSetManager {
   private readonly source: DataSetDefinition[] | DataSetDefinitionFactory
   private readonly sets: Map<string, DataSet> = new Map()
   private readonly queryRequests: Map<string, number> = new Map()
-  private readonly overrides: Map<string, DataSetDefinition | undefined> = new Map()
+  private readonly overrides: Map<string, DataSetQuery> = new Map()
   private readonly stops: Map<string, () => void> = new Map()
   private readonly subscriptions: Map<string, number> = new Map()
   private readonly subscriptionRequests: Map<string, CoreQuerySubscriptionRequest> = new Map()
@@ -56,7 +56,6 @@ export class DataSetManager {
   private scope: string = ''
   private config: AppConfig | undefined = undefined
   private workspace: CoreWorkspace | undefined = undefined
-  private definitions: DataSetDefinition[] = []
   private externalWatch: number = 0
   private externalTimer: number = -1
   private externalRunning: Promise<void> | undefined = undefined
@@ -96,22 +95,26 @@ export class DataSetManager {
     this.uncachedDataSets = new Set(options.uncachedDataSets ?? [])
     this.parent = options.parent
     this.context = context; this.pageName = pageName; this.source = typeof source === 'function' ? source : JSON.parse(JSON.stringify(source)) as DataSetDefinition[]
-    if (typeof source !== 'function') {
-      this.validate(source)
-      for (const definition of source) this.ownDataSet(definition.name)
+    const names = typeof source === 'function' ? options.names ?? [] : source.map(definition => definition.name)
+    if ((!names.length && !this.parent) || names.some(name => !name) || new Set(names).size !== names.length) {
+      throw new Error('页面数据集名称无效')
     }
+    for (const name of names) this.createDataSet(name)
+    if (typeof source !== 'function') this.validate(source)
     this.stopIdle = UserOperationQueue.watchIdle((): void => this.scheduleSave())
     AppConfigService.watchChanges(this.configChanged)
     DataSetManager.active.add(this)
   }
   private validate(definitions: DataSetDefinition[]): void {
-    if ((!definitions.length && !this.sets.size && !this.parent) || new Set(definitions.map(item => item.name)).size !== definitions.length ||
-      definitions.some(item => !item.name || !item.query || (item.query.type !== 'task' && item.query.type !== 'file'))) throw new Error('页面数据集定义无效')
+    if (new Set(definitions.map(item => item.name)).size !== definitions.length ||
+      definitions.some(item => !this.sets.has(item.name) || !item.query ||
+        (item.query.type !== 'task' && item.query.type !== 'file'))) throw new Error('页面数据集定义无效')
   }
   dataSet(name: string): DataSet {
     const own = this.sets.get(name)
     if (own) return own
-    return this.parent ? this.parent.dataSet(name) : this.ownDataSet(name)
+    if (this.parent) return this.parent.dataSet(name)
+    throw new Error(`未定义数据集：${name}`)
   }
   // 完整文件只作为外部失效恢复的一次性结果交付，不进入 DataSet 或缓存。
   subscribeFiles(listener: (result: DataLoadResult) => Promise<void> | void): () => void {
@@ -119,32 +122,25 @@ export class DataSetManager {
     return (): void => { this.fileListeners.delete(listener) }
   }
   async refreshFiles(name: string): Promise<void> { this.requestRefresh([name]); await this.settleExternalRefresh() }
-  private ownDataSet(name: string): DataSet {
-    let dataSet = this.sets.get(name)
-    if (!dataSet) {
-      if (this.initialized) throw new Error(`未定义数据集：${name}`)
-      dataSet = new DataSet(this.context, name, this.clock)
-      dataSet.bindQueryChange((query: DataSetQuery): Promise<void> => this.setQuery(name, query, dataSet!.repositoryBindings))
-      this.sets.set(name, dataSet)
-      this.stops.set(name, dataSet.subscribe((): void => {
-        if (this.workspace && !this.closed && Array.from(this.sets.values()).every(item => item.isReady())) this.initialized = true
-        this.scheduleSave()
-      }))
-    }
-    return dataSet
+  private createDataSet(name: string): void {
+    const dataSet = new DataSet(this.context, name, this.clock)
+    dataSet.bindQueryChange((query: DataSetQuery): Promise<void> => this.setQuery(name, query, dataSet.repositoryBindings))
+    this.sets.set(name, dataSet)
+    this.stops.set(name, dataSet.subscribe((): void => {
+      if (this.workspace && !this.closed && Array.from(this.sets.values()).every(item => item.isReady())) this.initialized = true
+      this.scheduleSave()
+    }))
   }
-  // 应用级管理器可按需启用或释放筛选查询；未启用的数据集不注册底层订阅。
-  async setQuery(name: string, query: DataSetQuery | undefined, repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<void> {
-    await this.start()
-    if (this.closed || this.closing) return
+  async setQuery(name: string, query: DataSetQuery, repositoryBindings: CoreQueryRepositoryBinding[] = []): Promise<void> {
     if (!this.sets.has(name) && this.parent) return await this.parent.setQuery(name, query, repositoryBindings)
     const dataSet = this.dataSet(name)
+    await this.start()
+    if (this.closed || this.closing) return
+    if (!dataSet.query) throw new Error(`数据集未配置查询：${name}`)
     const request = (this.queryRequests.get(name) ?? 0) + 1
     this.queryRequests.set(name, request)
-    const definition: DataSetDefinition | undefined = query ? { name, query, repositoryBindings } : undefined
-    this.overrides.set(name, definition)
-    this.definitions = this.definitions.filter(item => item.name !== name)
-    if (definition) this.definitions.push(definition)
+    const definition: DataSetDefinition = { name, query, repositoryBindings }
+    this.overrides.set(name, query)
     this.resetCache()
     await dataSet.configure(this.config!, this.workspace!, definition)
     if (request !== this.queryRequests.get(name) || this.closed || this.closing) return
@@ -169,22 +165,14 @@ export class DataSetManager {
   private async initialize(generation: number): Promise<DataLoadResult[]> {
     const config = await AppConfigService.load(this.context, false)
     const workspace = NativeCoreService.start()
-    const definitions = typeof this.source === 'function' ? this.source(config) : this.source
-    this.validate(definitions)
+    const definitions = typeof this.source === 'function' ? await this.source(config) : this.source
     if (this.closed || this.closing || generation !== this.generation) return []
-    const resolved: DataSetDefinition[] = []
-    for (const definition of definitions) {
-      if (!this.overrides.has(definition.name)) resolved.push(definition)
-      else {
-        const override = this.overrides.get(definition.name)
-        if (override) resolved.push({ name: definition.name, query: override.query, repositoryBindings: definition.repositoryBindings })
-      }
-    }
-    for (const definition of this.overrides.values()) {
-      if (definition && !definitions.some(item => item.name === definition.name)) resolved.push(definition)
-    }
-    for (const definition of resolved) this.ownDataSet(definition.name)
-    this.config = config; this.workspace = workspace; this.definitions = resolved
+    this.validate(definitions)
+    const resolved = definitions.map((definition: DataSetDefinition): DataSetDefinition => ({
+      name: definition.name, query: this.overrides.get(definition.name) ?? definition.query,
+      repositoryBindings: definition.repositoryBindings
+    }))
+    this.config = config; this.workspace = workspace
     if (!this.sets.size) { this.initialized = true; return [] }
     this.resetCache()
     const names = this.cachedNames()

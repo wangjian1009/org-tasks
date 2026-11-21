@@ -9,15 +9,15 @@
 
 今天、收件箱、计划、等待、随时、某天、备忘、日志簿和废纸篓统一消费 AppDataManager 持有的唯一 DataSetManager。收件箱最近新增、笔记本文件列表、侧边栏计数、导航返回判断和角标使用同一应用级数据入口。页面只持有展示状态和自己的监听，不创建基础查询、不读取独立任务页缓存，离开页面不关闭共享实例。项目详情继续按原有独立 DataSetManager 加载完整文档，禁用缓存；完整文件阅读与同步历史仍按需读取。
 
-每个 DataSet 只持有一个查询，独立消费订阅结果并维护任务索引、编辑能力与变化事件；相同基础查询只有一个 DataSet。计划分类／项目筛选和废纸篓过期成员查询也由 App 按需管理，未启用时保留稳定空对象而不注册底层查询。
+每个 DataSet 只持有一个查询，独立消费订阅结果并维护任务索引、编辑能力与变化事件；相同基础查询只有一个 DataSet。计划分类／项目筛选和废纸篓过期成员也在应用级管理器构造时创建，并随首次批次建立查询订阅。
 
 DataManager 与原导出名 DataSetManager 共用实现，不提供用于逐任务刷新的总事件订阅；它收集各数据集的独立订阅项，一次调用 Workspace.subscribeQuery，并按数据集名保存和清理各订阅 ID。页面通过 dataSet(name) 获取稳定的数据集对象，分别订阅其变化；例如今天页分别订阅共享的 todayTasks 和 todayPriority，收件箱分别订阅 inboxTasks、inboxRecent 和 inboxFile。回调只更新关联展示，不根据事件名称再分发，不处理数据版本、operationId 或底层失效事件。
 
 管理器可通过 ~options.parent~ 指定父 Manager。 ~dataSet(name)~ 先返回本地同名对象，未定义的名称原样透传父级，继承对象保持原身份、查询订阅与变化通知。父级由创建它的宿主负责启动与关闭；子级的启动、刷新、同步文件事件处理、跨日检查、缓存保存和关闭仅遍历本地数据集，不递归操作父级。通过继承 DataSet 发起编辑或更换查询时，由原所属 Manager 处理。
 
-带父级的页面使用定义数组在构造时声明本地数据集，确保首次按名读取即可区分本地和继承对象；定义函数在 start 取得配置后注册自己的名称。纯透传 Manager 可声明空数组，启动与刷新不查询父级。项目页本地仅声明 ~tasks~ 、 ~matches~ 和 ~metadata~ ，查询范围均限定当前文件； ~categories~ 按相同名称从应用级父 Manager 获取，不进入项目首次查询批次，不阻塞项目正文初始化。项目每次打开仍按需读取，禁用页面缓存。
+带父级的页面使用定义数组在构造时声明本地数据集，确保首次按名读取即可区分本地和继承对象；使用定义函数时，构造参数声明全部本地名称。定义函数在 start 读取配置后为既有对象提供查询。纯透传 Manager 可声明空数组，启动与刷新不查询父级。项目页本地仅声明 ~tasks~ 、 ~matches~ 和 ~metadata~ ，查询范围均限定当前文件； ~categories~ 按相同名称从应用级父 Manager 获取，不进入项目首次查询批次，不阻塞项目正文初始化。项目每次打开仍按需读取，禁用页面缓存。
 
-DataSetDefinition 必须声明一个任务或文件元信息 CoreQuery，不再提供宿主 document 查询。管理器将完整文件作为首次加载的一次性返回值交给页面，DataSet 只维护记录与属性。需要配置文件入口时，页面提供纯定义函数；仓库别名通过 ~repositoryBindings~ 在工作线程映射。
+DataSetDefinition 必须声明一个任务或文件元信息 CoreQuery，不再提供宿主 document 查询。管理器将完整文件作为首次加载的一次性返回值交给页面，DataSet 只维护记录与属性。需要配置文件入口时，管理器使用配置定义函数；仓库别名通过 ~repositoryBindings~ 在工作线程映射。
 
 收件箱的 inboxTasks、inboxRecent、inboxFile 与文件元信息随 App 的启动批次加载，组件出现和页面显示只复用初始化 Promise。首屏等三项数据集都取得快照或明确失败后统一发布界面；最近新增等待主列表首次测量完成后整段显示。缓存恢复为版本 0 后按相同边界只读展示，首次查询完成后开放编辑。
 
@@ -57,10 +57,10 @@ DataSetDefinition 必须声明一个任务或文件元信息 CoreQuery，不再�
 
 #+begin_src typescript
 type DataSetQuery = CoreQuery
-interface DataManagerOptions { cache?: boolean; parent?: DataSetManager }
+interface DataManagerOptions { cache?: boolean; parent?: DataSetManager; uncachedDataSets?: string[]; names?: string[] }
 interface DataLoadResult { name: string; fullFiles: CoreOrgFile[] }
 interface DataSetDefinition { name: string; query: DataSetQuery; repositoryBindings?: CoreQueryRepositoryBinding[] }
-type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[]
+type DataSetDefinitionFactory = (config: AppConfig) => DataSetDefinition[] | Promise<DataSetDefinition[]>
 // DataManager 与 DataSetManager 是同一实现的两个导出名。
 class DataSetManager {
   static create(context: Context, pageName: string, definitions: DataSetDefinition[] | DataSetDefinitionFactory, options?: DataManagerOptions): DataSetManager
@@ -69,7 +69,7 @@ class DataSetManager {
   refresh(): Promise<void>
   subscribeFiles(listener: (result: DataLoadResult) => Promise<void> | void): () => void
   refreshFiles(name: string): Promise<void>
-  setQuery(name: string, query: DataSetQuery | undefined, repositoryBindings?: CoreQueryRepositoryBinding[]): Promise<void>
+  setQuery(name: string, query: DataSetQuery, repositoryBindings?: CoreQueryRepositoryBinding[]): Promise<void>
   flush(): Promise<void>
   close(): Promise<void>
   static flushAll(): Promise<void>
@@ -222,9 +222,9 @@ pub struct QuerySubscriptionStart {
 
 各任务页面直接提供 AppDataManager 的共享 DataSet 给编辑控件。缓存版本 0 阶段只读，首次查询完成后开放编辑；离开页面只解除展示监听，全局实例与稳定记录身份保持。所有普通任务页共用一个文件监控与跨日检查器，由 Manager 合并外部变化并刷新受影响查询。分类、项目分组和编辑会话中的重排延后规则保持原有行为。
 
-计划页面的全部范围使用 planned；选中分类或项目后才启用 plannedFiltered，基础范围和侧边栏数量不变。清除选择、候选消失或离开页面后释放筛选订阅，直接使用已有 planned，不重复查询全部范围。切换筛选以请求序号隔离迟到结果，不影响其他命名数据集。
+计划全部范围由 planned 提供。plannedFiltered 在启动批次使用基础查询，选中分类或项目后替换其查询。清除选择或候选消失时，页面直接使用 planned。离开页面只移除展示监听。切换筛选以请求序号隔离迟到结果。
 
-废纸篓列表直接使用 trash；打开废纸篓或笔记本才读取保留天数并按需启用 trashExpired。只有真实查询完成、版本大于 0 后才允许显式清理；并发打开共用一次清理，失败保留记录供重试。关闭页面只等待操作收尾，不关闭 App 管理器。
+废纸篓列表使用 trash。trashExpired 根据本地保留天数随启动批次查询。打开废纸篓或笔记本时重新确认保留天数，设置有变化时替换既有查询。只有真实查询完成且版本大于 0 后才执行清理。并发打开共用一次清理，失败保留记录供重试。
 
 * APP 外部数据验证入口
 
@@ -342,7 +342,7 @@ DataSet 接收确认文件事件后，同步推进该文件中未修改记录的
 
 连续事件收集受影响的数据集名；一次调用并发请求这些数据集刷新，由 Manager 的订阅收集器合并成一次 ~subscribeQuery~ ，同批共享一次扫描。刷新期间到达的新事件排入下一批；配置换代、旧查询回调及页面关闭沿用 generation 与 identity 检查。保存页面缓存前等待外部刷新和写操作收尾；关闭释放文件监控与跨日定时器。
 
-按需查询的数据集在启用前持有空快照。跨日刷新、主动刷新和失败重试只执行已有查询定义的数据集，启用后按当前配置加入刷新范围。
+跨日刷新、主动刷新和失败重试执行具有有效查询范围的数据集。尚未配置入口文件的数据集持有空快照。
 
 ~DataSet~ 接收新快照后比较结构化内容，只对实际成员与字段变化发布 ~insert~ 、 ~remove~ 、 ~update~ 或混合 ~refresh~ ；内容相同只推进确认版本，不重复发布数据变化。通知模块不监听外部文件事件：Core 已按通知条件刷新并广播列表， ~NotificationManager~ 只消费通知订阅结果。Core 事件与运行时模型见 [[file:../core/外部文件变化监控设计.org][外部文件变化监控设计]] 。
 
@@ -357,8 +357,8 @@ DataSet 接收确认文件事件后，同步推进该文件中未修改记录的
 | ~categories~ | 今天页排序、项目属性编辑和转换项目的分类候选，按仓库投影共享文件元信息 |
 | ~todayAttention~ | 侧边栏今天提醒 |
 | ~planned~ 、 ~anytime~ 、 ~waiting~ 、 ~logbook~ 、 ~trash~ | 对应任务页与侧边栏计数 |
-| ~plannedFiltered~ | 按需启用的计划分类／项目筛选 |
-| ~trashExpired~ | 打开废纸篓或笔记本时的过期清理 |
+| ~plannedFiltered~ | 启动批次加载的计划分类／项目筛选 |
+| ~trashExpired~ | 启动批次按保留天数查询的过期废纸篓记录 |
 | ~inboxRecent~ | 收件箱最近新增 |
 | ~notebookFiles~ | 笔记本完整文件元信息，包含被忽略文件 |
 | ~projects~ | 侧边栏完整项目入口 |
