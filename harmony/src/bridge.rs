@@ -2419,7 +2419,7 @@ pub fn workspace_execute_task_operations(
     handle: u64,
     request: String,
 ) -> Result<String, CoreError> {
-    // FileNew、Trash、Restore 的调度与统一提交均由 Core 解释，bridge 只透传结构化操作组。
+    // bridge 透传结构化操作组，由 Core 校验清单位置并统一调度和提交。
     let group: org_tasks_core::TaskOperationGroup = serde_json::from_str(&request)
         .map_err(|_| CoreError::InvalidInput("任务操作组参数无效"))?;
     let session = workspace_for_handle(handle)?;

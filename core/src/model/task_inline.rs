@@ -46,6 +46,10 @@ pub enum TaskChecklistChange {
     Add {
         text: String,
     },
+    InsertAfter {
+        id: String,
+        text: String,
+    },
     Edit {
         id: String,
         text: String,
@@ -464,6 +468,34 @@ mod tests {
         assert_eq!(edit.checklist.len(), 1);
         assert_eq!(edit.checklist[0].text, "New");
         assert!(edit.notes.contains("ordinary") && edit.notes.contains("mixed"));
+    }
+
+    #[test]
+    fn insert_checklist_item_preserves_subtree_indent_and_adjacent_blocks() {
+        let source = "* TODO Task [0/2]\r\n+ [ ] Parent\r\n  1) [ ] Child\r\n+ [ ] Sibling\r\n \r\nParagraph\r\n\r\n- [ ] Other\r\n";
+        for (index, expected_line) in [
+            (0, "  1) [ ] Child\r\n+ [ ] New\r\n+ [ ] Sibling"),
+            (1, "  1) [ ] Child\r\n  1) [ ] New\r\n+ [ ] Sibling"),
+            (2, "  1) [ ] Child\r\n+ [ ] Sibling\r\n+ [ ] New"),
+        ] {
+            let mut document = file(source);
+            let before = projection(&document);
+            let anchor = &before.checklist[index];
+            let headline = document.path_headlines()[0].1.clone();
+            let change = serde_json::json!({"type":"insertAfter","id":anchor.id,"text":"New"});
+            modify(
+                &mut document,
+                &headline,
+                &TaskModification::Checklist(serde_json::from_value(change).unwrap()),
+            ).unwrap();
+            let after = projection(&document);
+            let inserted = after.checklist.iter().find(|item| item.text == "New").unwrap();
+            assert_eq!(inserted.depth, anchor.depth);
+            let expected = source
+                .replace("  1) [ ] Child\r\n+ [ ] Sibling", expected_line)
+                .replace("[0/2]", if index == 1 { "[0/3]" } else { "[0/4]" });
+            assert_eq!(document.source_bytes(), expected.as_bytes());
+        }
     }
     #[test]
     fn edits_reject_stale_item_ids_and_invalid_text() {

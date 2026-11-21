@@ -1,6 +1,14 @@
 import { CoreTaskChecklistItem, CoreTaskChecklistChange } from '../../services/NativeCoreService'
-import { checklistSiblings } from '../../ui/TaskChecklistReorder'
+import { checklistBlockEnd, checklistSiblings } from '../../ui/TaskChecklistReorder'
 import { UiColor } from '../../ui/Theme'
+import { FrameCallback } from '@ohos.arkui.UIContext'
+
+export class ChecklistFocusFrame extends FrameCallback {
+  private callback: () => void
+  constructor(callback: () => void) { super(); this.callback = callback }
+  onFrame(_frameTimeInNano: number): void {}
+  onIdle(_timeLeftInNano: number): void { this.callback() }
+}
 
 // 只读与可写清单使用同一行结构；只读保留状态、行高、缩进和手柄占位。
 @Component
@@ -11,6 +19,7 @@ export struct TaskChecklistBlock {
   @Prop editingId: string = ''
   @Prop editingText: string = ''
   @Prop adding: boolean = false
+  @Prop addingAfter: string = ''
   @Prop newText: string = ''
   @Prop showAdd: boolean = false
   @Prop sorting: boolean = false
@@ -49,6 +58,32 @@ export struct TaskChecklistBlock {
     if (this.listHeight > 0) return this.listHeight
     return this.items.reduce((sum: number, item: CoreTaskChecklistItem): number => sum + (this.heights.get(item.id) ?? 44), 0)
       + (!this.readonly && this.adding ? 44 : 0) + (!this.readonly && this.showAdd ? 44 : 0)
+  }
+
+  private rows(): CoreTaskChecklistItem[] {
+    if (this.readonly || !this.adding) return this.items
+    const after = this.items.findIndex(item => item.id === this.addingAfter)
+    const position = after < 0 ? this.items.length : checklistBlockEnd(this.items, after)
+    const draft: CoreTaskChecklistItem = {
+      id: '', text: '', checked: false, partial: false, depth: this.items[after]?.depth ?? 0, siblingGroup: ''
+    }
+    return this.items.slice(0, position).concat([draft], this.items.slice(position))
+  }
+
+  @Builder
+  draftRow(depth: number) {
+    Row({ space: 4 }) {
+      Text('○').width(28).fontSize(19).fontColor(UiColor.secondary)
+      TextInput({ text: this.newText, placeholder: '清单项' }).id(`inline_new_check_${this.ownerKey}`)
+        .enabled(!this.disabled && !this.dragging).layoutWeight(1).fontSize(14).fontColor(UiColor.text)
+        .backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
+        .onFocus((): void => { this.focused() }).onChange((text: string): void => { this.newChanged(text) })
+        .onBlur((): void => { this.save(false) })
+        .onAppear((): void => { this.inputAppeared(`inline_new_check_${this.ownerKey}`) })
+        .onDisAppear((): void => { this.inputDisappeared(`inline_new_check_${this.ownerKey}`) })
+        .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_new_check_${this.ownerKey}`) })
+        .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true) })
+    }.width('100%').height(44).padding({ left: Math.min(depth, 6) * this.indentStep })
   }
 
   @Builder
@@ -91,38 +126,26 @@ export struct TaskChecklistBlock {
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       List({ scroller: this.scroller }) {
-        ForEach(this.items, (item: CoreTaskChecklistItem) => {
-          ListItem() { this.row(item) }
-            .opacity(this.dragging && this.dragItems.some((moving: CoreTaskChecklistItem): boolean => moving.id === item.id) ? 0 : 1)
-            .onAreaChange((_old: Area, area: Area): void => {
-              const height = Math.max(44, parseFloat(area.height.toString()))
-              if (!this.dragging && Math.abs((this.heights.get(item.id) ?? 0) - height) > 0.5) {
-                this.heights.set(item.id, height); this.measuredHeight++
-              }
-              this.measured(item, area)
-            })
-            .onTouch((event: TouchEvent): void => {
-              if (event.type === TouchType.Down) this.touchChanged(true)
-              if (event.type === TouchType.Up || event.type === TouchType.Cancel) setTimeout((): void => { this.touchChanged(false) }, 100)
-            })
-            .swipeAction(this.readonly || this.dragging || this.disabled ? {} : { end: this.deleteItem(item), edgeEffect: SwipeEdgeEffect.None })
-        }, (item: CoreTaskChecklistItem): string => `${item.id}:${item.text}:${item.checked}:${item.partial}`)
-        if (!this.readonly && this.adding) {
-          ListItem() {
-            Row({ space: 4 }) {
-              Text('○').width(28).fontSize(19).fontColor(UiColor.secondary)
-              TextInput({ text: this.newText, placeholder: '清单项' }).id(`inline_new_check_${this.ownerKey}`)
-                .enabled(!this.disabled && !this.dragging).layoutWeight(1).fontSize(14).fontColor(UiColor.text)
-                .backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
-                .onFocus((): void => { this.focused() }).onChange((text: string): void => { this.newChanged(text) })
-                .onBlur((): void => { this.save(false) })
-                .onAppear((): void => { this.inputAppeared(`inline_new_check_${this.ownerKey}`) })
-                .onDisAppear((): void => { this.inputDisappeared(`inline_new_check_${this.ownerKey}`) })
-                .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_new_check_${this.ownerKey}`) })
-                .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true) })
-            }.width('100%').height(44)
+        ForEach(this.rows(), (item: CoreTaskChecklistItem) => {
+          if (item.id === '') {
+            ListItem() { this.draftRow(item.depth) }
+          } else {
+            ListItem() { this.row(item) }
+              .opacity(this.dragging && this.dragItems.some((moving: CoreTaskChecklistItem): boolean => moving.id === item.id) ? 0 : 1)
+              .onAreaChange((_old: Area, area: Area): void => {
+                const height = Math.max(44, parseFloat(area.height.toString()))
+                if (!this.dragging && Math.abs((this.heights.get(item.id) ?? 0) - height) > 0.5) {
+                  this.heights.set(item.id, height); this.measuredHeight++
+                }
+                this.measured(item, area)
+              })
+              .onTouch((event: TouchEvent): void => {
+                if (event.type === TouchType.Down) this.touchChanged(true)
+                if (event.type === TouchType.Up || event.type === TouchType.Cancel) setTimeout((): void => { this.touchChanged(false) }, 100)
+              })
+              .swipeAction(this.readonly || this.dragging || this.disabled ? {} : { end: this.deleteItem(item), edgeEffect: SwipeEdgeEffect.None })
           }
-        }
+        }, (item: CoreTaskChecklistItem): string => `${item.id}:${item.text}:${item.checked}:${item.partial}:${item.depth}`)
         if (!this.readonly && this.showAdd) {
           ListItem() {
             Text('+  添加清单项').fontSize(14).fontColor(UiColor.secondary).width('100%').height(44)

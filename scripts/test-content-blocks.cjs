@@ -159,6 +159,9 @@ function projectFixture() {
     '../../services/NativeCoreService': { coreErrorMessage: e => e.message },
     '../../services/DataSetManager':{},
     '../../services/TaskInlineService': { TaskInlineSession: { async begin() { return true; }, release() { releases++; } } },
+    '../../ui/TaskChecklistReorder': load('ui/TaskChecklistReorder'),
+    '../../ui/TaskInlineFocus': load('ui/TaskInlineFocus'),
+    './TaskChecklistBlock': { ChecklistFocusFrame: class {} },
     '../../ui/TaskBlockController': controller, '../LinkView': { LinkEditController: class { async finish() { return true; } } },
     '../../ui/Theme': { UiColor: { surface: 'surface' } }, '@kit.ArkUI': { KeyboardAvoidMode: { RESIZE: 1 } }
   }, source => prefix('TaskDocumentContent')(source.split('  @Builder\n')[0]));

@@ -3,8 +3,10 @@ import { CoreContentBlock, CoreTask, CoreTaskChecklistChange, CoreTaskChecklistI
 import { DataSetWriteError } from '../../services/DataSet'
 import { TaskInlineSession } from '../../services/TaskInlineService'
 import { TaskContentEditor } from './TaskContentEditor'
-import { TaskChecklistBlock } from './TaskChecklistBlock'
+import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskBlockController } from '../../ui/TaskBlockController'
+import { checklistBlockEnd } from '../../ui/TaskChecklistReorder'
+import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
 import { LinkEditController } from '../LinkView'
 import { UiColor } from '../../ui/Theme'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
@@ -28,6 +30,7 @@ export struct TaskDocumentContent {
   @State editingId: string = ''
   @State editingText: string = ''
   @State adding: boolean = false
+  @State addingAfter: string = ''
   @State newText: string = ''
   @State blockEditing: boolean = false
   @State linkEditing: boolean = false
@@ -37,12 +40,16 @@ export struct TaskDocumentContent {
   private coordinating: boolean = false
   private owner: string = ''
   private pending: Promise<boolean> | undefined = undefined
+  private checkFocus: TaskInlineFocus = new TaskInlineFocus(
+    (callback: () => void) => { this.getUIContext().postFrameCallback(new ChecklistFocusFrame(callback)) },
+    (id: string) => { this.getUIContext().getFocusController().requestFocus(id) })
 
   aboutToAppear() { this.active = true; this.owner = `document-content:${this.task?.id ?? this.getUniqueId()}` }
-  aboutToDisappear() { this.active = false; TaskInlineSession.release(this.owner) }
+  aboutToDisappear() { this.active = false; this.checkFocus.cancel(); TaskInlineSession.release(this.owner) }
 
   snapshotChanged() {
-    if ((this.blockEditing || this.linkEditing || this.editingId || this.newText.trim()) && this.task?.fileVersion !== this.current?.fileVersion) {
+    if ((this.blockEditing || this.linkEditing || this.editingId || this.addingAfter || this.newText.trim()) &&
+      this.task?.fileVersion !== this.current?.fileVersion) {
       this.blocked = true; this.message = '文件已变化，草稿已保留，请取消编辑后刷新'
     } else { this.current = undefined; this.blocked = false }
   }
@@ -76,7 +83,7 @@ export struct TaskDocumentContent {
     try {
       const current = await this.modify(task, changes)
       committed = true
-      if (this.active) this.current = current
+      if (this.active) { this.current = current; this.blocked = false; this.message = '' }
       return true
     } catch (error) {
       committed = committed || (error as DataSetWriteError).committed === true
@@ -124,7 +131,10 @@ export struct TaskDocumentContent {
       const index = before.editContent.checklist.findIndex((current: CoreTaskChecklistItem): boolean => current.id === item.id)
       if (!await this.saveCheck(false) || !this.active) return
       const current = this.current?.editContent.checklist[index]
-      if (current) { this.editingId = current.id; this.editingText = current.text }
+      if (!current) return
+      this.adding = false; this.addingAfter = ''
+      this.editingId = current.id; this.editingText = current.text
+      this.checkFocus.request(`inline_check_${current.id}`)
     } finally { this.coordinating = false; this.releaseIdle() }
   }
 
@@ -133,22 +143,36 @@ export struct TaskDocumentContent {
     this.coordinating = true
     try {
       if (!await this.blockEditor.finish() || !await this.linkEditor.finish() || !await this.saveCheck(false) || !this.active) return
-      this.adding = true
+      this.addingAfter = ''; this.adding = true
+      this.checkFocus.request(`inline_new_check_${this.owner}`)
     } finally { this.coordinating = false; this.releaseIdle() }
   }
 
   async saveCheck(next: boolean): Promise<boolean> {
     if (this.pending) return this.pending
     if (!this.editingId && !this.newText.trim()) return true
-    if (this.isReadonly() || this.blocked || this.working) return false
-    const change: CoreTaskChecklistChange = this.editingId ? { type: 'edit', id: this.editingId, text: this.editingText } : { type: 'add', text: this.newText }
-    this.pending = this.commit([{ field: 'CHECKLIST', value: change }])
-    try {
-      if (!await this.pending) return false
-      this.editingId = ''; this.editingText = ''; this.newText = ''; this.adding = next
-      this.releaseIdle()
-      return true
-    } finally { this.pending = undefined }
+    if (this.isReadonly() || this.blocked || this.working || !this.current) return false
+    this.pending = this.commitCheck(this.current, next)
+    try { return await this.pending }
+    finally { this.pending = undefined; this.releaseIdle() }
+  }
+
+  private async commitCheck(task: CoreTask, next: boolean): Promise<boolean> {
+    const id = this.editingId
+    const text = id ? this.editingText : this.newText
+    const items = task.editContent.checklist
+    const anchor = id || this.addingAfter
+    const index = items.findIndex(item => item.id === anchor)
+    if (anchor && index < 0) { this.message = '清单条目已变化，请刷新'; return false }
+    const change: CoreTaskChecklistChange = id ? { type: 'edit', id, text } :
+      anchor ? { type: 'insertAfter', id: anchor, text } : { type: 'add', text }
+    if ((!id || items[index].text !== text) && !await this.commit([{ field: 'CHECKLIST', value: change }])) return false
+    const nextIndex = !id && anchor ? checklistBlockEnd(items, index) : index
+    this.adding = next && this.active
+    this.addingAfter = this.adding ? this.current?.editContent.checklist[nextIndex]?.id ?? '' : ''
+    this.editingText = ''; this.newText = ''; this.editingId = ''
+    if (this.adding) this.checkFocus.request(`inline_new_check_${this.owner}`)
+    return true
   }
 
   releaseIdle() {
@@ -158,8 +182,10 @@ export struct TaskDocumentContent {
   }
 
   async finish(): Promise<boolean> {
+    this.checkFocus.cancel()
     if (!await this.blockEditor.finish() || !await this.linkEditor.finish() || !await this.saveCheck(false) || this.blocked) return false
-    this.adding = false; TaskInlineSession.release(this.owner)
+    this.checkFocus.cancel()
+    this.adding = false; this.addingAfter = ''; TaskInlineSession.release(this.owner)
     return true
   }
 
@@ -173,7 +199,9 @@ export struct TaskDocumentContent {
     TaskChecklistBlock({ items: this.content()[index].items, readonly: this.isReadonly(), disabled: this.working || this.blocked,
       indentStep: this.projectReading ? 8 : 12,
       ownerKey: this.owner, blockId: this.content()[index].id, editingId: this.editingId, editingText: this.editingText,
-      adding: this.adding && this.lastChecklist(this.content()[index]), newText: this.newText, showAdd: this.lastChecklist(this.content()[index]),
+      adding: this.adding && (this.addingAfter ? this.content()[index].items.some(item => item.id === this.addingAfter) :
+        this.lastChecklist(this.content()[index])), addingAfter: this.addingAfter,
+      newText: this.newText, showAdd: this.lastChecklist(this.content()[index]),
       toggle: (change: CoreTaskChecklistChange): void => { this.changeCheck(change) },
       edit: (item: CoreTaskChecklistItem): void => { this.editCheck(item) },
       editChanged: (text: string): void => { this.editingText = text },
@@ -181,9 +209,9 @@ export struct TaskDocumentContent {
       save: (next: boolean): void => { this.saveCheck(next) },
       remove: (item: CoreTaskChecklistItem): void => { this.changeCheck({ type: 'remove', id: item.id }) },
       add: (): void => { this.addCheck() },
-      inputAppeared: (id: string): void => {
-        setTimeout((): void => { if (this.active) this.getUIContext().getFocusController().requestFocus(id) }, 0)
-      } }).width('100%')
+      inputAppeared: (id: string): void => { this.checkFocus.appeared(id) },
+      inputDisappeared: (id: string): void => { this.checkFocus.disappeared(id) },
+      inputVisible: (id: string): void => { this.checkFocus.visible(id) } }).width('100%')
   }
 
   build() {

@@ -1200,6 +1200,7 @@ pub(super) fn modify(
             if matches!(
                 change,
                 TaskChecklistChange::Add { .. }
+                    | TaskChecklistChange::InsertAfter { .. }
                     | TaskChecklistChange::SetChecked { .. }
                     | TaskChecklistChange::Remove { .. }
             ) {
@@ -1378,7 +1379,9 @@ fn modify_checklist(
     change: &TaskChecklistChange,
 ) -> Result<(), CoreError> {
     let text = match change {
-        TaskChecklistChange::Add { text } | TaskChecklistChange::Edit { text, .. } => Some(text),
+        TaskChecklistChange::Add { text }
+        | TaskChecklistChange::InsertAfter { text, .. }
+        | TaskChecklistChange::Edit { text, .. } => Some(text),
         _ => None,
     };
     if let Some(text) = text {
@@ -1428,7 +1431,8 @@ fn modify_checklist(
         return replace(file, at..at, format!("{prefix}- [ ] {text}{nl}").as_bytes());
     }
     let id = match change {
-        TaskChecklistChange::Edit { id, .. }
+        TaskChecklistChange::InsertAfter { id, .. }
+        | TaskChecklistChange::Edit { id, .. }
         | TaskChecklistChange::SetChecked { id, .. }
         | TaskChecklistChange::Remove { id }
         | TaskChecklistChange::Move { id, .. } => id,
@@ -1439,6 +1443,24 @@ fn modify_checklist(
         .find(|item| u32::from(item.start()).to_string() == *id)
         .ok_or(CoreError::InvalidInput("清单条目不存在或已改变"))?;
     match change {
+        TaskChecklistChange::InsertAfter { text, .. } => {
+            let start = u32::from(item.start()) as usize;
+            let bullet_end = u32::from(item.bullet().text_range().end()) as usize;
+            let end = u32::from(item.end()) as usize;
+            let source = file.source_bytes();
+            let marker = std::str::from_utf8(&source[start..bullet_end]).expect("UTF-8");
+            // 取条目及其后代的最后一行，把原有分隔空行留在新条目之后。
+            let raw = std::str::from_utf8(&source[start..end]).expect("UTF-8");
+            let content_end = start + raw.trim_end_matches([' ', '\t', '\r', '\n']).len();
+            let at = source[content_end..end]
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(end, |offset| content_end + offset + 1);
+            let nl = newline(file);
+            let prefix = if source[at - 1] == b'\n' { "" } else { nl };
+            let content = format!("{prefix}{marker}[ ] {text}{nl}");
+            replace(file, at..at, content.as_bytes())
+        }
         TaskChecklistChange::Edit { text, .. } => {
             let range = super::task_inline::item_text_range(file, &item);
             let content = if file.source_bytes().get(range.start.wrapping_sub(1)) == Some(&b']') {

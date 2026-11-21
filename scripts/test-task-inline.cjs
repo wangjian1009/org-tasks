@@ -113,7 +113,8 @@ function cardRefreshFixture(emit = true) {
   coreListener=()=>deliver();
   controller={taskKey:()=>original.id,getTask(){if(data.error)throw data.error;return data.removed?undefined:data.task;},
     watchTask(_,fn){listeners.add(fn);fn({task:data.task});return()=>{listeners.delete(fn);++data.request;};},
-    async updateTaskFields(_,fields){await service.modify({},data.task,fields);if(!emit)await deliver(true);else await data.reading;}};
+    async updateTaskFields(_,fields){await service.modify({},data.task,fields);if(!emit)await deliver(true);else await data.reading;},
+    async commitTaskFields(id,fields){await this.updateTaskFields(id,fields);return this.getTask();}};
   controller.taskSource=()=>({rowId:original.id,get task(){return controller.getTask();},monitor:fn=>controller.watchTask(original.id,fn)});
   state.instanceKey=original.id;state.aboutToAppear();
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,

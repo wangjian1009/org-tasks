@@ -10,7 +10,7 @@ import { TaskEditorActionResult } from '../../ui/TaskEditorActionResult'
 import { TaskStateCategory, taskStateCategoryLabel } from '../../ui/TaskStatePresentation'
 import { CoreTask, CoreTaskChecklistItem, CoreTaskChecklistChange, CoreTaskModification, CoreTaskModificationOperation, CoreTaskPlanningEdit, CoreTaskOperationGroup, CoreRefileTarget, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { TaskInlineSession } from '../../services/TaskInlineService'
-import { DataSet, TaskDataChange, TaskDataSource } from '../../services/DataSet'
+import { DataSet, DataSetWriteError, TaskDataChange, TaskDataSource } from '../../services/DataSet'
 import { InboxService } from '../../services/InboxService'
 import { taskModificationGroup, taskMovementGroup } from '../../services/TaskOperationGroups'
 import { TaskInlineMissingError } from '../../services/TaskInlineService'
@@ -33,7 +33,7 @@ import { TitleText } from '../TitleText'
 import { LinkEditController } from '../LinkView'
 import { CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
 import { TaskContentEditor } from './TaskContentEditor'
-import { TaskChecklistBlock } from './TaskChecklistBlock'
+import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { CoreContentBlock } from '../../services/NativeCoreService'
 import { LogShowPolicy, taskLogVisible, taskNoteEntries, taskEventLogs } from '../../ui/TaskLogPresentation'
@@ -41,16 +41,9 @@ import { TaskLogView } from './TaskLogView'
 import { TitleCounts } from '../TitleCounts'
 import { titleCounts, titleCountsWidth } from '../../ui/TitleCountPresentation'
 import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
-import { TaskChecklistDrag, checklistSiblings, checklistMovePreview, checklistEdgeScroll } from '../../ui/TaskChecklistReorder'
-import { FrameCallback, KeyboardAvoidMode } from '@ohos.arkui.UIContext'
+import { TaskChecklistDrag, checklistSiblings, checklistMovePreview, checklistEdgeScroll, checklistBlockEnd } from '../../ui/TaskChecklistReorder'
+import { KeyboardAvoidMode } from '@ohos.arkui.UIContext'
 import { window } from '@kit.ArkUI'
-
-class ChecklistFocusFrame extends FrameCallback {
-  private callback: () => void
-  constructor(callback: () => void) { super(); this.callback = callback }
-  onFrame(_frameTimeInNano: number): void {}
-  onIdle(_timeLeftInNano: number): void { this.callback() }
-}
 
 // 通用任务编辑器，可嵌入列表项或项目文档；宿主按需提供滚动容器和展示策略。
 // 数据读写与变化监控均使用传入的管理对象；只维护卡片、输入草稿和浮层状态。
@@ -118,6 +111,7 @@ export struct TaskEditor {
   @State checkId: string = ''
   @State checkText: string = ''
   @State addingCheck: boolean = false
+  @State checkAfter: string = ''
   @State newCheck: string = ''
   @State draggingCheck: boolean = false
   @State droppingCheck: boolean = false
@@ -500,7 +494,7 @@ export struct TaskEditor {
       this.snapshotBlocked = true; this.message = '文件已变化，链接草稿已保留，请取消编辑并重新载入后继续'
       return
     }
-    if (this.checkId && current.fileVersion !== this.value().fileVersion && !savedCheck) {
+    if ((this.checkId || this.checkAfter) && current.fileVersion !== this.value().fileVersion && !savedCheck) {
       this.snapshotBlocked = true
       this.message = '文件已变化，清单输入已保留，请重新载入后继续编辑'
       return
@@ -640,7 +634,7 @@ export struct TaskEditor {
     await this.pending
     this.checkFocus.cancel()
     if (this.snapshotBlocked) return false
-    if (!this.newCheck.trim() && !this.checkId) this.addingCheck = false
+    if (!this.newCheck.trim() && !this.checkId) { this.addingCheck = false; this.checkAfter = '' }
     this.headingInput = false
     this.notesInput = false
     if (!this.snapshotBlocked) this.message = ''
@@ -687,7 +681,10 @@ export struct TaskEditor {
       if (this.removed || this.snapshotBlocked) return
       this.working = true; this.message = ''
       try {
-        await this.modifyTask(this.value(), modifications)
+        const source = this.value()
+        const checklist = modifications.some(modification => modification.field === 'CHECKLIST')
+        const confirmed = checklist ? await this.localDataSet().commitTaskFields(this.recordSource?.rowId ?? this.taskId, modifications, source.fileVersion) : undefined
+        if (!checklist) await this.modifyTask(source, modifications)
         for (const modification of modifications) {
           if (modification.field === 'TITLE' && this.heading === modification.value) { this.headingEditing = false; this.headingDirty = false }
           if (modification.field === 'NOTES' && this.notes === modification.value) { this.notesEditing = false; this.notesDirty = false }
@@ -695,14 +692,16 @@ export struct TaskEditor {
         success = true
         // 下一次编辑直接使用管理类的本地快照，无需等待底层确认。
         ++this.refreshRequest
-        const current = await this.currentTask()
+        const current = confirmed ?? await this.currentTask()
         const savedCheck = modifications.some((modification: CoreTaskModification): boolean => {
           if (modification.field !== 'CHECKLIST') return false
           const change = modification.value as CoreTaskChecklistChange
-          return change.type === 'edit' && change.id === this.checkId && change.text === this.checkText
+          return change.type === 'edit' && change.id === this.checkId && change.text === this.checkText ||
+            change.type === 'insertAfter' && change.id === this.checkAfter && change.text === this.newCheck
         })
         if (this.appeared && !this.removed) this.applySnapshot(current, savedCheck)
       } catch (error) {
+        success = success || (error as DataSetWriteError).committed === true
         // 移动或删除的事件可能晚于保存前读取；源节点已消失时直接结束原会话。
         if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
         else {
@@ -752,13 +751,12 @@ export struct TaskEditor {
   }
   async saveCheck(next: boolean): Promise<boolean> {
     if (this.readOnly) return true
-    if (next) this.continueCheck = true
     if (this.checkSaving) return await this.checkSaving
+    this.continueCheck = next
     this.checkSaving = this.commitCheck()
     const result = await this.checkSaving
     this.checkSaving = undefined
-    if (result && this.continueCheck) {
-      this.addingCheck = true
+    if (result && this.continueCheck && this.addingCheck && !this.snapshotBlocked && this.appeared && !this.removed) {
       this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
     }
     this.continueCheck = false
@@ -769,12 +767,19 @@ export struct TaskEditor {
     const id = this.checkId
     const text = id ? this.checkText : this.newCheck
     if (!id && !text.trim()) return true
+    if (this.snapshotBlocked || this.removed) return false
     if (!text.trim()) { this.message = '清单条目不能为空'; return false }
-    const original = this.value().editContent.checklist.find(item => item.id === id)
-    if (id && original?.text === text) { this.checkId = ''; return true }
-    const change: CoreTaskChecklistChange = id ? { type: 'edit', id, text } : { type: 'add', text }
-    if (!await this.persist([{ field: 'CHECKLIST', value: change }])) return false
-    this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = this.continueCheck
+    const items = this.value().editContent.checklist
+    const anchor = id || this.checkAfter
+    const index = items.findIndex(item => item.id === anchor)
+    if (anchor && index < 0) { this.message = '清单条目已变化，请重新载入'; return false }
+    const change: CoreTaskChecklistChange = id ? { type: 'edit', id, text } :
+      anchor ? { type: 'insertAfter', id: anchor, text } : { type: 'add', text }
+    if ((!id || items[index].text !== text) && !await this.persist([{ field: 'CHECKLIST', value: change }])) return false
+    const nextIndex = !id && anchor ? checklistBlockEnd(items, index) : index
+    this.addingCheck = this.continueCheck && !this.snapshotBlocked && !this.removed
+    this.checkAfter = this.addingCheck ? this.value().editContent.checklist[nextIndex]?.id ?? '' : ''
+    this.checkText = ''; this.newCheck = ''; this.checkId = ''
     return true
   }
   async changeCheck(change: CoreTaskChecklistChange) {
@@ -803,6 +808,7 @@ export struct TaskEditor {
     if (blockWasEditing && version !== this.value().fileVersion) return
     const current = this.value().editContent.checklist[index]
     if (!current) return
+    this.addingCheck = false; this.checkAfter = ''
     this.checkId = current.id; this.checkText = current.text
     this.checkFocus.request(`inline_check_${current.id}`)
   }
@@ -811,7 +817,7 @@ export struct TaskEditor {
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.prepare()) return
     if (!await this.saveText() || !await this.saveCheck(false)) return
-    this.addingCheck = true
+    this.checkAfter = ''; this.addingCheck = true
     this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
   }
   async setSchedule(value: CoreTaskPlanningEdit | null, allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
@@ -998,7 +1004,7 @@ export struct TaskEditor {
           this.blockEditor.cancel(); this.blockEditing = false
           this.headingEditing = false; this.notesEditing = false
           this.headingDirty = false; this.notesDirty = false
-          this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false; this.message = ''
+          this.checkId = ''; this.checkText = ''; this.newCheck = ''; this.addingCheck = false; this.checkAfter = ''; this.message = ''
           this.snapshotBlocked = false; this.checkPreview = []
         } catch (error) {
           if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
@@ -1497,7 +1503,8 @@ export struct TaskEditor {
   checklistBlock(index: number) {
     TaskChecklistBlock({ items: this.blockItems(this.checkBlock(index)), readonly: this.readOnly, sorting: true,
       disabled: this.working || this.snapshotBlocked, editingId: this.checkId, editingText: this.checkText,
-      adding: this.addingCheck && this.lastChecklist(this.checkBlock(index)), newText: this.newCheck,
+      adding: this.addingCheck && (this.checkAfter ? this.checkBlock(index).items.some(item => item.id === this.checkAfter) :
+        this.lastChecklist(this.checkBlock(index))), addingAfter: this.checkAfter, newText: this.newCheck,
       showAdd: this.lastChecklist(this.checkBlock(index)), ownerKey: this.ownerKey, blockId: this.checkBlock(index).id,
       dragging: this.draggingCheck && this.dragBlockId === this.checkBlock(index).id,
       dragTop: this.dragTop, dragHeight: this.dragHeight, dragPlaceholder: this.dragPlaceholder,

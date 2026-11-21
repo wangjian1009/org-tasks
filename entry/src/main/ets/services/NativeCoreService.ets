@@ -122,7 +122,7 @@ export type CoreFileHeaderValue = NativeFileHeaderValue
 // 逻辑身份、state、category、hasList、hasText、isRepeating、isHabit 与 properties 均由 Core 投影，宿主不解析 Org 或重新计算。
 export type CoreTaskChecklistItem = NativeTaskChecklistItem
 // editContent.noteRequiredStates 由 Core 计算；Modification.note 与独立 Note 通过统一批次原样透传。
-// 包含 move / beforeId；与 siblingGroup 一起透传，排序规则由 Core 验证。
+// insertAfter 与 move 透传条目 ID，由 Core 按版本验证插入位置与同级排序。
 export type CoreTaskChecklistChange = NativeTaskChecklistChange
 export type CoreTaskPlanningTime = NativeTaskPlanningTime
 export type CoreTaskPlanningEdit = NativeTaskPlanningEdit

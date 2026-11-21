@@ -263,6 +263,14 @@ export class DataSet {
     if (!task) throw new Error('任务已离开当前数据集')
     return task
   }
+  async commitTaskFields(id: string, changes: TaskModification[], sourceVersion: string): Promise<CoreTask> {
+    if (!this.ready) await this.start()
+    const key = this.itemKey(this.name, id)
+    await this.queueUpdate(this.name, key, changes, sourceVersion, false).completion
+    const task = this.getTask(key)
+    if (!task) throw new DataSetWriteError('任务已离开当前数据集', true)
+    return task
+  }
   watchTask(id: string, listener: (change: TaskDataChange) => void, name: string = this.name): () => void {
     return this.taskSource(id, name).monitor(listener)
   }
@@ -375,11 +383,11 @@ export class DataSet {
     this.track(work)
     await work
   }
-  private queueUpdate(name: string, key: string, changes: TaskModification[], sourceVersion?: string): DataSetSubmission {
+  private queueUpdate(name: string, key: string, changes: TaskModification[], sourceVersion?: string, rebaseQueuedVersion: boolean = true): DataSetSubmission {
     const task = this.findTask(name, key)
     if (!task) throw new Error('任务不在当前数据集中')
     const edit = this.edit(name, 'update', task, changes, sourceVersion)
-    edit.rebaseVersion = this.pending.some(item => item.files.some(file => edit.files.includes(file)))
+    edit.rebaseVersion = rebaseQueuedVersion && this.pending.some(item => item.files.some(file => edit.files.includes(file)))
     return { operationId: edit.id, completion: this.submit(edit) }
   }
   updateFields(name: string, key: string, changes: TaskModification[], sourceVersion?: string): CoreTask {

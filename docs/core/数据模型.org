@@ -1680,6 +1680,7 @@ pub struct TaskChecklistItem {
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase", deny_unknown_fields)]
 pub enum TaskChecklistChange {
     Add { text: String },
+    InsertAfter { id: String, text: String },
     Edit { id: String, text: String },
     SetChecked { id: String, checked: bool },
     Remove { id: String },
@@ -1691,7 +1692,7 @@ pub enum TaskChecklistChange {
 
 ~notes_html~ 由 Core 对相同的 ~notes~ 生成安全展示片段，复用显式链接、裸链接、行内格式与正文转义规则；它不进入持久化、同步或写入参数。Harmony 以 ~notesHtml~ 原样透传，宿主只切换展示与原始备注输入，不从 HTML 重建备注或清单。
 
-条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态修改 checkbox token，并由 Core 重算所属标题中已有的统计节点；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式，备注修改保留原清单和所有 drawer。
+条目 ID 是当前文件快照内的语法节点位置，必须与 ~TaskFileVersion~ 一起使用，不能跨快照缓存。编辑条目只替换首行文字，保留项目符号、缩进、checkbox 状态和后续内容；切换状态修改 checkbox token，并由 Core 重算所属标题中已有的统计节点；删除移除该条目及其嵌套内容，保留相邻段落、标题与其他条目。新增使用文件原换行样式。按位置新增复用锚点条目的缩进和项目符号，插入位置在其全部子项之后，原分隔空行保留在新条目之后。备注修改保留原清单和所有 drawer。
 
 新增、删除与切换完成状态后，Core 重算所属标题中的 checkbox 统计；统计来源受 ~COOKIE_DATA~ 约束，完整规则见 [[*标题统计更新][标题统计更新]]。统计修改与条目修改复用同一操作事务、版本校验、回退历史和 ~DataChangeEvent::NotificationEvent~ ，提交后按仓库发送精确文件与任务增量，由查询订阅维护命中成员并更新数据集，不重复查询，不改变任务 TODO 状态。
 
@@ -1716,7 +1717,7 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TaskEditContent}{notes: String \\ notes\_html: String \\ own\_tags: Vec \\ note\_required\_states: Vec}{}
 \umlclass[x=7,y=0]{TaskChecklistItem}{id: String \\ sibling\_group: String \\ text: String \\ checked: bool \\ partial: bool \\ depth: usize}{}
-\umlclass[x=0,y=-4,type=enumeration]{TaskChecklistChange}{Add \\ Edit \\ SetChecked \\ Remove \\ Move}{}
+\umlclass[x=0,y=-4,type=enumeration]{TaskChecklistChange}{Add \\ InsertAfter \\ Edit \\ SetChecked \\ Remove \\ Move}{}
 \umlclass[x=7,y=-4]{TaskPlanningInfo}{date: String}{}
 \umlclass[x=7,y=-7]{TaskPlanningTime}{start: String \\ end: Option<String>}{}
 \umlclass[x=0,y=-7]{TaskPlanningEdit}{date: String \\ time: Option<Option>}{}

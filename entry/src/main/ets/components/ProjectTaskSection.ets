@@ -56,7 +56,11 @@ export struct ProjectTaskSection {
   async modify(changes: CoreTaskModification[], sourceVersion?: string): Promise<CoreTask> {
     const task = this.source?.task
     if (!task) throw new Error('当前章节已移除')
-    return await this.dataSet!.updateTask(this.taskId, changes, sourceVersion ?? task.fileVersion)
+    const version = sourceVersion ?? task.fileVersion
+    if (changes.some(change => change.field === 'CHECKLIST')) {
+      return await this.dataSet!.commitTaskFields(this.taskId, changes, version)
+    }
+    return await this.dataSet!.updateTask(this.taskId, changes, version)
   }
 
   // 位置 ID 和文件版本是编辑上下文；只在可见正文改变时更新 HTML 修订号。
