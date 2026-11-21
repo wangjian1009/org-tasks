@@ -8,7 +8,7 @@ struct Today {
 
   build() {
     Stack() {
-      TaskPageContent({ view: 'today', pageRoute: 'pages/Today' })
+      TaskPageContent({ view: 'today', pageRoute: 'pages/Today', enableRuningFilter: true })
     }
   }
 }

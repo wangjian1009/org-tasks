@@ -466,7 +466,21 @@ test('计划筛选汇总所有分类与项目，项目仅显示名字且来源�
   assert.equal(options[5].filePath, 'other.org');
 });
 
-const tagFilters = loadGrouping('TaskTagFilterPresentation', {});
+const tagFilters = loadGrouping('TaskTagFilterPresentation', { './TaskStatePresentation': loadGrouping('TaskStatePresentation', {}) });
+
+test('进行中筛选使用 Core 状态分类，并与标签筛选叠加', () => {
+  const active = task('active', { state: { name: 'ACTIVE', category: 'Doing' }, tags: ['工作'] });
+  const untagged = task('untagged', { state: { name: 'INPROGRESS', category: 'Doing' } });
+  const todo = task('todo', { tags: ['进行中', '工作'] });
+  const note = task('note', { state: null, tags: ['工作'] });
+  const tasks = [active, untagged, todo, note];
+  const all = { tags: [], includeUntagged: false };
+  assert.equal(tagFilters.filterTasksByTags(tasks, all), tasks);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, all, [], true), [active, untagged]);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['工作'], includeUntagged: false }, [], true), [active]);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: [], includeUntagged: true }, [], true), [untagged]);
+  assert.deepEqual(tagFilters.filterTasksByTags(tasks, { tags: ['进行中'], includeUntagged: false }, [], true), []);
+});
 
 test('备忘 TAGS 花括号组互斥切换，跨组匹配交集，未分组标签保留并集', () => {
   const groups = [['iOS', 'Android'], ['BUG', 'FEAT'], ['SDK', 'COOL']];

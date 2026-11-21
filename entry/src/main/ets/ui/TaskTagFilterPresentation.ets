@@ -1,4 +1,5 @@
 import { CoreTask } from '../services/NativeCoreService'
+import { TaskStateCategory } from './TaskStatePresentation'
 
 export interface TaskTagSelection {
   tags: string[]
@@ -41,13 +42,15 @@ export function reconcileTaskTags(selection: TaskTagSelection, options: string[]
 }
 
 // 今天、等待、随时、某天和备忘的标签筛选是展示层例外，只处理当前页面已加载的任务快照。
-export function filterTasksByTags(tasks: CoreTask[], selection: TaskTagSelection, exclusiveGroups: string[][] = []): CoreTask[] {
-  if (allTaskTagsSelected(selection)) return tasks
+export function filterTasksByTags(tasks: CoreTask[], selection: TaskTagSelection, exclusiveGroups: string[][] = [],
+  runningOnly: boolean = false): CoreTask[] {
+  const candidates = runningOnly ? tasks.filter((task: CoreTask) => task.state?.category === TaskStateCategory.Doing) : tasks
+  if (allTaskTagsSelected(selection)) return candidates
   const selectedGroups = exclusiveGroups.map((group: string[]) =>
     group.filter((tag: string) => selection.tags.includes(tag))).filter((group: string[]) => group.length > 0)
   const others = selection.tags.filter((tag: string) => !exclusiveGroups.some((group: string[]) => group.includes(tag)))
   if (others.length > 0) selectedGroups.push(others)
-  return tasks.filter((task: CoreTask) => {
+  return candidates.filter((task: CoreTask) => {
     return (selection.includeUntagged && task.tags.length === 0)
       || (selection.tags.length > 0 && selectedGroups.every((group: string[]) => group.some((tag: string) => task.tags.includes(tag))))
   })

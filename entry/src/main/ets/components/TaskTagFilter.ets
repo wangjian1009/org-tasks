@@ -1,5 +1,5 @@
 import { LengthMetrics } from '@kit.ArkUI'
-import { TaskTagSelection, toggleTaskTag, groupedTaskTags } from '../ui/TaskTagFilterPresentation'
+import { TaskTagSelection, allTaskTagsSelected, toggleTaskTag, groupedTaskTags } from '../ui/TaskTagFilterPresentation'
 import { UiColor } from '../ui/Theme'
 
 @Component
@@ -32,11 +32,13 @@ export struct TaskTagFilter {
   @Prop selectedTags: string[] = []
   @Prop includeUntagged: boolean = false
   @Prop exclusiveGroups: string[][] = []
-  changed: (selection: TaskTagSelection) => void = () => {}
+  @Prop enableRuningFilter: boolean = false
+  @Prop runningOnly: boolean = false
+  changed: (selection: TaskTagSelection, runningOnly: boolean) => void = () => {}
   @State expanded: boolean = false
   @State availableWidth: number = 0
 
-  allSelected(): boolean { return this.selectedTags.length === 0 && !this.includeUntagged }
+  allSelected(): boolean { return allTaskTagsSelected(this.selection()) && !this.runningOnly }
 
   selection(): TaskTagSelection { return { tags: this.selectedTags, includeUntagged: this.includeUntagged } }
 
@@ -57,7 +59,8 @@ export struct TaskTagFilter {
   }
 
   fixedChipWidth(): number {
-    return this.tagChipWidth('全部') + this.tagChipWidth('无标签') + 2
+    const runningWidth = this.enableRuningFilter ? this.tagChipWidth('进行中') + 2 : 0
+    return this.tagChipWidth('全部') + runningWidth + this.tagChipWidth('无标签') + 2
   }
 
   remainingTagWidth(): number {
@@ -115,17 +118,22 @@ export struct TaskTagFilter {
       Flex({ wrap: this.expanded ? FlexWrap.Wrap : FlexWrap.NoWrap, alignItems: ItemAlign.Center,
         space: { main: LengthMetrics.vp(2), cross: LengthMetrics.vp(0) } }) {
         TaskTagChip({ label: '全部', selected: this.allSelected(), all: true, chipWidth: this.tagChipWidth('全部'), activate: (): void => {
-          this.changed({ tags: [], includeUntagged: false })
+          this.changed({ tags: [], includeUntagged: false }, false)
         } })
+        if (this.enableRuningFilter) {
+          TaskTagChip({ label: '进行中', selected: this.runningOnly, chipWidth: this.tagChipWidth('进行中'), activate: (): void => {
+            this.changed(this.selection(), !this.runningOnly)
+          } })
+        }
         TaskTagChip({ label: '无标签', selected: this.includeUntagged, chipWidth: this.tagChipWidth('无标签'), activate: (): void => {
-          this.changed({ tags: this.selectedTags, includeUntagged: !this.includeUntagged })
+          this.changed({ tags: this.selectedTags, includeUntagged: !this.includeUntagged }, this.runningOnly)
         } })
         ForEach(this.displayTags(), (tag: string, index: number) => {
           if (this.dividerBefore(index)) {
             Divider().vertical(true).height(16).color(UiColor.outline).margin({ left: 3, right: 3 })
           }
           TaskTagChip({ label: tag, selected: this.selectedTags.includes(tag), chipWidth: this.tagChipWidth(tag), activate: (): void => {
-            this.changed(toggleTaskTag(this.selection(), tag, this.exclusiveGroups))
+            this.changed(toggleTaskTag(this.selection(), tag, this.exclusiveGroups), this.runningOnly)
           } })
         }, (tag: string) => tag)
       }.layoutWeight(1)

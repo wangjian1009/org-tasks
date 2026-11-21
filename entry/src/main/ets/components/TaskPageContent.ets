@@ -47,6 +47,7 @@ export struct TaskPageContent {
   private listScroller: ListScroller = new ListScroller()
   @Prop view: TaskView = 'today'
   @Prop pageRoute: string = 'pages/Today'
+  @Prop enableRuningFilter: boolean = false
   @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State tasks: CoreTask[] = []
   @State visibleTasks: CoreTask[] = []
@@ -55,6 +56,7 @@ export struct TaskPageContent {
   @State tagGroups: string[][] = []
   @State selectedTags: string[] = []
   @State includeUntagged: boolean = false
+  @State runningOnly: boolean = false
   @State sections: TodaySection[] = []
   @State timedItems: TodayTimedTaskItem[] = []
   @State todayRegionKeys: string[] = []
@@ -161,10 +163,11 @@ export struct TaskPageContent {
     }.height('100%').padding({ left: 8, right: 16 })
   }
 
-  applyTagFilter(selection: TaskTagSelection) {
+  applyTagFilter(selection: TaskTagSelection, runningOnly: boolean = false) {
     this.selectedTags = selection.tags
     this.includeUntagged = selection.includeUntagged
-    this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection, this.tagGroups) : this.tasks
+    this.runningOnly = this.enableRuningFilter && runningOnly
+    this.visibleTasks = this.supportsTagFilter() ? filterTasksByTags(this.tasks, selection, this.tagGroups, this.runningOnly) : this.tasks
     const layout = this.view === 'today' ? todayLayout(this.visibleTasks, this.priorityOrder, new Date(this.referenceTime)) : null
     const keyOf = (task: CoreTask): string => this.taskDataSet().taskKey(task.id) ?? task.id
     if (!layout || !this.dataManager || !sameTodayTimedItems(this.timedItems, layout.timedItems, keyOf)) this.timedItems = layout?.timedItems ?? []
@@ -303,7 +306,8 @@ export struct TaskPageContent {
     this.tagGroups = this.view === 'memo' ? file?.tagGroups ?? [] : []
     this.tagOptions = this.supportsTagFilter() ? taskTagOptions(this.tasks, this.view === 'memo' ? file?.tagOptions ?? [] : []) : []
     if (new Date(this.referenceTime).toDateString() !== new Date().toDateString()) this.referenceTime = Date.now()
-    this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged }, this.tagOptions, this.tagGroups))
+    this.applyTagFilter(reconcileTaskTags({ tags: this.selectedTags, includeUntagged: this.includeUntagged }, this.tagOptions, this.tagGroups),
+      this.runningOnly)
     if (this.view === 'planned') {
       const groups = plannedGroups(this.tasks)
       if (!samePlannedGroups(this.planGroups, groups, (task: CoreTask): string => dataSet.taskKey(task.id) ?? task.id)) this.planGroups = groups
@@ -358,15 +362,17 @@ export struct TaskPageContent {
       } else {
         if (this.supportsTagFilter()) {
           TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags, exclusiveGroups: this.tagGroups,
-            includeUntagged: this.includeUntagged, changed: (selection: TaskTagSelection): void => {
-              this.applyTagFilter(selection)
+            includeUntagged: this.includeUntagged, enableRuningFilter: this.enableRuningFilter, runningOnly: this.runningOnly,
+            changed: (selection: TaskTagSelection, runningOnly: boolean): void => {
+              this.applyTagFilter(selection, runningOnly)
             } }).enabled(!this.selection.selecting && !this.selection.blocked())
         }
         if (this.tasks.length === 0) {
           NotificationEmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
             detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '下拉同步后可刷新此列表。' })
         } else if (this.visibleTasks.length === 0) {
-          NotificationEmptyState({ title: '没有匹配标签的任务', detail: '选择其他标签，或点击“全部”查看当前页面的所有任务。',
+          NotificationEmptyState({ title: this.runningOnly ? '没有符合筛选条件的进行中任务' : '没有匹配标签的任务',
+            detail: this.runningOnly ? '调整筛选条件，或点击“全部”查看当前页面的所有任务。' : '选择其他标签，或点击“全部”查看当前页面的所有任务。',
             actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime' || this.view === 'waiting') {
           TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, singleOperations: taskPageActionPolicy(this.view).singleOperations,
