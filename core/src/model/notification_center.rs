@@ -1,5 +1,5 @@
 //! Workspace 私有的通知请求通道；订阅表和 ID 只存在于 process 的局部状态。
-use super::notification::{NotificationMonitor, NotificationRequest, NotificationState};
+use super::notification::{NotificationMonitor, NotificationRequest, NotificationSelection, NotificationState};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
@@ -7,6 +7,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use super::sync_events::SyncCommitted;
 use crate::CoreError;
+use crate::repository_errors::{RepositoryErrorManager, RepositoryErrorSnapshot};
 
 type Callback = Box<dyn Fn(&SyncCommitted) + Send + Sync>;
 
@@ -15,6 +16,7 @@ pub struct NotificationCenter {
     sender: mpsc::UnboundedSender<Request>,
     sequence: Arc<AtomicU64>,
     files: crate::file_state::FileStateManager,
+    repository_errors: RepositoryErrorManager,
 }
 
 pub(crate) struct Subscription {
@@ -29,6 +31,8 @@ pub(crate) struct Requests(
     Arc<AtomicU64>,
     crate::file_state::FileStateManager,
     mpsc::UnboundedReceiver<crate::file_state::Command>,
+    RepositoryErrorManager,
+    mpsc::UnboundedReceiver<crate::repository_errors::Command>,
 );
 
 enum Request {
@@ -60,8 +64,10 @@ impl NotificationCenter {
         let (sender, receiver) = mpsc::unbounded_channel();
         let sequence = Arc::new(AtomicU64::new(0));
         let (files, file_requests) = crate::file_state::FileStateManager::new();
-        let requests = Requests(receiver, sender.downgrade(), sequence.clone(), files.clone(), file_requests);
-        (Self { sender, sequence, files }, requests)
+        let (repository_errors, error_requests) = RepositoryErrorManager::new();
+        let requests = Requests(receiver, sender.downgrade(), sequence.clone(), files.clone(), file_requests,
+            repository_errors.clone(), error_requests);
+        (Self { sender, sequence, files, repository_errors }, requests)
     }
 
     pub(crate) fn subscribe<F>(&self, callback: F) -> Subscription
@@ -97,7 +103,7 @@ impl NotificationCenter {
 
     pub(crate) fn watch_notifications(
         &self,
-        repo_ids: Option<Vec<super::OrgRepoId>>,
+        selection: NotificationSelection,
         monitor: Box<dyn NotificationMonitor>,
     ) -> Subscription {
         let token = Arc::new(());
@@ -105,7 +111,7 @@ impl NotificationCenter {
         let _ = self
             .sender
             .send(Request::Notifications(NotificationRequest::Subscribe {
-                repo_ids,
+                selection,
                 token: Arc::downgrade(&token),
                 monitor,
                 active,
@@ -118,6 +124,13 @@ impl NotificationCenter {
     }
 
     pub(crate) fn files(&self) -> &crate::file_state::FileStateManager { &self.files }
+
+    pub(crate) fn errors(&self) -> &RepositoryErrorManager { &self.repository_errors }
+
+    pub(crate) fn repository_errors(&self, snapshot: RepositoryErrorSnapshot) -> Result<(), CoreError> {
+        self.sender.send(Request::Notifications(NotificationRequest::RepositoryErrors(snapshot)))
+            .map_err(|_| CoreError::InvalidState("通知处理任务已停止"))
+    }
 
     pub(crate) fn file_states(&self, event: crate::file_state::FileStateEvent) {
         let _ = self.sender.send(Request::Notifications(NotificationRequest::FileStates(event)));
@@ -139,6 +152,7 @@ impl NotificationCenter {
     /// 确认此前入队的订阅、事件和取消已处理；不重新查询仓库。
     pub(crate) async fn flush(&self) -> Result<(), CoreError> {
         self.files.flush().await?;
+        self.repository_errors.flush().await?;
         let (done, received) = oneshot::channel();
         self.sender
             .send(Request::Flush(done))
@@ -211,11 +225,17 @@ impl NotificationCenter {
         }
 
         let Some(sender) = requests.1.upgrade() else { return Ok(()); };
-        let center = Self { sender, sequence: requests.2.clone(), files: requests.3.clone() };
+        let center = Self {
+            sender, sequence: requests.2.clone(), files: requests.3.clone(),
+            repository_errors: requests.5.clone(),
+        };
         let (_, empty_requests) = mpsc::unbounded_channel();
         let file_requests = std::mem::replace(&mut requests.4, empty_requests);
         let file_center = center.clone();
         let files_task = tokio::spawn(crate::file_state::FileStateManager::process(file_requests, file_center));
+        let (_, empty_requests) = mpsc::unbounded_channel();
+        let error_requests = std::mem::replace(&mut requests.6, empty_requests);
+        let errors_task = tokio::spawn(RepositoryErrorManager::process(error_requests, center.clone()));
         let mut notices = NotificationState::default();
         let mut monitors = BTreeMap::new();
         let mut next_id = 0;
@@ -233,7 +253,9 @@ impl NotificationCenter {
             }
         }
         center.files.stop().await;
+        center.repository_errors.stop();
         files_task.await.map_err(|_| CoreError::InvalidState("文件状态服务退出失败"))?;
+        errors_task.await.map_err(|_| CoreError::InvalidState("仓库错误处理任务退出失败"))?;
         requests.0.close();
         while let Some(request) = requests.0.recv().await {
             if let Request::Notifications(request) = request { notices.handle(request, &center); }

@@ -1534,7 +1534,7 @@ path: String}{}
 
 * 待关注事件
 
-~CoreNotification~ 是从当前仓库文件和已确认基线派生的只读事件，不写通知记录，也不消费事件。
+~CoreNotification~ 是从当前仓库错误、已观察文件和已确认基线派生的只读事件，不写通知记录，也不消费事件。
 
 文件状态、通知贡献及首次快照与差量回调的模型和内嵌 UML 见 [[file:文件状态与通知设计.org][文件状态与通知重构设计]]。相关运行时对象不持久化。
 
@@ -1544,6 +1544,7 @@ pub enum CoreNotification {
     SyncConflict(SyncConflictNotification),
     SyncRequired,
     SyncBaselineUnavailable { repo_id: OrgRepoId, reason: SyncBaselineFailure },
+    RepositoryRootMissing { root_directory: String },
 }
 #[serde(rename_all = "camelCase")]
 pub struct SyncConflictNotification {
@@ -1552,12 +1553,12 @@ pub struct SyncConflictNotification {
 }
 #+end_src
 
-每个已观察且当前有冲突标记的文件生成一条 ~SyncConflict~ ，身份为 Core 仓库 ID 与相对路径。 ~SyncRequired~ 没有载荷，订阅范围内任一已观察文件与有效基线不同就贡献一条，多个来源去重。 ~SyncBaselineUnavailable~ 表示基线加载或恢复失败，原因是 missing、invalid、inconsistent 或 io。通知不维护已读或已解决状态，未读取路径保持未知。
+每个已观察且当前有冲突标记的文件生成一条 ~SyncConflict~ ，身份为 Core 仓库 ID 与相对路径。 ~SyncRequired~ 没有载荷，订阅范围内任一已观察文件与有效基线不同就贡献一条，多个来源去重。 ~SyncBaselineUnavailable~ 表示基线加载或恢复失败，原因是 missing、invalid、inconsistent 或 io。 ~RepositoryRootMissing~ 按配置根目录标识，仓库错误来源及运行时模型见 [[file:通知订阅设计.org::*仓库错误通知][通知订阅设计]]。通知不维护已读或已解决状态，未读取路径保持未知。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\small}
 \umlclass[x=0,y=0,type=enumeration]{CoreNotification}{SyncConflict(SyncConflictNotification) \\
-SyncRequired / SyncBaselineUnavailable}{}
+SyncRequired / SyncBaselineUnavailable / RepositoryRootMissing}{}
 \umlclass[x=8,y=0]{SyncConflictNotification}{repo\_id: OrgRepoId \\
 path: String}{}
 \umlclass[x=0,y=-4]{SyncBaselineUnavailable}{repo\_id: OrgRepoId \\ reason: SyncBaselineFailure}{}

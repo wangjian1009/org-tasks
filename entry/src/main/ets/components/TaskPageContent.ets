@@ -4,7 +4,7 @@ import { DataSetManager, DataSet } from '../services/DataSetManager'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
@@ -48,7 +48,8 @@ export struct TaskPageContent {
   @Prop view: TaskView = 'today'
   @Prop pageRoute: string = 'pages/Today'
   @Prop enableRuningFilter: boolean = false
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   @State tasks: CoreTask[] = []
   @State visibleTasks: CoreTask[] = []
   @State priorityOrder: string[] = []
@@ -85,6 +86,7 @@ export struct TaskPageContent {
   private pageLayoutDeferred: boolean = false
 
   aboutToAppear() {
+    this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
     this.stopBackHandler = PageNavigator.shared.watchBackHandler(this.pageRoute, (): boolean => this.consumeBack())
     if (this.supportsBatchActions()) this.stopExternalGuard = PageNavigator.shared.watchExternalLeaveGuard((): boolean =>
       !this.selection.busy && !this.selection.starting)
@@ -98,6 +100,8 @@ export struct TaskPageContent {
   }
 
   aboutToDisappear() {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
     this.stopBackHandler?.(); this.stopBackHandler = undefined
     this.stopExternalGuard?.(); this.stopExternalGuard = undefined
     this.selection.close()
@@ -391,7 +395,7 @@ export struct TaskPageContent {
           LogbookTaskList({ ready: this.pageReady, dataSet: this.taskDataSet(), groups: this.logbookTaskGroups, referenceTime: this.referenceTime })
         } else {
           List({ scroller: this.listScroller }) {
-            if (this.notificationState.notifications.length > 0) {
+            if (this.showNotifications) {
               ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }
                 .margin({ bottom: this.view === 'memo' ? 12 : 0 })
             }

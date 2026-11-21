@@ -30,6 +30,7 @@ impl Display for CoreError {
 impl std::error::Error for CoreError {}
 
 mod file_state;
+mod repository_errors;
 mod filter;
 mod merge;
 mod shared_file_manager;
@@ -42,7 +43,7 @@ pub use query::{QueryOrderPart, QueryOrderValue, QueryOrdering};
 pub mod webdav;
 pub mod workspace;
 mod workspace_tasks;
-pub use workspace::{OrgWorkspace, OrgWorkspaceValidationError};
+pub use workspace::{OrgWorkspace, OrgWorkspaceValidationError, RepositoryRootStatus};
 
 pub use filter::{AddressLink, AppLink, FilterDate, FilterStateType, FilterTask};
 pub use merge::merge;

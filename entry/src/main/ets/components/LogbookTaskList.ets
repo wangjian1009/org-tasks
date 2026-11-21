@@ -1,6 +1,6 @@
 import { DataSet } from '../services/DataSet'
 import { CoreNotificationsView } from './CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { LogbookTaskItem, LogbookTaskGroup, LogbookGroup } from '../ui/LogbookPresentation'
 import { TaskEditor } from './editors/TaskEditor'
 import { LogShowPolicy } from '../ui/TaskLogPresentation'
@@ -24,7 +24,8 @@ export struct LogbookTaskList {
   }
 
   private listScroller: ListScroller = new ListScroller()
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   @Prop ready: boolean = false
   @Prop trashMode: boolean = false
   @Prop singleOperations: TaskSingleOperation[] = [TaskOperation.Delete]
@@ -34,11 +35,16 @@ export struct LogbookTaskList {
   @State selection: TaskSelectionController = new TaskSelectionController()
 
   aboutToAppear(): void {
+    this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
     this.selection.connect(this.taskDataSet(), (): CoreTask[] => this.allItems().map(item => item.task),
       () => this.bulkOperations, (): boolean => this.ready, this.listScroller)
   }
 
-  aboutToDisappear(): void { this.selection.close() }
+  aboutToDisappear(): void {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
+    this.selection.close()
+  }
 
   allItems(): LogbookTaskItem[] {
     const result: LogbookTaskItem[] = []
@@ -116,7 +122,7 @@ export struct LogbookTaskList {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       List({ scroller: this.listScroller }) {
-        if (this.notificationState.notifications.length > 0) {
+        if (this.showNotifications) {
           ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
         }
         ForEach(this.groups, (group: LogbookGroup) => {

@@ -444,6 +444,12 @@ pub fn workspace_add_repo(handle: u64, root_directory: String) -> Result<(), Cor
     runtime(handle)?.block_on(workspace.add_repo(repository))
 }
 
+pub fn workspace_configure_repository_roots(handle: u64, source: String) -> Result<String, CoreError> {
+    let roots = serde_json::from_str(&source).map_err(|_| CoreError::InvalidInput("仓库目录列表无效"))?;
+    let workspace = workspace_for_handle(handle)?;
+    encode(&runtime(handle)?.block_on(workspace.configure_repository_roots(roots))?)
+}
+
 pub fn validate_configuration_json(request: String) -> Result<String, CoreError> {
     #[derive(Deserialize, Default)]
     #[serde(rename_all = "camelCase", default)]
@@ -715,12 +721,12 @@ fn resolve_query_repositories(
         if binding.id.is_empty() || identities.contains_key(&binding.id) {
             return Err(CoreError::InvalidInput("查询仓库别名为空或重复"));
         }
-        let repo = workspace.repo_by_root_directory(&binding.root_directory)
+        let selector = workspace.query_repository_selector(&binding.root_directory)
             .ok_or(CoreError::InvalidInput("查询仓库目录不属于 workspace"))?;
-        if workspace.repo(&binding.id).is_some_and(|existing| existing.id != repo.id) {
+        if workspace.repo(&binding.id).is_some_and(|existing| existing.id != selector) {
             return Err(CoreError::InvalidInput("查询仓库别名与 Core 身份冲突"));
         }
-        identities.insert(binding.id.clone(), repo.id.clone());
+        identities.insert(binding.id.clone(), selector);
     }
     let resolve = |id: &mut String| {
         if let Some(value) = identities.get(id) { *id = value.clone(); }
@@ -2526,9 +2532,14 @@ pub fn workspace_watch_notifications(handle: u64, monitor: u64, scope_json: &str
     let monitor = NotificationMonitor(monitor);
     let session = workspace_for_handle(handle)?;
     let workspace = session;
-    let scope = serde_json::from_str::<Option<Vec<String>>>(scope_json).map_err(|_| CoreError::InvalidInput("通知订阅范围无效"))?;
-    let roots = workspace.repos().into_iter().map(|repo| (repo.id, repo.root_directory)).collect::<BTreeMap<_, _>>();
-    struct BridgeMonitor { handle: NotificationMonitor, roots: BTreeMap<String, String> }
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Scope {
+        Roots(org_tasks_core::NotificationScope),
+        RepoIds(Option<Vec<String>>),
+    }
+    let scope: Scope = serde_json::from_str(scope_json).map_err(|_| CoreError::InvalidInput("通知订阅范围无效"))?;
+    struct BridgeMonitor { handle: NotificationMonitor, workspace: OrgWorkspace }
     impl BridgeMonitor {
         fn send(&self, mut event: serde_json::Value) {
             fn attach(value: &mut serde_json::Value, roots: &BTreeMap<String, String>) {
@@ -2544,7 +2555,8 @@ pub fn workspace_watch_notifications(handle: u64, monitor: u64, scope_json: &str
                     _ => {},
                 }
             }
-            attach(&mut event, &self.roots);
+            let roots = self.workspace.repos().into_iter().map(|repo| (repo.id, repo.root_directory)).collect();
+            attach(&mut event, &roots);
             if let Ok(json) = serde_json::to_string(&event).and_then(|s| CString::new(s).map_err(serde::ser::Error::custom)) {
                 #[cfg(not(test))]
                 unsafe { org_tasks_harmony_notification_update(self.handle.0, json.as_ptr()); }
@@ -2565,7 +2577,11 @@ pub fn workspace_watch_notifications(handle: u64, monitor: u64, scope_json: &str
             self.send(event);
         }
     }
-    let subscription = workspace.watch_notifications(scope, BridgeMonitor { handle: monitor, roots })?;
+    let monitor = BridgeMonitor { handle: monitor, workspace: workspace.clone() };
+    let subscription = match scope {
+        Scope::Roots(scope) => workspace.watch_notifications_with_scope(scope, monitor),
+        Scope::RepoIds(ids) => workspace.watch_notifications(ids, monitor),
+    }?;
     let id = NEXT_NOTIFICATION_SUBSCRIPTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     NOTIFICATION_SUBSCRIPTIONS
         .get_or_init(Default::default)

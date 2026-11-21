@@ -1,7 +1,7 @@
 import { PageNavigator } from '../services/PageNavigator'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { SyncLogDetails } from '../components/SyncLogDetails'
@@ -20,7 +20,8 @@ interface SyncLogParams {
 @Entry
 @Component
 struct SyncLog {
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   @State items: CoreSyncRecord[] = []
   @State repositoryName: string = ''
   @State repoId: string = ''
@@ -35,7 +36,15 @@ struct SyncLog {
 
   private dataManager: SyncLogDataManager | undefined = undefined
   private stopData: (() => void) | undefined = undefined
-  aboutToDisappear(): void { this.stopData?.(); this.dataManager?.close() }
+  aboutToDisappear(): void {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
+    this.stopData?.(); this.dataManager?.close()
+  }
+  aboutToAppear(): void {
+    this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
+  }
+
   onPageShow() { this.loadLogs() }
 
   onBackPress(): boolean {
@@ -69,7 +78,7 @@ struct SyncLog {
 
   initialIndex(): number {
     const index = this.visibleItems().findIndex((item: CoreSyncRecord) => item.id === this.expandedId)
-    return index < 0 ? 0 : index + (this.notificationState.notifications.length > 0 ? 1 : 0)
+    return index < 0 ? 0 : index + (this.showNotifications ? 1 : 0)
   }
 
   @Builder
@@ -84,7 +93,7 @@ struct SyncLog {
       NotificationEmptyState({ title: '暂无上传或下载记录', detail: '点击右上角显示全部日志' })
     } else {
       List({ initialIndex: this.initialIndex() }) {
-              if (this.notificationState.notifications.length > 0) {
+              if (this.showNotifications) {
                 ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
               }
         ForEach(this.visibleItems(), (item: CoreSyncRecord) => {

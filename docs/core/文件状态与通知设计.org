@@ -9,14 +9,15 @@
 
 2026-11-19 按已确认方案实现文件状态服务与通知差量回调，删除首次通知订阅的全量文件扫描。通知订阅的完整契约见 [[file:通知订阅设计.org][通知订阅设计]]。启动只读取基线元数据；正常搜索、读取和提交逐步补全文件信息。未读取的路径没有文件通知，不能把未知当作未修改或已删除。
 
-* 两个模块的职责
+* 模块职责
 
 | 模块 | 独占状态 | 入口与输出 |
 |-
 | ~core::file_state~ | 基线、已观察文件的版本及冲突状态、删除记录、每文件 revision | 内部更新、删除、查询、同步原子批次；主动推送 ~FileStateEvent~ |
-| ~core::model::notification~ | 每仓库通知贡献、去重集合、monitor 与最近发送版本 | 在 ~NotificationCenter::process~ 内处理文件状态；首次快照与后续增删改 |
+| ~core::repository_errors~ | 当前仓库错误列表及观察顺序 | 业务报告根目录缺失或恢复，列表变化时推送完整错误快照 |
+| ~core::model::notification~ | 通知贡献、去重集合、monitor 与最近发送版本 | 合并仓库错误和文件状态，发送首次快照与后续增删改 |
 
-文件状态服务不持有 Org AST、任务投影或宿主页面数据，不替代执行编辑的每文件 task。通知模块不保存基线或文件 hash，不执行任何业务读取。两个模块都复用宿主 Tokio，Workspace 只持有服务句柄。
+文件状态服务不持有 Org AST、任务投影或宿主页面数据，不替代执行编辑的每文件 task。通知模块不保存基线或文件 hash，不执行任何业务读取。各模块都复用宿主 Tokio，Workspace 只持有服务句柄。
 
 \begin{tikzpicture}
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
@@ -98,7 +99,7 @@ impl OrgWorkspace {
 
 两个 closure 的 tuple 也实现 ~NotificationMonitor~ ，分别接收快照和差量。取消继续通过订阅句柄完成。 ~NotificationDelta.apply~ 提供连续版本校验、完整值增删改及稳定排序；不增加主动查询接口。
 
-~CoreNotification~ 包含 ~SyncConflict~ 、 ~SyncRequired~ 与 ~SyncBaselineUnavailable { repo_id, reason }~ 。基线异常原因只序列化为 ~missing / invalid / inconsistent / io~ ，不携带绝对路径、URL、账号或底层 I/O 文本。通知以类型及全部数据确定身份；多个来源相同只显示一次，撤销一个来源不影响另一来源。基线异常原因改变发送 ~Updated~ 。
+~CoreNotification~ 包含 ~SyncConflict~ 、 ~SyncRequired~ 、 ~SyncBaselineUnavailable { repo_id, reason }~ 与 ~RepositoryRootMissing { root_directory }~ 。根目录通知通过 [[file:通知订阅设计.org::*仓库错误通知][仓库错误列表快照]] 进入通知中心。基线异常原因只序列化为 ~missing / invalid / inconsistent / io~ ，不携带绝对路径、URL、账号或底层 I/O 文本。通知以类型及全部数据确定身份；多个来源相同只显示一次，撤销一个来源不影响另一来源。基线异常原因改变发送 ~Updated~ 。
 
 * 读取与提交接入
 
@@ -114,7 +115,7 @@ impl OrgWorkspace {
 
 实际观察在仓库锁内取得 ~Stamp~ ，包含仓库 epoch 与 revision；逐文件比较顺序，文件 A 的新事件不能丢弃文件 B 的旧但有效观察。删除同样保留 revision。配置 epoch 拒绝移除或换根目录前的事件，reset 截止 revision 排除旧观察；启动加载结果不能覆盖同步已安装的基线。服务输出使用同一 sender 保序，通知版本与文件版本分开。
 
-Workspace 启动命令、文件状态和通知回调三个 process。基线 I/O 在独立任务中进行，文件 process 可继续处理 channel；启动等待初始基线加载结果后开放业务。普通命令不等待重新加载基线。无遗留事务时启动及通知注册不读取 Org 正文；必要的崩溃恢复仍执行既有文件校验。
+Workspace 启动命令、文件状态、仓库错误和通知回调 process。基线 I/O 在独立任务中进行，文件 process 可继续处理 channel；启动等待初始基线加载结果后开放业务。普通命令不等待重新加载基线。无遗留事务时启动及通知注册不读取 Org 正文；必要的崩溃恢复仍执行既有文件校验。
 
 普通提交先将状态事件交入通知队列，再发布 ~DataChangeEvent::NotificationEvent~ ，该事件暂时保留兼容的通知字段，只附加缓存。同步与 reset 先更新通知，再发 ~ExternalFileChanged~ 。停止先结束业务，随后停止文件服务并取消加载，最后排空通知回调。
 

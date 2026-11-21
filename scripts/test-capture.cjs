@@ -63,7 +63,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },
-    '../services/NotificationManager': { NotificationManager: { async start() {}, resume() {}, stop() {} } },
+    '../services/NotificationManager': { NotificationManager: { async start() {}, resume() {}, stop() {}, hasMissingRepository() { return false; } } },
     '../services/HttpApiService': { HttpApiService: { attachWindow() {}, async start() {}, async stop() {} } },
     '../services/DataSetManager': { DataSetManager: { async flushAll() {} } },
     '../services/RepositorySyncService': { emptyRepositorySyncState() {} },
@@ -632,9 +632,12 @@ test('两个窗口冷启动只创建一个共享 workspace，继续复用同一�
     async setTodoDefaults() { await new Promise(resolve => setImmediate(resolve)); }
     async getSettings(){ return { additionStates: [] }; }
     async setSettings(settings){ this.settings = settings; }
-    async addRepo(rootDirectory) { const repo = { rootDirectory }; this.repositories.push(repo); return repo; }
+    async configureRepositoryRoots(roots) {
+      this.repositories = roots.map(rootDirectory =>
+        this.repositories.find(repo => repo.rootDirectory === rootDirectory) ?? { rootDirectory, id: rootDirectory });
+      return this.repositories.map(repo => ({ rootDirectory: repo.rootDirectory, repoId: repo.id }));
+    }
     async repos() { return this.repositories; }
-    async removeRepo(root) { this.repositories = this.repositories.filter(repo => repo.rootDirectory !== root); }
     async validateRepository() {}
   }
   const load = etsLoader({ 'liborg_tasks_harmony.so': { Workspace, async defaultTodoSettings() { return '#+TODO: TODO | DONE'; } } });

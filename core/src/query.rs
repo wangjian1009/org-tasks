@@ -9,6 +9,7 @@ use crate::model::{
     TaskQueryResult,
 };
 use crate::{CoreError, FilterTask};
+use crate::repository_errors::{RepositoryError, RepositoryErrorKind, root_missing};
 #[cfg(test)]
 use crate::OrgWorkspace;
 
@@ -59,12 +60,12 @@ pub(crate) fn normalized_category(category: Option<String>) -> Option<String> {
 enum QueryWorkResult {
     File { repo_id: String, file: crate::OrgFile },
     Task(FilterTask),
-    RepositoryFinished,
+    RepositoryFinished { repo_id: String, scanned: bool },
     Failed(CoreError),
 }
 
 impl WorkspaceState {
-    /// 唯一通用查询入口；按输入顺序返回结果，任一错误使整批失败。
+    /// 按输入顺序返回查询结果，确认缺失的根目录不参与扫描。
     pub async fn query(&self, queries: &[CoreQuery]) -> Result<Vec<CoreQueryResult>, CoreError> {
         let _activity = self.tasks.enter()?;
         let results = self.query_snapshot(queries, false).await?.results;
@@ -86,14 +87,14 @@ impl WorkspaceState {
             match query {
                 CoreQuery::Task { query, repo_ids } => {
                     for id in repo_ids {
-                        if id.is_empty() || !self.repos().iter().any(|repo| &repo.id == id) {
+                        if id.is_empty() || !self.accepts_query_repository(id) {
                             return Err(CoreError::InvalidInput("查询仓库不属于 workspace"));
                         }
                     }
                     Filter::validate_expression(&query.expression)?;
                     for file in query.include_files.iter().chain(&query.exclude_files).chain(&query.full_files) {
                         validate_query_file(file)?;
-                        if !self.repos().iter().any(|repo| repo.id == file.repo_id) {
+                        if !self.accepts_query_repository(&file.repo_id) {
                             return Err(CoreError::InvalidInput("查询文件的仓库不属于 workspace"));
                         }
                     }
@@ -109,7 +110,7 @@ impl WorkspaceState {
                 CoreQuery::File { query } => {
                     for file in query.include_files.iter().chain(&query.exclude_files) {
                         validate_query_file(file)?;
-                        if !self.repos().iter().any(|repo| repo.id == file.repo_id) {
+                        if !self.accepts_query_repository(&file.repo_id) {
                             return Err(CoreError::InvalidInput("查询文件的仓库不属于 workspace"));
                         }
                     }
@@ -133,29 +134,52 @@ impl WorkspaceState {
             .iter()
             .filter(|repo| queries.iter().any(|query| query.includes_repo(&repo.id)))
         {
-            let root = tokio::fs::canonicalize(&repo.root_directory)
-                .await
-                .map_err(|error| CoreError::Store(format!("无法读取查询仓库目录: {error}")))?;
+            let stamp = self.root_observation(&repo.root_directory);
+            let root = match tokio::fs::canonicalize(&repo.root_directory).await {
+                Ok(root) => root,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    self.notifications.errors().report(stamp, RepositoryError::RootMissing)?;
+                    continue;
+                }
+                Err(error) => return Err(CoreError::Store(format!("无法读取查询仓库目录: {error}"))),
+            };
             if roots
-                .insert(root, repo)
-                .is_some_and(|previous| previous.id != repo.id)
+                .insert(root, (repo, stamp))
+                .is_some_and(|(previous, _)| previous.id != repo.id)
             {
                 return Err(CoreError::InvalidInput("同一磁盘目录不能具有不同仓库身份"));
             }
         }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
         let mut guards = Vec::with_capacity(roots.len());
-        for root in roots.keys() {
-            guards.push(crate::webdav::transaction::lock_before(root, deadline).await?);
+        let mut locked = Vec::with_capacity(roots.len());
+        for (root, (repo, stamp)) in roots {
+            match crate::webdav::transaction::lock_before(&root, deadline).await {
+                Ok(guard) => {
+                    guards.push(guard);
+                    locked.push((root, repo, stamp));
+                }
+                Err(_) if root_missing(&repo.root_directory).await => {
+                    self.notifications.errors().report(stamp, RepositoryError::RootMissing)?;
+                }
+                Err(error) => return Err(error),
+            }
         }
-        for (root, repo) in &roots {
-            crate::model::access::recover(root, &repo.id).await?;
+        let mut roots = Vec::with_capacity(locked.len());
+        for (root, repo, stamp) in locked {
+            match crate::model::access::recover(&root, &repo.id).await {
+                Ok(()) => roots.push((repo, stamp)),
+                Err(_) if root_missing(&repo.root_directory).await => {
+                    self.notifications.errors().report(stamp, RepositoryError::RootMissing)?;
+                }
+                Err(error) => return Err(error),
+            }
         }
         let reads = crate::shared_file_manager::SharedFileManager::new();
         let expected = roots.len();
         let (sender, mut receiver) = tokio::sync::mpsc::channel(expected.max(1));
         let mut jobs = Vec::with_capacity(expected);
-        for (_, repo) in &roots {
+        for (repo, stamp) in &roots {
             let mut candidates = BTreeSet::new();
             let mut included = Some(BTreeSet::new());
             for query in queries.iter().filter(|query| query.includes_repo(&repo.id)) {
@@ -201,6 +225,8 @@ impl WorkspaceState {
             let sender = sender.clone();
             let activity = activity.clone();
             let reads = reads.clone();
+            let errors = self.notifications.errors().clone();
+            let stamp = stamp.clone();
             jobs.push(tokio::spawn(async move {
                 let _activity = activity;
                 let result = async {
@@ -232,8 +258,16 @@ impl WorkspaceState {
                 match result {
                     Ok(()) => {
                         let _ = sender
-                            .send(QueryWorkResult::RepositoryFinished)
+                            .send(QueryWorkResult::RepositoryFinished { repo_id, scanned: true })
                             .await;
+                    }
+                    Err(_) if root_missing(&repo.root_directory).await => {
+                        let result = errors.report(stamp, RepositoryError::RootMissing);
+                        let result = match result {
+                            Ok(()) => QueryWorkResult::RepositoryFinished { repo_id, scanned: false },
+                            Err(error) => QueryWorkResult::Failed(error),
+                        };
+                        let _ = sender.send(result).await;
                     }
                     Err(error) => {
                         let _ = sender.send(QueryWorkResult::Failed(error)).await;
@@ -251,6 +285,7 @@ impl WorkspaceState {
             let mut all = Vec::new();
             let mut metadata = Vec::new();
             let mut received = 0;
+            let mut scanned_repositories = BTreeSet::new();
             while let Some(result) = receiver.recv().await {
                 match result {
                     QueryWorkResult::Task(task) => all.push(task),
@@ -265,7 +300,10 @@ impl WorkspaceState {
 
                         loaded.entry(repo_id).or_insert_with(Vec::new).push(file);
                     }
-                    QueryWorkResult::RepositoryFinished => received += 1,
+                    QueryWorkResult::RepositoryFinished { repo_id, scanned } => {
+                        received += 1;
+                        if scanned { scanned_repositories.insert(repo_id); }
+                    }
                     QueryWorkResult::Failed(error) => {
                         for job in &jobs {
                             job.abort();
@@ -290,13 +328,18 @@ impl WorkspaceState {
                 job.await
                     .map_err(|error| CoreError::Store(format!("查询任务失败: {error}")))?;
             }
-            Ok::<_, CoreError>((loaded, file_categories, all, metadata))
+            Ok::<_, CoreError>((loaded, file_categories, all, metadata, scanned_repositories))
         });
-        let (loaded, file_categories, mut all, mut metadata) =
+        let (loaded, file_categories, mut all, mut metadata, scanned_repositories) =
             merge_job
                 .await
                 .map_err(|error| CoreError::Store(format!("查询合并任务失败: {error}")))??;
         reads.finish().await?;
+        for (repo, stamp) in &roots {
+            if scanned_repositories.contains(&repo.id) {
+                self.notifications.errors().clear(stamp.clone(), RepositoryErrorKind::RootMissing)?;
+            }
+        }
         let repository_order = self
             .repos()
             .iter()
@@ -327,8 +370,8 @@ impl WorkspaceState {
             self.notifications.files().delete_files(repo, stamp, deleted)?;
         }
         // 空仓库也需处理成功覆盖范围内的已知删除。
-        for (_, repo) in &roots {
-            if loaded.contains_key(&repo.id) { continue; }
+        for (repo, _) in &roots {
+            if loaded.contains_key(&repo.id) || !scanned_repositories.contains(&repo.id) { continue; }
             let deleted = self.notifications.files().query(&repo.id).await?.into_keys()
                 .filter(|path| path.ends_with(".org") && queries.iter().any(|query| query.needs_file(&repo.id, path))).collect();
             let stamp = self.notifications.files().stamp(repo, &self.notifications);

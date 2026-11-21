@@ -90,6 +90,22 @@ export class DataSetManager {
   static create(context: Context, pageName: string, definitions: DataSetDefinition[] | DataSetDefinitionFactory, options: DataManagerOptions = {}): DataSetManager {
     return new DataSetManager(context, pageName, definitions, options)
   }
+  static async reloadRepositories(): Promise<void> {
+    await Promise.all(Array.from(DataSetManager.active).map(manager => manager.reloadRepositoryData()))
+  }
+
+  private async reloadRepositoryData(): Promise<void> {
+    const config = this.config
+    if (!config || !this.initialized || this.closed || this.closing) return
+    const generation = this.generation
+    const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
+    const repositories = await workspace.repos()
+    if (this.closed || this.closing || generation !== this.generation || workspace !== this.workspace) return
+    this.repositories = repositories
+    this.requestRefresh(Array.from(this.sets.keys()))
+    await this.settleExternalRefresh()
+  }
+
   private constructor(context: Context, pageName: string, source: DataSetDefinition[] | DataSetDefinitionFactory, options: DataManagerOptions) {
     this.cacheEnabled = options.cache !== false
     this.uncachedDataSets = new Set(options.uncachedDataSets ?? [])

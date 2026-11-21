@@ -4,7 +4,7 @@ import { CoreTask } from '../services/NativeCoreService'
 import { NoteService } from '../services/NoteService'
 import { MemoEditor } from '../components/editors/MemoEditor'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { EmptyState } from '../components/controls/EmptyState'
 import { UiColor } from '../ui/Theme'
@@ -14,7 +14,8 @@ interface MemoParams { task?: CoreTask; create?: boolean; memoId?: string }
 @Entry({ useSharedStorage: true })
 @Component
 struct MemoEdit {
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   @LocalStorageProp('entryMemoId') entryMemoId: string = ''
   @LocalStorageProp('entryMemoCreate') entryMemoCreate: boolean = false
   @State loadingMemo: boolean = false
@@ -28,6 +29,7 @@ struct MemoEdit {
   @State message: string = ''
 
   aboutToAppear() {
+    this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
     const routeParams = this.getUIContext().getRouter().getParams() as MemoParams | undefined
     const params: MemoParams = routeParams && Object.keys(routeParams).length > 0 ? routeParams :
       { create: this.entryMemoCreate, memoId: this.entryMemoId }
@@ -58,7 +60,11 @@ struct MemoEdit {
       !this.working && !this.loadingMemo && (this.committed || this.heading === (this.memo?.heading || '') && this.body === (this.memo?.body || '')))
   }
   onPageHide(): void { this.stopExternalGuard?.(); this.stopExternalGuard = undefined }
-  aboutToDisappear(): void { this.memoRequest++; this.stopExternalGuard?.() }
+  aboutToDisappear(): void {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
+    this.memoRequest++; this.stopExternalGuard?.()
+  }
 
   onBackPress(): boolean {
     this.saveAndBack(true)
@@ -142,7 +148,7 @@ struct MemoEdit {
       }.width('100%').height(64).padding({ left: 4, right: 4 }).alignItems(VerticalAlign.Center)
         .backgroundColor(UiColor.surface)
       Divider().color(UiColor.outline).strokeWidth(0.5)
-      if (this.notificationState.notifications.length > 0) {
+      if (this.showNotifications) {
         CoreNotificationsView({ disabled: this.working || this.committed })
           .margin({ bottom: 12 })
       }

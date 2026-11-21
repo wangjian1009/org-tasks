@@ -520,9 +520,14 @@ impl OrgRepo {
     pub async fn load<P: SyncPolicy>(
         &mut self,
     ) -> Result<Vec<OrgRepoSyncRecord<P::ContextDetail, P::FileDetail>>, CoreError> {
+        self.load_identity().await?;
+        Ok(Vec::new())
+    }
+
+    pub(crate) async fn load_identity(&mut self) -> Result<(), CoreError> {
         let _guard = crate::webdav::transaction::lock(Path::new(&self.root_directory)).await?;
         self.id = load_or_create_repo_id(Path::new(&self.root_directory)).await?;
-        Ok(Vec::new())
+        Ok(())
     }
 
     /// 本次操作独立拥有文件集合；相对路径在读取正文之前排除，不写入仓库缓存。

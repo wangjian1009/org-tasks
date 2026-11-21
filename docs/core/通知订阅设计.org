@@ -2,6 +2,8 @@
 #+STARTUP: show2levels hidestars
 #+OPTIONS: author:nil date:nil toc:nil
 #+LANGUAGE: zh-CN
+#+LATEX_HEADER: \usepackage{tikz}
+#+LATEX_HEADER: \usepackage{tikz-uml}
 
 * 职责与数据来源
 
@@ -11,7 +13,7 @@
 
 搜索、单文件读取、成功提交、同步与 reset 把已有文件信息送入文件服务；服务根据实际版本与基线比较，主动向通知中心推送文件状态。未读取路径保持未知，没有相关文件通知；没有读取过的本地删除也不会仅因基线有该路径就被发现。正常完整搜索可以确认自己成功覆盖范围内已知路径的删除；排除路径、零匹配任务或失败查询不能误作删除证据。
 
-通知状态直接归已有 ~NotificationCenter::process~ 所有。通知模块只投影文件服务送来的事实，缓存按仓库维护的通知贡献与各 monitor 最近发送的集合；不读基线、不读正文、不执行合并、不访问网络，也不因文件事件主动查询。普通查询可因观察到新的文件事实而引起通知变化，但不查询通知。
+通知状态直接归已有 ~NotificationCenter::process~ 所有。投影文件状态服务和仓库错误模块送来的事实，缓存按仓库维护的通知贡献与各 monitor 最近发送的集合；不读基线、不读正文、不执行合并、不访问网络，也不因文件事件主动查询。普通查询可因观察到新的文件事实而引起通知变化，但不查询通知。
 
 * 订阅契约
 
@@ -35,16 +37,95 @@
 
 仓库从未建立基线时不生成 ~SyncRequired~ 。基线不可用不能当作首次同步或无修改；该仓库撤销无法确认的待同步贡献并产生基线异常，其他仓库的贡献保留。冲突依据实际文件信息，仍可独立展示。恢复到基线的原始字节后重新比较可清除提示，不使用只置为真的 dirty 标志。
 
+* 仓库错误通知
+
+每个 Workspace 持有一个 ~RepositoryErrorManager~ ，由它维护当前仓库错误列表。仓库打开和扫描逻辑负责确认错误或恢复，并向该模块报告。错误列表的内容变化时，模块向 ~NotificationCenter~ 推送完整快照，包括清空后的空列表。通知中心缓存这个来源的通知贡献，结合文件状态贡献，为各订阅者比较新旧通知集合。
+
+#+begin_export latex
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{Workspace}{配置根目录与代次}{打开与扫描仓库}
+\umlclass[x=8,y=0]{RepositoryErrorManager}{仓库错误列表}{configure() \\ report() \\ clear()}
+\umlclass[x=8,y=-4]{NotificationCenter}{通知贡献与订阅者}{repository\_errors() \\ snapshot() \\ changed()}
+\umldep{Workspace}{RepositoryErrorManager}
+\umldep{RepositoryErrorManager}{NotificationCenter}
+\end{tikzpicture}
+#+end_export
+
+** Core 内部接口
+
+#+begin_src rust
+pub(crate) struct RepositoryRootObservation {
+    pub(crate) directory: String,
+    pub(crate) epoch: u64,
+    pub(crate) revision: u64,
+}
+
+pub(crate) enum RepositoryError {
+    RootMissing,
+}
+
+pub(crate) enum RepositoryErrorKind {
+    RootMissing,
+}
+
+pub(crate) struct RepositoryErrorEntry {
+    pub(crate) root_directory: String,
+    pub(crate) error: RepositoryError,
+}
+
+pub(crate) struct RepositoryErrorSnapshot {
+    pub(crate) revision: u64,
+    pub(crate) errors: Vec<RepositoryErrorEntry>,
+}
+
+impl RepositoryErrorManager {
+    pub(crate) fn configure(&self, roots: BTreeMap<String, u64>) -> Result<(), CoreError>;
+    pub(crate) fn report(
+        &self, observation: RepositoryRootObservation, error: RepositoryError,
+    ) -> Result<(), CoreError>;
+    pub(crate) fn clear(
+        &self, observation: RepositoryRootObservation, kind: RepositoryErrorKind,
+    ) -> Result<(), CoreError>;
+    pub(crate) async fn flush(&self) -> Result<(), CoreError>;
+}
+
+impl NotificationCenter {
+    pub(crate) fn repository_errors(
+        &self, snapshot: RepositoryErrorSnapshot,
+    ) -> Result<(), CoreError>;
+}
+#+end_src
+
+| 业务触发 | 仓库错误模块的处理 |
+|-
+| 打开或扫描时确认配置根目录返回 ~NotFound~ | ~report~ 写入 ~RootMissing~ ，重复观察同一错误只保留一条 |
+| 目录恢复，通过仓库身份校验并完成扫描 | ~clear~ 移除这个目录的 ~RootMissing~ |
+| 仓库配置被移除或替换 | ~configure~ 批量移除旧配置的错误及观察记录，新目录根据后续扫描结果独立处理 |
+
+错误按配置根目录和错误类型标识，冷启动尚未取得 Core 仓库 ID 时就可以记录。首个接入的类型为 ~RootMissing~ 。确认缺失的仓库退出本次读取，其他仓库继续扫描。保存配置但扫描尚未成功时保留该目录已有的缺失错误。权限错误、仓库身份异常和单个 Org 文件缺失分别沿用业务的错误语义。工作区关闭后释放内存状态，下次启动由实际观察生成错误。
+
+** 顺序与通知增量
+
+Workspace 在独占配置命令内汇总各目录的打开结果，登记有效配置后上报缺失。查询开始扫描时携带对应目录的 ~epoch~ 和递增 ~revision~ 。错误模块只接受当前 ~epoch~ 下对应错误键的较新观察。清除一条错误后仍记录该键的最新序号，防止迟到结果重新加入旧错误。目录从配置移除后再次加入时分配新 ~epoch~ 。
+
+错误模块串行应用命令。列表内容变化时，按目录和错误类型输出一份完整快照，使用递增的来源版本。通知中心收到较新的快照后替换该来源的贡献。对每个订阅者，错误键新出现时发送 ~Added~ ，键消失时发送 ~Removed~ ，同一键的内容改变时发送 ~Updated~ 。错误列表清空时撤销这个来源的全部贡献。订阅者继续用 ~NotificationSnapshot~ 获取首次快照，用 ~NotificationDelta~ 接收后续变化。
+
+前述更新接口成功返回代表消息已入队。需要等待分发的业务先等待 ~RepositoryErrorManager::flush~ 确认快照已入通知队列，再等待 ~NotificationCenter::flush~ 确认已处理。关闭 Workspace 时先结束业务，再排空仓库错误模块和文件状态服务，最后排空通知中心。
+
+** 订阅范围
+
+~RootMissing~ 投影为 ~CoreNotification::RepositoryRootMissing { root_directory }~ ，序列化为 ~{ type: "repositoryRootMissing", rootDirectory }~ 。~OrgWorkspace.watch_notifications_with_scope(scope, monitor)~ 按两组目录分别匹配。 ~NotificationScope.repository_error_roots~ 接收所有需要监听错误的配置目录，覆盖纯本地和 WebDAV 仓库。 ~NotificationScope.sync_roots~ 接收需要汇总同步类通知的 WebDAV 配置目录。各范围的空列表表示该范围为空。Harmony 通过已有通知回调向 ~NotificationManager~ 传递快照和增量。
+
 * 事件顺序与生命周期
 
 文件服务只在内存中处理普通更新、删除与查询。实际读盘或提交结果在仓库锁内取得 revision；每文件分别比较 revision，删除记录同样保留顺序，文件 A 的新事件不能丢弃文件 B 的有效观察。仓库配置 epoch 排除已移除或更换根目录前的结果。启动加载不能覆盖已由同步提交的新基线。
 
 修改先完整提交，再把文件元信息与 ~after_version~ 交给文件服务；等待状态事件入队后才发送既有任务数据事件。通知处理 process 为 ~DataChangeEvent::NotificationEvent~ 附加当前仓库通知缓存，不为填充字段查询通知。同步把本轮已读取内容与成功事务字节缓存合并，再连同实际保留的基线原子提交；失败与取消也保留已确认远端事实，不额外扫描。
 
-同步与 reset 先更新通知，再发送 ~ExternalFileChanged~ 。文件服务 ~flush~ 确认此前命令产生的事件已入通知队列，通知中心随后确认回调完成；通知 process 不等待文件服务 reply。停止时先结束业务，再停止文件服务加载和排空状态输入，最后排空通知回调。
+同步与 reset 先更新通知，再发送 ~ExternalFileChanged~ 。文件服务 ~flush~ 确认此前命令产生的事件已入通知队列，通知中心随后确认回调完成；通知 process 不等待文件服务 reply。停止时先结束业务，再停止文件服务加载和排空状态输入，最后排空仓库错误、文件状态及通知回调。
 
 * Harmony 接入
 
-Rust bridge 把两个 monitor 方法编码为 ~type: snapshot | changed~ 的 JSON 对象；为仓库通知附加 ~rootDirectory~ ，C ABI 与无界 FIFO TSFN 保序传递。ArkTS 的 ~NotificationManager~ 对每个订阅维护 native revision 和通知数组，按完整值应用整批变化，再发布 AppStorage 只读快照；无变化不发布，过期生命周期回调不回写，版本不连续保留最近快照，不主动查询。
+Rust bridge 把两个 monitor 方法编码为 ~type: snapshot | changed~ 的 JSON 对象；为仓库通知附加 ~rootDirectory~ ，C ABI 与无界 FIFO TSFN 保序传递。ArkTS 的 ~NotificationManager~ 对每个订阅维护 native revision 和通知数组，按完整值应用整批变化，再发布内存快照或携带快照的增量；无变化不发布，过期生命周期回调不回写，版本不连续保留最近快照，不主动查询。
 
-EntryAbility 启停应用级订阅。配置变化重绑，恢复前台只重试异常订阅。范围只包含启用 WebDAV 且远端地址非空的仓库，显式空范围保持为空。页面使用 AppStorage，角标和退后台同步通过宿主订阅接收共享快照。订阅者立即收到当前绑定的已确认快照，包括空列表。重绑期间新订阅等待本轮首次快照，已有页面保留最近成功内容。尚未读取文件的修改可能不触发自动同步，手动同步仍处理正常同步范围。
+EntryAbility 启停应用级订阅。配置变化重绑，恢复前台只重试异常订阅。仓库目录错误覆盖所有已配置仓库。同步类通知覆盖启用 WebDAV 且远端地址非空的仓库，显式空范围保持为空。页面通过 ~NotificationManager.watch~ 直接注册监听，先获得最近的内存快照，再接收增删改及应用增量后的快照。组件销毁时解除监听。角标和退后台同步通过 ~NotificationManager.subscribe~ 接收当前绑定的已确认快照，包括空列表。重绑期间角标和退后台同步的订阅等待本轮首次快照，页面保留最近成功内容。尚未读取文件的修改可能不触发自动同步，手动同步仍处理正常同步范围。

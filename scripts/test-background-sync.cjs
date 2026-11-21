@@ -90,14 +90,14 @@ function fixture() {
     } } };
     if (dependency === './DeviceBadgeService') return { DeviceBadgeService: { async refresh() { calls.push('badge'); if (badgeFailure) throw new Error('角标失败'); } } };
     if (dependency === './NativeCoreService') return native;
-    if (dependency === './NotificationManager') return { NotificationManager: { subscribe(listener) {
+    if (dependency === './NotificationManager') return { NotificationManager: { hasMissingRepository(){return false;}, subscribe(listener) {
       calls.push('check');
       let watching = true;
       const deliver = () => { if (watching) listener({ notifications: changed ? [{ type: 'syncRequired' }] : [] }); };
       if (checkGate) checkGate.promise.then(deliver); else deliver();
       return () => { watching = false; };
     } } };
-    if (dependency === './DataSetManager') return { DataSetManager: { async flushAll() { calls.push('flush'); if (flushGate) await flushGate.promise; } } };
+    if (dependency === './DataSetManager') return { DataSetManager: { async reloadRepositories() {}, async flushAll() { calls.push('flush'); if (flushGate) await flushGate.promise; } } };
     if (dependency === '../models/OrgTask') return {};
     if (dependency.startsWith('./')) {
       const name = dependency.slice(2);
@@ -215,7 +215,7 @@ test('主界面首次显示且在前台时同步一次，恢复前台和重新�
         SyncStartPolicy: { Reuse: 'Reuse' }, emptyRepositorySyncState() {},
         RepositorySyncService: { start(actual, options) { requests.push({ actual, ...options }); } }
       };
-      if (name === '../services/NotificationManager') return { NotificationManager: { async start(){},resume(){},stop(){} } };
+      if (name === '../services/NotificationManager') return { NotificationManager: { async start(){},resume(){},stop(){},hasMissingRepository(){return false;} } };
       if (name === '../services/DeviceBadgeService') return { DeviceBadgeService: { start() {}, stop() {}, close() {} } };
       if (name === '../services/AppDataManager') return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
       if (name === '../services/ReminderManager') return { ReminderManager: { start() {}, refresh() {}, stop() {} } };

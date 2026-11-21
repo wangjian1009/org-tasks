@@ -13,6 +13,7 @@ type Work = Box<dyn FnOnce(WorkspaceState) -> BoxFuture<'static, (WorkspaceState
 #[derive(Clone, Debug)]
 pub(super) struct Snapshot {
     pub(super) repos: Vec<OrgRepo>,
+    configured_roots: BTreeSet<String>,
     pub(super) sync_policies: std::collections::BTreeMap<OrgRepoId, SyncBinding>,
     defaults: TodoConfig,
     history: Arc<crate::TaskOperationHistory>,
@@ -21,6 +22,7 @@ impl Snapshot {
     fn from_state(state: &WorkspaceState) -> Arc<Self> {
         Arc::new(Self {
             repos: state.repos.clone(),
+            configured_roots: state.configured_roots.keys().cloned().collect(),
             sync_policies: state.sync_policies.clone(),
             defaults: state.todo_defaults.clone(),
             history: Arc::new(state.task_operation_history.clone()),
@@ -54,8 +56,9 @@ impl OrgWorkspace {
             stop,
             crate::model::notification_center::NotificationCenter::process(requests, stopping),
         )?;
-        let state = WorkspaceState {
+        let mut state = WorkspaceState {
             repos,
+            configured_roots: Default::default(),
             sync_policies: Default::default(),
             todo_defaults: TodoConfig::default(),
             task_operation_history: Default::default(),
@@ -63,6 +66,7 @@ impl OrgWorkspace {
             notifications: notifications.clone(),
             tasks: tasks.clone(),
         };
+        state.configure_roots(state.repos.iter().map(|repo| repo.root_directory.clone()).collect::<Vec<_>>())?;
         notifications.configure(state.repos.clone());
         notifications.files().ready().await;
         notifications.flush().await?;
@@ -129,6 +133,14 @@ impl OrgWorkspace {
             .find(|repo| repo.root_directory == root)
             .cloned()
     }
+    /// 将配置目录转换为查询选择值，未打开的目录匹配空集合。
+    pub fn query_repository_selector(&self, root: &str) -> Option<OrgRepoId> {
+        let snapshot = self.snapshot.borrow();
+        if let Some(repo) = snapshot.repos.iter().find(|repo| repo.root_directory == root) {
+            return Some(repo.id.clone());
+        }
+        snapshot.configured_roots.contains(root).then(|| format!("{UNLOADED_QUERY_ROOT}{root}"))
+    }
     pub fn todo_defaults(&self) -> TodoConfig {
         self.snapshot.borrow().defaults.clone()
     }
@@ -177,14 +189,30 @@ impl OrgWorkspace {
     }
     pub async fn add_repo(&self, repo: OrgRepo) -> Result<(), CoreError> {
         self.request(Access::Exclusive, move |state| {
-            Box::pin(async move { state.add_repo(repo) })
+            Box::pin(async move {
+                let mut roots = state.configured_roots.keys().cloned().collect::<BTreeSet<_>>();
+                roots.insert(repo.root_directory.clone());
+                state.add_repo(repo)?;
+                state.configure_roots(roots)
+            })
         })
         .await
+    }
+    pub async fn configure_repository_roots(&self, roots: Vec<String>) -> Result<Vec<RepositoryRootStatus>, CoreError> {
+        self.request(Access::Exclusive, move |state| {
+            Box::pin(async move { state.configure_repository_roots(roots).await })
+        }).await
     }
     pub async fn remove_repo_by_root_directory(&self, root: &str) -> Result<OrgRepo, CoreError> {
         let root = root.to_owned();
         self.request(Access::Exclusive, move |state| {
-            Box::pin(async move { state.remove_repo_by_root_directory(&root) })
+            Box::pin(async move {
+                let repo = state.remove_repo_by_root_directory(&root)?;
+                let remaining = state.configured_roots.keys().filter(|path| *path != &root).cloned().collect::<Vec<_>>();
+                state.configure_roots(remaining)?;
+                state.notifications.errors().flush().await?;
+                Ok(repo)
+            })
         })
         .await
     }
@@ -494,6 +522,7 @@ async fn process(
                 Access::Query | Access::Files(_) => WorkspaceState {
                     sync_policies: state.sync_policies.clone(),
                     repos: state.repos.clone(),
+                    configured_roots: state.configured_roots.clone(),
                     todo_defaults: state.todo_defaults.clone(),
                     task_operation_history: Default::default(),
                     preview: state.preview.clone(),
@@ -546,8 +575,8 @@ async fn process(
                             Access::Exclusive | Access::Stop => state = finished,
                         }
                         if access != Access::Query {
-                            state.notifications.configure(state.repos.clone());
                             snapshots.send_replace(Snapshot::from_state(&state));
+                            state.notifications.configure(state.repos.clone());
                         }
                         reply();
                         if access == Access::Stop {

@@ -45,6 +45,9 @@ import {
   OrgFileRef as NativeOrgFileRef,
   CoreError as NativeCoreError,
   NotificationUpdateMonitor as NativeNotificationUpdateMonitor,
+  NotificationScope as NativeNotificationScope,
+  RepositoryRootStatus as NativeRepositoryRootStatus,
+  RepositoryRootMissingNotification as NativeRepositoryRootMissingNotification,
   DataChangeEvent as NativeDataChangeEvent,
   ExternalFileChanged as NativeExternalFileChanged,
   TaskDataChange as NativeTaskDataChange,
@@ -56,6 +59,7 @@ import {
   HttpUiHandler, HttpUiRequest, HttpUiResponse,
   SyncRequiredNotification as NativeSyncRequiredNotification,
   CoreNotification as NativeCoreNotification,
+  NotificationChange as NativeNotificationChange,
   NotificationUpdate as NativeNotificationUpdate,
   SyncBaselineUnavailableNotification as NativeSyncBaselineUnavailableNotification,
   SyncConflictNotification as NativeSyncConflictNotification,
@@ -204,6 +208,10 @@ export type CoreRepoRemoteChange = NativeRepoRemoteChange
 export type CoreRepoSyncResult = NativeRepoSyncResult
 export type CoreBridgeError = NativeCoreError
 export type CoreNotificationUpdate = NativeNotificationUpdate
+export type CoreNotificationChange = NativeNotificationChange
+export type CoreNotificationScope = NativeNotificationScope
+export type CoreRepositoryRootStatus = NativeRepositoryRootStatus
+export type CoreRepositoryRootMissingNotification = NativeRepositoryRootMissingNotification
 export type CoreSyncBaselineUnavailableNotification = NativeSyncBaselineUnavailableNotification
 export type CoreNotification = NativeCoreNotification
 export type CoreSyncConflictNotification = NativeSyncConflictNotification
@@ -313,9 +321,9 @@ export class CoreWorkspace {
   // 命令由 Core 统一调度；不同文件可并发，同文件在事件确认后衔接。
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }
   async taskMergeOperations(request: CoreTaskMergeRequest): Promise<CoreTaskMergePlan> { return await this.native.taskMergeOperations(request) }
-  async watchNotifications(monitor: CoreNotificationUpdateMonitor, repoIds?: string[]): Promise<void> {
-    if (repoIds === undefined) await this.native.watchNotifications(monitor)
-    else await this.native.watchNotifications(monitor, repoIds)
+  async watchNotifications(monitor: CoreNotificationUpdateMonitor, scope?: string[] | CoreNotificationScope): Promise<void> {
+    if (scope === undefined) await this.native.watchNotifications(monitor)
+    else await this.native.watchNotifications(monitor, scope)
   }
   stopWatchingNotifications(): void { this.native.stopWatchingNotifications() }
   async watchExternalFileChanges(monitor: (event: CoreExternalFileChanged) => void): Promise<number> { return await this.native.watchExternalFileChanges(monitor) }
@@ -337,6 +345,10 @@ export class CoreWorkspace {
     return new CoreRepo(await this.native.addRepo(rootDirectory))
   }
 
+  async configureRepositoryRoots(roots: string[]): Promise<CoreRepositoryRootStatus[]> {
+    return await this.native.configureRepositoryRoots(roots)
+  }
+
   async validateRepository(rootDirectory: string): Promise<void> {
     await this.native.validateRepository(rootDirectory)
   }
@@ -354,6 +366,7 @@ export class CoreWorkspace {
 
 let activeWorkspace: CoreWorkspace | undefined = undefined
 let activeRepositoryRoots: string[] = []
+let pendingRepositoryRoots: boolean = false
 let activeTodoDefaults: string | undefined = undefined
 let activeCoreSettings: string = ''
 let workspaceQueue: Promise<void> = Promise.resolve()
@@ -414,15 +427,11 @@ export class NativeCoreService {
         activeCoreSettings = encodedCoreSettings
       }
       const requestedRoots = repositories.map((repository: RepoConfig) => repository.rootDirectory)
-      for (const root of activeRepositoryRoots.slice()) {
-        if (requestedRoots.includes(root)) continue
-        await workspace.removeRepo(root)
-        activeRepositoryRoots = activeRepositoryRoots.filter(item => item !== root)
-      }
-      for (const root of requestedRoots) {
-        if (activeRepositoryRoots.includes(root)) continue
-        await workspace.addRepo(root)
-        activeRepositoryRoots.push(root)
+      if (pendingRepositoryRoots || requestedRoots.length !== activeRepositoryRoots.length ||
+        requestedRoots.some((root: string, index: number): boolean => root !== activeRepositoryRoots[index])) {
+        const statuses = await workspace.configureRepositoryRoots(requestedRoots)
+        activeRepositoryRoots = requestedRoots
+        pendingRepositoryRoots = statuses.some(status => status.repoId === null)
       }
       return workspace
     })

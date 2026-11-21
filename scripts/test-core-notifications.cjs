@@ -28,7 +28,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function fixture() {
-  const writes=[], callbacks=[], scopes=[], context={}, config={repos:[
+  const published=[], callbacks=[], scopes=[], context={}, config={repos:[
     {id:'config-a',name:'个人仓库',rootDirectory:'/a',webdavEnabled:true,webdavUrl:'https://example.test/dav/'},
     {id:'config-b',name:'工作资料',rootDirectory:'/b',webdavEnabled:false,webdavUrl:''}]};
   let configChanged, stops=0, initial=[], failure, gate, nativeRevision=0, nativeValues=[];
@@ -44,8 +44,11 @@ function fixture() {
     './AppConfigService':{AppConfigService:{async load(){return config;},watchChanges(fn){configChanged=fn;},stopWatchingChanges(fn){if(configChanged===fn)configChanged=undefined;}}},
     './NativeCoreService':{NativeCoreService:{async workspaceFor(){return current;}}},
     '../ui/Theme':{repositoryLabel:repo=>repo.name}
-  },{setOrCreate(key,value){assert.equal(key,'coreNotifications');writes.push(value);}});
-  return {...service,config,context,workspace,writes,callbacks,scopes,stops:()=>stops,
+  },{setOrCreate(){assert.fail('通知不应发布到 AppStorage');}});
+  service.NotificationManager.watch(event => {
+    if (event.state.revision > 0) published.push(event.state);
+  });
+  return {...service,config,context,workspace,published,callbacks,scopes,stops:()=>stops,
     emit(list){
       const before=nativeValues;const fromRevision=nativeRevision++;
       const changes=before.filter(item=>!list.some(value=>JSON.stringify(item)===JSON.stringify(value))).map(notification=>({kind:'removed',notification}));
@@ -59,17 +62,17 @@ const conflict=(repoId='core-a')=>({type:'syncConflict',repoId,rootDirectory:rep
 
 test('订阅携带远程仓库范围，首次列表直接发布，页面启动不查询通知',async()=>{
   const f=fixture();f.values([{type:'syncRequired'}]);await f.NotificationManager.start(f.context);
-  assert.deepEqual(f.scopes,[['core-a']]);assert.equal(f.writes.length,1);
+  assert.deepEqual(f.scopes,[{repositoryErrorRoots:['/a','/b'],syncRoots:['/a']}]);assert.equal(f.published.length,1);
   await f.NotificationManager.start(f.context);assert.equal(f.callbacks.length,1);
-  f.config.repos[0].webdavEnabled=false;f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),[]);
-  f.config.repos[0].webdavEnabled=true;f.config.repos[0].webdavUrl=' ';f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),[]);
+  f.config.repos[0].webdavEnabled=false;f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),{repositoryErrorRoots:['/a','/b'],syncRoots:[]});
+  f.config.repos[0].webdavEnabled=true;f.config.repos[0].webdavUrl=' ';f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),{repositoryErrorRoots:['/a','/b'],syncRoots:[]});
   f.NotificationManager.stop();
 });
 test('列表回调更新共享快照，多仓库同名文件保持身份，重复列表不推进版本',async()=>{
   const f=fixture();await f.NotificationManager.start(f.context);f.emit([conflict(),conflict('core-b')]);
-  assert.deepEqual(f.writes[0].repositories.map(repo=>[repo.coreRepoId,repo.configRepoId]),[['core-a','config-a'],['core-b','config-b']]);
-  f.emit([conflict(),conflict('core-b')]);assert.equal(f.writes.length,1);
-  f.emit([]);assert.equal(f.writes.length,2);assert.deepEqual(f.writes.at(-1).notifications,[]);f.NotificationManager.stop();
+  assert.deepEqual(f.published[0].repositories.map(repo=>[repo.coreRepoId,repo.configRepoId]),[['core-a','config-a'],['core-b','config-b']]);
+  f.emit([conflict(),conflict('core-b')]);assert.equal(f.published.length,1);
+  f.emit([]);assert.equal(f.published.length,2);assert.deepEqual(f.published.at(-1).notifications,[]);f.NotificationManager.stop();
 });
 test('首次异步绑定后向订阅者推送空快照，后续推送列表变化',async()=>{
   const f=fixture(),gate=f.hold();const started=f.NotificationManager.start(f.context);
@@ -81,22 +84,22 @@ test('首次异步绑定后向订阅者推送空快照，后续推送列表变�
 test('配置重绑和停止后，旧回调不能覆盖新快照',async()=>{
   const f=fixture();await f.NotificationManager.start(f.context);const old=f.callbacks[0];
   f.values([{type:'syncRequired'}]);f.configChanged();await f.settle();old({type:'snapshot',revision:0,notifications:[]});
-  assert.deepEqual(f.writes.at(-1).notifications,[{type:'syncRequired'}]);
-  f.NotificationManager.stop();f.emit([]);assert.equal(f.writes.length,1);
+  assert.deepEqual(f.published.at(-1).notifications,[{type:'syncRequired'}]);
+  f.NotificationManager.stop();f.emit([]);assert.equal(f.published.length,1);
 });
 test('订阅注册失败保留旧快照，下一次绑定恢复',async()=>{
-  const f=fixture();f.values([{type:'syncRequired'}]);await f.NotificationManager.start(f.context);const first=f.writes[0];
-  f.fail(new Error('注册失败'));f.configChanged();await f.settle();assert.equal(f.writes.at(-1),first);
-  f.values([]);f.NotificationManager.resume();await f.settle();assert.equal(f.writes.length,2);f.NotificationManager.stop();
+  const f=fixture();f.values([{type:'syncRequired'}]);await f.NotificationManager.start(f.context);const first=f.published[0];
+  f.fail(new Error('注册失败'));f.configChanged();await f.settle();assert.equal(f.published.at(-1),first);
+  f.values([]);f.NotificationManager.resume();await f.settle();assert.equal(f.published.length,2);f.NotificationManager.stop();
 });
 test('异步注册期间停止重启，旧生命周期回调被忽略',async()=>{
   const f=fixture(),gate=f.hold();f.values([{type:'syncRequired'}]);const old=f.NotificationManager.start(f.context);
   await f.settle();f.NotificationManager.stop();f.values([]);const current=f.NotificationManager.start(f.context);
-  gate.resolve();await Promise.all([old,current]);assert.equal(f.writes.length,0);f.NotificationManager.stop();
+  gate.resolve();await Promise.all([old,current]);assert.equal(f.published.length,0);f.NotificationManager.stop();
 });
 test('配置变化重新订阅，相同 Workspace 也替换范围',async()=>{
   const f=fixture();await f.NotificationManager.start(f.context);f.config.repos[1].webdavEnabled=true;f.config.repos[1].webdavUrl='https://example.test/work/';
-  f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),['core-a','core-b']);f.NotificationManager.stop();
+  f.configChanged();await f.settle();assert.deepEqual(f.scopes.at(-1),{repositoryErrorRoots:['/a','/b'],syncRoots:['/a','/b']});f.NotificationManager.stop();
 });
 test('订阅者立即收到已绑定的共享内容，解除后不再接收变化',async()=>{
   const f=fixture();await f.NotificationManager.start(f.context);const received=[];
@@ -114,13 +117,30 @@ test('健康订阅恢复前台时继续使用原回调',async()=>{
 
 test('完整值替换基线异常，增量原子去重且旧版本不覆盖缓存',async()=>{
   const f=fixture();await f.NotificationManager.start(f.context);
+  const events=[];
+  const visible=[];
+  const stop=f.NotificationManager.watch(event=>events.push(event));
+  const stopVisibility=f.NotificationManager.watchVisibility(value=>visible.push(value));
+  assert.equal(events[0].type,'snapshot');
+  assert.deepEqual(events[0].state.notifications,[]);
   const first={type:'syncBaselineUnavailable',repoId:'core-a',rootDirectory:'/a',reason:'missing'};
-  f.emit([first]);assert.equal(f.writes.at(-1).repositories[0].configRepoId,'config-a');
+  f.emit([first]);assert.equal(f.published.at(-1).repositories[0].configRepoId,'config-a');
+  assert.deepEqual(events.at(-1).changes,[{kind:'added',notification:first}]);
   const next={...first,reason:'invalid'};
   const fromRevision=f.revision();
   f.delta({type:'changed',fromRevision,revision:fromRevision+1,changes:[{kind:'updated',before:first,after:next},{kind:'added',notification:next}]});
-  assert.deepEqual(f.writes.at(-1).notifications,[next]);
-  const writes=f.writes.length;
+  assert.deepEqual(f.published.at(-1).notifications,[next]);
+  assert.deepEqual(events.at(-1).changes[0],{kind:'updated',before:first,after:next});
+  const count=f.published.length;
   f.delta({type:'changed',fromRevision,revision:fromRevision+2,changes:[{kind:'removed',notification:next}]});
-  assert.equal(f.writes.length,writes);f.NotificationManager.stop();
+  assert.equal(f.published.length,count);
+  f.delta({type:'changed',fromRevision:fromRevision+1,revision:fromRevision+2,changes:[{kind:'removed',notification:next}]});
+  assert.deepEqual(events.at(-1).changes,[{kind:'removed',notification:next}]);
+  assert.deepEqual(events.at(-1).state.notifications,[]);
+  assert.deepEqual(visible,[false,true,false]);
+  stop();stopVisibility();
+  f.delta({type:'changed',fromRevision:fromRevision+2,revision:fromRevision+3,changes:[{kind:'added',notification:first}]});
+  assert.equal(events.length,4);
+  assert.deepEqual(visible,[false,true,false]);
+  f.NotificationManager.stop();
 });

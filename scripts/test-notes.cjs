@@ -128,7 +128,9 @@ function page(name, service, router, findMemo = async () => undefined) {
     if (dependency.endsWith('/NoteService')) return { NoteService: service };
     if (dependency.endsWith('/TaskRepeatDialog')) return { TaskRepeatDialog: class {} };
     if (dependency.endsWith('/AppConfigService')) return { AppConfigService: { async load() { return {repos:[]}; } } };
-    if (dependency.endsWith('/NotificationManager')) return { emptyCoreNotificationsState: () => ({ notifications: [], repositories: [], revision: 0 }) };
+    if (dependency.endsWith('/NotificationManager')) return { NotificationManager: {
+      watchVisibility(listener) { listener(false); return () => {}; }
+    } };
     if (dependency.endsWith('/NativeCoreService')) return { coreErrorMessage: error => error.message };
     if (dependency.endsWith('/ui/Theme')) return { UiColor: { error: '#FF7592' } };
     throw new Error('缺少页面替身: ' + dependency);

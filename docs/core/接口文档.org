@@ -107,7 +107,7 @@ pub fn merge(
 
 ~OrgWorkspace~ 定义于上层 ~core::workspace~ ，由 crate 根继续导出；它组合各模块并聚合应用中的零到多个仓库。Core 不创建或持有 runtime，查询中的独立读取、解析和任务投影通过调用方 runtime 上的 Tokio 任务执行，并经通道逐项回送；结果合并也作为 Tokio 任务执行，查询完成后返回。它是运行时构造输入，不是持久化实体。
 
-~start(repos).await~ 在宿主提供的持续运行 Tokio 上校验仓库集合、初始化通知中心与内部任务管理，并启动本 Workspace 专属的命令 ~process~ 、文件状态 ~process~ 和 ~NotificationCenter::process~ ；不扫描业务文件；启动加载受保护的基线元数据，也不创建或拥有 runtime。 ~stop().await~ 禁止接收新的查询、修改和后台任务，先等待在途操作与普通后台任务完成，再通过 oneshot 通知 process 停止；process 关闭请求入口、处理完已入队请求并解除全部订阅，stop 等待处理任务完成；APP 内嵌 HTTP 服务接收停止信号后优雅结束。重复或并发调用 stop 均等待同一批任务，取消一次等待不会丢失任务句柄；某个任务失败时仍等待其余任务，并返回错误。停止后不能重新启动同一对象，应调用 start 创建新对象。
+~start(repos).await~ 在宿主提供的持续运行 Tokio 上校验仓库集合、初始化通知中心与内部任务管理，并启动本 Workspace 专属的命令 ~process~ 、文件状态 ~process~ 、仓库错误 ~process~ 和 ~NotificationCenter::process~ ；不扫描业务文件；启动加载受保护的基线元数据，也不创建或拥有 runtime。 ~stop().await~ 禁止接收新的查询、修改和后台任务，先等待在途操作与普通后台任务完成，再通过 oneshot 通知 process 停止；process 关闭请求入口、处理完已入队请求并解除全部订阅，stop 等待处理任务完成；APP 内嵌 HTTP 服务接收停止信号后优雅结束。重复或并发调用 stop 均等待同一批任务，取消一次等待不会丢失任务句柄；某个任务失败时仍等待其余任务，并返回错误。停止后不能重新启动同一对象，应调用 start 创建新对象。
 
 Workspace 的 clone 共享同一命令队列、配置快照、历史与停止结果；停止任一副本会停止全部副本。 ~OrgWorkspace~ 只持有命令句柄，私有 ~WorkspaceState~ 归异步 ~process~ 独占，宿主直接克隆句柄，不包装整体 mutex。 ~start~ 在宿主当前 Tokio 上启动命令、文件状态和通知处理 task；宿主先等待 ~stop~ ，再关闭 runtime。独立 OrgRepo 的业务不自动进入 Workspace 调度，活动应用的查询、修改和同步应通过 Workspace 提交。
 
@@ -130,6 +130,11 @@ impl OrgWorkspace {
     pub fn todo_defaults(&self) -> TodoConfig;
 
     pub async fn add_repo(&self, repo: OrgRepo) -> Result<(), OrgWorkspaceValidationError>;
+
+    pub async fn configure_repository_roots(&self, roots: Vec<String>)
+        -> Result<Vec<RepositoryRootStatus>, CoreError>;
+
+    pub fn query_repository_selector(&self, root: &str) -> Option<OrgRepoId>;
 
     pub async fn remove_repo_by_root_directory(&self, root_directory: &str) -> Result<OrgRepo, OrgWorkspaceValidationError>;
 
@@ -949,6 +954,10 @@ pub struct TaskRestore { pub path: TaskPath }
 * 待关注事件
 
 ~OrgWorkspace.watch_notifications(repo_ids, monitor)~ 接收实现 ~NotificationMonitor~ 的对象，返回 ~Result<NotificationSubscription, CoreError>~ 。 ~snapshot(NotificationSnapshot)~ 注册后立即接收缓存中的完整集合；以后通过 ~changed(NotificationDelta)~ 接收 ~Added / Removed / Updated~ 。初始集合可以为空，未读取文件没有相关通知；注册不触发文件扫描或磁盘查询。完整公开类型、内存文件服务与取消契约见 [[file:文件状态与通知设计.org][文件状态与通知设计]] 和 [[file:通知订阅设计.org][通知订阅设计]]。
+
+~configure_repository_roots~ 按配置顺序登记根目录并返回 ~RepositoryRootStatus { root_directory, repo_id }~ 。尚未取得 Core ID 的缺失目录返回空 ~repo_id~ ，其他仓库继续打开。 ~query_repository_selector~ 将目录绑定为查询选择值，已配置但尚未打开的目录匹配空集合。
+
+~watch_notifications_with_scope(scope, monitor)~ 使用 ~NotificationScope { repository_error_roots, sync_roots }~ 按根目录分别订阅仓库错误和同步提示，复用同一快照和增量回调。
 
 通知仍不属于查询协议。文件服务根据普通读取或提交推送的事实与受保护基线比较，通知 process 维护贡献集合，宿主只消费快照与差量。 ~CoreNotification~ 新增 ~SyncBaselineUnavailable~ ，包含仓库 ID 与脱敏原因；有效副本可恢复时修复，无法恢复则阻止同步，不伪造空基线。
 

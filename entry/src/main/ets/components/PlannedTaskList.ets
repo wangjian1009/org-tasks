@@ -1,6 +1,6 @@
 import { DataSet } from '../services/DataSet'
 import { CoreNotificationsView } from './CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { UiColor } from '../ui/Theme'
 import { PlannedGroup, PlannedScheduleItem, PlannedTaskGroup, PlannedTaskItem, plannedTaskDate } from '../ui/PlannedPresentation'
 import { CoreTask } from '../services/NativeCoreService'
@@ -24,7 +24,8 @@ export struct PlannedTaskList {
 
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   @Prop readOnly: boolean = false
   @Prop singleOperations: TaskSingleOperation[] = []
   @Prop bulkOperations: TaskBatchAction[] = []
@@ -34,10 +35,15 @@ export struct PlannedTaskList {
   @Prop referenceTime: number = Date.now()
 
   aboutToAppear(): void {
+    this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
     this.selection.connect(this.taskDataSet(), (): CoreTask[] => this.allTasks(), () => this.bulkOperations,
       (): boolean => !this.readOnly, this.listScroller, this.changed)
   }
-  aboutToDisappear(): void { this.selection.close() }
+  aboutToDisappear(): void {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
+    this.selection.close()
+  }
 
   private allTasks(): CoreTask[] { return this.groups.flatMap(group => group.items.map(item => item.task)) }
   private group(key: string): PlannedGroup { return this.groups.find(group => group.key === key)! }
@@ -154,7 +160,7 @@ export struct PlannedTaskList {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       List({ scroller: this.listScroller }) {
-        if (this.notificationState.notifications.length > 0) {
+        if (this.showNotifications) {
           ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
         }
         ForEach(this.groups, (group: PlannedGroup) => {

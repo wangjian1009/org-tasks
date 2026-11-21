@@ -86,6 +86,14 @@ pub extern "C" fn org_tasks_harmony_workspace_retain(handle: u64) -> bool {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_workspace_configure_repository_roots(
+    handle: u64,
+    source: *const c_char,
+) -> *mut c_char {
+    string_result(read_c_string(source).and_then(|source| bridge::workspace_configure_repository_roots(handle, source)))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_workspace_validate_repository(handle: u64, root_directory: *const c_char) -> i32 {
     clear_last_error();
     match read_c_string(root_directory).and_then(|root| bridge::workspace_validate_repository(handle, root)) {

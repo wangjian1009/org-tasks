@@ -6,7 +6,7 @@ import { DataSet } from '../services/DataSet'
 import { PageListPosition } from '../services/PageListPosition'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { CoreNotificationsView } from './CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { TodaySection, TodayTaskItem, TodayTaskGroup, TodayTimedTaskItem, todayPreviewGroups, todayRegionKey } from '../ui/TodayPresentation'
 import { UiColor } from '../ui/Theme'
@@ -41,8 +41,8 @@ export struct TodayTaskList {
   changed: () => void = () => {}
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
   private listScroller: ListScroller = new ListScroller()
-  @StorageLink('coreNotifications') @Watch('notificationsChanged') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
   @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   private active: boolean = false
   private notificationLayout: number = 0
   @Prop sections: TodaySection[] = []
@@ -58,8 +58,10 @@ export struct TodayTaskList {
       this.selection.connect(this.taskDataSet(), (): CoreTask[] => this.sections.flatMap(section => section.items.map(item => item.task)),
         () => this.bulkOperations, (): boolean => !this.readOnly, this.listScroller, this.changed)
     }
+    this.stopNotifications = NotificationManager.watch(event => {
+      this.notificationsChanged(event.state.notifications.length > 0)
+    })
     this.active = true
-    this.showNotifications = this.notificationState.notifications.length > 0
     const position = PageListPosition.read(this.positionKey)
     const found = position.key ? this.positionKeys().indexOf(position.key) : -1
     // 重进预览页时，之前展开区中的记录可能已隐藏，不恢复失效的索引和像素锚点。
@@ -71,10 +73,15 @@ export struct TodayTaskList {
     this.pendingOffset = position.offset; this.pendingAnchor = position.anchor
   }
 
-  aboutToDisappear(): void { this.active = false; this.notificationLayout++; this.selection.close() }
+  aboutToDisappear(): void {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
+    this.active = false
+    this.notificationLayout++
+    this.selection.close()
+  }
 
-  notificationsChanged(): void {
-    const next = this.notificationState.notifications.length > 0
+  notificationsChanged(next: boolean): void {
     let anchor: NotificationListAnchor | undefined = undefined
     if (this.active && this.pendingOffset === undefined) {
       try {

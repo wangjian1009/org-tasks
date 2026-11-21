@@ -1,13 +1,14 @@
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
-import { CoreNotification, CoreNotificationUpdate, CoreWorkspace, NativeCoreService } from './NativeCoreService'
+import { CoreNotification, CoreNotificationChange, CoreNotificationUpdate, CoreWorkspace, NativeCoreService } from './NativeCoreService'
 import { repositoryLabel } from '../ui/Theme'
 
 // 宿主展示上下文单独保存，不作为通知的公共数据或持久化字段。
 export interface NotificationRepository {
   coreRepoId: string
   configRepoId: string
+  rootDirectory: string
   name: string
 }
 
@@ -18,6 +19,17 @@ export interface CoreNotificationsState {
 }
 
 type NotificationListener = (state: CoreNotificationsState) => void
+interface NotificationViewSnapshot {
+  type: 'snapshot'
+  state: CoreNotificationsState
+}
+interface NotificationViewDelta {
+  type: 'changed'
+  state: CoreNotificationsState
+  changes: CoreNotificationChange[]
+}
+type NotificationViewEvent = NotificationViewSnapshot | NotificationViewDelta
+type NotificationViewListener = (event: NotificationViewEvent) => void
 
 export function emptyCoreNotificationsState(): CoreNotificationsState {
   return { notifications: [], repositories: [], revision: 0 }
@@ -28,6 +40,7 @@ export class NotificationManager {
   private static workspace: CoreWorkspace | undefined = undefined
   private static context: Context | undefined = undefined
   private static listeners: Set<NotificationListener> = new Set()
+  private static viewListeners: Set<NotificationViewListener> = new Set()
   private static snapshotReady: boolean = false
   private static bindingFailed: boolean = false
   private static generation: number = 0
@@ -49,6 +62,10 @@ export class NotificationManager {
     if (NotificationManager.bindingFailed) NotificationManager.configChanged()
   }
 
+  static hasMissingRepository(): boolean {
+    return NotificationManager.state.notifications.some(item => item.type === 'repositoryRootMissing')
+  }
+
   static stop(): void {
     AppConfigService.stopWatchingChanges(NotificationManager.configChanged)
     NotificationManager.context = undefined
@@ -56,6 +73,8 @@ export class NotificationManager {
     NotificationManager.snapshotReady = false
     NotificationManager.bindingFailed = false
     NotificationManager.listeners.clear()
+    NotificationManager.viewListeners.clear()
+    NotificationManager.state = emptyCoreNotificationsState()
     NotificationManager.finishReady?.(); NotificationManager.finishReady = undefined
     NotificationManager.workspace?.stopWatchingNotifications()
     NotificationManager.workspace = undefined
@@ -77,12 +96,10 @@ export class NotificationManager {
       const config = await AppConfigService.load(context, false)
       const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
       if (!NotificationManager.active(generation)) return
-      const roots = config.repos.filter(repo => repo.webdavEnabled && repo.webdavUrl.trim().length > 0).map(repo => repo.rootDirectory)
-      const repositories = await workspace.repos()
-      if (!NotificationManager.active(generation)) return
+      const syncRoots = config.repos.filter(repo => repo.webdavEnabled && repo.webdavUrl.trim().length > 0).map(repo => repo.rootDirectory)
+      const repositoryErrorRoots = config.repos.map(repo => repo.rootDirectory)
       NotificationManager.workspace?.stopWatchingNotifications()
       NotificationManager.workspace = workspace
-      const repoIds = repositories.filter(repo => roots.includes(repo.rootDirectory)).map(repo => repo.id)
       let nativeRevision: number = -1
       let values: CoreNotification[] = []
       await workspace.watchNotifications((event: CoreNotificationUpdate): void => {
@@ -114,6 +131,11 @@ export class NotificationManager {
         values.sort((left: CoreNotification, right: CoreNotification): number => {
           if (left.type === 'syncRequired') return right.type === 'syncRequired' ? 0 : 1
           if (right.type === 'syncRequired') return -1
+          if (left.type === 'repositoryRootMissing') {
+            if (right.type !== 'repositoryRootMissing') return 1
+            return left.rootDirectory < right.rootDirectory ? -1 : left.rootDirectory > right.rootDirectory ? 1 : 0
+          }
+          if (right.type === 'repositoryRootMissing') return -1
           if (left.repoId !== right.repoId) return left.repoId < right.repoId ? -1 : 1
           if (left.type !== right.type) return left.type === 'syncBaselineUnavailable' ? -1 : 1
           if (left.type === 'syncConflict' && right.type === 'syncConflict') return left.path < right.path ? -1 : left.path > right.path ? 1 : 0
@@ -123,11 +145,18 @@ export class NotificationManager {
         const first = !NotificationManager.snapshotReady
         NotificationManager.snapshotReady = true
         NotificationManager.bindingFailed = false
+        if (changed) {
+          const state = NotificationManager.state
+          const update: NotificationViewEvent = event.type === 'changed'
+            ? { type: 'changed', changes: event.changes, state }
+            : { type: 'snapshot', state }
+          for (const listener of NotificationManager.viewListeners) listener(update)
+        }
         if (first || changed) {
           for (const listener of NotificationManager.listeners) listener(NotificationManager.state)
         }
         finish()
-      }, repoIds)
+      }, { repositoryErrorRoots, syncRoots })
       if (!NotificationManager.active(generation)) workspace.stopWatchingNotifications()
     })
     NotificationManager.ready = connecting.then((): Promise<void> => initial).catch((error: Error): void => {
@@ -144,12 +173,29 @@ export class NotificationManager {
     return (): void => { NotificationManager.listeners.delete(listener) }
   }
 
+  static watch(listener: NotificationViewListener): () => void {
+    NotificationManager.viewListeners.add(listener)
+    listener({ type: 'snapshot', state: NotificationManager.state })
+    return (): void => { NotificationManager.viewListeners.delete(listener) }
+  }
+
+  static watchVisibility(listener: (visible: boolean) => void): () => void {
+    let visible: boolean | undefined
+    return NotificationManager.watch((event: NotificationViewEvent): void => {
+      const next = event.state.notifications.length > 0
+      if (next === visible) return
+      visible = next
+      listener(next)
+    })
+  }
+
   private static active(generation: number): boolean {
     return NotificationManager.context !== undefined && NotificationManager.generation === generation
   }
 
   private static sameNotification(left: CoreNotification, right: CoreNotification): boolean {
     if (left.type === 'syncRequired') return right.type === 'syncRequired'
+    if (left.type === 'repositoryRootMissing') return right.type === 'repositoryRootMissing' && left.rootDirectory === right.rootDirectory
     if (left.type === 'syncConflict') return right.type === 'syncConflict' && left.repoId === right.repoId && left.path === right.path && left.rootDirectory === right.rootDirectory
     return right.type === 'syncBaselineUnavailable' && left.repoId === right.repoId && left.reason === right.reason && left.rootDirectory === right.rootDirectory
   }
@@ -159,8 +205,9 @@ export class NotificationManager {
     for (const notification of notifications) {
       if (notification.type === 'syncRequired') continue
       const configured = config.repos.find(item => item.rootDirectory === notification.rootDirectory)
-      if (configured && !repositories.some(item => item.coreRepoId === notification.repoId)) {
-        repositories.push({ coreRepoId: notification.repoId, configRepoId: configured.id, name: repositoryLabel(configured) })
+      if (configured && !repositories.some(item => item.rootDirectory === configured.rootDirectory)) {
+        repositories.push({ coreRepoId: notification.type === 'repositoryRootMissing' ? '' : notification.repoId,
+          configRepoId: configured.id, rootDirectory: configured.rootDirectory, name: repositoryLabel(configured) })
       }
     }
     const current = NotificationManager.state
@@ -168,13 +215,13 @@ export class NotificationManager {
       NotificationManager.sameNotification(item, current.notifications[index]))
     const sameRepositories = repositories.length === current.repositories.length && repositories.every((item: NotificationRepository, index: number): boolean => {
       const previous = current.repositories[index]
-      return item.coreRepoId === previous.coreRepoId && item.configRepoId === previous.configRepoId && item.name === previous.name
+      return item.coreRepoId === previous.coreRepoId && item.configRepoId === previous.configRepoId &&
+        item.rootDirectory === previous.rootDirectory && item.name === previous.name
     })
     if (sameNotifications && sameRepositories) return false
     const snapshot: CoreNotificationsState = { notifications: notifications.slice(), repositories,
       revision: NotificationManager.state.revision + 1 }
     NotificationManager.state = snapshot
-    AppStorage.setOrCreate<CoreNotificationsState>('coreNotifications', snapshot)
     return true
   }
 }

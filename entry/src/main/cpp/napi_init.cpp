@@ -15,6 +15,7 @@ extern "C" char* org_tasks_harmony_last_error();
 extern "C" uint64_t org_tasks_harmony_workspace_create();
 extern "C" char* org_tasks_harmony_validate_configuration(const char* request);
 extern "C" int32_t org_tasks_harmony_workspace_validate_repository(uint64_t handle, const char* root_directory);
+extern "C" char* org_tasks_harmony_workspace_configure_repository_roots(uint64_t handle, const char* source);
 extern "C" char* org_tasks_harmony_default_todo_settings();
 extern "C" char* org_tasks_harmony_default_task_states();
 extern "C" char* org_tasks_harmony_workspace_get_settings(uint64_t handle);
@@ -148,6 +149,7 @@ struct WorkspaceStringWork {
     }
     bool validate_configuration = false;
     bool validate_repository = false;
+    bool configure_repository_roots = false;
     bool refile_targets = false;
     bool execute_operations = false;
     bool merge_operations = false;
@@ -1015,6 +1017,8 @@ void ExecuteWorkspaceString(napi_env, void* data)
         work->response = TakeRustString(org_tasks_harmony_validate_configuration(work->expression.c_str()));
     } else if (work->validate_repository) {
         if (org_tasks_harmony_workspace_validate_repository(work->handle, work->expression.c_str()) == 0) work->response = "{}";
+    } else if (work->configure_repository_roots) {
+        work->response = TakeRustString(org_tasks_harmony_workspace_configure_repository_roots(work->handle, work->expression.c_str()));
     } else if (work->refile_targets) {
         work->response = TakeRustString(org_tasks_harmony_workspace_refile_targets(work->handle, work->expression.c_str()));
     } else if (work->execute_operations) {
@@ -1123,7 +1127,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         } else if (work->execute_operations) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
-        } else if (work->merge_operations) {
+        } else if (work->merge_operations || work->configure_repository_roots) {
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!work->preview_action.empty()) {
             napi_value projected = result;
@@ -1901,6 +1905,25 @@ napi_value WorkspaceValidateRepository(napi_env env, napi_callback_info info)
     return QueueWorkspaceString(env, work, "OrgTasksValidateRepository", self);
 }
 
+napi_value WorkspaceConfigureRepositoryRoots(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1], self;
+    WorkspaceWrap* workspace = nullptr;
+    std::string roots;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        !EncodeJson(env, args[0], &roots) ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "仓库目录列表无效");
+        return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    work->handle = workspace->handle;
+    work->configure_repository_roots = true;
+    work->expression = std::move(roots);
+    return QueueWorkspaceString(env, work, "OrgTasksConfigureRepositoryRoots", self);
+}
+
 napi_value WorkspaceRefileTargets(napi_env env, napi_callback_info info)
 {
     // titleParts 与目标路径通过既有工作线程的 JSON 响应完整透传。
@@ -2443,6 +2466,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"addRepo", nullptr, WorkspaceAddRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"removeRepo", nullptr, WorkspaceRemoveRepo, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"validateRepository", nullptr, WorkspaceValidateRepository, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"configureRepositoryRoots", nullptr, WorkspaceConfigureRepositoryRoots, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"refileTargets", nullptr, WorkspaceRefileTargets, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"executeTaskOperations", nullptr, WorkspaceExecuteTaskOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"taskMergeOperations", nullptr, WorkspaceTaskMergeOperations, nullptr, nullptr, nullptr, napi_default, nullptr},

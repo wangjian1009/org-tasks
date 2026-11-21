@@ -4,6 +4,8 @@ import { AppConfigService } from './AppConfigService'
 import { RepoConfig } from '../models/OrgTask'
 import { CoreBridgeError, CoreWebDavSyncEvent, NativeCoreService, SyncRequestSource, coreErrorMessage } from './NativeCoreService'
 import { DeviceBadgeService } from './DeviceBadgeService'
+import { DataSetManager } from './DataSetManager'
+import { NotificationManager } from './NotificationManager'
 
 export enum SyncStartPolicy {
   Reuse = 'Reuse',
@@ -180,6 +182,9 @@ export class RepositorySyncService {
             if (generation === RepositorySyncService.generation) RepositorySyncService.updateProgress(event)
           }, todoDefaults, coreSettings, source)
         : NativeCoreService.workspaceFor(repos, todoDefaults, coreSettings))
+      if (source === 'manual' && (RepositorySyncService.repositoryCount === 0 || NotificationManager.hasMissingRepository())) {
+        await DataSetManager.reloadRepositories()
+      }
       state.progress = 100
       state.determinate = true
       state.message = ''

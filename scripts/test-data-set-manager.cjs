@@ -434,7 +434,9 @@ test('收件箱两个启动生命周期复用 App 的同一批次，最近新增
   const methods=['loadRecords','aboutToAppear','onPageShow'].map(name=>source.match(new RegExp('  (?:async )?'+name+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{(?:[^\\n]*\\}|[\\s\\S]*?\\n  \\})'))[0]);
   const module={exports:{}};
   const code=ts.transpileModule('export class Inbox {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
-  vm.runInThisContext('(function(module,exports,AppDataManager,PageNavigator){'+code+'})')(module,module.exports,c.AppDataManager,{shared:{watchExternalLeaveGuard:()=>()=>{}}});
+  vm.runInThisContext('(function(module,exports,AppDataManager,PageNavigator,NotificationManager){'+code+'})')(
+    module,module.exports,c.AppDataManager,{shared:{watchExternalLeaveGuard:()=>()=>{}}},
+    {watchVisibility(listener){listener(false);return()=>{}}});
   const page=Object.assign(new module.exports.Inbox(),{stops:[],selection:{},connectSelection(){},applyPageSnapshot(){},prepareRecentLayout(){},getUIContext:()=>({getHostContext:()=>f.context})});
   const hold=f.holdWorkspace();page.aboutToAppear();page.onPageShow();hold.resolve();await page.dataManager.start();
   assert.equal(page.dataManager,c.AppDataManager.shared(f.context).manager);

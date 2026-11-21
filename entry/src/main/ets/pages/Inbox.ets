@@ -5,7 +5,7 @@ import { DataSetManager, DataSet } from '../services/DataSetManager'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { taskRenderKey } from '../ui/TaskPresentation'
 import { UiColor } from '../ui/Theme'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
@@ -44,7 +44,8 @@ struct Inbox {
   @StorageLink('taskInlineActive') @Watch('pageInlineChanged') pageInlineActive: string = ''
   private taskDataSet(name: string = 'tasks'): DataSet { return name === 'recent' ? this.recentDataSet! : this.tasksDataSet! }
 
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   @State records: CoreTask[] = []
   @State recentGroups: RecentDay[] = []
   @State recentLayoutReady: boolean = false
@@ -79,7 +80,10 @@ struct Inbox {
   private keyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET
 
   private stopExternalGuard: (() => void) | undefined = undefined
-  aboutToAppear() { this.loadRecords() }
+  aboutToAppear() {
+    this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
+    this.loadRecords()
+  }
 
   onPageShow() {
     this.stopExternalGuard?.()
@@ -94,6 +98,8 @@ struct Inbox {
     if (!this.selection.busy) this.selection.reset()
   }
   aboutToDisappear() {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
     this.stopExternalGuard?.()
     this.selection.close()
     for (const stop of this.stops) stop()
@@ -130,7 +136,7 @@ struct Inbox {
       if (!this.visible || this.selection.selecting) return
       const index = this.records.findIndex(item => JSON.stringify(item.fullPath) === JSON.stringify(path))
       if (index >= 0) {
-        try { this.listScroller.scrollToIndex(index + (this.notificationState.notifications.length > 0 ? 1 : 0), true, ScrollAlign.CENTER) }
+        try { this.listScroller.scrollToIndex(index + (this.showNotifications ? 1 : 0), true, ScrollAlign.CENTER) }
         catch (_) { /* 尚未布局时保留结果高亮。 */ }
       }
     }, 100)
@@ -320,7 +326,7 @@ struct Inbox {
             NotificationEmptyState({ title: '正在读取收件箱', busy: true })
           } else {
             List({ scroller: this.listScroller }) {
-              if (this.notificationState.notifications.length > 0) {
+              if (this.showNotifications) {
                 ListItem() { CoreNotificationsView({ horizontalInset: 12 }) }.fullWidthItem()
               }
               if (this.records.length === 0) {

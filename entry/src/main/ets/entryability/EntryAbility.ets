@@ -1,5 +1,6 @@
 import { ReminderManager } from '../services/ReminderManager'
 import { AppDataManager } from '../services/AppDataManager'
+import { DataSetManager } from '../services/DataSetManager'
 import { NativeCoreService } from '../services/NativeCoreService'
 import { NotificationManager } from '../services/NotificationManager'
 import { PageNavigator, primaryPage } from '../services/PageNavigator'
@@ -121,6 +122,9 @@ export default class EntryAbility extends UIAbility {
     this.startStartupSync()
     DeviceBadgeService.start(this.context)
     AppDataManager.shared(this.context).start().catch((error: Error): void => { console.error(`恢复共享数据失败：${error.message}`) })
+    if (NotificationManager.hasMissingRepository()) {
+      DataSetManager.reloadRepositories().catch((error: Error): void => { console.error(`重新加载存储库失败：${error.message}`) })
+    }
     this.checkNotificationPermission()
   }
 

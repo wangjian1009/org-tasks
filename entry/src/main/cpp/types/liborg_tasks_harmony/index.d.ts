@@ -334,7 +334,10 @@ export interface SyncBaselineUnavailableNotification {
   type: 'syncBaselineUnavailable'; repoId: string; rootDirectory: string;
   reason: 'missing' | 'invalid' | 'inconsistent' | 'io';
 }
-export type CoreNotification = SyncConflictNotification | SyncRequiredNotification | SyncBaselineUnavailableNotification;
+export interface RepositoryRootMissingNotification { type: 'repositoryRootMissing'; rootDirectory: string; }
+export type CoreNotification = SyncConflictNotification | SyncRequiredNotification | SyncBaselineUnavailableNotification | RepositoryRootMissingNotification;
+export interface NotificationScope { repositoryErrorRoots: string[]; syncRoots: string[]; }
+export interface RepositoryRootStatus { rootDirectory: string; repoId: string | null; }
 export interface NotificationSnapshot { type: 'snapshot'; revision: number; notifications: CoreNotification[]; }
 export type NotificationChange =
   { kind: 'added'; notification: CoreNotification } |
@@ -368,6 +371,7 @@ export class Workspace {
   fileAt(path: TaskPath): Promise<OrgFile>;
   repos(): Promise<Repo[]>;
   addRepo(rootDirectory: string): Promise<Repo>;
+  configureRepositoryRoots(roots: string[]): Promise<RepositoryRootStatus[]>;
   removeRepo(rootDirectory: string): Promise<void>;
   validateRepository(rootDirectory: string): Promise<void>;
   query(queries: CoreQuery[], repositoryBindings?: QueryRepositoryBinding[]): Promise<CoreQueryResult[]>;
@@ -378,7 +382,7 @@ export class Workspace {
   // Core 按文件调度修改，等待前序查询；Promise 在提交事件处理后完成。
   executeTaskOperations(group: TaskOperationGroup): Promise<void>;
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;
-  watchNotifications(monitor: NotificationUpdateMonitor, repoIds?: string[]): Promise<void>;
+  watchNotifications(monitor: NotificationUpdateMonitor, scope?: string[] | NotificationScope): Promise<void>;
   stopWatchingNotifications(): void;
   watchExternalFileChanges(monitor: ExternalFileMonitor): Promise<number>;
   stopWatchingExternalFileChanges(subscriptionId: number): void;

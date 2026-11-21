@@ -9,7 +9,7 @@ import { ProjectProgressIcon } from './ProjectProgressIcon'
 import { PopupMenuButton } from './controls/PopupMenuButton'
 import { PopupMenuItem } from './controls/PopupMenu'
 import { RepositorySyncView } from './RepositorySyncView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { SidebarDataManager, SidebarSnapshot } from '../services/SidebarDataManager'
 import { ProjectNavigation } from '../services/ProjectNavigation'
 import { fileTaskProgress, fileTaskCount, fileCompletedTaskCount, projectSections, ProjectSection } from '../ui/NotebookPresentation'
@@ -56,7 +56,8 @@ export struct AppShell {
   @State projects: CoreOrgFileMetadata[] = []
   @State projectGroups: ProjectSection[] = []
   @State navMessage: string = ''
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   @StorageLink('taskInlineTyping') inlineTyping: boolean = false
   private sidebarManager: SidebarDataManager | undefined = undefined
   private stopSidebar: (() => void) | undefined = undefined
@@ -67,9 +68,14 @@ export struct AppShell {
     return this.titleParts.length > 0 ? this.titleParts.map((part: CoreTitlePart) => part.text).join('') : this.title
   }
 
-  aboutToAppear() { if (this.drawerOpen) this.loadNavigation() }
+  aboutToAppear() {
+    this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
+    if (this.drawerOpen) this.loadNavigation()
+  }
 
   aboutToDisappear() {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
     this.stopSidebar?.(); this.stopSidebar = undefined
     this.sidebarManager?.close(); this.sidebarManager = undefined
     if (this.orderChanged) RegionOrderService.stopWatchingChanges(this.orderChanged)
@@ -316,7 +322,7 @@ export struct AppShell {
             }
           }
         }.width('100%').height(64).padding({ left: 4, right: 4 }).backgroundColor(UiColor.surface)
-        if (!this.pullToSync || this.notificationState.notifications.length === 0) {
+        if (!this.pullToSync || !this.showNotifications) {
           Divider().color(UiColor.outline).strokeWidth(0.5)
         }
         Column() {

@@ -1,8 +1,20 @@
 use crate::CoreError;
 
 use crate::model::{OrgRepo, OrgRepoId, TodoConfig, validate_id};
+use crate::repository_errors::{RepositoryError, RepositoryRootObservation, root_missing};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub type OrgWorkspaceValidationError = CoreError;
+
+// 查询绑定使用保留选择值表达尚未打开的配置目录。真实仓库 ID 不使用此命名空间。
+const UNLOADED_QUERY_ROOT: &str = "\0root:";
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryRootStatus {
+    pub root_directory: String,
+    pub repo_id: Option<OrgRepoId>,
+}
 
 mod process;
 mod sync;
@@ -29,6 +41,7 @@ impl Eq for OrgWorkspace {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceState {
     pub repos: Vec<OrgRepo>,
+    pub(super) configured_roots: BTreeMap<String, u64>,
     sync_policies: std::collections::BTreeMap<OrgRepoId, SyncBinding>,
     pub todo_defaults: TodoConfig,
     pub task_operation_history: crate::model::TaskOperationHistory,
@@ -38,6 +51,75 @@ pub(crate) struct WorkspaceState {
 }
 
 impl WorkspaceState {
+    fn configure_roots(&mut self, roots: impl IntoIterator<Item = String>) -> Result<(), CoreError> {
+        let configured = roots.into_iter().map(|root| {
+            let epoch = self.configured_roots.get(&root).copied()
+                .unwrap_or_else(|| self.notifications.next_revision());
+            (root, epoch)
+        }).collect::<BTreeMap<_, _>>();
+        if self.configured_roots != configured {
+            self.notifications.errors().configure(configured.clone())?;
+            self.configured_roots = configured;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn root_observation(&self, root: &str) -> RepositoryRootObservation {
+        RepositoryRootObservation {
+            directory: root.to_owned(),
+            epoch: self.configured_roots[root],
+            revision: self.notifications.next_revision(),
+        }
+    }
+
+    pub(crate) fn accepts_query_repository(&self, id: &str) -> bool {
+        self.repos.iter().any(|repo| repo.id == id)
+            || id.strip_prefix(UNLOADED_QUERY_ROOT).is_some_and(|root| self.configured_roots.contains_key(root))
+    }
+
+    async fn configure_repository_roots(&mut self, roots: Vec<String>) -> Result<Vec<RepositoryRootStatus>, CoreError> {
+        if roots.iter().collect::<BTreeSet<_>>().len() != roots.len() {
+            return Err(CoreError::InvalidInput("仓库根目录必须唯一"));
+        }
+        let mut repos = Vec::new();
+        let mut statuses = Vec::new();
+        for root in &roots {
+            let repo = if let Some(repo) = self.repo_by_root_directory(root) {
+                Some(repo.clone())
+            } else {
+                let mut repo = OrgRepo::new(root.clone())?;
+                match repo.load_identity().await {
+                    Ok(()) => {
+                        self.preview.validate_repo(&repo)?;
+                        repo.set_todo_defaults(self.todo_defaults.clone())?;
+                        Some(repo)
+                    }
+                    Err(_) if root_missing(root).await => None,
+                    Err(error) => return Err(error),
+                }
+            };
+            statuses.push(RepositoryRootStatus {
+                root_directory: root.clone(),
+                repo_id: repo.as_ref().map(|repo| repo.id.clone()),
+            });
+            repos.extend(repo);
+        }
+        validate_repositories(&repos)?;
+        self.configure_roots(roots)?;
+        for status in statuses.iter().filter(|status| status.repo_id.is_none()) {
+            self.notifications.errors().report(
+                self.root_observation(&status.root_directory), RepositoryError::RootMissing,
+            )?;
+        }
+        if self.repos != repos {
+            self.preview.invalidate();
+            self.sync_policies.retain(|id, _| repos.iter().any(|repo| &repo.id == id));
+            self.repos = repos;
+        }
+        self.notifications.flush().await?;
+        Ok(statuses)
+    }
+
     /// 批量启动独立订阅，只共享一次文件加载；结果顺序与请求一致。
     pub async fn subscribe_query(
         &self,
@@ -148,6 +230,9 @@ fn validate_repositories(repos: &[OrgRepo]) -> Result<(), CoreError> {
             return Err(CoreError::InvalidInput("仓库根目录必须唯一"));
         }
         if !repo.id.is_empty() {
+            if repo.id.starts_with(UNLOADED_QUERY_ROOT) {
+                return Err(CoreError::InvalidInput("仓库 ID 不能使用查询选择值"));
+            }
             if repo.id == "<preview>" {
                 return Err(CoreError::InvalidInput(
                     "仓库 ID 不能使用 <preview> 保留身份",
@@ -169,6 +254,64 @@ fn validate_repositories(repos: &[OrgRepo]) -> Result<(), CoreError> {
 mod tests {
     use super::*;
     use crate::OrgFile;
+
+    #[tokio::test]
+    async fn missing_root_is_reported_without_expanding_scoped_queries() {
+        let directory = std::env::temp_dir().join(format!(
+            "org-tasks-missing-root-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let present = directory.join("present");
+        let missing = directory.join("missing");
+        std::fs::create_dir_all(&present).unwrap();
+        std::fs::write(present.join("tasks.org"), "* TODO Present\n").unwrap();
+        let roots = vec![missing.to_str().unwrap().to_owned(), present.to_str().unwrap().to_owned()];
+        let workspace = OrgWorkspace::start(Vec::new()).await.unwrap();
+        let notifications = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = notifications.clone();
+        let _subscription = workspace.watch_notifications_with_scope(
+            crate::NotificationScope { repository_error_roots: roots.clone(), sync_roots: Vec::new() },
+            crate::model::test_support::notification_monitor(move |values| *captured.lock().unwrap() = values),
+        ).unwrap();
+        let statuses = workspace.configure_repository_roots(roots.clone()).await.unwrap();
+        assert_eq!(statuses[0].repo_id, None);
+        assert!(statuses[1].repo_id.is_some());
+        let notice = crate::CoreNotification::RepositoryRootMissing { root_directory: roots[0].clone() };
+        assert_eq!(*notifications.lock().unwrap(), vec![notice.clone()]);
+
+        let query = crate::CoreQuery::Task {
+            query: Default::default(),
+            repo_ids: vec![workspace.query_repository_selector(&roots[0]).unwrap()],
+        };
+        let data = workspace.query(&[query, crate::TaskQuery::default().into()]).await.unwrap();
+        assert!(data[0].clone().into_task().unwrap().tasks.is_empty());
+        assert_eq!(data[1].clone().into_task().unwrap().tasks.len(), 1);
+
+        std::fs::create_dir(&missing).unwrap();
+        std::fs::write(missing.join("tasks.org"), "* TODO Recovered\n").unwrap();
+        let restored = workspace.configure_repository_roots(roots.clone()).await.unwrap();
+        assert_eq!(*notifications.lock().unwrap(), vec![notice.clone()]);
+        let data = workspace.query(&[crate::TaskQuery::default().into()]).await.unwrap();
+        assert_eq!(data[0].clone().into_task().unwrap().tasks.len(), 2);
+        assert!(notifications.lock().unwrap().is_empty());
+
+        let moved = directory.join("moved");
+        std::fs::rename(&missing, &moved).unwrap();
+        let data = workspace.query(&[crate::TaskQuery::default().into()]).await.unwrap();
+        assert_eq!(data[0].clone().into_task().unwrap().tasks.len(), 1);
+        assert_eq!(*notifications.lock().unwrap(), vec![notice.clone()]);
+        std::fs::rename(&moved, &missing).unwrap();
+        workspace.query(&[crate::TaskQuery::default().into()]).await.unwrap();
+        assert_eq!(workspace.query_repository_selector(&roots[0]), restored[0].repo_id);
+        assert!(notifications.lock().unwrap().is_empty());
+        std::fs::rename(&missing, &moved).unwrap();
+        workspace.query(&[crate::TaskQuery::default().into()]).await.unwrap();
+        assert_eq!(*notifications.lock().unwrap(), vec![notice]);
+        workspace.configure_repository_roots(vec![roots[1].clone()]).await.unwrap();
+        assert!(notifications.lock().unwrap().is_empty());
+        workspace.stop().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[tokio::test]
     async fn query_combines_repositories_and_keeps_repository_identity() {

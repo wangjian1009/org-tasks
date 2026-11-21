@@ -3,7 +3,7 @@ import { PageNavigator } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { NotificationManager } from '../services/NotificationManager'
 import { NotebookFileRow } from '../components/NotebookFileRow'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppShell } from '../components/AppShell'
@@ -20,7 +20,8 @@ import { SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
 @Entry
 @Component
 struct Files {
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State showNotifications: boolean = false
+  private stopNotifications: (() => void) | undefined = undefined
   @State groups: NotebookGroup[] = []
   @State loading: boolean = true
   @State message: string = ''
@@ -30,8 +31,16 @@ struct Files {
   private trashMaintenance: Promise<void> | undefined = undefined
   private dataManager: NotebookDataManager | undefined = undefined
   private stopData: (() => void) | undefined = undefined
+  aboutToAppear(): void {
+    this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
+  }
+
   onPageShow(): void { this.loadFiles() }
-  aboutToDisappear(): void { this.stopData?.(); this.dataManager?.close() }
+  aboutToDisappear(): void {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
+    this.stopData?.(); this.dataManager?.close()
+  }
 
   onBackPress(): boolean {
     if (this.drawerOpen) { this.drawerOpen = false; return true }
@@ -84,7 +93,7 @@ struct Files {
             NotificationEmptyState({ title: '还没有存储库', actionLabel: '添加存储库', action: (): void => { addRepository(this.getUIContext()) } })
           } else {
             List() {
-              if (this.notificationState.notifications.length > 0) {
+              if (this.showNotifications) {
                 ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
               }
               ForEach(this.groups, (group: NotebookGroup) => {

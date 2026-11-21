@@ -1,9 +1,10 @@
 import { CoreNotification } from '../services/NativeCoreService'
-import { CoreNotificationsState, emptyCoreNotificationsState } from '../services/NotificationManager'
+import { CoreNotificationsState, NotificationManager, emptyCoreNotificationsState } from '../services/NotificationManager'
 import { coreNotificationRenderKey } from '../ui/CoreNotificationPresentation'
 import { SyncConflictNotificationView } from './SyncConflictNotificationView'
 import { SyncRequiredNotificationView } from './SyncRequiredNotificationView'
 import { SyncBaselineNotificationView } from './SyncBaselineNotificationView'
+import { RepositoryRootMissingNotificationView } from './RepositoryRootMissingNotificationView'
 import { UiColor } from '../ui/Theme'
 
 // 通用入口只分发枚举变体，各通知的内容和操作由其专属组件实现。
@@ -11,7 +12,17 @@ import { UiColor } from '../ui/Theme'
 export struct CoreNotificationsView {
   @Prop disabled: boolean = false
   @Prop horizontalInset: number = 12
-  @StorageLink('coreNotifications') notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  @State notificationState: CoreNotificationsState = emptyCoreNotificationsState()
+  private stopNotifications: (() => void) | undefined = undefined
+
+  aboutToAppear(): void {
+    this.stopNotifications = NotificationManager.watch(event => { this.notificationState = event.state })
+  }
+
+  aboutToDisappear(): void {
+    this.stopNotifications?.()
+    this.stopNotifications = undefined
+  }
 
   build() {
     if (this.notificationState.notifications.length > 0) {
@@ -24,6 +35,10 @@ export struct CoreNotificationsView {
               SyncRequiredNotificationView({ disabled: this.disabled })
             } else if (notification.type === 'syncBaselineUnavailable') {
               SyncBaselineNotificationView({ notification, repositories: this.notificationState.repositories })
+            } else if (notification.type === 'repositoryRootMissing') {
+              RepositoryRootMissingNotificationView({
+                notification, repositories: this.notificationState.repositories, disabled: this.disabled
+              })
             }
           }, (notification: CoreNotification) => coreNotificationRenderKey(notification))
         }.width('100%').padding({ top: 4, bottom: 4 }).borderRadius(12)

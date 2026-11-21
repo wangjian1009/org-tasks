@@ -1,5 +1,6 @@
 //! 通知集合只投影文件服务推送的事实；回调在 NotificationCenter::process 中执行。
 use crate::{CoreError, OrgRepo, OrgRepoId, OrgWorkspace};
+use crate::repository_errors::{RepositoryError, RepositoryErrorSnapshot};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Weak;
@@ -15,6 +16,22 @@ pub enum CoreNotification {
         repo_id: OrgRepoId,
         reason: SyncBaselineFailure,
     },
+    RepositoryRootMissing {
+        #[serde(rename = "rootDirectory")]
+        root_directory: String,
+    },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NotificationScope {
+    pub repository_error_roots: Vec<String>,
+    pub sync_roots: Vec<String>,
+}
+
+pub(crate) enum NotificationSelection {
+    RepoIds(Option<Vec<OrgRepoId>>),
+    Roots(NotificationScope),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -139,14 +156,26 @@ impl OrgWorkspace {
         Ok(NotificationSubscription {
             _subscription: self
                 .notifications
-                .watch_notifications(repo_ids, Box::new(monitor)),
+                .watch_notifications(NotificationSelection::RepoIds(repo_ids), Box::new(monitor)),
+        })
+    }
+
+    pub fn watch_notifications_with_scope<M: NotificationMonitor>(
+        &self,
+        scope: NotificationScope,
+        monitor: M,
+    ) -> Result<NotificationSubscription, CoreError> {
+        self.tasks.ensure_running()?;
+        Ok(NotificationSubscription {
+            _subscription: self.notifications
+                .watch_notifications(NotificationSelection::Roots(scope), Box::new(monitor)),
         })
     }
 }
 
 pub(crate) enum NotificationRequest {
     Subscribe {
-        repo_ids: Option<Vec<OrgRepoId>>,
+        selection: NotificationSelection,
         token: Weak<()>,
         monitor: Box<dyn NotificationMonitor>,
         active: watch::Sender<bool>,
@@ -154,9 +183,10 @@ pub(crate) enum NotificationRequest {
     Unsubscribe(Weak<()>),
     Configure(Vec<OrgRepo>),
     FileStates(crate::file_state::FileStateEvent),
+    RepositoryErrors(RepositoryErrorSnapshot),
 }
 struct Monitor {
-    repo_ids: Option<Vec<OrgRepoId>>,
+    selection: NotificationSelection,
     token: Weak<()>,
     monitor: Box<dyn NotificationMonitor>,
     active: watch::Sender<bool>,
@@ -171,6 +201,7 @@ impl Drop for Monitor {
 pub(crate) struct NotificationState {
     repos: Vec<OrgRepo>,
     cache: BTreeMap<String, (u64, u64, Vec<CoreNotification>)>,
+    repository_errors: Option<(u64, Vec<CoreNotification>)>,
     monitors: Vec<Monitor>,
     revision: u64,
 }
@@ -182,19 +213,25 @@ impl NotificationState {
     ) {
         match request {
             NotificationRequest::Subscribe {
-                repo_ids,
+                selection,
                 token,
                 monitor,
                 active,
             } => {
                 let last = NotificationSnapshot {
                     revision: self.revision,
-                    notifications: self.values(repo_ids.as_deref()),
+                    notifications: self.values(&selection),
                 };
                 monitor.snapshot(last.clone());
-                center.files().request_snapshot(repo_ids.clone());
+                let repo_ids = match &selection {
+                    NotificationSelection::RepoIds(ids) => ids.clone(),
+                    NotificationSelection::Roots(scope) => Some(self.repos.iter()
+                        .filter(|repo| scope.sync_roots.contains(&repo.root_directory))
+                        .map(|repo| repo.id.clone()).collect()),
+                };
+                center.files().request_snapshot(repo_ids);
                 self.monitors.push(Monitor {
-                    repo_ids,
+                    selection,
                     token,
                     monitor,
                     active,
@@ -263,6 +300,17 @@ impl NotificationState {
                 self.cache
                     .insert(event.repo_id, (event.epoch, event.revision, values));
             }
+            NotificationRequest::RepositoryErrors(snapshot) => {
+                if self.repository_errors.as_ref().is_some_and(|(revision, _)| *revision >= snapshot.revision) {
+                    return;
+                }
+                let values = snapshot.errors.into_iter().map(|entry| match entry.error {
+                    RepositoryError::RootMissing => CoreNotification::RepositoryRootMissing {
+                        root_directory: entry.root_directory,
+                    },
+                }).collect();
+                self.repository_errors = Some((snapshot.revision, values));
+            }
         }
         self.monitors
             .retain(|monitor| monitor.token.strong_count() > 0);
@@ -270,7 +318,7 @@ impl NotificationState {
         let updates = self
             .monitors
             .iter()
-            .map(|monitor| self.values(monitor.repo_ids.as_deref()))
+            .map(|monitor| self.values(&monitor.selection))
             .collect::<Vec<_>>();
         for (monitor, values) in self.monitors.iter_mut().zip(updates) {
             let removed = monitor
@@ -326,11 +374,27 @@ impl NotificationState {
             monitor.monitor.changed(delta);
         }
     }
-    fn values(&self, scope: Option<&[String]>) -> Vec<CoreNotification> {
+    fn values(&self, selection: &NotificationSelection) -> Vec<CoreNotification> {
         let mut values = Vec::new();
         let mut dirty = false;
+        if let Some((_, errors)) = &self.repository_errors {
+            values.extend(errors.iter().filter(|notification| {
+                let CoreNotification::RepositoryRootMissing { root_directory } = notification else { return false };
+                match selection {
+                    NotificationSelection::RepoIds(None) => true,
+                    NotificationSelection::RepoIds(Some(ids)) => self.repos.iter().any(|repo| {
+                        repo.root_directory == *root_directory && ids.contains(&repo.id)
+                    }),
+                    NotificationSelection::Roots(scope) => scope.repository_error_roots.contains(root_directory),
+                }
+            }).cloned());
+        }
         for repo in &self.repos {
-            if scope.is_some_and(|ids| !ids.contains(&repo.id)) {
+            let selected = match selection {
+                NotificationSelection::RepoIds(ids) => ids.as_ref().is_none_or(|ids| ids.contains(&repo.id)),
+                NotificationSelection::Roots(scope) => scope.sync_roots.contains(&repo.root_directory),
+            };
+            if !selected {
                 continue;
             }
             for notification in self.notifications_for_repo(&repo.id) {
@@ -359,7 +423,8 @@ impl NotificationState {
 fn order_notifications(values: &mut [CoreNotification]) {
     fn key(value: &CoreNotification) -> (u8, &str, u8, &str) {
         match value {
-            CoreNotification::SyncRequired => (1, "", 0, ""),
+            CoreNotification::RepositoryRootMissing { root_directory } => (1, root_directory, 0, ""),
+            CoreNotification::SyncRequired => (2, "", 0, ""),
             CoreNotification::SyncConflict(file) => (0, &file.repo_id, 1, &file.path),
             CoreNotification::SyncBaselineUnavailable { repo_id, .. } => (0, repo_id, 0, ""),
         }

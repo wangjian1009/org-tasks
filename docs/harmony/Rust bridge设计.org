@@ -482,7 +482,9 @@ Repo 不提供独立的网络比较／解决会话；文件读取与 Core Confli
 
 ~Workspace.watchNotifications(monitor, repoIds?): Promise<void>~ 在 worker 中调用 ~org_tasks_harmony_workspace_watch_notifications~ ，注册 Core 的 ~watch_notifications(repo_ids, monitor)~ 。两个回调通过独立无界 FIFO TSFN 转发 ~type: snapshot | changed~ 对象，分别携带完整通知与 ~added / removed / updated~ 差量；不复用同步进度回调。ArkTS 按连续版本原子应用变化，不主动查询通知。 ~stopWatchingNotifications~ 及 Workspace 释放时解除订阅；旧订阅替换、异步注册过期和注册失败均释放回调资源。Rust 闭包持有监控句柄，最后一次在途调用退出后才释放 TSFN，已排队事件由 Node-API 正常清理。
 
-~NotificationManager~ 由 EntryAbility 管理应用级生命周期，启动、恢复前台及配置变化只注册或重新绑定当前 Workspace 的通知订阅。monitor 默认收到一次完整列表，之后只在列表变化时回调；独立 TSFN 转发数组，C++ 不解释通知内容。管理类排除旧生命周期回调并发布 AppStorage 共享快照，页面与角标复用该快照，不主动查询。详细范围与基线见 [[file:../core/通知订阅设计.org][通知订阅设计]]。
+~NotificationManager~ 由 EntryAbility 管理应用级生命周期，启动、恢复前台及配置变化只注册或重新绑定当前 Workspace 的通知订阅。monitor 默认收到一次完整列表，之后只在列表变化时回调；独立 TSFN 转发快照和增量，C++ 透传通知对象。 ~Workspace.watchNotifications~ 接受 ~{ repositoryErrorRoots, syncRoots }~ ，分别指定仓库错误和同步通知的目录范围。 ~repositoryRootMissing~ 直接携带已配置的 ~rootDirectory~ 。管理类排除旧生命周期回调，在内存中维护快照。页面直接向管理类注册快照和增量监听，角标订阅同一确认快照。详细范围与基线见 [[file:../core/通知订阅设计.org][通知订阅设计]]。
+
+~Workspace.configureRepositoryRoots(roots)~ 在工作线程批量登记配置目录，返回 ~[{rootDirectory, repoId}]~ 。根目录缺失且尚未打开时， ~repoId~ 为 null。查询的宿主别名仍按配置目录解析，已配置但尚未打开的目录保持原范围并匹配空结果。
 
 页面由各自的数据管理对象处理增量与快照。修改、同步和重置向所属 Workspace 的 NotificationCenter 提交事件，process 串行调用监控器，再通过独立 TSFN 转交 ArkTS。普通本地读取直接 query，不提供 Workspace.reload，也不补造数据变更通知。任务操作组等待事件处理确认后才完成 Promise，C++ 继续在完成请求前归并已排队的查询订阅事件；TRIGGER 来源与关联目标沿用同一条链路。TaskEditor 只订阅注入的管理对象，关联任务和通知分别由相应管理类维护。
 
