@@ -619,8 +619,10 @@ test('旧路径配置不猜测仓库，明确绑定能持久化，删除仓库�
   assert.equal(restored.memoFile, 'notes.org');
   await AppConfigService.removeRepository({}, 'personal');
   const removed = await AppConfigService.load({}, false);
-  assert.equal(removed.inboxRepoId, 'personal');
-  assert.equal(removed.inboxFile, 'inbox.org');
+  assert.equal(removed.inboxRepoId, '');
+  assert.equal(removed.inboxFile, '');
+  assert.equal(removed.memoRepoId, '');
+  assert.equal(removed.memoFile, '');
   removed.repos.push(repository('replacement'));
   assert.equal(fileTargetRepository(removed, 'inbox'), undefined);
 });

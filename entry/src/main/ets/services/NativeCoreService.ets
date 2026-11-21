@@ -223,7 +223,8 @@ export function coreErrorMessage(error: CoreBridgeError): string {
   return '操作未完成，请重试'
 }
 
-export type SyncRequestSource = 'startup' | 'background' | 'manual'
+export type RepositorySyncSource = 'repositoryCreated' | 'repositoryReset'
+export type SyncRequestSource = 'startup' | 'background' | 'manual' | RepositorySyncSource
 
 export class CoreWebDavSyncPolicy {
   private readonly native: NativeWebDavSyncPolicy
@@ -449,13 +450,15 @@ export class NativeCoreService {
     monitor?: CoreWebDavSyncMonitor,
     todoDefaults?: string,
     coreSettings?: CoreSettings,
-    source: SyncRequestSource = 'manual'
+    source: SyncRequestSource = 'manual',
+    repositoryId?: string
   ): Promise<void> {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     const repos = await workspace.repos()
     const enabledIds: string[] = []
     for (const repo of repos) {
       const config = repositories.find((item: RepoConfig) => item.rootDirectory === repo.rootDirectory)
+      if (repositoryId && config?.id !== repositoryId) continue
       if (config?.webdavEnabled) {
         const policy = new CoreWebDavSyncPolicy(config.webdavUrl, config.webdavUsername, config.webdavPassword)
         await workspace.setSyncPolicy(repo.id, policy, config.excludedDirectories, monitor)
@@ -464,6 +467,7 @@ export class NativeCoreService {
         await workspace.removeSyncPolicy(repo.id)
       }
     }
+    if (repositoryId && enabledIds.length === 0) throw new Error('目标仓库不存在或未启用 WebDAV')
     let selectedIds: string[] = enabledIds
     let failure = ''
     if (source === 'startup') {
@@ -478,7 +482,7 @@ export class NativeCoreService {
     }
     if (selectedIds.length > 0) {
       const reason: SyncTriggerReason = source === 'startup' ? 'remoteChanged'
-        : source === 'background' ? 'localChanged' : 'manual'
+        : source === 'background' ? 'localChanged' : source
       const results = await workspace.syncRepos(selectedIds, reason)
       for (const result of results) {
         if (result.error) failure = failure || coreErrorMessage(result.error)

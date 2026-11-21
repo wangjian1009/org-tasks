@@ -143,7 +143,7 @@ struct Inbox {
   }
 
   async capture() {
-    if (this.captureOpen || this.drawerOpen || this.actionBusy || this.selection.selecting || this.selection.starting) return
+    if (!this.pageReady || this.needsConfiguration || this.captureOpen || this.drawerOpen || this.actionBusy || this.selection.selecting || this.selection.starting) return
     this.actionBusy = true
     try {
       if (!await TaskInlineSession.end(true) || !this.visible || this.drawerOpen) return
@@ -332,15 +332,15 @@ struct Inbox {
               if (this.records.length === 0) {
                 ListItem() {
                   Column({ space: 8 }) {
-                    Text(this.needsConfiguration ? '收件箱文件未选择或已失效' : (this.message || '收件箱没有记录'))
+                    Text(this.message || '收件箱没有记录')
                       .fontSize(18).fontColor(this.message ? UiColor.error : UiColor.secondary)
                       .width('100%').textAlign(TextAlign.Center)
-                    if (this.needsConfiguration) {
+                    if (this.message) {
+                      Button('重试').height(40).onClick((): void => { this.loadRecords(true) })
+                    } else if (this.needsConfiguration) {
                       Button('前往设置').height(40).onClick((): void => {
                         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
                       })
-                    } else if (this.message) {
-                      Button('重试').height(40).onClick((): void => { this.loadRecords(true) })
                     }
                   }.padding(16).width('100%')
                     .constraintSize({ minHeight: Math.max(80, this.listHeight * (this.recentGroups.length > 0 ? 0.75 : 1)) })
@@ -395,7 +395,8 @@ struct Inbox {
         Image($r('app.media.ui_add_primary')).width(28).height(28)
       }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)
         .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
-        .visibility(this.drawerOpen || this.captureOpen || this.inlineTyping || this.selection.selecting || this.selection.starting ? Visibility.Hidden : Visibility.Visible)
+        .visibility(!this.pageReady || this.needsConfiguration || this.drawerOpen || this.captureOpen || this.inlineTyping ||
+          this.selection.selecting || this.selection.starting ? Visibility.Hidden : Visibility.Visible)
         .enabled(!this.actionBusy).accessibilityText('记一条')
         .onClick((): void => { this.capture() })
       TaskSelectionToolbar({ selection: this.selection, operations: this.actionPolicy.bulkOperations, idPrefix: 'inbox' })

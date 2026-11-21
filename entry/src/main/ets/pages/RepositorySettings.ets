@@ -4,7 +4,9 @@ import { fileIo } from '@kit.CoreFileKit'
 import { defaultSyncOptions, SyncOptions as NativeSyncOptions } from 'liborg_tasks_harmony.so'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
-import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncPolicy, NativeCoreService } from '../services/NativeCoreService'
+import { RepositorySetupService } from '../services/RepositorySetupService'
+import { RepositorySyncService, SyncStartPolicy } from '../services/RepositorySyncService'
+import { CoreBridgeError, coreErrorMessage, CoreWebDavSyncPolicy, NativeCoreService, RepositorySyncSource } from '../services/NativeCoreService'
 import { AppShell } from '../components/AppShell'
 import { MessageBar } from '../components/controls/MessageBar'
 import { SettingsGroup } from '../components/controls/SettingsGroup'
@@ -33,6 +35,8 @@ struct RepositorySettings {
   @State saving: boolean = false
   @State deleting: boolean = false
   @State resetting: boolean = false
+  @State retryInitialization: boolean = false
+  @State syncRetry: RepositorySyncSource | '' = ''
   @State existing: boolean = false
   @State testing: boolean = false
   @State testMessage: string = ''
@@ -87,9 +91,6 @@ struct RepositorySettings {
   changeSyncMethod(enabled: boolean): void {
     if (!this.loaded || this.loading || this.saving || this.testing || this.deleting || this.resetting || this.webdavEnabled === enabled) return
     this.webdavEnabled = enabled
-    if (enabled && !this.rootDirectory.trim()) {
-      this.rootDirectory = `${this.getUIContext().getHostContext()!.filesDir}/repositories/${this.repoId}`
-    }
     this.clearTestResult()
   }
 
@@ -133,7 +134,7 @@ struct RepositorySettings {
       const repo = existing || AppConfigService.newRepository()
       this.repoId = repo.id
       this.name = repo.name
-      this.rootDirectory = repo.rootDirectory
+      this.rootDirectory = repo.rootDirectory || this.managedDirectory()
       this.webdavEnabled = repo.webdavEnabled
       this.webdavUrl = repo.webdavUrl
       this.webdavUsername = repo.webdavUsername
@@ -143,11 +144,62 @@ struct RepositorySettings {
         const defaults: NativeSyncOptions = await defaultSyncOptions()
         this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
       }
-      if (!this.rootDirectory && this.webdavEnabled) this.rootDirectory = `${this.getUIContext().getHostContext()!.filesDir}/repositories/${repo.id}`
       this.originalDraft = JSON.stringify(this.draft())
       this.loaded = true
     } catch (e) { this.message = `读取配置失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.loading = false }
+  }
+
+  private managedDirectory(): string {
+    return `${this.getUIContext().getHostContext()!.filesDir}/repositories/${this.repoId}`
+  }
+
+  private async syncRepository(repository: RepoConfig, source: RepositorySyncSource, reset: boolean = false): Promise<void> {
+    const context = this.getUIContext().getHostContext()!
+    const request = RepositorySyncService.start(context, {
+      source, policy: SyncStartPolicy.Wait, repositoryId: repository.id,
+      beforeSync: async (config: AppConfig): Promise<void> => {
+        const saved = config.repos.find(item => item.id === repository.id)
+        if (!saved || saved.rootDirectory !== repository.rootDirectory || !saved.webdavEnabled) {
+          throw new Error('仓库配置已改变，请重新打开')
+        }
+        if (reset) {
+          const repo = await NativeCoreService.repository(config.repos, saved, config.todoDefaults, config.coreSettings)
+          await repo.reset()
+        }
+        this.syncRetry = source
+      }
+    })
+    if (request.kind === 'rejected') throw new Error('同步未受理，请重试')
+    const completion = await request.handle.completion
+    if (completion.status === 'failed') throw new Error(completion.message || '同步未完成')
+    const config = await AppConfigService.load(context)
+    const saved = config.repos.find(item => item.id === repository.id)
+    if (!saved || saved.rootDirectory !== repository.rootDirectory || !saved.webdavEnabled) {
+      throw new Error('仓库配置已改变，请重新打开')
+    }
+    const files = source === 'repositoryCreated' ? await RepositorySetupService.initialize(context, config, saved)
+      : await RepositorySetupService.listEntries(config, saved)
+    const current = await AppConfigService.load(context)
+    const before = current.repos.find(item => item.id === saved.id)
+    if (!before || before.rootDirectory !== saved.rootDirectory || !before.webdavEnabled) throw new Error('仓库配置已改变，请重新打开')
+    if (RepositorySetupService.bindEntries(current, before, files, source === 'repositoryReset')) {
+      await AppConfigService.save(context, current)
+    }
+    this.syncRetry = ''
+  }
+
+  private async retrySync() {
+    if (this.saving || this.testing || this.deleting || this.resetting || this.loading || !this.syncRetry) return
+    const repository = this.config.repos.find(item => item.id === this.repoId)
+    if (!repository) return
+    this.saving = true
+    this.message = ''
+    try {
+      await this.syncRepository(repository, this.syncRetry)
+      this.getUIContext().getPromptAction().showToast({ message: '仓库已同步' })
+    } catch (e) { this.message = `仓库同步未完成：${coreErrorMessage(e as CoreBridgeError)}` }
+    finally { this.saving = false }
   }
 
   async save() {
@@ -159,7 +211,8 @@ struct RepositorySettings {
     }
     this.saving = true
     try {
-      const current = await AppConfigService.load(this.getUIContext().getHostContext()!)
+      const context = this.getUIContext().getHostContext()!
+      let current = await AppConfigService.load(context)
       if (current.repos.some((repo: RepoConfig) => repo.id !== this.repoId && repo.rootDirectory === this.rootDirectory.trim())) {
         this.cannotSave('此本地目录已属于另一个存储库'); return
       }
@@ -167,13 +220,33 @@ struct RepositorySettings {
         this.cannotSave('此存储库已不存在，请放弃修改并返回'); return
       }
       const repository = this.draft()
-      const managed = `${this.getUIContext().getHostContext()!.filesDir}/repositories/${this.repoId}`
+      const managed = this.managedDirectory()
       if (repository.rootDirectory === managed && !await fileIo.access(managed)) await fileIo.mkdir(managed, true)
       await NativeCoreService.validateRepository(repository.rootDirectory)
-      const repos = current.repos.slice()
-      const index = repos.findIndex((repo: RepoConfig) => repo.id === this.repoId)
-      if (index < 0) repos.push(repository); else repos[index] = repository
-      await AppConfigService.save(this.getUIContext().getHostContext()!, { repos, inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile, somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId, calendarName: current.calendarName, todoDefaults: current.todoDefaults, coreSettings: current.coreSettings, fileDisplayMode: current.fileDisplayMode })
+      if (!this.existing && repository.rootDirectory === managed && !repository.name) {
+        repository.name = repository.webdavEnabled ? 'WebDAV 仓库' : '本地仓库'
+      }
+      if (!this.existing && !repository.webdavEnabled) {
+        current.repos.push(repository)
+        const files = await RepositorySetupService.initialize(context, current, repository)
+        current = await AppConfigService.load(context)
+        RepositorySetupService.bindEntries(current, repository, files)
+      }
+      const index = current.repos.findIndex((repo: RepoConfig) => repo.id === this.repoId)
+      if (index < 0) current.repos.push(repository); else current.repos[index] = repository
+      await AppConfigService.save(context, current)
+      if (!this.existing && repository.webdavEnabled) {
+        this.config = current
+        this.existing = true
+        this.name = repository.name
+        this.originalDraft = JSON.stringify(this.draft())
+        this.syncRetry = 'repositoryCreated'
+        try { await this.syncRepository(repository, 'repositoryCreated') }
+        catch (e) {
+          this.message = `仓库已创建，同步未完成：${coreErrorMessage(e as CoreBridgeError)}`
+          return
+        }
+      }
       PageNavigator.shared.back(this.getUIContext())
     } catch (e) { this.cannotSave(`保存失败：${coreErrorMessage(e as CoreBridgeError)}`) }
     finally { this.saving = false }
@@ -184,7 +257,7 @@ struct RepositorySettings {
     const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
     if (!repo) return
     this.getUIContext().showAlertDialog({ title: '删除存储库？',
-      message: `将移除“${repositoryLabel(repo)}”的配置和密码，保留本地 Org 文件及远端文件。`,
+      message: `将移除“${repositoryLabel(repo)}”的配置、密码和指向该仓库的文件入口，保留本地 Org 文件及远端文件。`,
       primaryButton: { value: '取消', action: () => {} },
       secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.removeRepository() } } })
   }
@@ -209,24 +282,38 @@ struct RepositorySettings {
       return
     }
     this.getUIContext().showAlertDialog({ title: '重置本地目录？',
-      message: `将清空“${repositoryLabel(repo)}”的全部本地文件、同步历史和未上传修改。仓库身份、配置及远端文件保留。此操作无法撤销。\n${repo.rootDirectory}`,
+      message: `将清空“${repositoryLabel(repo)}”的全部本地文件、同步历史和未上传修改。${repo.webdavEnabled ? '随后从 WebDAV 重新同步。' : '随后从模板重新创建收件箱、某天和备忘文件。'}此操作无法撤销。\n${repo.rootDirectory}`,
       primaryButton: { value: '取消', action: () => {} },
       secondaryButton: { value: '重置', fontColor: UiColor.error, action: (): void => { this.resetRepository(repo.rootDirectory) } } })
   }
 
-  async resetRepository(expectedRoot: string) {
+  async resetRepository(expectedRoot: string, initializeOnly: boolean = false) {
     if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     this.resetting = true
     this.message = ''
     try {
-      const config = await AppConfigService.load(this.getUIContext().getHostContext()!)
+      const context = this.getUIContext().getHostContext()!
+      const config = await AppConfigService.load(context)
       const repository = config.repos.find((item: RepoConfig) => item.id === this.repoId)
       if (!repository || repository.rootDirectory !== expectedRoot) throw new Error('仓库配置已改变，请重新打开')
-      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
-      await repo.reset()
-      try { await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), []) } catch (_) {}
-      this.getUIContext().getPromptAction().showToast({ message: '本地目录已重置' })
-    } catch (e) { this.message = `重置失败：${coreErrorMessage(e as CoreBridgeError)}` }
+      if (repository.webdavEnabled) {
+        if (initializeOnly) throw new Error('仓库同步方式已改变，请重新打开')
+        await this.syncRepository(repository, 'repositoryReset', true)
+      } else {
+        this.retryInitialization = true
+        const files = await RepositorySetupService.initialize(context, config, repository, !initializeOnly)
+        const current = await AppConfigService.load(context)
+        const saved = current.repos.find((item: RepoConfig) => item.id === this.repoId)
+        if (!saved || saved.rootDirectory !== expectedRoot || saved.webdavEnabled) throw new Error('仓库配置已改变，请重新打开')
+        if (RepositorySetupService.bindEntries(current, repository, files, true)) await AppConfigService.save(context, current)
+        this.retryInitialization = false
+      }
+      try { await PageQueryService.query(await AppConfigService.load(context, false), []) } catch (_) {}
+      this.getUIContext().getPromptAction().showToast({ message: repository.webdavEnabled ? '仓库已重置并同步' : '本地目录已重置' })
+    } catch (e) {
+      const detail = coreErrorMessage(e as CoreBridgeError)
+      this.message = this.syncRetry === 'repositoryReset' ? `本地目录已重置，同步未完成：${detail}` : `重置失败：${detail}`
+    }
     finally { this.resetting = false }
   }
 
@@ -239,21 +326,17 @@ struct RepositorySettings {
   build() {
     Column() {
       AppShell({ title: this.existing ? '仓库' : '添加仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen,
-        actionText: !this.loading && this.loaded && !this.existing ? '添加' : '',
-        actionLabel: !this.loading && this.loaded && !this.existing ? '添加仓库' : '',
-        actionProminent: true, action: (): void => { this.save() },
         busy: this.loading || this.saving || this.testing || this.deleting || this.resetting || this.directoryBusy,
         backAction: (): void => { this.onBackPress() } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
           Scroll() {
             Column() {
-              SettingsGroup({ title: '基本信息', detail: this.existing ? '名称可留空，默认使用目录名称。修改后返回保存。' : '名称可留空，默认使用目录名称。点击右上角“添加”创建仓库，返回放弃草稿。' }) {
-                SettingsField({ title: '名称', text: this.name, placeholder: repositoryName(this.rootDirectory), divider: false,
+              SettingsGroup({ title: '基本信息', detail: this.existing ? '名称可留空，默认使用目录名称。修改后返回保存。' : '默认使用应用专用目录，也可选择应用可访问的其他目录。' }) {
+                SettingsField({ title: '名称', text: this.name,
+                  placeholder: !this.existing && this.rootDirectory === this.managedDirectory() ? (this.webdavEnabled ? 'WebDAV 仓库' : '本地仓库') : repositoryName(this.rootDirectory),
                   changed: (value: string): void => { this.name = value } })
-              }
-              SettingsGroup({ title: '文件位置', detail: '选择应用可访问的目录，支持浏览子目录和新建文件夹。' }) {
-                SettingsRow({ title: this.webdavEnabled ? '本地文件目录' : 'Org 文件目录', value: this.rootDirectory ? repositoryName(this.rootDirectory) : '未选择',
+                SettingsRow({ title: '本地目录', value: this.rootDirectory === this.managedDirectory() ? '应用专用目录' : repositoryName(this.rootDirectory),
                   detail: this.rootDirectory, icon: $r('app.media.ui_folder'), divider: false,
                   action: (): void => { this.directoryOpen = true } })
               }
@@ -286,13 +369,29 @@ struct RepositorySettings {
               }
               if (this.existing) {
                 SettingsGroup({ title: '仓库管理', detail: '重置会清空本地文件；删除存储库仅移除配置和密码。操作前均需确认。' }) {
+                  if (this.syncRetry) {
+                    SettingsRow({ title: '重试仓库同步', disclosure: false, action: (): void => { this.retrySync() } })
+                  }
+                  if (this.retryInitialization) {
+                    SettingsRow({ title: '重试初始化入口文件', disclosure: false,
+                      action: (): void => { this.resetRepository(this.rootDirectory.trim(), true) } })
+                  }
                   SettingsRow({ title: this.resetting ? '正在重置…' : '重置本地目录', danger: true, disclosure: false, action: (): void => { this.confirmReset() } })
                   SettingsRow({ title: this.deleting ? '正在删除…' : '删除存储库', danger: true, disclosure: false, divider: false, action: (): void => { this.confirmDelete() } })
                 }
               }
             }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
               .enabled(!this.loading && this.loaded && !this.saving && !this.testing && !this.deleting && !this.resetting)
-          }.width('100%').layoutWeight(1)
+          }.width('100%').layoutWeight(1).align(Alignment.TopStart)
+          if (!this.loading && this.loaded && !this.existing) {
+            Column() {
+              Button(this.saving ? '正在新建…' : '新建仓库').id('repository_create')
+                .width('100%').height(48).borderRadius(12)
+                .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
+                .enabled(!this.saving && !this.testing && !this.directoryBusy)
+                .onClick((): void => { this.save() })
+            }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 16 })
+          }
         }.width('100%').height('100%')
       }
     }.width('100%').height('100%')

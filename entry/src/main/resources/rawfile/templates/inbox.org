@@ -1,0 +1,9 @@
+:PROPERTIES:
+:ID:
+:END:
+#+TITLE: 收件箱
+#+SETUPFILE:
+#+TODO: TODO(t) INPROGRESS(p) WAIT(w@) | DONE(d!)
+#+TODO: | CNCL(c!)
+#+FILETAGS: :todo:
+#+SETUPFILE:

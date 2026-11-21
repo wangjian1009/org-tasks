@@ -553,7 +553,7 @@ pub trait SyncPolicy: Send + Sync {
 }
 #+end_src
 
-~sync_with_options~ 通过 ~trigger_reason~ 接受 ~RemoteChanged~ 、 ~LocalChanged~ 或 ~Manual~ ，JSON 字段为 ~triggerReason~ ，值为 ~remoteChanged~ 、 ~localChanged~ 或 ~manual~ 。宿主按实际检查结果或手动操作传值；复用已有同步会话时不覆盖最初原因。仓库服务在持久化前将原因写入 ~OrgRepoSyncRecord.trigger_reason~ ，成功、失败、取消和中断均遵循同一约定。旧记录缺失原因时返回空值，不推断为手动同步。
+~sync_with_options~ 通过 ~trigger_reason~ 接受 ~RemoteChanged~ 、 ~LocalChanged~ 、 ~Manual~ 、 ~RepositoryCreated~ 与 ~RepositoryReset~ 。JSON 字段为 ~triggerReason~ ，值依次为 ~remoteChanged~ 、 ~localChanged~ 、 ~manual~ 、 ~repositoryCreated~ 与 ~repositoryReset~ 。宿主依据实际触发事件传值；复用已有同步会话时不覆盖最初原因。仓库服务在持久化前将原因写入 ~OrgRepoSyncRecord.trigger_reason~ ，成功、失败、取消和中断均遵循同一约定。旧记录缺失原因时返回空值，不推断为手动同步。
 
 ~sync~ 使用 Rust 默认值； ~sync_with_options~ 使用本次传入的值。缺失的 JSON 字段采用默认值，显式空列表表示不排除任何目录。目录名按大小写敏感的完整路径组件匹配，只匹配文件路径中的目录部分；例如 ~archive/a.org~ 与 ~work/archive/a.org~ 被默认排除，而 ~archives/a.org~ 与 ~work/archive.org~ 不被排除。输入去除首尾空白、忽略空项并去重，不接受绝对路径、多级路径或控制字符。
 

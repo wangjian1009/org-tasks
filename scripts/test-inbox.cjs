@@ -147,7 +147,7 @@ function captureFixture() {
   const filename = 'entry/src/main/ets/pages/Inbox.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const method = source.match(/  async capture\(\) \{[\s\S]*?\n  \}\n/)[0];
-  const visibility = source.slice(source.indexOf("}.id('inbox_capture')")).match(/\.visibility\(([^\n]+)\)/)[1];
+  const visibility = source.slice(source.indexOf("}.id('inbox_capture')")).match(/\.visibility\(([\s\S]*?)\)\s*\.enabled/)[1];
   const code = ts.transpileModule('export class InboxCapture {' + method + '\nbuttonVisibility() { return ' + visibility + '; }\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
@@ -157,7 +157,7 @@ function captureFixture() {
     module, module.exports, { end: async collapse => { calls.push(collapse); return await finish(); } },
     { RESIZE: 'resize' }, { Hidden: 'hidden', Visible: 'visible' }, error => error.message);
   const state = Object.assign(new module.exports.InboxCapture(), {
-    visible: true, captureOpen: false, drawerOpen: false, actionBusy: false, selected: undefined,
+    visible: true, pageReady: true, needsConfiguration: false, captureOpen: false, drawerOpen: false, actionBusy: false, selected: undefined,
     selection: {selecting:false,starting:false}, inlineActive: '', inlineTyping: false,
     captureTitle: '保留的捕捉草稿',
     getUIContext: () => ({ getKeyboardAvoidMode: () => keyboardMode, setKeyboardAvoidMode: mode => { keyboardMode = mode; },
@@ -200,7 +200,7 @@ test('原位编辑保存失败或页面离开时不打开捕捉，异常可反�
 
 test('抽屉、移动浮层与多选期间继续隐藏新增按钮，关闭后恢复', () => {
   const f = captureFixture();
-  for (const [key, value] of [['drawerOpen', true], ['selection', {selecting:true}], ['selection', {starting:true}]]) {
+  for (const [key, value] of [['pageReady', false], ['needsConfiguration', true], ['drawerOpen', true], ['selection', {selecting:true}], ['selection', {starting:true}]]) {
     const previous = f.state[key]; f.state[key] = value;
     assert.equal(f.state.buttonVisibility(), 'hidden');
     f.state[key] = previous;

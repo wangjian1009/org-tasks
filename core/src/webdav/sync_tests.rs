@@ -400,6 +400,16 @@ async fn trigger_reason_is_persisted_for_success_failure_and_cancellation() {
             crate::SyncTriggerReason::Manual,
             OrgRepoSyncResult::Cancelled,
         ),
+        (
+            4,
+            crate::SyncTriggerReason::RepositoryCreated,
+            OrgRepoSyncResult::Succeeded,
+        ),
+        (
+            5,
+            crate::SyncTriggerReason::RepositoryReset,
+            OrgRepoSyncResult::Succeeded,
+        ),
     ] {
         state.lock().unwrap().invalid_listing = expected == OrgRepoSyncResult::Failed;
         let cancellation = SyncCancellation::default();

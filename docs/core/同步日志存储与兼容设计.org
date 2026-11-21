@@ -136,7 +136,7 @@ summary 和文件日志在正式发布后不可变。成功的工作文件、本
 
 * 验收与接口影响
 
-- 旧 appStartup、appBackground 和未知来源字符串均能读取其他字段，不改写旧 JSON。
+- 新建和重置的原因分别保存为 ~repositoryCreated~ 与 ~repositoryReset~ 。旧 appStartup、appBackground 和未知来源字符串均能读取其他字段，不改写旧 JSON。
 - JSON 任一字段类型错误只影响该字段，files 内一个元素无效不影响其他元素；语法损坏产生文档诊断。
 - summary 第一行时间固定，转义、CRLF、超限、重复字段、非法 UTF-8 行及未知字段均有明确行为。
 - 只有一个历史文档损坏时，新同步仍可受理；开始时间／ID 不覆盖已有记录。

@@ -98,13 +98,11 @@ export class AppConfigService {
   static async removeRepository(context: Context, configId: string): Promise<void> {
     if (configId === 'org-tasks-system') throw new Error('系统仓库不能删除')
     const current = await AppConfigService.load(context)
-    await AppConfigService.save(context, {
-      repos: current.repos.filter((repo: RepoConfig) => repo.id !== configId),
-      inboxFile: current.inboxFile, inboxRepoId: current.inboxRepoId, somedayFile: current.somedayFile,
-      somedayRepoId: current.somedayRepoId, memoFile: current.memoFile, memoRepoId: current.memoRepoId,
-      calendarName: current.calendarName, todoDefaults: current.todoDefaults, coreSettings: current.coreSettings,
-      fileDisplayMode: current.fileDisplayMode
-    })
+    current.repos = current.repos.filter((repo: RepoConfig) => repo.id !== configId)
+    if (current.inboxRepoId === configId) { current.inboxRepoId = ''; current.inboxFile = '' }
+    if (current.somedayRepoId === configId) { current.somedayRepoId = ''; current.somedayFile = '' }
+    if (current.memoRepoId === configId) { current.memoRepoId = ''; current.memoFile = '' }
+    await AppConfigService.save(context, current)
     await CredentialService.clearWebDavPassword(configId)
   }
 

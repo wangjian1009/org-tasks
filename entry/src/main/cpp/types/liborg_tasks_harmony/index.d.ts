@@ -275,7 +275,7 @@ export type WebDavSyncEvent =
 
 export type WebDavSyncMonitor = (event: WebDavSyncEvent) => void;
 
-export type SyncTriggerReason = 'remoteChanged' | 'localChanged' | 'manual';
+export type SyncTriggerReason = 'remoteChanged' | 'localChanged' | 'manual' | 'repositoryCreated' | 'repositoryReset';
 export interface SyncOptions { excludedDirectories: string[]; triggerReason?: SyncTriggerReason; }
 
 export interface QueryRepositoryBinding { id: string; rootDirectory: string; }

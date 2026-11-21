@@ -137,6 +137,7 @@ function settingsFixture() {
       async load() { return structuredClone(config); }, async save(context, value) { if (saveFailure) throw saveFailure; saved = value; }
     } },
     '../services/NotebookService': {},
+    '../services/AppDataManager': {},
     '../services/AppLinkService': { AppLinkManager: { shared: {} } },
     '../services/NativeCoreService': { ...errors, NativeCoreService: { async workspaceFor() {} } },
     '../ui/Theme': {}, '../services/FileTargetService': {},
@@ -176,21 +177,46 @@ function repositoryFixture(existing = true) {
   const config = { repos: existing ? [original] : [], inboxRepoId: 'repo-1', inboxFile: 'inbox.org',
     somedayRepoId: '', somedayFile: '', memoRepoId: 'repo-1', memoFile: 'memo.org',
     todoDefaults: '#+TODO: OPEN | CLOSED', coreSettings: { additionStates: [] }, fileDisplayMode: 'source' };
-  const writes = [], directories = [], validations = [], connections = [];
-  let backed = 0, failure, gate;
+  const writes = [], directories = [], validations = [], connections = [], lifecycle = [];
+  let backed = 0, failure, gate, syncFailure;
   const page = load('pages/RepositorySettings', 'RepositorySettings', {
     '../services/AppConfigService': { AppConfigService: {
-      async load() { return structuredClone(config); },
+      async load() { return structuredClone(writes.at(-1) ?? config); },
       newRepository() { return { ...original, id: 'repo-new', name: '', rootDirectory: '', webdavEnabled: false,
         webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] }; },
       async save(context, value) { writes.push(value); }
     } },
     '../services/PageQueryService': { PageQueryService: {} },
+    '../services/RepositorySyncService': { SyncStartPolicy: { Wait: 'Wait' }, RepositorySyncService: {
+      start(context, options) {
+        return { kind: 'started', handle: { completion: (async () => {
+          await options.beforeSync(structuredClone(writes.at(-1) ?? config));
+          lifecycle.push([options.source, options.repositoryId]);
+          return syncFailure ? { status: 'failed', message: syncFailure } : { status: 'succeeded' };
+        })() } };
+      }
+    } },
+    '../services/RepositorySetupService': { RepositorySetupService: {
+      async initialize(context, current, repo) {
+        assert.ok(current.repos.some(item => item.id === repo.id));
+        return [{ path: 'someday.org', title: '某天' }];
+      },
+      async listEntries() { return []; },
+      bindEntries(current, repo, files) {
+        if (!current.somedayRepoId && files.length) {
+          current.somedayRepoId = repo.id;
+          current.somedayFile = files[0].path;
+          return true;
+        }
+        return false;
+      }
+    } },
     '@kit.CoreFileKit': { fileIo: { async access() { return false; }, async mkdir(path) { directories.push(path); } } },
     'liborg_tasks_harmony.so': { async defaultSyncOptions() { return { excludedDirectories: ['archive'] }; } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
     '../services/NativeCoreService': { ...errors,
-      NativeCoreService: { async validateRepository(path) { validations.push(path); } },
+      NativeCoreService: { async validateRepository(path) { validations.push(path); },
+        async repository() { return { async reset() { lifecycle.push('reset'); } }; } },
       CoreWebDavSyncPolicy: class {
         constructor(...args) { connections.push(args); }
         async testConnection() { if (gate) await gate; if (failure) throw failure; }
@@ -200,8 +226,9 @@ function repositoryFixture(existing = true) {
   });
   page.getUIContext = () => ({ getHostContext: () => ({ filesDir: '/app/files' }),
     getRouter: () => ({ getParams: () => existing ? { repoId: 'repo-1' } : {}, back() { backed++; } }),
-    showAlertDialog() {} });
-  return { page, config, writes, directories, validations, connections, backed: () => backed,
+    showAlertDialog() {}, getPromptAction: () => ({ showToast() {} }) });
+  return { page, config, writes, directories, validations, connections, lifecycle, backed: () => backed,
+    failSync(message) { syncFailure = message; },
     fail(e) { failure = e; }, hold(p) { gate = p; } };
 }
 test('已有仓库名称修改返回保存，保留身份、排除规则、入口和其他页面刚更新的设置', async () => {
@@ -231,6 +258,20 @@ test('新建默认不同步，返回不创建；选择 WebDAV 并明确添加后
   assert.deepEqual(f.validations, f.directories); assert.equal(f.backed(), 1);
   assert.equal(f.writes[0].repos[0].name, '新仓库'); assert.equal(f.writes[0].repos[0].webdavEnabled, true);
   assert.deepEqual(f.writes[0].repos[0].excludedDirectories, ['archive']);
+  assert.deepEqual(f.lifecycle, [['repositoryCreated', 'repo-new']]);
+});
+
+test('WebDAV 重置先清空，再同步，失败后的重试沿用原因且不再清空', async () => {
+  const f = repositoryFixture();
+  await f.page.load();
+  f.failSync('网络不可用');
+  await f.page.resetRepository('/org/work');
+  assert.match(f.page.message, /本地目录已重置/);
+  assert.equal(f.page.syncRetry, 'repositoryReset');
+  f.failSync(undefined);
+  await f.page.retrySync();
+  assert.deepEqual(f.lifecycle, ['reset', ['repositoryReset', 'repo-1'], ['repositoryReset', 'repo-1']]);
+  assert.equal(f.page.syncRetry, '');
 });
 
 test('关闭同步保留目录、凭据和过滤草稿，清除连接结果；本地保存无需完整远端参数', async () => {
@@ -256,6 +297,9 @@ test('新建本地仓库由添加提交；切换同步不覆盖用户所选目�
   assert.equal(f.page.rootDirectory, '/org/local');
   await f.page.save();
   assert.equal(f.writes[0].repos[0].webdavEnabled, false);
+  assert.equal(f.writes[0].somedayRepoId, 'repo-new');
+  assert.equal(f.writes[0].somedayFile, 'someday.org');
+  assert.equal(f.writes[0].inboxRepoId, 'repo-1');
   assert.deepEqual(f.validations, ['/org/local']); assert.deepEqual(f.directories, []);
 });
 test('连接测试只使用草稿，不保存或同步；执行中阻止重复和返回，失败恢复后可再次测试', async () => {

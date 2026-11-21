@@ -1,6 +1,5 @@
 import { Context } from '@kit.AbilityKit'
 import { AppDataManager } from './AppDataManager'
-import { FileTargetKind } from './FileTargetService'
 import { CoreOrgFileMetadata } from './NativeCoreService'
 import { samePageMetadata } from './PageDataEquality'
 
@@ -53,7 +52,6 @@ export class SidebarDataManager {
     try { await this.app.start(); await this.app.retryFailed(); this.publish() }
     catch (error) { this.publish((error as Error).message) }
   }
-  async targetConfigured(kind: FileTargetKind): Promise<boolean> { return await this.app.targetConfigured(kind) }
   private count(name: string): number {
     const data = this.app.dataSet(name).data
     return data?.type === 'task' ? data.result.tasks.length : -1

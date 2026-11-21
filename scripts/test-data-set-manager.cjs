@@ -687,11 +687,10 @@ test('后台同步角标等待共享文件刷新收尾，不另查任务或在�
 });
 
 
-test('侧边栏入口配置检查只读本地配置，不等待或重试全局任务查询',async()=>{
+test('侧边栏创建时不等待或重试全局任务查询',async()=>{
  const f=await fixture();let c;try{
   f.config.inboxRepoId='config';f.config.inboxFile='a.org';c=sharedConsumers(f);const sidebar=new c.SidebarDataManager(f.context);
-  assert.equal(await sidebar.targetConfigured('inbox'),true);assert.equal(f.batches.length,0);assert.equal(f.repositoryReads(),0);
-  f.config.inboxFile='';assert.equal(await sidebar.targetConfigured('inbox'),false);assert.equal(f.batches.length,0);sidebar.close();
+  assert.equal(f.batches.length,0);assert.equal(f.repositoryReads(),0);sidebar.close();
  }finally{await c?.AppDataManager.close();await f.cleanup()}
 });
 

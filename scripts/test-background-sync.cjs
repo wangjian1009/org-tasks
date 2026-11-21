@@ -396,7 +396,7 @@ function remoteCheckFixture(states) {
       constructor(url, username, password) { policies.push([url, username, password]); }
     } };
   });
-  const configs = states.map((_, index) => ({ rootDirectory: `/repo-${index}`, webdavEnabled: true,
+  const configs = states.map((_, index) => ({ id: `host-${index}`, rootDirectory: `/repo-${index}`, webdavEnabled: true,
     webdavUrl: `https://example.test/${index}`, webdavUsername: 'user', webdavPassword: 'secret',
     excludedDirectories: ['archive'] }));
   const repos = configs.map((config, index) => ({ id: `core-${index}`, rootDirectory: config.rootDirectory }));
@@ -415,7 +415,8 @@ function remoteCheckFixture(states) {
       return ids.map(repoId => ({ repoId, record: { result: 'succeeded' }, error: null }));
     }
   });
-  return { calls, policies, configs, run: reason => NativeCoreService.syncWorkspaceWebDav(configs, undefined, '', undefined, reason) };
+  return { calls, policies, configs, run: (reason, repositoryId) =>
+    NativeCoreService.syncWorkspaceWebDav(configs, undefined, '', undefined, reason, repositoryId) };
 }
 
 test('启动无参检查全部仓库，仅将有变化或未知的仓库列表交给 Core 同步', async () => {
@@ -441,5 +442,13 @@ test('手动与退后台直接传指定仓库列表，关闭远端时解绑 Poli
     f.configs[1].webdavEnabled = false;
     await f.run(reason);
     assert.deepEqual(f.calls, [['set', 'core-0', ['archive']], ['remove', 'core-1'], ['sync', ['core-0'], reason === 'background' ? 'localChanged' : 'manual']]);
+  }
+});
+
+test('新建与重置都仅同步选中仓库并保留独立原因', async () => {
+  for (const reason of ['repositoryCreated', 'repositoryReset']) {
+    const f = remoteCheckFixture([true, false, true]);
+    await f.run(reason, 'host-1');
+    assert.deepEqual(f.calls, [['set', 'core-1', ['archive']], ['sync', ['core-1'], reason]]);
   }
 });

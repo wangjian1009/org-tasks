@@ -55,6 +55,7 @@ export function syncLogTimeLabel(timestamp: number | null, compact: boolean = fa
 
 export function visibleSyncLogs(records: CoreSyncRecord[], showUnchanged: boolean): CoreSyncRecord[] {
   return showUnchanged ? records : records.filter((record: CoreSyncRecord) =>
+    record.triggerReason === 'repositoryCreated' || record.triggerReason === 'repositoryReset' ||
     record.transfer !== 'unchanged' || record.executionResult !== 'succeeded' || record.conflicts.length > 0 || record.incomplete || record.conflictCount === null)
 }
 
@@ -67,6 +68,8 @@ export function syncLogTriggerLabel(record: CoreSyncRecord): string {
     case 'remoteChanged': return '远端变化'
     case 'localChanged': return '本地变化'
     case 'manual': return '手动同步'
+    case 'repositoryCreated': return '新建仓库'
+    case 'repositoryReset': return '重置仓库'
     case 'appStartup': return '应用启动'
     case 'appBackground': return '退到后台'
     default: return record.triggerReason ? '未知触发原因' : '未记录触发原因'

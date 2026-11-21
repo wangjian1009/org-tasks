@@ -4,7 +4,6 @@ import { TrashService } from './TrashService'
 import { TrashSettingsService } from './TrashSettingsService'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
-import { AppConfigService } from './AppConfigService'
 import { DataSet, DataSetDefinition, DataSetManager } from './DataSetManager'
 import { CoreOrgFileRef, CoreQuery, CoreQueryResult } from './NativeCoreService'
 import { FileTargetKind, FileTargetService, configuredSpecialFileExclusions, fileTargetRepository, systemTrashExclusions } from './FileTargetService'
@@ -137,9 +136,6 @@ export class AppDataManager {
     await Promise.all(failed.map(dataSet => dataSet.refresh()))
   }
   private hasTarget(kind: FileTargetKind): boolean { return !!this.config && !!fileTargetRepository(this.config, kind) }
-  async targetConfigured(kind: FileTargetKind): Promise<boolean> {
-    return !!fileTargetRepository(await AppConfigService.load(this.context, false), kind)
-  }
   targetCount(kind: FileTargetKind, confirmed: boolean = false): number {
     if (!this.hasTarget(kind)) return -1
     const tasks = this.dataSet(`${kind}Tasks`), file = this.dataSet(`${kind}File`)

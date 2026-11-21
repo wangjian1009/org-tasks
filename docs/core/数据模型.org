@@ -848,7 +848,7 @@ pub struct SyncOptions {
 }
 
 #[serde(rename_all = "camelCase")]
-pub enum SyncTriggerReason { RemoteChanged, LocalChanged, Manual }
+pub enum SyncTriggerReason { RemoteChanged, LocalChanged, RepositoryCreated, RepositoryReset, Manual }
 #+end_src
 
 \begin{center}
@@ -859,13 +859,13 @@ base: PathBuf \\
 options: SyncOptions}{}
 \umlclass[x=7,y=0]{SyncOptions}{excluded\_directories: Vec\textless String\textgreater \\
 trigger\_reason: SyncTriggerReason}{}
-\umlclass[x=7,y=-3]{SyncTriggerReason}{RemoteChanged \\ LocalChanged \\ Manual}{}
+\umlclass[x=7,y=-3,type=enumeration]{SyncTriggerReason}{RemoteChanged \\ LocalChanged \\ RepositoryCreated \\ RepositoryReset \\ Manual}{}
 \umldep{SyncOptions}{SyncTriggerReason}
 \umluniassoc[mult1=1,mult2=1]{SyncContext}{SyncOptions}
 \end{tikzpicture}
 \end{center}
 
-~SyncTriggerReason~ 只有 ~RemoteChanged~ （远端变化）、 ~LocalChanged~ （本地变化）与 ~Manual~ （手动同步），JSON 值分别为 ~remoteChanged~ 、 ~localChanged~ 与 ~manual~ 。默认值为 ~Manual~ ，未知值拒绝，不映射旧原因。启动和退后台是宿主入口信息，不作为当前同步原因。
+~SyncTriggerReason~ 包含 ~RemoteChanged~ （远端变化）、 ~LocalChanged~ （本地变化）、 ~Manual~ （手动同步）、 ~RepositoryCreated~ （新建仓库）和 ~RepositoryReset~ （重置仓库）。JSON 值依次为 ~remoteChanged~ 、 ~localChanged~ 、 ~manual~ 、 ~repositoryCreated~ 与 ~repositoryReset~ 。默认值为 ~Manual~ ，未知值拒绝，不映射旧原因。启动和退后台是宿主入口信息，不作为当前同步原因。
 
 * 通用批量查询模型
 

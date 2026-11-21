@@ -121,6 +121,8 @@ pub struct SyncOptions {
 pub enum SyncTriggerReason {
     RemoteChanged,
     LocalChanged,
+    RepositoryCreated,
+    RepositoryReset,
     #[default]
     Manual,
 }
@@ -182,6 +184,8 @@ mod sync_options_tests {
             (SyncTriggerReason::Manual, "manual"),
             (SyncTriggerReason::RemoteChanged, "remoteChanged"),
             (SyncTriggerReason::LocalChanged, "localChanged"),
+            (SyncTriggerReason::RepositoryCreated, "repositoryCreated"),
+            (SyncTriggerReason::RepositoryReset, "repositoryReset"),
         ] {
             let options: SyncOptions = serde_json::from_value(serde_json::json!({
                 "triggerReason": value,

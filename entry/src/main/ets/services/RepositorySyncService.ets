@@ -1,7 +1,7 @@
 import { CoreSettings } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
-import { RepoConfig } from '../models/OrgTask'
+import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { CoreBridgeError, CoreWebDavSyncEvent, NativeCoreService, SyncRequestSource, coreErrorMessage } from './NativeCoreService'
 import { DeviceBadgeService } from './DeviceBadgeService'
 import { DataSetManager } from './DataSetManager'
@@ -16,6 +16,8 @@ export enum SyncStartPolicy {
 export interface SyncStartOptions {
   source: SyncRequestSource
   policy: SyncStartPolicy
+  repositoryId?: string
+  beforeSync?: (config: AppConfig) => Promise<void>
 }
 
 export interface SyncCompletion {
@@ -44,6 +46,7 @@ export type SyncStartResult = SyncAccepted | SyncRejected
 interface SyncRequest {
   context: Context
   handle: SyncHandle
+  options: SyncStartOptions
   complete: (completion: SyncCompletion) => void
 }
 
@@ -111,7 +114,7 @@ export class RepositorySyncService {
     let complete: (completion: SyncCompletion) => void = (_completion: SyncCompletion): void => {}
     const completion = new Promise<SyncCompletion>((resolve): void => { complete = resolve })
     const handle: SyncHandle = { id: ++RepositorySyncService.nextId, source: options.source, completion }
-    const request: SyncRequest = { context, handle, complete }
+    const request: SyncRequest = { context, handle, options, complete }
     if (active) {
       RepositorySyncService.pending.push(request)
       return { kind: 'queued', handle }
@@ -129,13 +132,13 @@ export class RepositorySyncService {
   private static async execute(request: SyncRequest): Promise<void> {
     let completion: SyncCompletion
     try {
-      completion = await RepositorySyncService.run(request.context, request.handle.source)
+      completion = await RepositorySyncService.run(request.context, request.options)
     } catch (error) {
       const state = RepositorySyncService.state
       state.running = false
       state.error = true
       state.message = `同步失败：${coreErrorMessage(error as CoreBridgeError)}`
-      RepositorySyncService.failures.push(RepositorySyncService.snapshot())
+      if (!request.options.repositoryId) RepositorySyncService.failures.push(RepositorySyncService.snapshot())
       RepositorySyncService.publish()
       completion = { status: 'failed', message: state.message }
     }
@@ -145,7 +148,7 @@ export class RepositorySyncService {
     if (next) RepositorySyncService.activate(next)
   }
 
-  private static async run(context: Context, source: SyncRequestSource): Promise<SyncCompletion> {
+  private static async run(context: Context, options: SyncStartOptions): Promise<SyncCompletion> {
     console.info('文件同步开始')
     const generation = ++RepositorySyncService.generation
     const state = RepositorySyncService.state
@@ -161,6 +164,12 @@ export class RepositorySyncService {
     let coreSettings: CoreSettings = { additionStates: [] }
     try {
       const config = await AppConfigService.load(context)
+      const selected = options.repositoryId
+        ? config.repos.filter((repo: RepoConfig) => repo.id === options.repositoryId) : config.repos
+      if (options.repositoryId && !selected.some((repo: RepoConfig) => repo.webdavEnabled)) {
+        throw new Error('目标仓库不存在或未启用 WebDAV')
+      }
+      if (options.beforeSync) await options.beforeSync(config)
       repos = config.repos
       todoDefaults = config.todoDefaults
       coreSettings = config.coreSettings
@@ -170,7 +179,7 @@ export class RepositorySyncService {
         state.message = '请先添加存储库'
         return { status: 'failed', message: state.message }
       }
-      RepositorySyncService.repositoryCount = repos.filter((repo: RepoConfig) => repo.webdavEnabled).length
+      RepositorySyncService.repositoryCount = selected.filter((repo: RepoConfig) => repo.webdavEnabled).length
       RepositorySyncService.completedRepositories = 0
       RepositorySyncService.fileTotal = 0
       RepositorySyncService.processedFiles = 0
@@ -180,7 +189,7 @@ export class RepositorySyncService {
         ? NativeCoreService.syncWorkspaceWebDav(repos,
           (event: CoreWebDavSyncEvent) => {
             if (generation === RepositorySyncService.generation) RepositorySyncService.updateProgress(event)
-          }, todoDefaults, coreSettings, source)
+          }, todoDefaults, coreSettings, options.source, options.repositoryId)
         : NativeCoreService.workspaceFor(repos, todoDefaults, coreSettings))
       if (source === 'manual' && (RepositorySyncService.repositoryCount === 0 || NotificationManager.hasMissingRepository())) {
         await DataSetManager.reloadRepositories()
@@ -195,7 +204,7 @@ export class RepositorySyncService {
     } finally {
       state.running = false
       console.info(state.error ? '文件同步失败' : '文件同步完成')
-      if (state.error) RepositorySyncService.failures.push(RepositorySyncService.snapshot())
+      if (state.error && !options.repositoryId) RepositorySyncService.failures.push(RepositorySyncService.snapshot())
       RepositorySyncService.publish()
       try { await DeviceBadgeService.refresh(context, true) }
       catch (_) { console.error('同步后刷新角标失败') }

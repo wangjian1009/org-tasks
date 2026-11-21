@@ -13,8 +13,8 @@ import { NotificationManager } from '../services/NotificationManager'
 import { SidebarDataManager, SidebarSnapshot } from '../services/SidebarDataManager'
 import { ProjectNavigation } from '../services/ProjectNavigation'
 import { fileTaskProgress, fileTaskCount, fileCompletedTaskCount, projectSections, ProjectSection } from '../ui/NotebookPresentation'
-import { overviewTitle, TaskView } from '../services/TaskViewQueries'
-import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
+import { TaskView } from '../services/TaskViewQueries'
+import { CoreOrgFileMetadata } from '../services/NativeCoreService'
 import { RegionOrderService } from '../services/RegionOrderService'
 import { RegionOrder } from '../ui/RegionOrderPresentation'
 
@@ -134,20 +134,7 @@ export struct AppShell {
   }
 
   async openPrimary(view: TaskView | 'inbox') {
-    this.drawerOpen = false
-    try {
-      if ((view === 'inbox' || view === 'someday' || view === 'memo') && !await this.navigationDataManager().targetConfigured(view)) {
-        const title = view === 'inbox' ? '收件箱' : overviewTitle(view)
-        this.getUIContext().showAlertDialog({ title: `${title}文件未选择或已失效`, message: `请在设置的“文件入口”中重新选择${title}的仓库和文件。`,
-          primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '前往设置', action: (): void => {
-            this.drawerOpen = false
-            PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
-          } } })
-        return
-      }
-      this.drawerOpen = false
-      await PageNavigator.shared.openPrimary(this.getUIContext(), primaryPage(view))
-    } catch (e) { this.navMessage = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    await this.navigate(primaryPage(view).url)
   }
 
   async navigate(route: string) {

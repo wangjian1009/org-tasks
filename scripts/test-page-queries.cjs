@@ -598,7 +598,7 @@ test('侧边栏配置改变使旧查询与缓存失效，入口状态按新配�
   assert.equal(page.inboxCount,0);
   f.config.inboxFile='';f.configChanged();await page.sidebarManager.start();
   assert.equal(page.inboxCount,-1);assert.equal(f.batches.at(-1).length,20);
-  assert.equal(f.disk.size,0,'侧边栏不再持有独立缓存');assert.equal(await page.sidebarManager.targetConfigured('inbox'),false);
+  assert.equal(f.disk.size,0,'侧边栏不再持有独立缓存');
 });
 
 

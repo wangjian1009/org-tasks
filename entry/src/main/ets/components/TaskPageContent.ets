@@ -353,16 +353,16 @@ export struct TaskPageContent {
       }
       if (this.loading) {
         NotificationEmptyState({ title: '正在读取任务', busy: true })
-      } else if (this.needsConfiguration) {
-        NotificationEmptyState({ title: `${overviewTitle(this.view)}文件未选择或已失效`, detail: '请在设置的“文件入口”中重新选择仓库和文件。',
-          actionLabel: '前往设置', action: (): void => {
-            PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
-          } })
       } else if (this.message) {
         NotificationEmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => {
           const dataSet = this.targetDataSet?.error ? this.targetDataSet : this.rangeDataSet?.error ? this.rangeDataSet : this.priorityDataSet?.error ? this.priorityDataSet : this.taskDataSet()
           dataSet.refresh().catch((error: Error): void => { this.message = error.message })
         } })
+      } else if (this.needsConfiguration) {
+        NotificationEmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
+          actionLabel: '前往设置', action: (): void => {
+            PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
+          } })
       } else {
         if (this.supportsTagFilter()) {
           TaskTagFilter({ tags: this.tagOptions, selectedTags: this.selectedTags, exclusiveGroups: this.tagGroups,
@@ -435,7 +435,7 @@ export struct TaskPageContent {
       if (this.view === 'someday' && !this.drawerOpen) {
         TaskSelectionToolbar({ selection: this.selection, operations: taskPageActionPolicy(this.view).bulkOperations, idPrefix: this.view })
       }
-      if (this.view === 'memo' && !this.drawerOpen) {
+      if (this.view === 'memo' && this.pageReady && !this.needsConfiguration && !this.drawerOpen) {
         Button({ type: ButtonType.Circle }) {
           Image($r('app.media.ui_add_primary')).width(28).height(28)
         }.id('memo_create').width(56).height(56).backgroundColor(UiColor.primary)

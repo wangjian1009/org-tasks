@@ -717,17 +717,17 @@ struct Settings {
             }.width('100%').layoutWeight(1).align(Alignment.TopStart)
           }
         }.width('100%').height('100%')
+          .bindSheet($$this.appLinkPickerOpen, this.appLinkPickerSheet, {
+            height: '55%', detents: ['55%', '85%'], preferType: SheetType.BOTTOM,
+            backgroundColor: UiColor.container, showClose: true,
+            onWillDismiss: (): void => { if (!this.appLinkBusy && !this.appLinkPickerBusy) this.appLinkPickerOpen = false }
+          })
       }
     }.width('100%').height('100%')
       .bindSheet($$this.filePickerOpen, this.filePicker, {
         height: '70%', detents: ['70%', '90%'], preferType: SheetType.BOTTOM,
         backgroundColor: UiColor.container, showClose: true,
         onWillDismiss: (action): void => { if (!this.filePickerBusy) action.dismiss() }
-      })
-      .bindSheet($$this.appLinkPickerOpen, this.appLinkPickerSheet, {
-        height: '55%', detents: ['55%', '85%'], preferType: SheetType.BOTTOM,
-        backgroundColor: UiColor.container, showClose: true,
-        onWillDismiss: (): void => { if (!this.appLinkBusy && !this.appLinkPickerBusy) this.appLinkPickerOpen = false }
       })
   }
 }
