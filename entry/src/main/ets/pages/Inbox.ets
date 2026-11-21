@@ -380,6 +380,7 @@ struct Inbox {
               ListItem() { Column().height(this.selection.selecting ? 156 : 104) }.fullWidthItem()
             }.id('inbox_task_list').width('100%').padding({ left: 12, right: 12 })
               .clipContent(ContentClipMode.BOUNDARY)
+              .scrollBar(BarState.Off)
               .layoutWeight(1).enableScrollInteraction(!this.checklistDragging)
               .onAreaChange((oldArea: Area, newArea: Area): void => {
                 this.listHeight = parseFloat(newArea.height.toString())
