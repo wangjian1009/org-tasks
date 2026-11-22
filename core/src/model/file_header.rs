@@ -406,6 +406,7 @@ pub(crate) fn merge_headers(
     local: &OrgFile,
     remote: &OrgFile,
     merged: &mut OrgFile,
+    prefer_remote_file_id: bool,
 ) -> Result<Option<String>, CoreError> {
     let b = grouped(base);
     let l = grouped(local);
@@ -419,6 +420,14 @@ pub(crate) fn merge_headers(
         let bv = values(b.get(&key));
         let lv = values(l.get(&key));
         let rv = values(r.get(&key));
+        if prefer_remote_file_id
+            && key.source == "drawer"
+            && key.name == "ID"
+            && matches!(lv.as_slice(), [id] if !id.is_empty())
+            && matches!(rv.as_slice(), [id] if !id.is_empty())
+        {
+            continue;
+        }
         if lv == bv || lv == rv {
             continue;
         }

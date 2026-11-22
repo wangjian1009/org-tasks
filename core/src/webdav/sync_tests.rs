@@ -1406,6 +1406,62 @@ async fn same_file_id_preserves_the_ancestor_when_either_side_renames() {
 }
 
 #[tokio::test]
+async fn remote_swap_uses_file_ids_before_trying_either_path() {
+    let base_a = b":PROPERTIES:\n:ID: A\n:END:\n* TODO Task A\nOriginal A\n";
+    let base_b = b":PROPERTIES:\n:ID: B\n:END:\n* TODO Task B\nOriginal B\n";
+    let (mut repo, root) = repo().await;
+    let (policy, dav, worker) = server(&[("a.org", base_a), ("b.org", base_b)]).await;
+    assert_eq!(sync(&mut repo, &policy, 1).await.result, Some(OrgRepoSyncResult::Succeeded));
+    tokio::fs::write(root.join("a.org"), b":PROPERTIES:\n:ID: A\n:END:\n* DONE Task A\nOriginal A\n").await.unwrap();
+    {
+        let mut dav = dav.lock().unwrap();
+        dav.files.insert("a.org".into(), Remote { data: base_b.to_vec(), etag: "\"v2-a\"".into() });
+        dav.files.insert("b.org".into(), Remote {
+            data: b":PROPERTIES:\n:ID: A\n:END:\n* TODO Task A\nRemote note A\n".to_vec(),
+            etag: "\"v2-b\"".into(),
+        });
+    }
+    let result = sync(&mut repo, &policy, 2).await;
+    let merged_a = b":PROPERTIES:\n:ID: A\n:END:\n* DONE Task A\nRemote note A\n";
+    assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(result.files.len(), 2);
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), base_b);
+    assert_eq!(tokio::fs::read(root.join("b.org")).await.unwrap(), merged_a);
+    assert_eq!(baseline_source(&root, "a.org", true).await.unwrap(), base_b);
+    assert_eq!(baseline_source(&root, "b.org", true).await.unwrap(), merged_a);
+    {
+        let dav = dav.lock().unwrap();
+        assert_eq!(dav.files["a.org"].data, base_b);
+        assert_eq!(dav.files["b.org"].data, merged_a);
+        assert!(dav.requests.iter().all(|request| !request.starts_with("DELETE")));
+    }
+    assert_eq!(sync(&mut repo, &policy, 3).await.result, Some(OrgRepoSyncResult::Succeeded));
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn differing_new_file_ids_fall_back_to_path_and_keep_the_remote_id() {
+    let base = b"* TODO Task\nOriginal\n";
+    let local = b":PROPERTIES:\n:ID: local-id\n:END:\n* DONE Task\nOriginal\n";
+    let remote = b":PROPERTIES:\n:ID: remote-id\n:END:\n* TODO Task\nRemote note\n";
+    let merged = b":PROPERTIES:\n:ID: remote-id\n:END:\n* DONE Task\nRemote note\n";
+    let (mut repo, root) = repo().await;
+    let (policy, dav, worker) = server(&[("a.org", base)]).await;
+    assert_eq!(sync(&mut repo, &policy, 1).await.result, Some(OrgRepoSyncResult::Succeeded));
+    tokio::fs::write(root.join("a.org"), local).await.unwrap();
+    dav.lock().unwrap().files.insert("a.org".into(), Remote { data: remote.to_vec(), etag: "\"v2\"".into() });
+    let result = sync(&mut repo, &policy, 2).await;
+    assert_eq!(result.result, Some(OrgRepoSyncResult::Succeeded));
+    assert_eq!(result.files[0].outcome, OrgRepoSyncFileOutcome::Merged);
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), merged);
+    assert_eq!(baseline_source(&root, "a.org", true).await.unwrap(), merged);
+    assert_eq!(dav.lock().unwrap().files["a.org"].data, merged);
+    worker.abort();
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
 async fn repeated_file_id_stops_the_plan_before_any_repo_commit_or_remote_write() {
     let base = b":PROPERTIES:\n:ID: stable-file\n:END:\n* TODO Task\n";
     let (mut repo, root) = repo().await;

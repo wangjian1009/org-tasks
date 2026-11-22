@@ -55,6 +55,7 @@ pub(super) struct Comparison {
     group: Group,
     output: String,
     operation: Operation,
+    obsolete_paths: Vec<String>,
 }
 
 enum Operation {
@@ -95,6 +96,7 @@ impl Comparison {
             group,
             output,
             operation,
+            obsolete_paths: Vec::new(),
         })
     }
 }
@@ -155,103 +157,206 @@ impl Prepared<LocalFileVersion> {
 
 type FileError = (String, CoreError);
 
-pub(super) fn groups(
-    snapshots: &Snapshots,
-    paths: &[String],
-    options: &crate::SyncOptions,
-) -> Result<Vec<Comparison>, FileError> {
-    let mut by_id = BTreeMap::<String, Group>::new();
-    let mut by_path = BTreeMap::<String, String>::new();
-    let mut unnamed = Vec::new();
-    for (side, sources) in [&snapshots.base, &snapshots.local, &snapshots.remote]
-        .into_iter()
-        .enumerate()
-    {
+struct FileIndex {
+    remaining: BTreeSet<String>,
+    by_id: BTreeMap<String, String>,
+}
+
+impl FileIndex {
+    fn new(sources: &Sources, paths: &[String]) -> Result<Self, FileError> {
+        let mut index = Self {
+            remaining: BTreeSet::new(),
+            by_id: BTreeMap::new(),
+        };
         for path in paths {
             let Some(bytes) = sources.get(path).and_then(Option::as_deref) else {
                 continue;
             };
+            index.remaining.insert(path.clone());
             let id = file_id(path, bytes).map_err(|error| (path.clone(), error))?;
-            let Some(id) = id else {
-                unnamed.push((side, path));
-                continue;
-            };
-            if by_path.get(path).is_some_and(|previous| previous != &id) {
-                return Err((
-                    path.clone(),
-                    CoreError::InvalidState("同一路径对应不同的 Org 文件 ID"),
-                ));
-            }
-            by_path.insert(path.clone(), id.clone());
-            let group = by_id.entry(id).or_default();
-            if group.paths[side].replace(path.clone()).is_some() {
+            if let Some(id) = id
+                && index.by_id.insert(id, path.clone()).is_some()
+            {
                 return Err((
                     path.clone(),
                     CoreError::InvalidState("同一快照有重复的 Org 文件 ID"),
                 ));
             }
         }
+        Ok(index)
     }
 
-    let mut path_groups = BTreeMap::<String, Group>::new();
-    for (side, path) in unnamed {
-        let group = match by_path.get(path) {
-            Some(id) => by_id.get_mut(id).expect("路径关联到已有文件 ID"),
-            None => path_groups.entry(path.clone()).or_default(),
-        };
-        if group.paths[side].replace(path.clone()).is_some() {
-            return Err((
+    fn take_id(&mut self, id: &str) -> Option<String> {
+        let path = self.by_id.get(id)?;
+        self.remaining.take(path)
+    }
+}
+
+pub(super) fn groups(
+    snapshots: &Snapshots,
+    paths: &[String],
+    options: &crate::SyncOptions,
+) -> Result<Vec<Comparison>, FileError> {
+    let mut base = FileIndex::new(&snapshots.base, paths)?;
+    let mut local = FileIndex::new(&snapshots.local, paths)?;
+    let remote = FileIndex::new(&snapshots.remote, paths)?;
+    let protected = excluded_paths(snapshots, options, [&base, &local, &remote])?;
+    let mut groups = remote
+        .remaining
+        .iter()
+        .map(|path| {
+            (
                 path.clone(),
-                CoreError::InvalidState("相对路径与 Org 文件 ID 的匹配有歧义"),
-            ));
+                Group {
+                    paths: [None, None, Some(path.clone())],
+                    additional_path: None,
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    // 全部远端 ID 优先认领基线与本地版本，同路径补配只能取得各侧余下的文件。
+    for (id, path) in &remote.by_id {
+        let group = groups.get_mut(path).expect("远端文件已建立比较组");
+        group.paths[BASE] = base.take_id(id);
+        group.paths[LOCAL] = local.take_id(id);
+    }
+    for (path, group) in &mut groups {
+        if group.paths[BASE].is_none() {
+            group.paths[BASE] = base.remaining.take(path);
+        }
+        if group.paths[LOCAL].is_none() {
+            group.paths[LOCAL] = local.remaining.take(path);
         }
     }
+
+    // 远端已删除的文件仍按 ID 找回旧基线，以识别本地改名。
+    let mut remaining_local = BTreeMap::<String, String>::new();
+    for (id, path) in local.by_id {
+        if local.remaining.contains(&path)
+            && let Some(base_path) = base.take_id(&id)
+        {
+            remaining_local.insert(path, base_path);
+        }
+    }
+    let mut groups = groups.into_values().collect::<Vec<_>>();
+    groups.extend(local.remaining.into_iter().map(|path| {
+        let baseline = remaining_local
+            .remove(&path)
+            .or_else(|| base.remaining.take(&path));
+        Group {
+            paths: [baseline, Some(path), None],
+            additional_path: None,
+        }
+    }));
+    groups.extend(base.remaining.into_iter().map(|path| Group {
+        paths: [Some(path), None, None],
+        additional_path: None,
+    }));
     for path in paths {
-        if !by_path.contains_key(path) {
-            path_groups.entry(path.clone()).or_default().additional_path = Some(path.clone());
+        let exists = [&snapshots.base, &snapshots.local, &snapshots.remote]
+            .iter()
+            .any(|sources| sources.get(path).is_some_and(Option::is_some));
+        if !exists {
+            groups.push(Group {
+                paths: [None, None, None],
+                additional_path: Some(path.clone()),
+            });
         }
     }
-    // 远端未列举的排除目录没有正文。可从本地和共同祖先识别的排除路径
-    // 仍可保护对应文件，避免把跨过滤边界的移动解释为删除。
-    let mut excluded = BTreeSet::new();
-    for file in snapshots
-        .files
-        .iter()
-        .filter(|file| options.excludes_path(&file.path))
-    {
-        if let Some(id) =
-            file_id(&file.path, file.source_bytes()).map_err(|error| (file.path.clone(), error))?
-        {
-            excluded.insert(id);
-        }
-    }
-    for (path, bytes) in snapshots
-        .base
-        .iter()
-        .filter(|(path, _)| options.excludes_path(path))
-    {
-        if let Some(bytes) = bytes
-            && let Some(id) = file_id(path, bytes).map_err(|error| (path.clone(), error))?
-        {
-            excluded.insert(id);
-        }
-    }
-    let mut groups = by_id
-        .into_iter()
-        .filter_map(|(id, group)| (!excluded.contains(&id)).then_some(group))
-        .chain(path_groups.into_values())
-        .collect::<Vec<_>>();
+
+    groups.retain(|group| {
+        !group
+            .paths
+            .iter()
+            .flatten()
+            .any(|path| protected.contains(path))
+    });
     groups.sort_by(|left, right| {
         (left.path() != TASK_SCAN_RULES_PATH, left.path())
             .cmp(&(right.path() != TASK_SCAN_RULES_PATH, right.path()))
     });
-    groups
+    let mut comparisons = groups
         .into_iter()
         .map(|group| {
             let path = group.path().to_owned();
             Comparison::new(group, snapshots).map_err(|error| (path, error))
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    assign_paths(&mut comparisons, snapshots)?;
+    Ok(comparisons)
+}
+
+fn excluded_paths(
+    snapshots: &Snapshots,
+    options: &crate::SyncOptions,
+    indexes: [&FileIndex; 3],
+) -> Result<BTreeSet<String>, FileError> {
+    // 远端过滤目录没有正文。用已知本地和祖先的排除路径保护对应文件身份。
+    let excluded = snapshots
+        .files
+        .iter()
+        .map(|file| (&file.path, file.source_bytes()))
+        .chain(
+            snapshots
+                .base
+                .iter()
+                .filter_map(|(path, bytes)| Some((path, bytes.as_deref()?))),
+        )
+        .filter(|(path, _)| options.excludes_path(path))
+        .map(|(path, bytes)| file_id(path, bytes).map_err(|error| (path.clone(), error)))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(excluded
+        .into_iter()
+        .flatten()
+        .flat_map(|id| {
+            indexes
+                .iter()
+                .filter_map(move |index| index.by_id.get(&id).cloned())
+        })
+        .collect())
+}
+
+fn assign_paths(comparisons: &mut [Comparison], snapshots: &Snapshots) -> Result<(), FileError> {
+    let mut targets = BTreeSet::new();
+    for comparison in comparisons
+        .iter()
+        .filter(|item| !matches!(item.operation, Operation::Remove))
+    {
+        let path = &comparison.output;
+        if !targets.insert(path.clone())
+            || (snapshots.remote.get(path).is_some_and(Option::is_some)
+                && comparison.group.paths[REMOTE].as_ref() != Some(path))
+        {
+            return Err((
+                path.clone(),
+                CoreError::InvalidState("同步目标路径已被另一文件占用"),
+            ));
+        }
+    }
+
+    // 交换路径时两个目标都保留。未被任何结果占用的路径由持有远端、本地或基线版本的组清理。
+    let mut obsolete = BTreeMap::new();
+    for side in [BASE, LOCAL, REMOTE] {
+        for (index, comparison) in comparisons.iter().enumerate() {
+            if let Some(path) = &comparison.group.paths[side]
+                && !targets.contains(path)
+            {
+                obsolete.insert(path.clone(), index);
+            }
+        }
+    }
+    for (index, comparison) in comparisons.iter().enumerate() {
+        if let Some(path) = &comparison.group.additional_path
+            && !targets.contains(path)
+        {
+            obsolete.insert(path.clone(), index);
+        }
+    }
+    for (path, index) in obsolete {
+        comparisons[index].obsolete_paths.push(path);
+    }
+    Ok(())
 }
 
 fn file_id(path: &str, bytes: &[u8]) -> Result<Option<String>, CoreError> {
@@ -283,6 +388,7 @@ pub(super) async fn execute(
         group,
         output,
         operation,
+        obsolete_paths,
     } = comparison;
     let path = output.as_str();
     let get = |side: usize, sources: &Sources| -> Option<Vec<u8>> {
@@ -295,7 +401,8 @@ pub(super) async fn execute(
     let before = get(LOCAL, &snapshots.local);
     let remote = get(REMOTE, &snapshots.remote);
     let base = get(BASE, &snapshots.base);
-    let (result, conflicts) = if matches!(operation, Operation::SyncRules) {
+    let sync_rules = matches!(operation, Operation::SyncRules);
+    let (result, conflicts) = if sync_rules {
         let baseline = snapshots.base.get(path);
         if remote.is_none() && baseline.is_none() {
             return Ok(Vec::new());
@@ -327,16 +434,13 @@ pub(super) async fn execute(
 
     let remote_deleted = !snapshots.detached && base.is_some() && remote.is_none();
     let archive_path = group.paths[LOCAL].as_deref().unwrap_or(path);
-    let mut paths = group
-        .paths
-        .iter()
-        .flatten()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    paths.remove(path);
-    // 先写目标，再清理改名前的路径。一个比较组完全拥有这些路径。
-    let mut prepared = Vec::with_capacity(paths.len() + 1);
-    for destination in std::iter::once(path).chain(paths) {
+    let result_path = (result.is_some() || sync_rules).then_some(path);
+    let mut prepared =
+        Vec::with_capacity(obsolete_paths.len() + usize::from(result_path.is_some()));
+    for destination in result_path
+        .into_iter()
+        .chain(obsolete_paths.iter().map(String::as_str))
+    {
         let physical_local = snapshots.local.get(destination).cloned().flatten();
         let physical_remote = snapshots.remote.get(destination).cloned().flatten();
         let result = if destination == path {

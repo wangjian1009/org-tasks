@@ -18,6 +18,7 @@ pub fn merge(
         &parse(base_data)?,
         &parse(local_data)?,
         &parse(remote_data)?,
+        false,
     )
 }
 
@@ -32,7 +33,7 @@ pub(crate) async fn merge_file_with_base(
     base: OrgFile,
 ) -> Result<MergeResult, CoreError> {
     tokio::task::spawn_blocking(move || {
-        let content = merge_with_container(&base, &local, &remote)?;
+        let content = merge_with_container(&base, &local, &remote, true)?;
         let merged = reparse(&remote, content)?;
         let has_conflicts = has_conflicts(&merged);
         Ok(MergeResult { content: merged.source_bytes, has_conflicts })
@@ -1197,6 +1198,7 @@ fn merge_with_container(
     base: &OrgFile,
     local: &OrgFile,
     remote: &OrgFile,
+    prefer_remote_file_id: bool,
 ) -> Result<Vec<u8>, CoreError> {
     use crate::model::conflict::{self, ConflictPoint};
     let mut points = merge_conflict_points(base, local, remote)?;
@@ -1204,7 +1206,9 @@ fn merge_with_container(
     let l = reparse(local, conflict::main_source(local))?;
     let r = reparse(remote, conflict::main_source(remote))?;
     let mut merged = reparse(remote, merge_nodes(&b, &l, &r)?)?;
-    if let Some(payload) = crate::model::file_header::merge_headers(&b, &l, &r, &mut merged)? {
+    if let Some(payload) = crate::model::file_header::merge_headers(
+        &b, &l, &r, &mut merged, prefer_remote_file_id,
+    )? {
         let id = hash(
             &serde_json::to_vec(&(&remote.repo_id, &remote.path, "header", &payload))
                 .expect("冲突身份可序列化"),
