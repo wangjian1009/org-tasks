@@ -8,6 +8,7 @@ export enum TaskOperation {
   Wait = 'wait',
   Cancel = 'cancel',
   Move = 'move',
+  Place = 'place',
   Project = 'project',
   Schedule = 'schedule',
   Deadline = 'deadline',
@@ -158,8 +159,12 @@ export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: T
   toggleStateCategory: TaskToggleStateCategory = null,
   toggleWaitCategory: TaskToggleStateCategory = null): TaskActionItem[] {
   const items = taskSingleMenu(policy.singleOperations, activate, toggleStateCategory, toggleWaitCategory)
-  items.push({ id: TaskOperation.Select, title: '多选', label: '进入批量编辑', icon: $r('app.media.ui_select_records'), style: 'selection', action: () => activate(TaskOperation.Select) })
+  items.push(taskSelectItem(() => activate(TaskOperation.Select)))
   return items
+}
+
+export function taskSelectItem(action: () => void): TaskActionItem {
+  return { id: TaskOperation.Select, title: '多选', label: '进入批量编辑', icon: $r('app.media.ui_select_records'), style: 'selection', action }
 }
 
 export function taskBatchMenu(policy: TaskPageActionPolicy, activate: (action: TaskBatchAction) => void): TaskActionItem[] {

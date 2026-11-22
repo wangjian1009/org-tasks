@@ -57,7 +57,8 @@ export interface ProjectReadingItem {
 }
 
 // 完整保留源节点；标签命中集合由 Core 查询提供，展示只更新可见性与祖先路径。
-export function projectReadingItems(sections: ProjectReadingSection[], matches: string[] | null = null): ProjectReadingItem[] {
+export function projectReadingItems(sections: ProjectReadingSection[], matches: string[] | null = null,
+  revealed: string[] = [], editLevels?: Map<string, number>): ProjectReadingItem[] {
   const result: ProjectReadingItem[] = []
   const parents: number[] = []
   const available: boolean[] = []
@@ -71,13 +72,19 @@ export function projectReadingItems(sections: ProjectReadingSection[], matches: 
       parents.push(-1); available.push(true)
       continue
     }
-    while (ancestors.length > 0 && sections[ancestors[ancestors.length - 1]].node!.level >= node.level) ancestors.pop()
+    const level = editLevels?.get(section.key) ?? node.level
+    while (ancestors.length > 0) {
+      const candidate = sections[ancestors[ancestors.length - 1]]
+      if ((editLevels?.get(candidate.key) ?? candidate.node!.level) < level) break
+      ancestors.pop()
+    }
     parents.push(ancestors.length > 0 ? ancestors[ancestors.length - 1] : -1)
     ancestors.push(index)
-    const hidden = hiddenLevel > 0 && node.level > hiddenLevel
-    if (!hidden) hiddenLevel = node.editContent.ownTags.includes('ARCHIVE') || node.property('VISIBILITY') === 'folded' ? node.level : 0
+    const hidden = hiddenLevel > 0 && level > hiddenLevel
+    if (!hidden) hiddenLevel = !revealed.includes(section.key) &&
+      (node.editContent.ownTags.includes('ARCHIVE') || node.property('VISIBILITY') === 'folded') ? level : 0
     const next = sections[index + 1]?.node
-    const hasChildren = next !== null && next !== undefined && next.level > node.level
+    const hasChildren = !!next && (editLevels?.get(sections[index + 1].key) ?? next.level) > level
     const contextOnly = matched !== null && !!node.state && !matched.has(node.id)
     available.push(!hidden)
     result.push({ section, hasChildren, contextOnly, visible: !hidden && !contextOnly })

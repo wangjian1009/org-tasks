@@ -9,7 +9,7 @@ import { ProjectCreateSheet } from './editors/ProjectCreateSheet'
 import { DataSet } from '../services/DataSet'
 import { CoreTask, CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskSwipeOperations } from './TaskSwipeOperations'
-import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy, taskSwipeMenuWidth } from '../ui/TaskActionPresentation'
+import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy, taskSwipeMenuWidth, taskSelectItem } from '../ui/TaskActionPresentation'
 import { TaskStateCategory, taskStateToggleCategory, taskStateToggleWaitCategory } from '../ui/TaskStatePresentation'
 import { TaskEditorController } from '../ui/TaskEditorController'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
@@ -18,6 +18,7 @@ import { TaskSwipeActions } from './TaskSwipeActions'
 import { TaskSelectionRow } from './TaskSelectionRow'
 import { TaskEditor } from './editors/TaskEditor'
 import { RightSwipe, SwipeMenuCoordinator } from './controls/RightSwipe'
+import { PopupMenuItem } from './controls/PopupMenu'
 
 // 列表和文档共用双向滑动入口；页面专属菜单与动作通过插槽和回调接入。
 @Component
@@ -38,6 +39,11 @@ export struct TaskSwipeItem {
   @BuilderParam menuContent: (activate: (action: TaskOperation) => void) => void = this.swipeMenu
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop contentHidden: boolean = false
+  @Prop projectStructure: boolean = false
+  @Prop canOrderChildren: boolean = false
+  structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
+  placeNode: () => void = () => {}
+  selectNode: () => void = () => {}
   @Prop hiddenTags: string[] = []
   @Prop instanceKey: string = ''
   @Prop selecting: boolean = false
@@ -261,6 +267,13 @@ export struct TaskSwipeItem {
 
   swipeMenuItems(close?: () => void): TaskActionItem[] {
     const activate = (action: TaskOperation): void => { close?.(); this.activateOperation(action) }
+    if (this.projectStructure) {
+      const items = taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory, this.toggleWaitCategory)
+      items.unshift({ id: TaskOperation.Place, title: '放置', label: '在项目内放置任务', icon: $r('app.media.ui_place'),
+        action: (): void => { close?.(); this.placeNode() } })
+      items.push(taskSelectItem((): void => { close?.(); this.selectNode() }))
+      return items
+    }
     return this.selection ? taskSwipeMenu(taskActionPolicy({ singleOperations: this.singleOperations }), activate, this.toggleStateCategory, this.toggleWaitCategory) :
       taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory, this.toggleWaitCategory)
   }
@@ -292,6 +305,7 @@ export struct TaskSwipeItem {
     TaskEditor({ dataSet: this.dataSet, taskId: this.taskId, controller,
       internalLinkProcessor: this.internalLinkProcessor,
       contentHidden: this.contentHidden, hiddenTags: this.hiddenTags, instanceKey: this.instanceKey,
+      structureActions: this.structureActions, canOrderChildren: this.canOrderChildren, projectStructure: this.projectStructure,
       readOnly: this.readOnly,
       dateDisplay: this.dateDisplay, todayFlag: this.todayFlag, timeDisplay: this.timeDisplay, regionAreaPolicy: this.regionAreaPolicy,
       referenceTime: this.referenceTime, scrollHost: this.scrollHost, scrollHostId: this.scrollHostId })

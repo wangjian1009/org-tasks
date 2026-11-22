@@ -10,6 +10,7 @@ import { createPageTask, projectTaskFields } from './PageDataProjection'
 import { MoveToTargetService } from './MoveToTargetService'
 import { TrashService } from './TrashService'
 import { TaskDataSource, TaskDataChange } from './TaskDataSource'
+import { CoreTaskStructureRequest } from './NativeCoreService'
 export { TaskDataSource, TaskDataChange } from './TaskDataSource'
 
 export type DataSetQuery = CoreQuery
@@ -186,6 +187,28 @@ export class DataSet {
     }
   }
   async operate(execute: (operationId: string) => Promise<void>): Promise<void> { await this.runOperation(this.name, execute) }
+  async commitStructure(request: CoreTaskStructureRequest): Promise<string[]> {
+    const file = request.file.file
+    if (!file) throw new Error('项目文件路径为空')
+    const created = new Set<string>()
+    await this.runOperation(this.name, async (operationId: string): Promise<void> => {
+      const workspace = this.workspace
+      if (!workspace) throw new Error('底层连接不可用')
+      const group = await workspace.taskStructureOperations(request)
+      if (!group.operations.length) return
+      const before = new Set<string>(this.taskRows.get(this.name)?.keys() ?? [])
+      const stop = this.subscribe((event: DataSetEvent): void => {
+        if (event.operationId !== operationId || event.optimistic || !event.structureChanged) return
+        for (const key of this.taskRows.get(this.name)?.keys() ?? []) {
+          if (!before.has(key)) created.add(key)
+        }
+      })
+      group.operationId = operationId
+      try { await workspace.executeTaskOperations(group) }
+      finally { stop() }
+    }, [JSON.stringify([request.file.repoId, file])], true)
+    return Array.from(created)
+  }
   async submitOperationGroup(group: CoreTaskOperationGroup, allowed: () => boolean = () => true): Promise<void> {
     if (!group.operations.length) return
     const files = group.fileVersions?.map(version => JSON.stringify([version.repoId, version.file])) ?? this.scopeFiles()

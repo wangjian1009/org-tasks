@@ -58,6 +58,7 @@ extern "C" char* org_tasks_harmony_preview_operation(uint64_t handle, const char
 extern "C" void org_tasks_harmony_preview_release(uint64_t handle, const char* id);
 extern "C" char* org_tasks_harmony_workspace_execute_task_operations(uint64_t handle, const char* request);
 extern "C" char* org_tasks_harmony_workspace_task_merge_operations(uint64_t handle, const char* request);
+extern "C" char* org_tasks_harmony_workspace_task_structure_operations(uint64_t handle, const char* request);
 extern "C" char* org_tasks_harmony_workspace_sync_operation(uint64_t handle, const char* request, uint64_t monitor);
 extern "C" void org_tasks_harmony_webdav_sync_monitor_release(uint64_t monitor);
 extern "C" char* org_tasks_harmony_repo_snapshot(uint64_t workspace_handle, const char* repo_id);
@@ -153,6 +154,7 @@ struct WorkspaceStringWork {
     bool refile_targets = false;
     bool execute_operations = false;
     bool merge_operations = false;
+    bool structure_operations = false;
     bool todo_defaults = false;
     bool default_todo_settings = false;
     bool default_task_states = false;
@@ -1025,6 +1027,8 @@ void ExecuteWorkspaceString(napi_env, void* data)
         work->response = TakeRustString(org_tasks_harmony_workspace_execute_task_operations(work->handle, work->expression.c_str()));
     } else if (work->merge_operations) {
         work->response = TakeRustString(org_tasks_harmony_workspace_task_merge_operations(work->handle, work->expression.c_str()));
+    } else if (work->structure_operations) {
+        work->response = TakeRustString(org_tasks_harmony_workspace_task_structure_operations(work->handle, work->expression.c_str()));
     } else if (work->get_settings) {
         work->response = TakeRustString(org_tasks_harmony_workspace_get_settings(work->handle));
     } else if (work->set_settings) {
@@ -1127,7 +1131,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         } else if (work->execute_operations) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
-        } else if (work->merge_operations || work->configure_repository_roots) {
+        } else if (work->merge_operations || work->structure_operations || work->configure_repository_roots) {
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!work->preview_action.empty()) {
             napi_value projected = result;
@@ -2001,6 +2005,28 @@ napi_value WorkspaceTaskMergeOperations(napi_env env, napi_callback_info info)
     return QueueWorkspaceString(env, work, "OrgTasksTaskMergeOperations", self);
 }
 
+napi_value WorkspaceTaskStructureOperations(napi_env env, napi_callback_info info)
+{
+    WorkspaceWrap* workspace = nullptr;
+    napi_value self;
+    size_t argc = 1;
+    napi_value args[1];
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_unwrap(env, self, reinterpret_cast<void**>(&workspace)) != napi_ok || workspace == nullptr) {
+        napi_throw_error(env, nullptr, "Workspace.taskStructureOperations 参数无效");
+        return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    work->handle = workspace->handle;
+    work->structure_operations = true;
+    if (!EncodeJson(env, args[0], &work->expression)) {
+        delete work;
+        napi_throw_error(env, nullptr, "项目结构编辑参数无效");
+        return nullptr;
+    }
+    return QueueWorkspaceString(env, work, "OrgTasksTaskStructureOperations", self);
+}
+
 napi_value WorkspaceSetTodoDefaults(napi_env env, napi_callback_info info)
 {
     size_t argc = 1; napi_value args[1] = {nullptr}; napi_value self;
@@ -2472,6 +2498,7 @@ static napi_value Init(napi_env env, napi_value exports)
         {"refileTargets", nullptr, WorkspaceRefileTargets, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"executeTaskOperations", nullptr, WorkspaceExecuteTaskOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"taskMergeOperations", nullptr, WorkspaceTaskMergeOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"taskStructureOperations", nullptr, WorkspaceTaskStructureOperations, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"startHttpServer", nullptr, WorkspaceHttpServer, nullptr, nullptr, nullptr, napi_default, reinterpret_cast<void*>(1)},
         {"stopHttpServer", nullptr, WorkspaceHttpServer, nullptr, nullptr, nullptr, napi_default, reinterpret_cast<void*>(2)},
         {"httpServerStatus", nullptr, WorkspaceHttpServer, nullptr, nullptr, nullptr, napi_default, reinterpret_cast<void*>(3)},

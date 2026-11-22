@@ -61,6 +61,7 @@ class Workspace {
   httpServerStatus(): Promise<HttpServerInfo | null>
   executeTaskOperations(group: TaskOperationGroup): Promise<void>
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>
+  taskStructureOperations(request: TaskStructureRequest): Promise<TaskOperationGroup>
   constructor()
   setTodoDefaults(settings: string): Promise<void>
   repos(): Promise<Repo[]>
@@ -243,6 +244,8 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 操作组可选携带 ~operationId: string | null~ 。C++ 仍透传结构化 JSON，不解释来源标识；Core 的仓库数据事件透传该值，未提供时为 ~null~ 。界面数据集事件继续沿用来源标识，不因见过同一编号而丢弃该操作的其他关联通知。
 
 收件箱合并调用 ~Workspace.taskMergeOperations({ paths, fileVersion })~ ，paths 保持用户选择顺序。C++ 在工作线程调用 Rust ABI ~org_tasks_harmony_workspace_task_merge_operations~ ，返回 Core 生成的 ~TaskMergePlan { operationGroup, mainPath }~ 。该操作组只含现有的 Deletion 与 Modification，不新增操作种类，也不创建编辑会话或预览界面。
+
+项目结构操作调用 ~Workspace.taskStructureOperations({ file, fileVersion, edits })~ 。C++ 在原有工作线程通过 ~org_tasks_harmony_workspace_task_structure_operations~ 传递结构化请求，Core 返回绑定原文件版本的 ~TaskOperationGroup~ 。项目 DataSet 分配 ~operationId~ 后沿原入口提交并消费确认事件。工作线程与宿主均保留 Core 返回的版本约束。
 
 ~InboxService~ 先验证当前收件箱配置，加载对应仓库取得稳定 Core 身份，再请求操作组；通过原 ~Workspace.executeTaskOperations~ 一组提交，由 Core 自动识别变更文件并登记上传意图。页面直接显示选择顺序与目标标题，点击合并后完成规划和提交；期间冻结选择并防止重复执行。版本变化保留选择并要求刷新，提交成功后刷新失败只重读。结果在同一收件箱列表中高亮并展示 Core 提供的正文列表，不新增路由、弹窗或确认界面。ArkTS 不解析或拼接 Org 内容。
 
@@ -781,7 +784,7 @@ Rust 持有监控对象至最后一个在途请求退出，超时和关闭清理
 
 Task.property(name) 是绑定到原快照的只读方法，ArkUI 深拷贝时继续保留快照与生命周期；properties 为 Core 生成的自身属性表，原始事件记录同步携带该表。页面快照按相同属性表恢复方法，旧缓存缺少属性表时按空表读取。PROPERTY 的本地待确认值仅更新目标属性，正式结果、失败恢复和跨字段副作用仍由 DataSet 与 Core 事件归并。
 
-项目标题操作使用 task.property('VISIBILITY') 判断 folded，通过 DataSet.updateTask 提交 PROPERTY 将值设为 folded 或 all；不新增 isSubtreeFolded 等专用标记，不改变 TaskEditContent，也不向控件添加折叠状态参数。
+项目标题使用 ~task.property('VISIBILITY')~ 判断是否收起，并通过 ~DataSet.updateTask~ 提交通用 ~PROPERTY~ 修改项。收起时将属性值设为 ~folded~ ，展开时传入 ~null~ 以删除标题自身的属性。
 
 * FileNew 与收件箱项目转换
 

@@ -76,6 +76,11 @@ export interface TaskTrash { path: TaskPath; target: OrgFileRef; }
 export interface TaskRestore { path: TaskPath; }
 export interface TaskMergeRequest { paths: TaskPath[]; fileVersion: string; }
 export interface TaskMergePlan { operationGroup: TaskOperationGroup; mainPath: TaskPath; }
+export type TaskStructureEdit =
+  | { type: 'add'; id: string; parent: string | null; title: string; task: boolean }
+  | { type: 'rename'; id: string; title: string }
+  | { type: 'move'; ids: string[]; parent: string | null; after: string | null };
+export interface TaskStructureRequest { file: TaskPath; fileVersion: string; edits: TaskStructureEdit[]; }
 export interface TaskConfilictSelection { path?: TaskPath; id: string; action: 'discard' | 'useLocal'; target?: ConflictTarget | null; }
 export type TaskOperationType = 'FileNew' | 'FileHaderModification' | 'Creation' | 'Modification' | 'Note' | 'Movement' | 'Deletion' | 'Trash' | 'Restore' | 'ConfilictSelection';
 export interface TaskOperation { type: TaskOperationType; data: TaskFileNew | FileHaderModification | TaskCreation | TaskModificationOperation | TaskNoteAddition | TaskMovement | TaskDeletion | TaskTrash | TaskRestore | TaskConfilictSelection; }
@@ -384,6 +389,7 @@ export class Workspace {
   // Core 按文件调度修改，等待前序查询；Promise 在提交事件处理后完成。
   executeTaskOperations(group: TaskOperationGroup): Promise<void>;
   taskMergeOperations(request: TaskMergeRequest): Promise<TaskMergePlan>;
+  taskStructureOperations(request: TaskStructureRequest): Promise<TaskOperationGroup>;
   watchNotifications(monitor: NotificationUpdateMonitor, scope?: string[] | NotificationScope): Promise<void>;
   stopWatchingNotifications(): void;
   watchExternalFileChanges(monitor: ExternalFileMonitor): Promise<number>;

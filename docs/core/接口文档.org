@@ -150,6 +150,10 @@ impl OrgWorkspace {
         &self, request: &TaskMergeRequest,
     ) -> Result<TaskMergePlan, CoreError>;
 
+    pub async fn task_structure_operations(
+        &self, request: &TaskStructureRequest,
+    ) -> Result<TaskOperationGroup, CoreError>;
+
 }
 #+end_src
 
@@ -896,6 +900,12 @@ Core 先收集并读取本组所需文件到隔离内存，按顺序执行全部
 
 ~TaskFallbackGroup~ 在提交成功后自动加入运行时 ~TaskOperationHistory~ ，保存实际变更文件的原始前后字节及文件是否原先存在。失败不追加历史；后续 undo、redo 可复用这些记录，本轮未提供相应执行入口。完整类型、顺序规则及错误边界见 [[file:数据模型.org::*统一任务操作模型][统一任务操作模型]] 。
 
+** 单文件结构编辑规划
+
+~OrgWorkspace.task_structure_operations~ 接受文件根路径、确认快照版本及有序的新增、改名和移动意图。已有节点使用同一确认快照里的任务 ID，新增节点使用组内唯一的草稿 ID。未指定父节点表示文件根，未指定前一兄弟表示同级首位。新增任务使用文件有效的初始 TODO 状态。批量移动按本次操作之前的源顺序插入同一位置，拒绝重复、同时选中祖先与后代、移动到自身或后代及无效锚点。
+
+Core 在文件任务读取的隔离副本上规划普通 Creation、Modification 和 Movement；语义日志的节点令牌贯穿整个规划，重复标题或改名后仍解析到正确节点。规划无写盘、历史、outbox 或数据事件副作用。返回的 ~TaskOperationGroup~ 带原文件版本，由 ~execute_task_operations~ 提交并重新校验版本。规划失败、过期或执行失败时不写入部分结果。模型见 [[file:数据模型.org::*单文件结构编辑规划][单文件结构编辑规划]]。
+
 * 文件任务与废纸篓操作
 
 公开入口仍为 ~execute_task_operations(&TaskOperationGroup) -> Result<(), CoreError>~ ，不新增批量方法。内部请求调度器完成锁与仓库检查后，遍历操作并按需启动文件 task，文件任务自动加载并返回 FileMetadata；调度器可以立即排入 Execute，无需等待加载结果。后续通过 Execute、Discard、Save 命令通信；Execute 返回 ~Result<FileExecuteResult, FileExecuteError>~ ，成功和失败均关联原派发的 order_id。普通修改不逐项等待，不同文件可并行，跨文件依赖由请求调度器推进。全部有效操作结束后统一保存，提交成功的确认通过 channel 返回文件任务，由各文件任务生成最终 Metadata 与变化投影，主任务收齐结果后才统一通知；完整文件的加载、复制和返回也在文件 task 内完成。细节见 [[file:任务修改调度设计.org][任务修改调度与文件任务消息设计]]。
@@ -1295,7 +1305,7 @@ Harmony 与 JSON 对应 ~fullFiles~ ，查询种类仍为 ~task~ 。完整文件
 
 FilterTask.property(name) 返回当前标题自身属性的可空借用值，FilterTask.properties() 返回完整规范化属性表；名称按 ASCII 大写查找，空字符串与不存在分别返回 Some("") 和 None。属性追加合并、重复窗口规划后的 drawer 识别沿用 Properties，不继承祖先或文件默认值，不由宿主解析原文。
 
-统一修改入口接受 PROPERTY 修改项，value 为 { name, value }；内部 value 为字符串时设置，为 null 时删除该名称的基础及追加声明。名称与值通过 Core 校验，保留无关字节与文件版本校验，专用字段和不可修改的创建／关闭时间不能通过此入口绕过。具体字段边界见数据模型的“标题通用属性读写”。子树收起／展开直接修改 VISIBILITY 为 folded／all，不增加折叠专用访问接口或编辑上下文字段。
+统一修改入口接受 PROPERTY 修改项，value 为 { name, value }；内部 value 为字符串时设置，为 null 时删除该名称的基础及追加声明。名称与值通过 Core 校验，保留无关字节与文件版本校验，专用字段和不可修改的创建／关闭时间不能通过此入口绕过。具体字段边界见数据模型的“标题通用属性读写”。项目视图收起子树时将 ~VISIBILITY~ 设为 ~folded~ ，展开时将修改项的属性值设为 ~null~ 以删除该属性。
 
 * 文件头属性值修改
 

@@ -98,6 +98,7 @@
   completed: Receiver\textless Result\textgreater
 }{start(repos): OrgWorkspace \\ stop(): () \\ execute\_task\_operations(group): () \\
 task\_merge\_operations(request): TaskMergePlan \\
+task\_structure\_operations(request): TaskOperationGroup \\
 subscribe\_query(requests): QuerySubscriptionStart[] \\
 unsubscribe\_query(subscription)}
 \umlclass[x=0,y=-3.0]{OrgRepo}{
@@ -1376,6 +1377,22 @@ pub struct TaskFileInitialTask {
 
 规划拒绝重复、祖先与后代重叠、跨文件、受保护冲突节点，以及转换为列表后会丢失 ID／CUSTOM_ID 或当前文件标题引用的情况。第一条记录自身 ID 保留，其余标题定位引用不自动迁移。 ~main_path~ 按最终标题与出现序号重新投影，供合并成功后定位。
 
+** 单文件结构编辑规划
+
+~TaskStructureRequest~ 是一次只读规划输入，包含 ~file: TaskPath~ 、 ~file_version: String~ 和按操作发生顺序排列的 ~edits: Vec<TaskStructureEdit>~ 。已有节点键来自初始快照的任务 ID。新增节点键由调用方在请求内分配，后续操作可引用该键。Core 用事务令牌从编辑键定位到当前工作副本，组内任何一步后的完整路径与重名次序都由语法树重新取得。
+
+~TaskStructureEdit~ 在 JSON 使用 ~type~ 区分 ~add~ 、 ~rename~ 、 ~move~ 。新增提供 ~id~ 、 ~parent~ 、 ~title~ 和 ~task~ 。改名提供 ~id~ 和 ~title~ 。移动提供 ~ids~ 、 ~parent~ 和 ~after~ 。空父节点表示文件根，空前一兄弟表示首位。工作副本上的改动只生成普通创建、标题修改和移动操作，返回原版本绑定的 ~TaskOperationGroup~ 。
+
+\begin{center}
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TaskStructureRequest}{file: TaskPath \\ file\_version: String \\ edits: Vec\textless TaskStructureEdit\textgreater}{}
+\umlclass[x=8,y=0]{TaskStructureEdit}{Add \\ Rename \\ Move}{}
+\umlclass[x=0,y=-4]{TaskOperationGroup}{operations: Vec\textless TaskOperation\textgreater \\ file\_versions: Vec\textless TaskFileVersion\textgreater}{}
+\umluniassoc[mult2=0..*]{TaskStructureRequest}{TaskStructureEdit}
+\umldep{TaskStructureRequest}{TaskOperationGroup}
+\end{tikzpicture}
+\end{center}
+
 ** 顺序、提交与失败处理
 
 1. 主任务完成仓库锁和身份检查后遍历操作，按文件到 task 的映射启动所需文件任务，不在调度器批量预读。文件 task 启动即读取和解析本文件、配置与模板依赖，生成 FileMetadata 并按需制作完整 OrgFile 副本，再返回自动加载结果；主任务启动 task 后即可发送修改，不等待 Metadata。请求私有读取缓存使业务文件同时作为配置依赖时仍只读一次；只读合并规划也在文件任务中获得完整文件。
@@ -2050,7 +2067,7 @@ FilterTask 保存标题自身的规范化属性表 properties，通过 property(
 
 TaskModification::Property { name, value } 表达通用 drawer 属性的设置与删除，JSON 修改字段为 PROPERTY。value 为字符串时设置，null 时删除目标名称的基础及追加声明；保留其他属性、规划、正文、后代、换行格式与未涉及字节。名称不得为空、带空白、冒号、控制字符或追加后缀，值不得带换行或 NUL；TODO、PRIORITY、TAGS、SCHEDULED、DEADLINE 使用已有专用修改项，CREATED 与 CLOSED 保持既有只读／状态维护规则；提醒属性仅允许经 ~SetReminder~ 修改。
 
-项目子树收起只使用通用属性 VISIBILITY：folded 隐藏直属正文及后代，all 展开；属性名复用 Core 规范化，值区分大小写。children 和 content 不等于整棵子树收起，当前二态入口不解释为 folded。不增加折叠专用字段，也不将可见性放入 TaskEditContent。
+项目视图读取标题自身的通用属性 ~VISIBILITY~ ，值为 ~folded~ 时隐藏直属正文及后代。收起操作写入 ~folded~ ，展开操作删除该属性。属性名由 Core 规范化，项目视图按大小写匹配属性值。缺少该属性或值为 ~all~ 、 ~children~ 、 ~content~ 的标题在项目视图中显示为展开。
 
 #+begin_export latex
 \begin{tikzpicture}

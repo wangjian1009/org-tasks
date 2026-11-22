@@ -59,6 +59,9 @@ export struct TaskEditor {
   @Prop readOnly: boolean = false
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
   @Prop contentHidden: boolean = false
+  @Prop projectStructure: boolean = false
+  @Prop canOrderChildren: boolean = false
+  structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
   @Prop hiddenTags: string[] = []
   @Prop allowCompletion: boolean = false
   @Prop allowDeletion: boolean = false
@@ -1478,6 +1481,11 @@ export struct TaskEditor {
           .padding({ left: this.value().state === null ? (this.leadingTime() ? 0 : 8) : 6, right: 8 })
           .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
           .onClick((): void => { if (!LinkEditController.interactionProtected()) this.toggleFromCompact() })
+        if (this.projectStructure && this.canOrderChildren) {
+          PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '节点操作', iconSize: 20,
+            buttonWidth: 44, buttonHeight: 44, items: this.structureActions(this.canOrderChildren),
+            disabled: this.working || this.snapshotBlocked })
+        }
     }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
       .onTouch((event: TouchEvent) => { this.compactTouch(event) })
   }
@@ -1726,12 +1734,14 @@ export struct TaskEditor {
       items: this.moreItems() })
   }
   moreItems(): PopupMenuItem[] {
-    const items: PopupMenuItem[] = []
+    const items: PopupMenuItem[] = this.projectStructure ? this.structureActions(this.canOrderChildren) : []
     if (!this.readOnly) {
-      items.push({ title: '备注…', icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
-        { title: '优先级…', icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })
-      if (this.value().state !== null) items.push({ title: '提醒…', icon: $r('app.media.ui_reminder'), action: () => { this.emitAction(this.startReminder()) } })
-      items.push({ title: '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
+      items.push({ title: this.projectStructure ? '备注' : '备注…', icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
+        { title: this.projectStructure ? '优先' : '优先级…', icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })
+      if (this.value().state !== null) {
+        items.push({ title: this.projectStructure ? '提醒' : '提醒…', icon: $r('app.media.ui_reminder'), action: () => { this.emitAction(this.startReminder()) } })
+      }
+      items.push({ title: this.projectStructure ? '重复' : '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
     if (this.logShowPolicy === LogShowPolicy.LogShowBySwitch && taskEventLogs(this.value().logs).length > 0) {
       items.push({ title: '日志',

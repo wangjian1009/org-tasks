@@ -2443,6 +2443,13 @@ pub fn workspace_task_merge_operations(handle: u64, request: String) -> Result<S
     encode(&runtime(handle)?.block_on(workspace.task_merge_operations(&request))?)
 }
 
+pub fn workspace_task_structure_operations(handle: u64, request: String) -> Result<String, CoreError> {
+    let request: org_tasks_core::TaskStructureRequest =
+        serde_json::from_str(&request).map_err(|_| CoreError::InvalidInput("项目结构编辑参数无效"))?;
+    let workspace = workspace_for_handle(handle)?;
+    encode(&runtime(handle)?.block_on(workspace.task_structure_operations(&request))?)
+}
+
 /// 公开对象方法在 ABI 内统一编组；操作及路径校验仍由 Core 完成。
 pub fn repo_history_operation(
     handle: u64,

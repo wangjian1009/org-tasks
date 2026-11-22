@@ -6,6 +6,9 @@ import { taskTagColor } from '../ui/TaskListPresentation'
 import { visibleProjectTags } from '../ui/ProjectReadingPresentation'
 import { PopupMenu, PopupMenuItem } from './controls/PopupMenu'
 import { TaskInlineSession } from '../services/TaskInlineService'
+import { RightSwipe, SwipeMenuCoordinator } from './controls/RightSwipe'
+import { TaskSwipeActions } from './TaskSwipeActions'
+import { TaskActionItem, taskSwipeMenuWidth } from '../ui/TaskActionPresentation'
 
 // 普通章节保留独立标题与子树操作入口。
 @Component
@@ -15,6 +18,11 @@ export struct OrgHeadingView {
   @Prop specialTags: string[] = []
 
   modify: (changes: CoreTaskModification[]) => Promise<void> = async (): Promise<void> => {}
+  @Prop canOrderChildren: boolean = false
+  structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
+  @Prop swipeEnabled: boolean = true
+  swipeActions: (close: () => void) => TaskActionItem[] = () => []
+  menuCoordinator: SwipeMenuCoordinator | undefined = undefined
   @State menuOpen: boolean = false
   @State working: boolean = false
   @State message: string = ''
@@ -36,15 +44,21 @@ export struct OrgHeadingView {
     this.working = true; this.message = ''; this.menuOpen = false
     try {
       await this.modify([{ field: 'PROPERTY', value: {
-        name: 'VISIBILITY', value: (this.node.property('VISIBILITY') === 'folded') ? 'all' : 'folded'
+        name: 'VISIBILITY', value: this.node.property('VISIBILITY') === 'folded' ? null : 'folded'
       } }])
     } catch (error) { this.message = `折叠操作失败：${(error as Error).message}` }
     finally { this.working = false }
   }
 
   menuItems(): PopupMenuItem[] {
-    return [{ title: (this.node.property('VISIBILITY') === 'folded') ? '展开子树' : '收起子树', disabled: this.archived(), action: (): void => { this.toggleSubtree() } },
-      { title: this.archived() ? '取消归档' : '归档子树', action: (): void => { this.archive() } }]
+    const folded = this.node.property('VISIBILITY') === 'folded'
+    const archived = this.archived()
+    return this.structureActions(this.canOrderChildren).concat([
+      { title: folded ? '展开' : '收起', icon: folded ? $r('app.media.ui_visibility') : $r('app.media.ui_visibility_off'),
+        disabled: archived, action: (): void => { this.toggleSubtree() } },
+      { title: archived ? '恢复' : '归档', icon: archived ? $r('app.media.ui_restore') : $r('app.media.ui_folder'),
+        action: (): void => { this.archive() } }
+    ])
   }
 
   @Builder
@@ -53,8 +67,8 @@ export struct OrgHeadingView {
       activate: (item: PopupMenuItem): void => { this.menuOpen = false; item.action() } })
   }
 
-  build() {
-    Column({ space: 8 }) {
+  @Builder
+  headingRow() {
       Row({ space: 8 }) {
         if (this.node.level === 1) {
           Image($r('app.media.ui_document_outline')).width(20).height(20).fillColor(UiColor.secondary).accessibilityLevel('no')
@@ -75,6 +89,19 @@ export struct OrgHeadingView {
             popupColor: UiColor.menu, backgroundBlurStyle: BlurStyle.NONE, enableArrow: false,
             onStateChange: (event): void => { this.menuOpen = event.isVisible } })
       }.width('100%').alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  headingSwipeMenu(close: () => void) {
+    TaskSwipeActions({ items: this.swipeActions(close), idPrefix: 'project_heading_swipe' })
+  }
+
+  build() {
+    Column({ space: 8 }) {
+      RightSwipe({ disabled: true, menuCoordinator: this.menuCoordinator, content: (): void => { this.headingRow() },
+        endMenu: (close: () => void): void => { this.headingSwipeMenu(close) },
+        menuWidth: this.swipeEnabled && !this.working ? taskSwipeMenuWidth(this.swipeActions(() => {})) : 0,
+        canOpenMenu: (): boolean => this.swipeEnabled && !this.working && !this.menuOpen && !TaskInlineSession.active() })
       if (this.node.level === 1) { Divider().color(UiColor.divider).strokeWidth(1) }
       if (this.archived()) { Text('已归档').fontSize(13).fontColor(UiColor.secondary).padding({ top: 4, bottom: 12 }) }
       if (!this.archived() && (this.node.property('VISIBILITY') === 'folded')) {

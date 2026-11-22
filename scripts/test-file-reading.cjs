@@ -28,8 +28,11 @@ const base = 'entry/src/main/ets/';
 const navigation = load(base + 'ui/OrgDocumentNavigation.ets');
 const projectPresentation = load(base + 'ui/ProjectDocumentPresentation.ets');
 const projectHeader = load(base + 'ui/ProjectHeaderPresentation.ets');
-const tagFilter = load(base + 'ui/TaskTagFilterPresentation.ets');
+const tagFilter = load(base + 'ui/TaskTagFilterPresentation.ets', {
+  './TaskStatePresentation': load(base + 'ui/TaskStatePresentation.ets')
+});
 const projectReading = load(base + 'ui/ProjectReadingPresentation.ets');
+const projectStructure = load(base + 'ui/ProjectStructurePresentation.ets');
 const swipeMenus = load(base + 'components/controls/RightSwipe.ets', {}, source => source.split('@Component')[0]);
 const taskActions = load(base + 'ui/TaskActionPresentation.ets');
 const internalLinkProcessors = load(base + 'ui/InternalLinkProcessor.ets');
@@ -65,8 +68,32 @@ test('项目折叠直接读取 Task 通用属性，隐藏直属后代并保留�
   } });
   const sections = [section('folded', 1, 'folded'), section('child', 2), section('deep', 4), section('sibling', 1)];
   assert.deepEqual(projectReading.projectReadingItems(sections).filter(item => item.visible).map(item => item.section.key), ['folded', 'sibling']);
-  sections[0] = section('folded', 1, 'all');
-  assert.equal(projectReading.projectReadingItems(sections).length, 4);
+  for (const visibility of [null, 'all']) {
+    sections[0] = section('folded', 1, visibility);
+    assert.deepEqual(projectReading.projectReadingItems(sections).filter(item => item.visible).map(item => item.section.key),
+      ['folded', 'child', 'deep', 'sibling']);
+  }
+});
+
+test('项目标题收起时写入 VISIBILITY，展开时删除该属性', async () => {
+  const { OrgHeadingView } = load(base + 'components/OrgHeadingView.ets', {
+    '../services/TaskInlineService': { TaskInlineSession: { end: async () => true } }
+  }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop /g, '')
+    .replace('export struct OrgHeadingView', 'export class OrgHeadingView') + '}');
+  const heading = new OrgHeadingView();
+  let visibility = null;
+  const submitted = [];
+  heading.node = { editContent: { ownTags: [] }, property: name => name === 'VISIBILITY' ? visibility : null };
+  heading.modify = async changes => {
+    submitted.push(changes);
+    visibility = changes[0].value.value;
+  };
+  await heading.toggleSubtree();
+  await heading.toggleSubtree();
+  assert.deepEqual(submitted, [
+    [{ field: 'PROPERTY', value: { name: 'VISIBILITY', value: 'folded' } }],
+    [{ field: 'PROPERTY', value: { name: 'VISIBILITY', value: null } }]
+  ]);
 });
 
 test('项目标签只过滤任务，普通章节及正文完整保留，命中任务的全部祖先保持源顺序', () => {
@@ -457,6 +484,8 @@ function projectPageFixture() {
     '../components/ProjectDocumentView': { ProjectDocumentNavigation: class {
       async captureReadingState() { return capture; } closePanel() { return false; }
     } },
+    '../components/editors/ProjectStructureSheet': { ProjectStructureSheetController: class {} },
+    '../ui/ProjectStructurePresentation': projectStructure,
     '../ui/InternalLinkProcessor': internalLinkProcessors,
     '../services/AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'config', rootDirectory: '/repo', name: '仓库' }] }; } } },
     '../services/NotebookService': { NotebookService: { open: (...args) => open(...args) } },
@@ -464,7 +493,7 @@ function projectPageFixture() {
       NativeCoreService: { async workspaceFor() { return { async repos() { return [{ id: 'core', rootDirectory: '/repo' }]; } }; } } },
     '../ui/Theme': theme, '../ui/ProjectReadingPresentation': projectReading,
     '../services/TaskInlineService': { TaskInlineSession: { active:()=>inlineActive,end: (...args) => end(...args) } }
-  }, source => source.split('  build()')[0].replace(/@Entry\n|@Component\n|@State |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g, '')
+  }, source => source.split('  build()')[0].replace(/@Entry\n|@Component\n|@Builder\n|@State |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g, '')
     .replace('struct ProjectDetail', 'class ProjectDetail') + '}\nmodule.exports = { ProjectDetail };');
   const page = new ProjectDetail(), routes = [];
   page.getUIContext = () => ({ getHostContext: () => ({}), getRouter: () => ({
@@ -624,6 +653,7 @@ function nativeProjectFixture() {
   const { View } = load(base + 'components/ProjectDocumentView.ets', {
     '../services/PageDataSnapshot': load(base + 'services/PageDataSnapshot.ets'),
     '../ui/ProjectReadingPresentation': projectReading,
+    '../ui/ProjectStructurePresentation': projectStructure,
     './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
     './ProjectFileHeader': { ProjectHeaderNavigation: class { close() { return false; } } },
     './controls/RightSwipe': swipeMenus,
@@ -813,10 +843,12 @@ test('项目属性变化保留文档结构，新增删除与移动仅更新成�
 test('项目章节按稳定任务身份订阅，属性修改保留正文修订，正文变化仅更新当前章节', () => {
  const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);let active=false,listener,stopped=false;
  const {Section}=load(base+'components/ProjectTaskSection.ets',{
+  './controls/PopupMenuButton': {},
+  './TaskSelectionRow': {},
   '../services/PageDataEquality':{samePageValue:equal},'../services/TaskInlineService':{TaskInlineSession:{active:()=>active}},
   '../ui/TaskActionPresentation':taskActions,
   '../ui/Theme':theme
- },source=>source.split('  build()')[0].replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
+ },source=>source.split('  build()')[0].replace(/@Component\n|@Builder\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
  const value=(body='正文',extra={})=>({id:'a',heading:'标题',modifiedAt:null,fileVersion:'v1',editContent:{blocks:[{id:'10',kind:'text',source:body,html:'<p>'+body+'</p>',paragraph:true,blankLinesBefore:0,items:[]}]},...extra});
  const source={task:value(),monitor(fn){listener=change=>{source.task=change.task;fn(change)};fn({task:source.task});return()=>stopped=true}};
  const section=new Section();section.taskId='stable-a';section.dataSet={taskSource(id){assert.equal(id,'stable-a');return source}};
@@ -1008,9 +1040,10 @@ test('项目属性编辑期间父级分类候选继续更新，不覆盖本地�
 test('项目单章节保存直接读取来源最新版本，删除通知清除节点且退出取消 Monitor', async()=>{
  let callback,cancelled=false;const source={task:{fileVersion:'v1',editContent:{blocks:[]}},monitor(fn){callback=fn;fn({task:this.task});return()=>cancelled=true}};
  const {Section}=load(base+'components/ProjectTaskSection.ets',{
+  './controls/PopupMenuButton': {}, './TaskSelectionRow': {},
   '../ui/TaskActionPresentation':taskActions,
   '../services/TaskInlineService':{TaskInlineSession:{active:()=>false}},'../ui/Theme':theme
- },text=>text.split('  build()')[0].replace(/@Component\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
+ },text=>text.split('  build()')[0].replace(/@Component\n|@Builder\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
  const section=new Section(),writes=[];section.taskId='row';section.dataSet={taskSource:()=>source,async updateTask(...args){writes.push(args);return source.task}};
  section.aboutToAppear();source.task={...source.task,fileVersion:'v2'};
  assert.equal(section.node.fileVersion,'v1');await section.modify([{field:'PRIORITY',value:'A'}]);assert.equal(writes[0][2],'v2');

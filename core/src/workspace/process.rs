@@ -338,6 +338,17 @@ impl OrgWorkspace {
         })
         .await
     }
+    /// 在冻结的文件版本上解析结构编辑，返回可在原版本上提交的普通操作组。
+    pub async fn task_structure_operations(
+        &self,
+        request: &crate::TaskStructureRequest,
+    ) -> Result<crate::TaskOperationGroup, CoreError> {
+        let request = request.clone();
+        self.request(Access::Query, move |state| {
+            Box::pin(async move { state.task_structure_operations(&request).await })
+        })
+        .await
+    }
     pub async fn task_merge_operations(
         &self,
         request: &crate::TaskMergeRequest,

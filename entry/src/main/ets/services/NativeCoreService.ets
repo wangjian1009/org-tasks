@@ -18,6 +18,8 @@ import {
   TaskOperationGroup as NativeTaskOperationGroup,
   TaskMergeRequest as NativeTaskMergeRequest,
   TaskMergePlan as NativeTaskMergePlan,
+  TaskStructureEdit as NativeTaskStructureEdit,
+  TaskStructureRequest as NativeTaskStructureRequest,
   TaskConfilictSelection as NativeTaskConfilictSelection,
   TaskModification as NativeTaskModification,
   TaskModificationOperation as NativeTaskModificationOperation,
@@ -188,6 +190,8 @@ export type CoreTaskOperation = NativeTaskOperation
 export type CoreTaskOperationGroup = NativeTaskOperationGroup
 export type CoreTaskMergeRequest = NativeTaskMergeRequest
 export type CoreTaskMergePlan = NativeTaskMergePlan
+export type CoreTaskStructureEdit = NativeTaskStructureEdit
+export type CoreTaskStructureRequest = NativeTaskStructureRequest
 export type CoreTaskConfilictSelection = NativeTaskConfilictSelection
 export type CoreTaskDataChange = NativeTaskDataChange
 export type CoreExternalFileChanged = NativeExternalFileChanged
@@ -323,6 +327,9 @@ export class CoreWorkspace {
   // 命令由 Core 统一调度；不同文件可并发，同文件在事件确认后衔接。
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }
   async taskMergeOperations(request: CoreTaskMergeRequest): Promise<CoreTaskMergePlan> { return await this.native.taskMergeOperations(request) }
+  async taskStructureOperations(request: CoreTaskStructureRequest): Promise<CoreTaskOperationGroup> {
+    return await this.native.taskStructureOperations(request)
+  }
   async watchNotifications(monitor: CoreNotificationUpdateMonitor, scope?: string[] | CoreNotificationScope): Promise<void> {
     if (scope === undefined) await this.native.watchNotifications(monitor)
     else await this.native.watchNotifications(monitor, scope)

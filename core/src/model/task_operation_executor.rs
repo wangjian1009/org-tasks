@@ -151,6 +151,30 @@ async fn file_stamp(path: &Path) -> Result<Option<FileStamp>, CoreError> {
 }
 
 impl WorkspaceState {
+    pub async fn task_structure_operations(
+        &self,
+        request: &super::TaskStructureRequest,
+    ) -> Result<TaskOperationGroup, CoreError> {
+        let _activity = self.tasks.enter()?;
+        if !request.file.titles.is_empty() || request.file_version.is_empty() {
+            return Err(CoreError::InvalidInput("结构编辑必须指定文件根路径和版本"));
+        }
+        let (repo_id, path) = key(&request.file)?;
+        let repo = self
+            .repo(&repo_id)
+            .ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
+        let file = file_worker::read_full_file(reader::FileLoadSpec {
+            repo: repo.clone(),
+            path,
+            versions: vec![request.file_version.clone()],
+            new_files: Vec::new(),
+            export_records: false,
+            full_file: true,
+            cache: reader::ReadCache::default(),
+        }).await?;
+        super::task_structure::operations(repo, file, request)
+    }
+
     /// 按当前原文与版本规划普通操作，不写盘或发布历史。
     pub async fn task_merge_operations(&self, request: &TaskMergeRequest) -> Result<TaskMergePlan, CoreError> {
         let _activity = self.tasks.enter()?;
@@ -2099,10 +2123,18 @@ mod tests {
 
 /// 临时文件复用完整操作执行器，但不提交仓库或广播更新。
 pub(super) fn edit_preview(file: OrgFile, group: &TaskOperationGroup) -> Result<OrgFile, CoreError> {
+    edit_preview_operations(file, &group.operations).map(|(file, _)| file)
+}
+
+pub(super) fn edit_preview_operations(
+    file: OrgFile,
+    operations: &[TaskOperation],
+) -> Result<(OrgFile, Option<TaskPath>), CoreError> {
     let file_key = key(&file.full_path())?;
     let mut files = BTreeMap::from([(file_key.clone(), WorkingFile {
         disk: PathBuf::new(), original: None, exists: true, file, stamp: None, before_metadata: None, new_file: None,
     })]);
-    for operation in &group.operations { execute(&mut files, operation)?; }
-    Ok(files.remove(&file_key).unwrap().file)
+    let mut path = None;
+    for operation in operations { path = execute(&mut files, operation)?; }
+    Ok((files.remove(&file_key).unwrap().file, path))
 }
