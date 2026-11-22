@@ -130,6 +130,18 @@ pub struct TaskCreation {
     pub scheduled: Option<String>,
     #[serde(default)]
     pub deadline: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub properties: Vec<TaskCreationProperty>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskCreationProperty {
+    pub name: String,
+    pub value: String,
+    pub append: bool,
 }
 
 impl TaskCreation {
@@ -143,6 +155,8 @@ impl TaskCreation {
             tags: Vec::new(),
             scheduled: None,
             deadline: None,
+            properties: Vec::new(),
+            closed: None,
         }
     }
 }

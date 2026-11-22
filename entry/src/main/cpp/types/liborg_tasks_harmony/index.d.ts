@@ -31,9 +31,11 @@ export interface CoreError extends Error {
 
 export interface TaskPath { repoId: string; file: string | null; titles: string[]; occurrence?: number; }
 export interface TaskPosition { parent: TaskPath; after?: TaskPath | null; }
+export interface TaskCreationProperty { name: string; value: string; append: boolean; }
 export interface TaskCreation {
   position: TaskPosition; title: string; body?: string; state?: string | null; priority?: string | null;
   tags?: string[]; scheduled?: string | null; deadline?: string | null;
+  properties?: TaskCreationProperty[]; closed?: string | null;
 }
 export interface TaskFileInitialTask {
   title: string; body?: string; state?: string | null; priority?: string | null;

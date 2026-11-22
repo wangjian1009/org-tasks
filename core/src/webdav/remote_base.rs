@@ -306,6 +306,7 @@ impl Store {
     pub fn sources(&self) -> BTreeMap<String, Option<Vec<u8>>> {
         self.ancestor.contents.clone()
     }
+    #[cfg(test)]
     pub fn state(&self, path: &str) -> Option<&Option<Vec<u8>>> {
         self.ancestor.contents.get(path)
     }

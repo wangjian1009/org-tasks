@@ -281,6 +281,20 @@ pub(crate) async fn stage(
     transaction::atomic_write(&transaction::target(root, &relative).await?, bytes).await
 }
 
+pub(super) async fn read_staged(
+    root: &Path,
+    repo_id: &str,
+    started_at: crate::TimestampMs,
+    area: &str,
+    path: &str,
+) -> Result<Vec<u8>, CoreError> {
+    crate::model::validate_relative_path(path)?;
+    let value = check(root, repo_id, started_at).await?;
+    let relative = format!("{DIRECTORY}/{}/{area}/{path}", value.id);
+    transaction::read(root, &relative).await?
+        .ok_or(CoreError::InvalidState("同步会话缺少暂存正文"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

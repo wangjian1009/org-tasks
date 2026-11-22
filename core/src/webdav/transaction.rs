@@ -372,7 +372,15 @@ pub(crate) async fn ensure_directory(root: &Path, path: &str) -> Result<(), Core
             }
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                fs::create_dir(&directory).await.map_err(io)?;
+                if let Err(error) = fs::create_dir(&directory).await {
+                    if error.kind() != std::io::ErrorKind::AlreadyExists {
+                        return Err(io(error));
+                    }
+                    let info = fs::symlink_metadata(&directory).await.map_err(io)?;
+                    if !info.is_dir() {
+                        return Err(CoreError::Store("事务路径不是安全目录".into()));
+                    }
+                }
                 sync_dir(directory.parent().unwrap()).await?;
             }
             Err(e) => return Err(io(e)),

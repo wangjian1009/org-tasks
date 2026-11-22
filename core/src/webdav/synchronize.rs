@@ -1,22 +1,11 @@
 //! 先独立发布远端快照，再按旧共同祖先合并；工作文件与合并进度最后统一提交。
 use super::remote_base::{Store, Update};
 use super::transaction::{self, Plan};
+use super::sync_plan::{self, Snapshots};
 use super::*;
 use std::path::Path;
 
-struct Prepared {
-    path: String,
-    before: Option<Vec<u8>>,
-    remote: Option<Vec<u8>>,
-    result: Option<Vec<u8>>,
-    version: RemoteFileVersion,
-    action: OrgRepoSyncFileAction,
-    conflicts: bool,
-    remote_deleted: bool,
-    deleted_source: Option<Vec<u8>>,
-    outcome: OrgRepoSyncFileOutcome,
-}
-fn missing_version() -> RemoteFileVersion {
+pub(super) fn missing_version() -> RemoteFileVersion {
     RemoteFileVersion {
         etag: None,
         modified_at: None,
@@ -115,7 +104,6 @@ impl WebDavSyncPolicy {
             paths.swap(0, index);
         }
         let total = paths.len();
-        let mut prepared = Vec::new();
         // 下载和解析全部远端文件后才发送修改远端的请求，减少准备失败的远端副作用。
         let mut snapshots = BTreeMap::<String, Option<Vec<u8>>>::new();
         let mut local_sources = BTreeMap::<String, Option<Vec<u8>>>::new();
@@ -236,212 +224,62 @@ impl WebDavSyncPolicy {
             crate::file_state::observe(&repo, vec![(path.clone(), state)]);
             local_sources.insert(path.clone(), bytes);
         }
-        let base_sources = bases.sources();
-        for (index, path) in paths.into_iter().enumerate() {
-            if cancellation.is_cancelled() {
-                return self.abort_snapshot(record, OrgRepoSyncResult::Cancelled, progress);
-            }
-            progress.report("Merging", index, total, Some(path.clone()));
-            let before = local_sources[&path].clone();
-            let baseline = bases.state(&path).cloned();
-            let remote = snapshots[&path].clone();
-            let mut version = remote_by_path
-                .get(&path)
-                .map_or_else(missing_version, |r| r.version.clone());
-            let result = if path == crate::model::TASK_SCAN_RULES_PATH {
-                // 根目录从未存在远端规则时保留用户本地规则，不制造远端删除。
-                if remote.is_none() && baseline.is_none() {
-                    continue;
-                }
-                let valid = remote
-                    .as_deref()
-                    .map(std::str::from_utf8)
-                    .transpose()
-                    .map_err(|_| CoreError::InvalidInput("远端 .orgzlyignore 必须是 UTF-8"))
-                    .and_then(|source| {
-                        crate::TaskScanRules::parse(source.unwrap_or_default()).map(|_| ())
-                    });
-                if let Err(error) = valid {
-                    record.append_file(failed_record(
-                        &repo,
-                        path,
-                        LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
-                        core_error(error),
-                    ))?;
-                    return self.abort_snapshot(record, OrgRepoSyncResult::Failed, progress);
-                }
-                if before != remote && before.is_some() && baseline.as_ref() != Some(&before) {
-                    record.append_file(failed_record(
-                        &repo,
-                        path,
-                        LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
-                        core_error(CoreError::InvalidState(
-                            "本地 .orgzlyignore 有独立修改，请先统一规则",
-                        )),
-                    ))?;
-                    return self.abort_snapshot(record, OrgRepoSyncResult::Failed, progress);
-                }
-                remote.clone()
-            } else {
-                let decision = (|| -> Result<Option<Vec<u8>>, CoreError> {
-                    if let Some(bytes) = &remote {
-                        parse_snapshot(&repo, &path, bytes.clone(), &snapshots, &files)?;
-                        if detached.is_some() {
-                            return Ok(Some(bytes.clone()));
-                        }
-                    }
-                    if detached.is_some() { return Ok(before.clone()); }
-                    match (&baseline, &before, &remote) {
-                        // 已跟踪远端删除：无论本地是否修改都采用删除。
-                        (Some(Some(_)), _, None) => Ok(None),
-                        (Some(Some(base)), None, Some(remote)) if remote == base => Ok(None),
-                        (_, None, Some(remote)) => Ok(Some(remote.clone())),
-                        (_, Some(local), None) => Ok(Some(local.clone())),
-                        (_, None, None) => Ok(None),
-                        (base, Some(local), Some(remote)) => {
-                            let base = parse_snapshot(
-                                &repo,
-                                &path,
-                                base.as_ref()
-                                    .and_then(|b| b.as_ref())
-                                    .cloned()
-                                    .unwrap_or_default(),
-                                &base_sources,
-                                &files,
-                            )?;
-                            let local = parse_snapshot(&repo, &path, local.clone(), &local_sources, &files)?;
-                            let remote = parse_snapshot(&repo, &path, remote.clone(), &snapshots, &files)?;
-                            crate::merge::merge_files(&base, &local, &remote).map(Some)
-                        }
-                    }
-                })();
-                match decision {
-                    Ok(result) => result,
-                    Err(error) => {
-                        record.append_file(failed_record(
-                            &repo,
-                            path,
-                            LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
-                            core_error(error),
-                        ))?;
-                        return self.abort_snapshot(record, OrgRepoSyncResult::Failed, progress);
-                    }
-                }
-            };
-            let result = if path.ends_with(".org") {
-                result
-                    .map(|bytes| {
-                        let file = parse_snapshot(&repo, &path, bytes, &snapshots, &files)?;
-                        crate::merge::with_conflict_header(&file)
-                    })
-                    .transpose()?
-            } else {
-                result
-            };
-            let conflicts = if path.ends_with(".org") {
-                result
-                    .as_ref()
-                    .map(|bytes| {
-                        parse_snapshot(&repo, &path, bytes.clone(), &snapshots, &files)
-                            .map(|f| crate::merge::has_conflicts(&f))
-                    })
-                    .transpose()?
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-            let local_changed = match &baseline {
-                Some(Some(base)) => before.as_ref() != Some(base),
-                Some(None) => before.is_some(),
-                None => before.is_some(),
-            };
-            let remote_changed = match &baseline {
-                Some(Some(base)) => remote.as_ref() != Some(base),
-                Some(None) => remote.is_some(),
-                None => remote.is_some(),
-            };
-            let remote_deleted =
-                remote.is_none() && baseline.as_ref().is_some_and(|base| base.is_some());
-            let deleted_source = if remote_deleted {
-                before.clone().or_else(|| baseline.clone().flatten())
-            } else {
-                None
-            };
-            let action = if result.is_none() {
-                if before.is_none() && remote.is_none() {
-                    OrgRepoSyncFileAction::Unchanged
-                } else {
-                    OrgRepoSyncFileAction::Deleted
-                }
-            } else if path == crate::model::TASK_SCAN_RULES_PATH {
-                if before == result {
-                    OrgRepoSyncFileAction::Unchanged
-                } else {
-                    OrgRepoSyncFileAction::Downloaded
-                }
-            } else if result != remote {
-                if remote.is_some() {
-                    OrgRepoSyncFileAction::Uploaded
-                } else {
-                    OrgRepoSyncFileAction::Created
-                }
-            } else if result != before {
-                OrgRepoSyncFileAction::Downloaded
-            } else {
-                OrgRepoSyncFileAction::Unchanged
-            };
-            let outcome = if conflicts {
-                OrgRepoSyncFileOutcome::Conflict
-            } else if result.is_none() && (before.is_some() || remote.is_some() || remote_deleted) {
-                OrgRepoSyncFileOutcome::Deleted
-            } else if result.is_none() {
-                OrgRepoSyncFileOutcome::Unchanged
-            } else if baseline.as_ref().is_none_or(|base| base.is_none())
-                && (before.is_none() || remote.is_none())
-            {
-                OrgRepoSyncFileOutcome::Created
-            } else if before.is_none() && remote.is_some() && !local_changed {
-                OrgRepoSyncFileOutcome::Updated
-            } else if remote_changed && local_changed {
-                OrgRepoSyncFileOutcome::Merged
-            } else if remote_changed {
-                OrgRepoSyncFileOutcome::Updated
-            } else if local_changed {
-                OrgRepoSyncFileOutcome::Uploaded
-            } else {
-                OrgRepoSyncFileOutcome::Unchanged
-            };
-            // 任何需要更新／删除已有远端的计划都先验证条件能力，不能在上传了一半后才发现缺少版本。
-            if path.ends_with(".org")
-                && result != remote
-                && remote.is_some()
-                && strong(version.etag.as_deref()).is_none()
-            {
-                record.append_file(failed_record(
-                    &repo,
-                    path,
-                    LocalFileVersion::from_bytes(before.as_deref().unwrap_or_default()),
-                    core_error(CoreError::InvalidState(
-                        "远端未提供强 ETag，无法安全更新或删除",
-                    )),
-                ))?;
+        let snapshots = Arc::new(Snapshots {
+            repo: repo.clone(), files, base: bases.sources(), local: local_sources,
+            remote: snapshots, detached: detached.is_some(),
+            versions: remote_by_path.into_iter().map(|(path, file)| (path, file.version)).collect(),
+        });
+        let groups = match sync_plan::groups(&snapshots, &paths, &context.options) {
+            Ok(groups) => groups,
+            Err((path, error)) => {
+                record.append_file(failed_record(&repo, path.clone(),
+                    LocalFileVersion::from_bytes(snapshots.local.get(&path).and_then(Option::as_deref).unwrap_or_default()),
+                    core_error(error)))?;
                 return self.abort_snapshot(record, OrgRepoSyncResult::Failed, progress);
             }
-            if remote.is_none() {
-                version = missing_version();
+        };
+        let mut tasks = tokio::task::JoinSet::new();
+        for (index, group) in groups.into_iter().enumerate() {
+            if cancellation.is_cancelled() {
+                break;
             }
-            prepared.push(Prepared {
-                path,
-                before,
-                remote,
-                result,
-                version,
-                action,
-                conflicts,
-                remote_deleted,
-                deleted_source,
-                outcome,
+            let snapshots = Arc::clone(&snapshots);
+            let started_at = context.started_at;
+            let path = group.path().to_owned();
+            progress.report("Merging", index, total, Some(path.clone()));
+            tasks.spawn(async move {
+                (index, path, sync_plan::execute(&snapshots, group, started_at).await)
             });
+        }
+        let mut groups = BTreeMap::new();
+        let mut join_failed = false;
+        while let Some(result) = tasks.join_next().await {
+            match result {
+                Ok((index, path, result)) => { groups.insert(index, (path, result)); }
+                Err(_) => join_failed = true,
+            }
+        }
+        if cancellation.is_cancelled() {
+            return self.abort_snapshot(record, OrgRepoSyncResult::Cancelled, progress);
+        }
+        if join_failed {
+            return Err(CoreError::InvalidState("同步比较组执行异常"));
+        }
+        let mut prepared = Vec::new();
+        for (path, result) in groups.into_values() {
+            match result {
+                Ok(items) => {
+                    for item in items {
+                        prepared.push(item.read(root, &repo.id, context.started_at).await?);
+                    }
+                }
+                Err(error) => {
+                    record.append_file(failed_record(&repo, path.clone(),
+                        LocalFileVersion::from_bytes(snapshots.local[&path].as_deref().unwrap_or_default()),
+                        core_error(error)))?;
+                    return self.abort_snapshot(record, OrgRepoSyncResult::Failed, progress);
+                }
+            }
         }
         let mut plan = Plan::default();
         for item in &prepared {
@@ -450,11 +288,6 @@ impl WebDavSyncPolicy {
         plan.verify(root).await?;
         let captured_intents = capture_intents(root).await?;
         for (path, bytes, _) in &captured_intents { plan.guards.push((path.clone(), Some(bytes.clone()))); }
-        for item in &prepared {
-            if let Some(bytes) = &item.result {
-                super::session::stage(root, &repo.id, context.started_at, "merged", &item.path, bytes).await?;
-            }
-        }
         drop(merge_guard);
         // 上传与下载一样不占仓库锁；同步租约由外层操作一直持有。
         let upload_guard = super::session::enter(root, &repo.id, context.started_at,
@@ -573,11 +406,7 @@ impl WebDavSyncPolicy {
                     content_hash: LocalFileVersion::from_bytes(bytes).content_hash,
                 });
             }
-            if item.remote_deleted {
-                let bytes = item
-                    .deleted_source
-                    .as_ref()
-                    .ok_or(CoreError::InvalidState("远端删除缺少可备份原文"))?;
+            if let Some(bytes) = &item.deleted_source {
                 let archive_path = format!(
                     ".sync/history/{}/deleted/{}/{}",
                     record.started_at,
@@ -667,7 +496,7 @@ impl WebDavSyncPolicy {
 }
 
 // SETUPFILE 是只读的文件语义上下文；读取对应 B/L/R 快照，绝不为解析先写回仓库。
-fn parse_snapshot(
+pub(super) fn parse_snapshot(
     repo: &OrgRepo,
     path: &str,
     bytes: Vec<u8>,

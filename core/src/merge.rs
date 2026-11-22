@@ -1,5 +1,5 @@
 //! 只在同一文件内把 B→L 的变化重放到 R；所有片段均取自 orgize 来源区间。
-use crate::{CoreError, LocalFileVersion, OrgFile};
+use crate::{CoreError, LocalFileVersion, OrgFile, OrgFileRef, TaskOperationGroup, TaskPath};
 use orgize::{SyntaxKind, ast::Headline, rowan::ast::AstNode};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,11 +14,72 @@ pub fn merge(
     remote_data: &[u8],
 ) -> Result<Vec<u8>, CoreError> {
     let parse = |data: &[u8]| OrgFile::new("merge".into(), "content.org".into(), data.to_vec());
-    merge_files(
+    merge_with_container(
         &parse(base_data)?,
         &parse(local_data)?,
         &parse(remote_data)?,
     )
+}
+
+pub(crate) struct MergeResult {
+    pub content: Vec<u8>,
+    pub has_conflicts: bool,
+}
+
+pub(crate) async fn merge_file_with_base(
+    local: OrgFile,
+    remote: OrgFile,
+    base: OrgFile,
+) -> Result<MergeResult, CoreError> {
+    tokio::task::spawn_blocking(move || {
+        let content = merge_with_container(&base, &local, &remote)?;
+        let merged = reparse(&remote, content)?;
+        let has_conflicts = has_conflicts(&merged);
+        Ok(MergeResult { content: merged.source_bytes, has_conflicts })
+    })
+    .await
+    .map_err(|_| CoreError::InvalidState("文件合并任务异常"))?
+}
+
+pub(crate) async fn merge_file_no_base(
+    local: OrgFile,
+    remote: OrgFile,
+    trash_file: Option<OrgFileRef>,
+) -> Result<Option<TaskOperationGroup>, CoreError> {
+    let Some(trash_file) = trash_file else {
+        return Ok(None);
+    };
+    let target = TaskPath::file(trash_file.repo_id, trash_file.path);
+    target.validate()?;
+    if target == local.full_path() {
+        return Err(CoreError::InvalidInput("废纸篓不能是来源文件"));
+    }
+    if local.source_bytes() == remote.source_bytes() {
+        return Ok(None);
+    }
+    tokio::task::spawn_blocking(move || {
+        let remote_nodes = merge_task_nodes(&remote)
+            .map(|(_, node)| (node.key.clone(), node))
+            .collect::<BTreeMap<_, _>>();
+        let selected = merge_task_nodes(&local)
+            .filter(|(_, node)| remote_nodes.get(&node.key).is_none_or(|other| !same(node, other)))
+            .map(|(path, _)| path)
+            .collect::<BTreeSet<_>>();
+        if selected.is_empty() {
+            return Ok(None);
+        }
+        crate::model::plan_trash_creations(&local, &selected, target)
+    })
+    .await
+    .map_err(|_| CoreError::InvalidState("废纸篓操作规划任务异常"))?
+}
+
+fn merge_task_nodes(file: &OrgFile) -> impl Iterator<Item = (TaskPath, Node)> {
+    file.path_headlines()
+        .into_iter()
+        .zip(parse(file).nodes)
+        .filter(|((_, headline), _)| !OrgFile::is_conflict_headline(headline))
+        .map(|((path, _), node)| (path, node))
 }
 
 #[derive(Clone, Debug)]
@@ -182,12 +243,6 @@ fn subtree_source(document: &Document, key: &str) -> String {
         .filter(|node| node.key == key || descendant(&node.key, key, &lookup))
         .map(|node| node.source.as_str())
         .collect()
-}
-
-/// 文件头只保存当前状态；标记的增删不触碰其他关键字、正文或源码块。
-pub(crate) fn with_conflict_header(file: &OrgFile) -> Result<Vec<u8>, CoreError> {
-    // 冲突状态由尾部 CONFLICT 容器表达，不再修改远端文件头。
-    Ok(file.source_bytes().to_vec())
 }
 
 #[derive(Clone, Debug)]
@@ -1099,15 +1154,6 @@ fn place_copies(
         output.splice(at..at, tree);
     }
     Ok(())
-}
-
-/// 字段级增删改在远端片段上执行；无法安全应用的本地版本成为普通 Org 冲突记录。
-pub(crate) fn merge_files(
-    base: &OrgFile,
-    local: &OrgFile,
-    remote: &OrgFile,
-) -> Result<Vec<u8>, CoreError> {
-    merge_with_container(base, local, remote)
 }
 
 #[derive(Clone)]

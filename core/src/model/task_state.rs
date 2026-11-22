@@ -506,7 +506,7 @@ pub(super) fn metadata_node(file: &OrgFile, headline: &Headline) -> Headline {
         .unwrap_or_else(|| headline.clone())
 }
 
-fn body_start(file: &OrgFile, headline: &Headline) -> usize {
+pub(super) fn body_start(file: &OrgFile, headline: &Headline) -> usize {
     let mut at = file.source_bytes()[start(headline)..]
         .iter()
         .position(|byte| *byte == b'\n')
@@ -541,17 +541,22 @@ pub(super) fn modify_property(
     name: &str,
     value: Option<&str>,
 ) -> Result<(), CoreError> {
+    validate_property(name, value)?;
+    let name = name.to_ascii_uppercase();
+    if matches!(name.as_str(), "TODO" | "PRIORITY" | "TAGS" | "SCHEDULED" | "DEADLINE" | "CLOSED" | "CREATED" | super::properties::REMINDER_PROPERTY) {
+        return Err(CoreError::InvalidInput("该属性必须通过专用字段修改，或为只读字段"));
+    }
+    write_property(file, headline, &name, value)
+}
+
+pub(super) fn validate_property(name: &str, value: Option<&str>) -> Result<(), CoreError> {
     if name.is_empty() || name.ends_with('+')
         || name.chars().any(|c| c.is_whitespace() || c == ':' || c.is_control())
         || value.is_some_and(|value| value.contains(['\r', '\n', '\0']))
     {
         return Err(CoreError::InvalidInput("属性名称或值无效"));
     }
-    let name = name.to_ascii_uppercase();
-    if matches!(name.as_str(), "TODO" | "PRIORITY" | "TAGS" | "SCHEDULED" | "DEADLINE" | "CLOSED" | "CREATED" | super::properties::REMINDER_PROPERTY) {
-        return Err(CoreError::InvalidInput("该属性必须通过专用字段修改，或为只读字段"));
-    }
-    write_property(file, headline, &name, value)
+    Ok(())
 }
 
 // 已通过领域接口校验的内部属性写入；属性名不暴露给宿主调用方。

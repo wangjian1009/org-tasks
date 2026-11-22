@@ -1146,7 +1146,7 @@ async fn closed_cleanup_and_failed_completion_share_the_operation_transaction() 
 }
 
 #[test]
-fn timestamps_cannot_be_set_or_disabled_by_operation_inputs() {
+fn creation_accepts_explicit_closed_without_exposing_timestamp_modification() {
     for field in ["CREATED", "CLOSED"] {
         assert!(
             serde_json::from_value::<TaskModification>(
@@ -1155,17 +1155,15 @@ fn timestamps_cannot_be_set_or_disabled_by_operation_inputs() {
             .is_err()
         );
     }
-    for extra in [
-        serde_json::json!({"closed":null}),
-        serde_json::json!({"recordCreated":false}),
-    ] {
-        let mut creation = serde_json::json!({"position":{"parent":{"repoId":"repo","file":"tasks.org"}},"title":"New"});
-        creation
-            .as_object_mut()
-            .unwrap()
-            .extend(extra.as_object().unwrap().clone());
-        assert!(serde_json::from_value::<TaskCreation>(creation).is_err());
-    }
+    let mut creation = serde_json::json!({
+        "position": {"parent": {"repoId": "repo", "file": "tasks.org"}},
+        "title": "New",
+        "closed": "[2026-11-22 Sun]"
+    });
+    let data = serde_json::from_value::<TaskCreation>(creation.clone()).unwrap();
+    assert_eq!(data.closed.as_deref(), Some("[2026-11-22 Sun]"));
+    creation["recordCreated"] = serde_json::json!(false);
+    assert!(serde_json::from_value::<TaskCreation>(creation).is_err());
 }
 
 #[cfg(unix)]

@@ -15,6 +15,67 @@ use super::write_intent::{read_optional, write_new};
 use super::*;
 use crate::CoreError;
 
+pub(crate) fn plan_trash_creations(
+    file: &OrgFile,
+    selected: &BTreeSet<TaskPath>,
+    target: TaskPath,
+) -> Result<Option<TaskOperationGroup>, CoreError> {
+    let repo = OrgRepo {
+        id: file.repo_id.clone(),
+        root_directory: String::new(),
+        todo_defaults: file.todo_defaults.clone(),
+    };
+    let mut group = TaskOperationGroup::default();
+    // 每条新增都插在文件首部，逆序提交以保留来源顺序。
+    for copy in file_worker::snapshot(&repo, file).into_iter().rev() {
+        let path = copy.source.task.full_path();
+        if !selected.contains(path) {
+            continue;
+        }
+        let headline = locate(file, path)?;
+        let heading = &copy.headings[0];
+        let mut creation = TaskCreation::new(
+            TaskPosition { parent: target.clone(), after: None },
+            heading.title.clone(),
+        );
+        creation.state = heading.state.clone();
+        creation.priority = headline.priority().map(|priority| priority.to_string());
+        let (patches, tags) = copy.trash_attributes()?;
+        creation.tags = tags;
+        let source = std::str::from_utf8(file.source_bytes()).expect("已解析 UTF-8");
+        for (_, _, fields) in planning_lines(file, &headline) {
+            for (kind, start, end) in fields {
+                let Some((_, value)) = source[start..end].split_once(':') else {
+                    continue;
+                };
+                let field = match kind {
+                    SyntaxKind::PLANNING_SCHEDULED => &mut creation.scheduled,
+                    SyntaxKind::PLANNING_DEADLINE => &mut creation.deadline,
+                    SyntaxKind::PLANNING_CLOSED => &mut creation.closed,
+                    _ => continue,
+                };
+                *field = Some(value.trim().to_owned());
+            }
+        }
+        let metadata = super::task_state::metadata_node(file, &headline);
+        if let Some(drawer) = metadata.properties() {
+            creation.properties.extend(super::properties::entries(&drawer)
+                .filter(|property| property.name != "ID" && !property.name.starts_with("SOURCE_"))
+                .map(|property| TaskCreationProperty {
+                    name: property.name, value: property.value, append: property.append,
+                }));
+        }
+        creation.properties.extend(patches.into_iter().filter_map(|(name, value)| {
+            value.map(|value| TaskCreationProperty { name, value, append: false })
+        }));
+        let start = super::task_state::body_start(file, &headline);
+        let end = headline.headlines().next().map_or_else(|| end(&headline), |child| self::start(&child));
+        creation.body = source[start..end].to_owned();
+        group.operations.push(TaskOperation::Creation(creation));
+    }
+    Ok((!group.operations.is_empty()).then_some(group))
+}
+
 pub(super) type FileKey = (OrgRepoId, String);
 
 struct WorkingFile {
@@ -572,6 +633,7 @@ fn execute_inner(
                     title: task.title.clone(), body: task.body.clone(), state: task.state.clone(),
                     priority: task.priority.clone(), tags: task.tags.clone(),
                     scheduled: task.scheduled.clone(), deadline: task.deadline.clone(),
+                    properties: Vec::new(), closed: None,
                 };
                 after = execute(files, &TaskOperation::Creation(creation))?;
             }
@@ -797,7 +859,25 @@ pub(super) fn create(
 ) -> Result<usize, CoreError> {
     let (offset, level) = position_hint(file, &data.position)?;
     validate_title(&data.title)?;
-    validate_state(file, data.state.as_deref())?;
+    let archived = data.properties.iter().any(|property| {
+        property.name.eq_ignore_ascii_case("SOURCE_TRASH_ID")
+            && !property.append
+            && !property.value.is_empty()
+    });
+    // 废纸篓保留源 TODO 字样，目标文件可以有不同的 TODO 配置。
+    let mut expected_state = data.state.as_deref();
+    let mut expected_title = std::borrow::Cow::Borrowed(data.title.trim_end());
+    if let Err(error) = validate_state(file, expected_state) {
+        if !archived {
+            return Err(error);
+        }
+        let state = expected_state.expect("未知状态一定有值");
+        if state.is_empty() || state.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(CoreError::InvalidInput("TODO 状态不能包含空白"));
+        }
+        expected_state = None;
+        expected_title = format!("{state} {}", data.title.trim_end()).into();
+    }
     file.validate_priority(data.priority.as_deref())?;
     validate_tags(&data.tags)?;
     let mut content = format!(
@@ -823,6 +903,7 @@ pub(super) fn create(
     for (field, value) in [
         ("SCHEDULED", &data.scheduled),
         ("DEADLINE", &data.deadline),
+        ("CLOSED", &data.closed),
     ] {
         if let Some(value) = value {
             validate_timestamp(value)?;
@@ -834,15 +915,20 @@ pub(super) fn create(
         content.push_str(newline(file));
     }
     validate_body(&data.body)?;
-    let timestamp = now
-        .format("[%Y-%m-%d %a %H:%M]")
-        .to_string();
-    content.push_str(&format!(
-        ":PROPERTIES:{}:CREATED: {timestamp}{}:END:{}",
-        newline(file),
-        newline(file),
-        newline(file)
-    ));
+    let nl = newline(file);
+    content.push_str(&format!(":PROPERTIES:{nl}"));
+    if !archived && !data.properties.iter().any(|property| {
+        property.name.eq_ignore_ascii_case("CREATED") && !property.append
+    }) {
+        let timestamp = now.format("[%Y-%m-%d %a %H:%M]");
+        content.push_str(&format!(":CREATED: {timestamp}{nl}"));
+    }
+    for property in &data.properties {
+        super::task_state::validate_property(&property.name, Some(&property.value))?;
+        let suffix = if property.append { "+" } else { "" };
+        content.push_str(&format!(":{}{suffix}: {}{nl}", property.name, property.value));
+    }
+    content.push_str(&format!(":END:{nl}"));
     content.push_str(&normalize_newlines(&data.body, newline(file)));
     let mut probe = file.clone();
     probe.source_bytes = content.as_bytes().to_vec();
@@ -867,8 +953,8 @@ pub(super) fn create(
         .map(|(_, node)| node)
         .find(|node| start(node) == inserted)
         .ok_or(CoreError::InvalidInput("创建后标题无法定位"))?;
-    if node.title_raw().trim_end() != data.title.trim_end()
-        || node.todo_keyword().map(|token| token.to_string()) != data.state
+    if node.title_raw().trim_end() != expected_title
+        || node.todo_keyword().as_deref() != expected_state
         || node.priority().map(|token| token.to_string()) != data.priority
         || node
             .tags()
@@ -880,7 +966,9 @@ pub(super) fn create(
             "标题或状态不能被 Org 重新解释为其他字段",
         ));
     }
-    super::task_state::log_created_completion(file, &node, now)?;
+    if !archived && data.closed.is_none() {
+        super::task_state::log_created_completion(file, &node, now)?;
+    }
     Ok(inserted)
 }
 

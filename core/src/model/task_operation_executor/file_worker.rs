@@ -50,6 +50,92 @@ pub(super) struct RecordCopy {
     pub moved_tokens: Option<Vec<super::super::mutation_journal::TransferredNode>>,
 }
 
+impl RecordCopy {
+    pub(super) fn trash_attributes(&self) -> Result<(Vec<(String, Option<String>)>, Vec<String>), CoreError> {
+        let title = self.headings[0].title.clone();
+        let state = serde_json::to_string(&self.headings[0].state)
+            .map_err(|_| CoreError::InvalidState("无法记录任务状态"))?;
+        let mut tags = self.source.task.own_tags().to_vec();
+        let mut parent_tags = Vec::new();
+        for tag in self.source.task.inherited_tags() {
+            if !tags.contains(tag) {
+                tags.push(tag.clone());
+                parent_tags.push(tag.clone());
+            }
+        }
+        let mut source_position = self.source.position.clone();
+        let brother = source_position.after.take();
+        let mut patches = self
+            .source
+            .task
+            .properties()
+            .keys()
+            .filter(|name| name.starts_with("SOURCE_"))
+            .map(|name| (name.clone(), None))
+            .collect::<Vec<_>>();
+        patches.extend(vec![
+            ("ID".into(), None),
+            (
+                "SOURCE_ID".into(),
+                self.source.task.property("ID").map(str::to_owned),
+            ),
+            (
+                "SOURCE_FILE_TITLE".into(),
+                Some(self.file_title.clone().unwrap_or_default()),
+            ),
+            (
+                "SOURCE_FILE_ID".into(),
+                Some(self.file_id.clone().unwrap_or_default()),
+            ),
+            (
+                "SOURCE_BROTHER".into(),
+                brother
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()
+                    .map_err(|_| CoreError::InvalidState("无法记录前一兄弟节点"))?,
+            ),
+            (
+                "SOURCE_PARENT_TAGS".into(),
+                Some(
+                    serde_json::to_string(&parent_tags)
+                        .map_err(|_| CoreError::InvalidState("无法记录继承标签"))?,
+                ),
+            ),
+            ("SOURCE_REPO".into(), Some(self.source.task.repo_id().into())),
+            ("SOURCE_FILE".into(), Some(self.source.task.path().into())),
+            (
+                "SOURCE_OLPATH".into(),
+                Some(self.source.position.parent.titles.join("/")),
+            ),
+            (
+                "SOURCE_POSITION".into(),
+                Some(
+                    serde_json::to_string(&source_position)
+                        .map_err(|_| CoreError::InvalidState("无法记录原位置"))?,
+                ),
+            ),
+            (
+                "SOURCE_TIME".into(),
+                Some(
+                    chrono::Local::now()
+                        .format("[%Y-%m-%d %a %H:%M]")
+                        .to_string(),
+                ),
+            ),
+            ("SOURCE_TASK_TITLE".into(), Some(title)),
+            ("SOURCE_TASK_STATE".into(), Some(state)),
+            ("SOURCE_CATEGORY".into(), self.category.clone()),
+            ("SOURCE_PROJECT_NAME".into(), self.project_name.clone()),
+            (
+                "SOURCE_TRASH_ID".into(),
+                Some(super::super::service::generate_repo_id()?),
+            ),
+        ]);
+        Ok((patches, tags))
+    }
+}
+
 pub(super) struct FileExecuteResult {
     pub order_id: OrderId,
     pub notification: Vec<TaskDataChange>,

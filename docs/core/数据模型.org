@@ -650,7 +650,7 @@ pub struct WebDavSyncFileDetail {
 
 * 同步基准的仓库归属
 
-每个仓库独立维护 ~remote_base~ 。已确认远端状态与本地共同祖先分开保存；远端下载、上传或删除成功后可独立发布远端事实，本地工作文件提交失败不撤回远端事实，也不推进本地共同祖先。无基线时按首次同步规则处理文件集合，两端都存在的内容以空 B 执行三方合并；历史记录只供展示与恢复材料查询，不作为当前变化判断的基线。布局、事务与恢复规则见 [[file:同步核心设计.org][同步核心设计]]。
+每个仓库独立维护 ~remote_base~ 。已确认远端状态与本地共同祖先分开保存；远端下载、上传或删除成功后可独立发布远端事实，本地工作文件提交失败不撤回远端事实，也不推进本地共同祖先。无基线时按首次同步规则处理文件集合，两端都存在时采用远端原文；历史记录只供展示与恢复材料查询，不作为当前变化判断的基线。布局、事务与恢复规则见 [[file:同步核心设计.org][同步核心设计]]。
 
 * 文件 TODO 元信息与外部全局默认
 
@@ -1129,6 +1129,18 @@ pub struct TaskCreation {
     pub scheduled: Option<String>,
     #[serde(default)]
     pub deadline: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub properties: Vec<TaskCreationProperty>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskCreationProperty {
+    pub name: String,
+    pub value: String,
+    pub append: bool,
 }
 
 impl TaskCreation {
@@ -1419,7 +1431,9 @@ pub struct TaskFileInitialTask {
 \umlclass[x=0,y=0]{TaskOperationGroup}{operation\_id: Option\textless String\textgreater \\
 operations: Vec\textless TaskOperation\textgreater \\ file\_versions: Vec\textless TaskFileVersion\textgreater}{}
 \umlclass[x=8,y=0,type=enumeration]{TaskOperation}{FileNew \\ FileHaderModification \\ Creation \\ Modification \\ Movement \\ Deletion \\ Trash \\ Restore \\ ConfilictSelection}{}
-\umlclass[x=0,y=-4]{TaskCreation}{position: TaskPosition \\ title: String \\ body: String \\ state: Option\textless String\textgreater}{after: 仅作位置提示}
+\umlclass[x=0,y=-4]{TaskCreation}{position: TaskPosition \\ title: String \\ body: String \\ state: Option\textless String\textgreater \\ properties: Vec\textless TaskCreationProperty\textgreater \\ closed: Option\textless String\textgreater}{after: 仅作位置提示}
+\umlclass[x=7,y=-7]{TaskCreationProperty}{name: String \\ value: String \\ append: bool}{}
+\umldep{TaskCreation}{TaskCreationProperty}
 \umlclass[x=7,y=-4]{TaskModificationOperation}{path: TaskPath \\ modifications: Vec\textless TaskModification\textgreater}{}
 \umlclass[x=0,y=-8]{TaskMovement}{path: TaskPath \\ position: TaskPosition}{}
 \umlclass[x=7,y=-8]{TaskDeletion}{path: TaskPath}{}

@@ -6,6 +6,7 @@ mod archive;
 mod history;
 pub(crate) mod remote_base;
 mod synchronize;
+mod sync_plan;
 pub(crate) mod session;
 pub(crate) mod transaction;
 pub use archive::*;

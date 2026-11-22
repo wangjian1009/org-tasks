@@ -64,6 +64,7 @@ pub use tags::SupportTags;
 pub use task_inline::*;
 pub use task_log::*;
 pub use task_operation::*;
+pub(crate) use task_operation_executor::plan_trash_creations;
 pub use task_path::*;
 pub use task_repeat::*;
 pub use task_scan::*;

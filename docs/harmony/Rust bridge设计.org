@@ -238,6 +238,8 @@ Rust C ABI 返回的字符串由 Rust 分配，C++ 通过 ~TakeRustString~ 复�
 
 ~Workspace.executeTaskOperations~ 接受 Core 定义的结构化 ~TaskOperationGroup~ ，由 C++ 在工作线程调用 Rust。操作按顺序在 Core 内存快照中执行，统一提交；Promise 成功只返回 ~void~ ，失败时以 Promise rejection 传播 Core 错误。仓库数据变化由独立 ~watchDataChanges~ 订阅转发，C++ 和 ArkTS 不生成反向操作、不重建 Org 内容。
 
+~Creation~ 接受可选 ~properties~ 和 ~closed~ 。属性项包含 ~name~ 、 ~value~ 和 ~append~ ，关闭时间使用完整 Org 时间戳。现有 JSON 编组将这些字段随操作组透传给 Core。
+
 操作组可选携带 ~operationId: string | null~ 。C++ 仍透传结构化 JSON，不解释来源标识；Core 的仓库数据事件透传该值，未提供时为 ~null~ 。界面数据集事件继续沿用来源标识，不因见过同一编号而丢弃该操作的其他关联通知。
 
 收件箱合并调用 ~Workspace.taskMergeOperations({ paths, fileVersion })~ ，paths 保持用户选择顺序。C++ 在工作线程调用 Rust ABI ~org_tasks_harmony_workspace_task_merge_operations~ ，返回 Core 生成的 ~TaskMergePlan { operationGroup, mainPath }~ 。该操作组只含现有的 Deletion 与 Modification，不新增操作种类，也不创建编辑会话或预览界面。
@@ -524,7 +526,7 @@ TS 的 ~CoreNotification~ 联合类型包含 ~{ type: 'syncRequired' }~ ，由 C
 
 * 内容合并的 Core 边界
 
-现有 UI 同步调用经原有 Repo 同步入口进入 Core，复用文件内三方合并。 ~org_tasks_core::merge~ 是直接接收 Org 原文的 Rust 纯函数，不新增 C ABI、C++ N-API 或 ArkTS 方法。冲突丢弃使用普通 ~executeTaskOperations~ 的 ~ConfilictSelection~ ；任务候选不阻止后续同步。完整目录与基线语义见 [[file:../core/同步核心设计.org][同步核心设计]]。
+现有 UI 同步调用经原有 Repo 同步入口进入 Core。有共同祖先正文时执行三方合并，缺少共同祖先正文时采用远端原文。 ~org_tasks_core::merge~ 是直接接收 Org 原文的 Rust 纯函数，不新增 C ABI、C++ N-API 或 ArkTS 方法。冲突丢弃使用普通 ~executeTaskOperations~ 的 ~ConfilictSelection~ ；任务候选不阻止后续同步。完整目录与基线语义见 [[file:../core/同步核心设计.org][同步核心设计]]。
 
 * 仓库重置与冲突展示
 
