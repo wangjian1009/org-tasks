@@ -228,6 +228,7 @@ impl WebDavSyncPolicy {
             repo: repo.clone(), files, base: bases.sources(), local: local_sources,
             remote: snapshots, detached: detached.is_some(),
             versions: remote_by_path.into_iter().map(|(path, file)| (path, file.version)).collect(),
+            trash_file: SYNC_TRASH.try_with(Clone::clone).ok(),
         });
         let groups = match sync_plan::groups(&snapshots, &paths, &context.options) {
             Ok(groups) => groups,
@@ -266,9 +267,13 @@ impl WebDavSyncPolicy {
             return Err(CoreError::InvalidState("同步比较组执行异常"));
         }
         let mut prepared = Vec::new();
+        let mut trash_operations = Vec::new();
         for (path, result) in groups.into_values() {
             match result {
-                Ok(items) => {
+                Ok((items, operations)) => {
+                    if let Some(group) = operations {
+                        trash_operations.extend(group.operations);
+                    }
                     for item in items {
                         prepared.push(item.read(root, &repo.id, context.started_at).await?);
                     }
@@ -441,6 +446,17 @@ impl WebDavSyncPolicy {
         let commit_guard = super::session::enter(root, &repo.id, context.started_at,
             super::session::Phase::Committing).await?;
         plan.verify(root).await?;
+        if !trash_operations.is_empty() {
+            let mut group: crate::TaskOperationGroup = match transaction::read(root, TRASH_PENDING).await? {
+                Some(bytes) => serde_json::from_slice(&bytes)
+                    .map_err(|_| CoreError::InvalidState("待转入废纸篓的操作无效"))?,
+                None => crate::TaskOperationGroup::default(),
+            };
+            group.operations.extend(trash_operations);
+            let bytes = serde_json::to_vec(&group)
+                .map_err(|_| CoreError::InvalidState("无法保存待转入废纸篓的操作"))?;
+            plan.set(root, TRASH_PENDING.into(), Some(bytes)).await?;
+        }
         for (path, bytes) in archives { plan.set(root, path, Some(bytes)).await?; }
         for item in &prepared {
             if item.before != item.result {

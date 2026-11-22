@@ -100,6 +100,7 @@ import {
   Workspace as NativeWorkspace
 } from 'liborg_tasks_harmony.so'
 import { RepoConfig } from '../models/OrgTask'
+import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 
 export type CoreConflictPreview = NativeConflictPreview
 export type CoreConflictPreviewRequest = NativeConflictPreviewRequest
@@ -299,8 +300,8 @@ export class CoreWorkspace {
   }
   async removeSyncPolicy(repoId: string): Promise<void> { await this.native.removeSyncPolicy(repoId) }
   async checkRemoteChanges(): Promise<CoreRepoRemoteChange[]> { return await this.native.checkRemoteChanges() }
-  async syncRepos(repoIds: string[], triggerReason: SyncTriggerReason): Promise<CoreRepoSyncResult[]> {
-    return await this.native.syncRepos(repoIds, triggerReason)
+  async syncRepos(repoIds: string[], triggerReason: SyncTriggerReason, trashFile?: CoreOrgFileRef): Promise<CoreRepoSyncResult[]> {
+    return await this.native.syncRepos(repoIds, triggerReason, trashFile)
   }
 
   private readonly native: NativeWorkspace
@@ -481,7 +482,11 @@ export class NativeCoreService {
     if (selectedIds.length > 0) {
       const reason: SyncTriggerReason = source === 'startup' ? 'remoteChanged'
         : source === 'background' ? 'localChanged' : source
-      const results = await workspace.syncRepos(selectedIds, reason)
+      const system = repositories.find((item: RepoConfig): boolean => item.id === SYSTEM_REPOSITORY_ID)
+      const trashRepo = repos.find(repo => repo.rootDirectory === system?.rootDirectory)
+      if (system && !trashRepo) throw new Error('系统仓库不可用，无法保护首次同步的本地任务')
+      const trashFile: CoreOrgFileRef | undefined = trashRepo ? { repoId: trashRepo.id, path: TRASH_FILE } : undefined
+      const results = await workspace.syncRepos(selectedIds, reason, trashFile)
       for (const result of results) {
         if (result.error) failure = failure || coreErrorMessage(result.error)
         else if (!result.record || result.record.result !== 'succeeded') {

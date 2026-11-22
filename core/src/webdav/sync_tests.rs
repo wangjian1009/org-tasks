@@ -1329,25 +1329,44 @@ async fn first_sync_adopts_remote_for_overlapping_files_and_commits_one_sided_fi
 
 #[tokio::test]
 async fn no_base_archive_creations_can_execute_after_source_is_replaced() {
-    let (mut repo, root) = repo().await;
+    use crate::{RemoteChangeState, SyncTriggerReason};
+    let (source, root) = repo().await;
+    let (system, system_root) = repo().await;
     let original = "#+TODO: TODO WAITING | DONE\n* DONE Parent :context:\nCLOSED: [2026-11-22 Sun]\n:PROPERTIES:\n:ID: parent-id\n:CREATED: [2026-11-21 Sat]\n:CATEGORY: Original\n:CATEGORY+: Appended\n:END:\n:LOGBOOK:\n- State \"DONE\" from \"TODO\" [2026-11-22 Sun]\n:END:\nParent note\n** WAITING Child\nSCHEDULED: <2026-11-23 Mon>\n- [ ] Child note\n* TODO Same\n";
     let replacement = b"* TODO Same\n* TODO Remote\n:PROPERTIES:\n:ID: parent-id\n:END:\n";
     tokio::fs::write(root.join("a.org"), original).await.unwrap();
-    tokio::fs::write(root.join("trash.org"), b"#+OPTIONS: logdone\n").await.unwrap();
-    let local = repo.file("a.org").await.unwrap();
-    let remote = repo.parse_file("a.org".into(), replacement.to_vec()).unwrap();
+    let trash_path = system_root.join("trash.org");
+    tokio::fs::create_dir(&trash_path).await.unwrap();
+    let local = source.file("a.org").await.unwrap();
+    let remote = source.parse_file("a.org".into(), replacement.to_vec()).unwrap();
     assert!(crate::merge::merge_file_no_base(local.clone(), remote.clone(), None).await.unwrap().is_none());
-    let group = crate::merge::merge_file_no_base(local, remote, Some(crate::OrgFileRef {
-        repo_id: repo.id.clone(), path: "trash.org".into(),
-    })).await.unwrap().unwrap();
+    let target = crate::OrgFileRef { repo_id: system.id.clone(), path: "trash.org".into() };
+    let group = crate::merge::merge_file_no_base(local, remote, Some(target.clone())).await.unwrap().unwrap();
     assert_eq!(group.operations.len(), 2);
     assert!(group.operations.iter().all(|op| matches!(op, crate::TaskOperation::Creation(_))));
 
     let (policy, _, worker) = server(&[("a.org", replacement)]).await;
-    assert_eq!(sync(&mut repo, &policy, 1).await.result, Some(OrgRepoSyncResult::Succeeded));
-    let workspace = crate::OrgWorkspace::start(vec![repo]).await.unwrap();
-    workspace.execute_task_operations(&group).await.unwrap();
-    let trash = tokio::fs::read_to_string(root.join("trash.org")).await.unwrap();
+    let source_id = source.id.clone();
+    let workspace = crate::OrgWorkspace::start(vec![source, system]).await.unwrap();
+    workspace.set_sync_policy(&source_id, policy, vec![]).await.unwrap();
+    let ids = std::slice::from_ref(&source_id);
+    let result = workspace.sync_repos(ids, SyncTriggerReason::Manual, None, None, Some(target.clone())).await.unwrap();
+    assert!(result[0].result.is_err());
+    assert_eq!(tokio::fs::read(root.join("a.org")).await.unwrap(), replacement);
+    assert!(root.join(TRASH_PENDING).is_file());
+    assert_eq!(workspace.check_remote_changes().await.unwrap()[0].result, Ok(RemoteChangeState::Unknown));
+    tokio::fs::remove_dir(&trash_path).await.unwrap();
+    tokio::fs::write(&trash_path, b"#+OPTIONS: logdone\n").await.unwrap();
+    let pending = tokio::fs::read(root.join(TRASH_PENDING)).await.unwrap();
+    let result = workspace.sync_repos(ids, SyncTriggerReason::Manual, None, None, Some(target.clone())).await.unwrap();
+    assert_eq!(result[0].result.as_ref().unwrap().result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(!root.join(TRASH_PENDING).exists());
+    tokio::fs::write(root.join(TRASH_PENDING), &pending).await.unwrap();
+    let result = workspace.sync_repos(ids, SyncTriggerReason::Manual, None, None, Some(target)).await.unwrap();
+    assert_eq!(result[0].result.as_ref().unwrap().result, Some(OrgRepoSyncResult::Succeeded));
+    assert!(!root.join(TRASH_PENDING).exists());
+    let trash = tokio::fs::read_to_string(&trash_path).await.unwrap();
+    assert_eq!(trash.matches("SOURCE_TRASH_ID").count(), 2);
     assert!(trash.contains("* DONE Parent :context:\nCLOSED: [2026-11-22 Sun]\n"));
     assert!(trash.contains(":CREATED: [2026-11-21 Sat]\n"));
     assert!(trash.contains(":CATEGORY+: Appended\n"));
@@ -1361,6 +1380,7 @@ async fn no_base_archive_creations_can_execute_after_source_is_replaced() {
     workspace.stop().await.unwrap();
     worker.abort();
     tokio::fs::remove_dir_all(root).await.unwrap();
+    tokio::fs::remove_dir_all(system_root).await.unwrap();
 }
 
 #[tokio::test]
@@ -1526,7 +1546,7 @@ async fn reattaching_after_removing_policy_uses_remote_for_matching_paths() {
     ]).await;
     workspace.set_sync_policy(&repo_id, policy, vec![]).await.unwrap();
     assert_eq!(workspace.check_remote_changes().await.unwrap()[0].result, Ok(RemoteChangeState::Unknown));
-    let result = workspace.sync_repos(&[repo_id], SyncTriggerReason::Manual, None, None).await.unwrap();
+    let result = workspace.sync_repos(&[repo_id], SyncTriggerReason::Manual, None, None, None).await.unwrap();
     assert_eq!(result[0].result.as_ref().unwrap().result, Some(OrgRepoSyncResult::Succeeded));
     assert_eq!(tokio::fs::read(root.join("same.org")).await.unwrap(), b"* TODO New remote\r\n");
     assert_eq!(tokio::fs::read(root.join("local.org")).await.unwrap(), b"* TODO Local only\n");

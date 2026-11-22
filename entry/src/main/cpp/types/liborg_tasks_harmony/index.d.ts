@@ -360,7 +360,7 @@ export class Workspace {
   setSyncPolicy(repoId: string, policy: WebDavSyncPolicy, excludedDirectories: string[], monitor?: WebDavSyncMonitor): Promise<void>;
   removeSyncPolicy(repoId: string): Promise<void>;
   checkRemoteChanges(): Promise<RepoRemoteChange[]>;
-  syncRepos(repoIds: string[], triggerReason: SyncTriggerReason): Promise<RepoSyncResult[]>;
+  syncRepos(repoIds: string[], triggerReason: SyncTriggerReason, trashFile?: OrgFileRef): Promise<RepoSyncResult[]>;
   startHttpServer(port?: number, handler?: HttpUiHandler): Promise<HttpServerInfo>;
   stopHttpServer(): Promise<void>;
   httpServerStatus(): Promise<HttpServerInfo | null>;

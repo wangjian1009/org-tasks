@@ -284,6 +284,25 @@ test('WebDAV 重置先清空，再同步，失败后的重试沿用原因且不�
   assert.equal(f.page.syncRetry, '');
 });
 
+test('已有本地仓库启用 WebDAV 须确认覆盖风险，取消保留草稿', async () => {
+  const f = repositoryFixture();
+  f.config.repos[0].webdavEnabled = false;
+  await f.page.load();
+  f.page.changeSyncMethod(true);
+  await f.page.save();
+  assert.match(f.dialog().message, /同路径的本地 Org 文件会被远端版本覆盖/);
+  f.dialog().primaryButton.action();
+  assert.equal(f.writes.length, 0);
+  assert.equal(f.page.webdavEnabled, true);
+  assert.equal(f.page.hasChanges(), true);
+  await f.page.save();
+  f.dialog().secondaryButton.action();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.writes.length, 1);
+  assert.equal(f.writes[0].repos[0].webdavEnabled, true);
+  assert.deepEqual(f.lifecycle, []);
+});
+
 test('切换为本地仓库须确认，取消保留连接，确认后清除远端配置', async () => {
   const f = repositoryFixture(); await f.page.load();
   f.page.testMessage = '连接成功'; f.page.testSucceeded = true;

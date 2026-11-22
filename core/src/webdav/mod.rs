@@ -33,6 +33,11 @@ use crate::model::{
 use crate::OrgRepoSyncFileOutcome;
 use crate::{CoreError, TimestampMs};
 
+pub(crate) const TRASH_PENDING: &str = ".sync/trash-pending.json";
+tokio::task_local! {
+    pub(crate) static SYNC_TRASH: crate::OrgFileRef;
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WebDavEndpoint {
     pub base_url: String,
@@ -311,6 +316,9 @@ impl SyncPolicy for WebDavSyncPolicy {
     async fn check_remote_changes(
         &self, context: &crate::RemoteCheckContext<'_>,
     ) -> Result<crate::RemoteChangeState, CoreError> {
+        if transaction::read(std::path::Path::new(&context.repo.root_directory), TRASH_PENDING).await?.is_some() {
+            return Ok(crate::RemoteChangeState::Unknown);
+        }
         self.check_remote_snapshot(context).await
     }
 

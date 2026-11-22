@@ -1,9 +1,10 @@
 //! 仓库策略绑定与多仓库检查、同步；只读检查使用已发布快照，不进入命令屏障。
 use super::{OrgWorkspace, WorkspaceState, process::Access};
-use crate::{CoreError, OrgRepo, OrgRepoId, OrgRepoSyncRecord, RemoteCheckContext,
+use crate::{CoreError, LocalFileVersion, OrgFileRef, OrgRepo, OrgRepoId, OrgRepoSyncRecord, RemoteCheckContext,
     RemoteChangeState, RepoRemoteChange, RepoSyncResult, SyncCancellation, SyncOptions,
-    SyncPolicy, SyncProgressReporter, SyncTriggerReason};
-use std::{future::Future, pin::Pin, sync::Arc};
+    SyncPolicy, SyncProgressReporter, SyncTriggerReason, TaskFileVersion, TaskOperation,
+    TaskOperationGroup, TaskPath};
+use std::{future::Future, path::Path, pin::Pin, sync::Arc};
 
 type Pending<'a, T> = Pin<Box<dyn Future<Output = Result<T, CoreError>> + Send + 'a>>;
 
@@ -93,6 +94,7 @@ impl OrgWorkspace {
     pub async fn sync_repos(
         &self, repo_ids: &[OrgRepoId], trigger_reason: SyncTriggerReason,
         cancellation: Option<SyncCancellation>, progress: Option<SyncProgressReporter>,
+        trash_file: Option<OrgFileRef>,
     ) -> Result<Vec<RepoSyncResult>, CoreError> {
         if repo_ids.iter().collect::<std::collections::BTreeSet<_>>().len() != repo_ids.len() {
             return Err(CoreError::InvalidInput("同步仓库列表不能重复"));
@@ -101,9 +103,15 @@ impl OrgWorkspace {
         let cancellation = cancellation.unwrap_or_default();
         let progress = progress.unwrap_or_default();
         self.request(Access::Exclusive, move |state| Box::pin(async move {
+            if let Some(trash) = &trash_file {
+                TaskPath::file(trash.repo_id.clone(), trash.path.clone()).validate()?;
+                if state.repo(&trash.repo_id).is_none() {
+                    return Err(CoreError::InvalidInput("废纸篓仓库不属于 Workspace"));
+                }
+            }
             let mut results = Vec::with_capacity(ids.len());
             for id in ids {
-                let result = sync_one(state, &id, trigger_reason, &cancellation, &progress).await;
+                let result = sync_one(state, &id, trigger_reason, &cancellation, &progress, trash_file.as_ref()).await;
                 results.push(RepoSyncResult { repo_id: id, result });
             }
             Ok(results)
@@ -113,13 +121,54 @@ impl OrgWorkspace {
 
 async fn sync_one(state: &mut WorkspaceState, id: &OrgRepoId, reason: SyncTriggerReason,
     cancellation: &SyncCancellation, progress: &SyncProgressReporter,
+    trash_file: Option<&OrgFileRef>,
 ) -> Result<OrgRepoSyncRecord, CoreError> {
+    use crate::webdav::{SYNC_TRASH, TRASH_PENDING, transaction};
     let binding = state.sync_policies.get(id).cloned()
         .ok_or(CoreError::InvalidInput("仓库未配置同步策略"))?;
     let notifications = state.notifications.clone();
     let repo = state.repos.iter_mut().find(|repo| &repo.id == id)
         .ok_or(CoreError::InvalidInput("仓库不属于 Workspace"))?;
-    binding.0.sync(repo, reason, cancellation, progress, &notifications).await
+    let sync = binding.0.sync(repo, reason, cancellation, progress, &notifications);
+    let Some(trash) = trash_file else { return sync.await; };
+    let result = SYNC_TRASH.scope(trash.clone(), sync).await;
+    let source = state.repo(id).expect("同步仓库仍在当前命令中").clone();
+    let root = Path::new(&source.root_directory);
+    let guard = crate::model::access::enter(root, id).await?;
+    let pending = transaction::read(root, TRASH_PENDING).await?;
+    drop(guard);
+    let Some(pending) = pending else { return result; };
+    let target = state.repo(&trash.repo_id).expect("已验证废纸篓仓库");
+    let file = target.file(&trash.path).await?;
+    let archived = file.path_headlines().into_iter().filter_map(|(_, headline)|
+        crate::model::properties::own(&headline, "SOURCE_TRASH_ID")).collect::<std::collections::BTreeSet<_>>();
+    let mut group: TaskOperationGroup = serde_json::from_slice(&pending)
+        .map_err(|_| CoreError::InvalidState("待转入废纸篓的操作无效"))?;
+    let parent = TaskPath::file(trash.repo_id.clone(), trash.path.clone());
+    for operation in &group.operations {
+        if !matches!(operation, TaskOperation::Creation(task) if task.position.parent == parent) {
+            return Err(CoreError::InvalidState("待转入废纸篓的操作与目标文件不一致"));
+        }
+    }
+    // 操作组已提交但待处理文件尚未清理时，按保留下来的来源 ID 跳过已写入的记录。
+    group.operations.retain(|operation| match operation {
+        TaskOperation::Creation(task) => !task.properties.iter().any(|property|
+            property.name == "SOURCE_TRASH_ID" && archived.contains(&property.value)),
+        _ => false,
+    });
+    if !group.operations.is_empty() {
+        group.file_versions = vec![TaskFileVersion {
+            repo_id: trash.repo_id.clone(), file: trash.path.clone(),
+            version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+        }];
+        state.execute_task_operations(&group).await?;
+    }
+    let _guard = crate::model::access::enter(root, id).await?;
+    let mut plan = transaction::Plan::default();
+    plan.guards.push((TRASH_PENDING.into(), Some(pending)));
+    plan.set(root, TRASH_PENDING.into(), None).await?;
+    plan.commit(root).await?;
+    result
 }
 
 #[cfg(test)]
@@ -205,11 +254,11 @@ mod tests {
         let calls = Arc::new(Mutex::new(Vec::new()));
         workspace.set_sync_policy(&ids[0], policy(Ok(RemoteChangeState::Unchanged), true, &calls), vec![]).await.unwrap();
         workspace.set_sync_policy(&ids[1], policy(Ok(RemoteChangeState::Unknown), false, &calls), vec![]).await.unwrap();
-        assert!(workspace.sync_repos(&[], SyncTriggerReason::Manual, None, None).await.unwrap().is_empty());
-        assert!(workspace.sync_repos(&[ids[0].clone(), ids[0].clone()], SyncTriggerReason::Manual, None, None).await.is_err());
+        assert!(workspace.sync_repos(&[], SyncTriggerReason::Manual, None, None, None).await.unwrap().is_empty());
+        assert!(workspace.sync_repos(&[ids[0].clone(), ids[0].clone()], SyncTriggerReason::Manual, None, None, None).await.is_err());
         assert!(calls.lock().unwrap().is_empty());
         let before = chrono::Utc::now().timestamp_millis();
-        let result = workspace.sync_repos(&[ids[0].clone(), ids[1].clone(), ids[2].clone()], SyncTriggerReason::RemoteChanged, None, None).await.unwrap();
+        let result = workspace.sync_repos(&[ids[0].clone(), ids[1].clone(), ids[2].clone()], SyncTriggerReason::RemoteChanged, None, None, None).await.unwrap();
         assert_eq!(result.iter().map(|item| &item.repo_id).collect::<Vec<_>>(), ids.iter().collect::<Vec<_>>());
         assert!(result[0].result.is_err());
         assert!(result[2].result.is_err());
@@ -220,7 +269,7 @@ mod tests {
         assert_eq!(record.context_detail, "策略专属字段");
         assert_eq!(calls.lock().unwrap().len(), 2);
         assert!(!root.join("local/.sync/history").exists());
-        let next = workspace.sync_repos(&[ids[1].clone()], SyncTriggerReason::Manual, None, None).await.unwrap();
+        let next = workspace.sync_repos(&[ids[1].clone()], SyncTriggerReason::Manual, None, None, None).await.unwrap();
         assert!(next[0].result.as_ref().unwrap().started_at > record.started_at);
         workspace.stop().await.unwrap();
         tokio::fs::remove_dir_all(root).await.unwrap();
@@ -236,7 +285,7 @@ mod tests {
         repo.sync_at(&probe, future, &SyncCancellation::default(), &SyncProgressReporter::default()).await.unwrap();
         workspace.set_sync_policy(&ids[0], probe, vec![]).await.unwrap();
         let token = SyncCancellation::default(); token.cancel();
-        let result = workspace.sync_repos(&[ids[0].clone()], SyncTriggerReason::LocalChanged, Some(token), None).await.unwrap();
+        let result = workspace.sync_repos(&[ids[0].clone()], SyncTriggerReason::LocalChanged, Some(token), None, None).await.unwrap();
         let record = result[0].result.as_ref().unwrap();
         assert_eq!(record.started_at, future + 1);
         assert_eq!(record.result, Some(OrgRepoSyncResult::Cancelled));

@@ -212,9 +212,10 @@ struct RepositorySettings {
     finally { this.saving = false }
   }
 
-  async save() {
+  async save(confirmedDraft?: string) {
     if (this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     if (!this.loaded || (this.existing && !this.hasChanges())) return
+    if (confirmedDraft !== undefined && confirmedDraft !== JSON.stringify(this.draft())) return
     const saved = this.config.repos.find(item => item.id === this.repoId)
     if (this.cleanupPending && this.rootDirectory.trim() !== saved?.rootDirectory) {
       this.cannotSave('请先完成同步信息清理，再修改本地目录')
@@ -243,10 +244,20 @@ struct RepositorySettings {
       if (current.repos.some((repo: RepoConfig) => repo.id !== this.repoId && repo.rootDirectory === this.rootDirectory.trim())) {
         this.cannotSave('此本地目录已属于另一个存储库'); return
       }
-      if (this.existing && !current.repos.some((repo: RepoConfig) => repo.id === this.repoId)) {
+      const previous = current.repos.find((repo: RepoConfig) => repo.id === this.repoId)
+      if (this.existing && !previous) {
         this.cannotSave('此存储库已不存在，请放弃修改并返回'); return
       }
       const repository = this.draft()
+      const encodedDraft = JSON.stringify(repository)
+      if (previous && !previous.webdavEnabled && repository.webdavEnabled && confirmedDraft !== encodedDraft) {
+        this.getUIContext().showAlertDialog({ title: '启用 WebDAV 同步？',
+          message: '首次同步时，同路径的本地 Org 文件会被远端版本覆盖，未被远端版本保留的本地任务会在同步后移入废纸篓。本地独有文件会保留并上传。',
+          primaryButton: { value: '取消', action: () => {} },
+          secondaryButton: { value: '启用同步', fontColor: UiColor.error,
+            action: (): void => { this.save(encodedDraft) } } })
+        return
+      }
       const managed = this.managedDirectory()
       if (repository.rootDirectory === managed && !await fileIo.access(managed)) await fileIo.mkdir(managed, true)
       await NativeCoreService.validateRepository(repository.rootDirectory)

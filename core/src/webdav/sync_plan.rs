@@ -17,6 +17,7 @@ pub(super) struct Snapshots {
     pub remote: Sources,
     pub versions: BTreeMap<String, RemoteFileVersion>,
     pub detached: bool,
+    pub trash_file: Option<crate::OrgFileRef>,
 }
 
 #[derive(Default)]
@@ -383,7 +384,7 @@ pub(super) async fn execute(
     snapshots: &Snapshots,
     comparison: Comparison,
     started_at: TimestampMs,
-) -> Result<Vec<Prepared<LocalFileVersion>>, CoreError> {
+) -> Result<(Vec<Prepared<LocalFileVersion>>, Option<crate::TaskOperationGroup>), CoreError> {
     let Comparison {
         group,
         output,
@@ -402,10 +403,10 @@ pub(super) async fn execute(
     let remote = get(REMOTE, &snapshots.remote);
     let base = get(BASE, &snapshots.base);
     let sync_rules = matches!(operation, Operation::SyncRules);
-    let (result, conflicts) = if sync_rules {
+    let (result, conflicts, trash_operations) = if sync_rules {
         let baseline = snapshots.base.get(path);
         if remote.is_none() && baseline.is_none() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         }
         let rules = remote
             .as_deref()
@@ -418,7 +419,7 @@ pub(super) async fn execute(
                 "本地 .orgzlyignore 有独立修改，请先统一规则",
             ));
         }
-        (remote.clone(), false)
+        (remote.clone(), false, None)
     } else {
         merge(
             snapshots,
@@ -519,7 +520,7 @@ pub(super) async fn execute(
             outcome,
         });
     }
-    Ok(prepared)
+    Ok((prepared, trash_operations))
 }
 
 fn action(
@@ -558,7 +559,7 @@ async fn merge(
     local: Option<&Vec<u8>>,
     remote: Option<&Vec<u8>>,
     base: Option<&Vec<u8>>,
-) -> Result<(Option<Vec<u8>>, bool), CoreError> {
+) -> Result<(Option<Vec<u8>>, bool, Option<crate::TaskOperationGroup>), CoreError> {
     let parse = |side: usize, bytes: &Vec<u8>, sources| {
         parse_snapshot(
             &snapshots.repo,
@@ -581,22 +582,22 @@ async fn merge(
                 remote_file.path = path.to_owned();
                 let merged =
                     crate::merge::merge_file_with_base(local_file, remote_file, base_file).await?;
-                return Ok((Some(merged.content), merged.has_conflicts));
+                return Ok((Some(merged.content), merged.has_conflicts, None));
             }
             let conflicts = crate::merge::has_conflicts(&remote_file);
-            crate::merge::merge_file_no_base(local_file, remote_file, None).await?;
-            Ok((remote.cloned(), conflicts))
+            let operations = crate::merge::merge_file_no_base(local_file, remote_file, snapshots.trash_file.clone()).await?;
+            Ok((remote.cloned(), conflicts, operations))
         }
         Operation::AdoptRemote => {
             let file = remote_file.expect("计划包含远端正文");
-            Ok((remote.cloned(), crate::merge::has_conflicts(&file)))
+            Ok((remote.cloned(), crate::merge::has_conflicts(&file), None))
         }
         Operation::AdoptLocal => {
             let local = local.expect("计划包含本地正文");
             let file = parse(LOCAL, local, &snapshots.remote)?;
-            Ok((Some(local.clone()), crate::merge::has_conflicts(&file)))
+            Ok((Some(local.clone()), crate::merge::has_conflicts(&file), None))
         }
-        Operation::Remove => Ok((None, false)),
+        Operation::Remove => Ok((None, false, None)),
         Operation::SyncRules => unreachable!("扫描规则单独准备"),
     }
 }

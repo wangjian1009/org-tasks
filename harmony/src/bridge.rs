@@ -808,7 +808,8 @@ pub fn workspace_sync_operation(
         Remove { repo_id: String },
         Check,
         #[serde(rename_all = "camelCase")]
-        Sync { repo_ids: Vec<String>, trigger_reason: org_tasks_core::SyncTriggerReason },
+        Sync { repo_ids: Vec<String>, trigger_reason: org_tasks_core::SyncTriggerReason,
+            trash_file: Option<org_tasks_core::OrgFileRef> },
     }
     let request: Request = serde_json::from_str(&request?)
         .map_err(|_| CoreError::InvalidInput("Workspace 同步参数无效"))?;
@@ -832,8 +833,8 @@ pub fn workspace_sync_operation(
                 Err(error) => serde_json::json!({"repoId":item.repo_id,"state":null,"error":crate::core_error_value(&error)}),
             }).collect::<Vec<_>>())
         }
-        Request::Sync { repo_ids, trigger_reason } => {
-            let results = runtime.block_on(workspace.sync_repos(&repo_ids, trigger_reason, None, None))?;
+        Request::Sync { repo_ids, trigger_reason, trash_file } => {
+            let results = runtime.block_on(workspace.sync_repos(&repo_ids, trigger_reason, None, None, trash_file))?;
             encode(&results.into_iter().map(|item| {
                 let result = item.result.and_then(|record| {
                     let record = serde_json::from_value(serde_json::to_value(record)

@@ -1526,7 +1526,8 @@ napi_value WorkspaceSyncOperation(napi_env env, napi_callback_info info)
     }
     const std::string operation = static_cast<const char*>(data);
     const bool setting = operation == "set", syncing = operation == "sync", removing = operation == "remove";
-    if ((setting && argc < 3) || (syncing && argc != 2) || (removing && argc != 1) || (operation == "check" && argc != 0)) {
+    if ((setting && argc < 3) || (syncing && (argc < 2 || argc > 3)) ||
+        (removing && argc != 1) || (operation == "check" && argc != 0)) {
         napi_throw_error(env, nullptr, "Workspace 同步参数无效"); return nullptr;
     }
     if (napi_create_object(env, &request) != napi_ok ||
@@ -1560,6 +1561,7 @@ napi_value WorkspaceSyncOperation(napi_env env, napi_callback_info info)
     } else if (syncing) {
         valid = napi_set_named_property(env, request, "repoIds", args[0]) == napi_ok &&
             napi_set_named_property(env, request, "triggerReason", args[1]) == napi_ok;
+        if (valid && argc == 3) valid = napi_set_named_property(env, request, "trashFile", args[2]) == napi_ok;
     } else if (removing) valid = napi_set_named_property(env, request, "repoId", args[0]) == napi_ok;
     if (!valid || !EncodeJson(env, request, &work->expression)) {
         delete work; napi_throw_error(env, nullptr, "Workspace 同步参数无效"); return nullptr;

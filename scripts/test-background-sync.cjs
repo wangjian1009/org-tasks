@@ -391,6 +391,7 @@ test('纯本地启动只接入 Workspace，角标消费共享数据，不增加�
 function remoteCheckFixture(states) {
   const calls = [], policies = [];
   const { NativeCoreService } = compile('NativeCoreService', dependency => {
+    if (dependency === '../models/SystemRepository') return { SYSTEM_REPOSITORY_ID: 'org-tasks-system', TRASH_FILE: 'trash.org' };
     assert.equal(dependency, 'liborg_tasks_harmony.so');
     return { WebDavSyncPolicy: class {
       constructor(url, username, password) { policies.push([url, username, password]); }
@@ -400,6 +401,8 @@ function remoteCheckFixture(states) {
     webdavUrl: `https://example.test/${index}`, webdavUsername: 'user', webdavPassword: 'secret',
     excludedDirectories: ['archive'] }));
   const repos = configs.map((config, index) => ({ id: `core-${index}`, rootDirectory: config.rootDirectory }));
+  configs.push({ id: 'org-tasks-system', rootDirectory: '/system', webdavEnabled: false });
+  repos.push({ id: 'core-system', rootDirectory: '/system' });
   NativeCoreService.workspaceFor = async () => ({
     async repos() { return repos; },
     async setSyncPolicy(id, policy, excludedDirectories) { calls.push(['set', id, Array.from(excludedDirectories)]); },
@@ -410,7 +413,8 @@ function remoteCheckFixture(states) {
         ? { repoId: repos[index].id, state: null, error: state }
         : { repoId: repos[index].id, state: typeof state === 'string' ? state : state ? 'changed' : 'unchanged', error: null });
     },
-    async syncRepos(ids, reason) {
+    async syncRepos(ids, reason, trashFile) {
+      assert.deepEqual({ ...trashFile }, { repoId: 'core-system', path: 'trash.org' });
       calls.push(['sync', Array.from(ids), reason]);
       return ids.map(repoId => ({ repoId, record: { result: 'succeeded' }, error: null }));
     }

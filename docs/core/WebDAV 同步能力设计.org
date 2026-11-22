@@ -60,7 +60,7 @@ pub enum WebDavSyncEffect {
 
 * 只读远端变化检查
 
-~WebDavSyncPolicy~ 实现 ~SyncPolicy.check_remote_changes(context)~ ，由 Workspace 的无参 ~check_remote_changes()~ 按已绑定仓库逐项调用。上下文中的仓库身份和目录过滤由 Core 提供，不由检查调用方传入。读取受保护远端索引与清单元数据，核对来源，并复用 ~Depth: 1~ 递归列举及同步过滤，不扫描或下载正文。现存路径集合与强 ETag 相同、双方提供的长度不矛盾时返回 ~Unchanged~ ；新增、删除、强版本不同或长度矛盾返回 ~Changed~ ；首次无基线、缺少强 ETag 返回 ~Unknown~ 。基线异常、来源变化和列举失败保留为该仓库错误。根目录 ~.orgzlyignore~ 属于检查范围，删除标记不作为现存文件比较。
+~WebDavSyncPolicy~ 实现 ~SyncPolicy.check_remote_changes(context)~ ，由 Workspace 的无参 ~check_remote_changes()~ 按已绑定仓库逐项调用。上下文中的仓库身份和目录过滤由 Core 提供，不由检查调用方传入。读取受保护远端索引与清单元数据，核对来源，并复用 ~Depth: 1~ 递归列举及同步过滤，不扫描或下载正文。现存路径集合与强 ETag 相同、双方提供的长度不矛盾时返回 ~Unchanged~ ；新增、删除、强版本不同或长度矛盾返回 ~Changed~ ；首次无基线、缺少强 ETag 返回 ~Unknown~ 。存在未处理的废纸篓操作时返回 ~Unknown~ ，让启动同步有机会继续执行本地操作。基线异常、来源变化和列举失败保留为该仓库错误。根目录 ~.orgzlyignore~ 属于检查范围，删除标记不作为现存文件比较。
 
 检查不获取文件锁、不等待同步屏障、不执行恢复或基线修复、不写盘，也不产生同步生命周期事件、历史或通知。有效副本可供只读使用，并发读到不一致时返回错误。检查只返回结果，由上层决定是否调用 ~sync_repos~ ；实际同步仍重新确认远端快照。
 

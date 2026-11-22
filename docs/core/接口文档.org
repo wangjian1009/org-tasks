@@ -172,6 +172,7 @@ impl OrgWorkspace {
     pub async fn sync_repos(
         &self, repo_ids: &[OrgRepoId], trigger_reason: SyncTriggerReason,
         cancellation: Option<SyncCancellation>, progress: Option<SyncProgressReporter>,
+        trash_file: Option<OrgFileRef>,
     ) -> Result<Vec<RepoSyncResult>, CoreError>;
 }
 #+end_src
@@ -629,7 +630,7 @@ pub struct RepoSyncResult {
 
 WebDAV 比较过滤后的远端文件路径集合、强 ETag 与双方都有的长度信息，包含根目录 ~.orgzlyignore~ ，忽略已确认的删除标记。来源身份改变、基线不可用或远端列举失败返回该仓库的错误。检查不读取工作文件或下载正文，不执行恢复、基线修复、合并、上传、outbox 确认，不创建历史、生命周期事件或文件通知。单份索引失效时可使用有效副本而不修复磁盘，并发读到不一致时允许返回错误。本地独有修改不影响检查结果。
 
-~sync_repos~ 只同步指定仓库列表；空列表不执行同步，重复 ID 在开始前拒绝。结果顺序与输入一致，仓库未配置策略或执行失败分别写入对应结果，继续处理其他仓库。过滤目录来自已绑定配置，本轮原因从调用参数取得，取消令牌和进度对象可选；同一令牌适用于本批全部仓库，策略通过原有检查点响应取消。Core 按实际执行时的配置和身份同步，并自动传递本 Workspace 的通知中心。策略专属类型在持久化与策略内部保持原类型，在 Workspace 组合返回边界转为通用 JSON 字段。
+~sync_repos~ 只同步指定仓库列表；空列表不执行同步，重复 ID 在开始前拒绝。结果顺序与输入一致，仓库未配置策略或执行失败分别写入对应结果，继续处理其他仓库。可选的 ~trash_file~ 指向工作区内的 Org 文件。WebDAV 无基线覆盖提交后，Core 通过现有任务操作组执行器将比较函数选出的本地任务转入该文件。过滤目录来自已绑定配置，本轮原因从调用参数取得，取消令牌和进度对象可选；同一令牌适用于本批全部仓库，策略通过原有检查点响应取消。Core 按实际执行时的配置和身份同步，并自动传递本 Workspace 的通知中心。策略专属类型在持久化与策略内部保持原类型，在 Workspace 组合返回边界转为通用 JSON 字段。
 
 检查只返回结果，不触发同步；是否同步以及选择哪些仓库由上层决定。实际同步仍重新列举和验证远端版本，检查结果不作为条件写入的版本保证。
 

@@ -235,7 +235,7 @@ WebDAV 从本地、远端、基线和待上传意图收集安全相对路径，�
 
 远端原文就是同步目标。 ~merge_file_no_base(local, remote, trash_file)~ 返回 ~Result<Option<TaskOperationGroup>, CoreError>~ 。该分支不生成新冲突，远端原文已有的冲突区随文件保留。
 
-传入 ~trash_file: Option<OrgFileRef>~ 时，比较两端普通标题。远端缺少对应任务或对应任务内容不同的，每个本地任务生成一条 ~TaskOperation::Creation~ 。每条操作用独立字段携带标题、正文、状态、优先级、标签、规划和属性，保留原日志并预填 ~SOURCE_*~ 来源属性。父任务和子任务分别生成，废纸篓目标使用文件根位置。操作组可在源文件采用远端版本后交给 ~execute_task_operations~ 执行。缺少废纸篓引用或没有待归档任务时返回 ~None~ 。当前 WebDAV 调用不传废纸篓引用。
+传入 ~trash_file: Option<OrgFileRef>~ 时，比较两端普通标题。远端缺少对应任务或对应任务内容不同的，每个本地任务生成一条 ~TaskOperation::Creation~ 。每条操作用独立字段携带标题、正文、状态、优先级、标签、规划和属性，保留原日志并预填 ~SOURCE_*~ 来源属性。父任务和子任务分别生成，废纸篓目标使用文件根位置。操作组可在源文件采用远端版本后交给 ~execute_task_operations~ 执行。缺少废纸篓引用或没有待归档任务时返回 ~None~ 。Workspace 的 ~sync_repos~ 可传废纸篓引用。WebDAV 将待执行操作组与覆盖结果一并提交到源仓库的 ~.sync/trash-pending.json~ 。源仓库提交后，Workspace 执行普通任务操作组，成功后清理待处理文件。失败时保留操作组并返回错误，下次同步重试。已有相同 ~SOURCE_TRASH_ID~ 的记录跳过，避免操作已提交但待处理文件尚未清理时重复新增。
 
 *** 冲突容器与设计原则
 
