@@ -73,7 +73,7 @@ interface RepoConfig {
 | WebDAV 用户名 | ~repos[].webdavUsername~ | Preferences | 非机密标识；不得拼接入日志 URL。 |
 | WebDAV 密码 | ~repos[].webdavPassword~ | Asset Store | Preferences 只保留空值占位；运行时载入，不能写入日志和 core 记录。 |
 | WebDAV 过滤目录 | ~repos[].excludedDirectories~ | Preferences | 同步调用时作为 ~SyncOptions~ 传入 core；默认值由 Rust 提供，当前为 ~archive~ 。 |
-| 应用目录 | ~app-links/apps.json~ | 随版本发布的 rawfile | 内置金融应用目录，保存应用 ~id~ （Bundle Name）、显示名称、可选 ~aliases~ 和随包图标 ~icon~ 。已验证的目录项包含 ~launch.moduleName~ 和 ~launch.abilityName~ ，可使用 ~launch.forwardLink~ 启用原链接转发。启动入口由真机验证后写入目录。 |
+| 应用目录 | ~app-links/apps.json~ | 随版本发布的 rawfile | 内置应用目录，保存应用 ~id~ （Bundle Name）、显示名称、可选 ~aliases~ 和随包图标 ~icon~ 。已验证的目录项包含 ~launch.moduleName~ 和 ~launch.abilityName~ ，可使用 ~launch.forwardLink~ 启用原链接转发。启动入口由真机验证后写入目录。 |
 | 应用链接关联 | ~appLinkAssociations~ | 应用级 ~AppLinkManager~ 读写 Preferences 的 ~org_tasks_config~ | 保存 ~app:名称~ 与目录应用的 ~bundleName~ 。点选应用即写入绑定关系。历史关联的同名字段继续读取，启动参数统一从目录解析。 |
 
 关闭 ~repos[].webdavEnabled~ 时不构造 WebDAV ~SyncPolicy~ ，仓库仍是本地 ~OrgRepo~ ，目录、远端参数、密码及过滤规则保持原值，便于重新启用。
@@ -83,6 +83,8 @@ interface RepoConfig {
 Org 显式链接支持 ~app:名称~ 和 ~app://名称~ 两种写法。链接名称是关联键，点击链接时，Harmony 从 ~appLinkAssociations~ 找到已绑定的 Bundle Name，再读取目录中的 Module Name 与 Ability Name 启动主页面。配置了 ~launch.forwardLink~ 的应用会收到原始 URI。未绑定或目标应用无法启动时，宿主提示原因。点“前往设置”进入应用关联页。
 
 关联记录只属于当前设备，不写入 Org 文件、Core 查询快照、同步历史或 WebDAV。设置页显示保存的关联与当前任务中能匹配已配置目录项的链接的并集。点已绑定行可更换或解除绑定。只有系统明确报告目标不存在时才标记未安装，已绑定行按目标包名读取图标，系统图标读取失败时使用随包图标。随包图标取自真机桌面。选择面板的同名与别名候选优先排列。选择面板只列出具有已验证启动配置的目录项。历史关联的目标未配置启动入口时，可重新选择应用。
+
+极客时间使用 ~org.geekbang.geekTime.hm~ 的 ~time/TimeAbility~ 打开首页。真机上的极客时间 HarmonyOS 版（4.13.15）未声明外部 URI 匹配规则。用官网文章 ID ~967047~ 验证，网页“打开 APP”提示暂无可用打开方式，向该 Ability 显式传入官网文章 URL、官网脚本生成的深层链接或课程 ID ~100078401~ 对应的深层链接，均进入首页。文章与课程可通过官网的 HTTPS 链接打开网页。
 
 旧已保存查询的读取服务与界面入口已删除；不再读取或写入 ~org_tasks_saved_searches~ ，已有 Preferences 数据不迁移、不主动删除。
 

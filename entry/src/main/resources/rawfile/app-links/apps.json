@@ -12,6 +12,7 @@
     { "id": "cn.cicc.wm", "name": "中金财富", "icon": "app-links/icons/cn.cicc.wm.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
     { "id": "com.citiccard.ohap.dkkj", "name": "动卡空间", "icon": "app-links/icons/com.citiccard.ohap.dkkj.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
     { "id": "cn.com.njcb.app.mobilebank", "name": "南京银行", "icon": "app-links/icons/cn.com.njcb.app.mobilebank.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
-    { "id": "com.boc.bocsoft.phone.enterprise.harm", "name": "中行企业银行", "icon": "app-links/icons/com.boc.bocsoft.phone.enterprise.harm.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } }
+    { "id": "com.boc.bocsoft.phone.enterprise.harm", "name": "中行企业银行", "icon": "app-links/icons/com.boc.bocsoft.phone.enterprise.harm.png", "launch": { "moduleName": "entry", "abilityName": "EntryAbility" } },
+    { "id": "org.geekbang.geekTime.hm", "name": "极客时间", "icon": "app-links/icons/org.geekbang.geekTime.hm.png", "launch": { "moduleName": "time", "abilityName": "TimeAbility" } }
   ]
 }
