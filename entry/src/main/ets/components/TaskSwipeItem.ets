@@ -141,6 +141,7 @@ export struct TaskSwipeItem {
           group = await this.controller.toggleWait(allowed)
           break
         case TaskOperation.Wait: group = await this.controller.wait(allowed); break
+        case TaskOperation.Cancel: group = await this.controller.cancelTask(allowed); break
         case TaskOperation.Delete: group = await this.controller.startDelete(allowed); break
         case TaskOperation.Move: group = await this.controller.startMove(allowed); break
         case TaskOperation.Schedule: group = await this.controller.startSchedule(allowed); break

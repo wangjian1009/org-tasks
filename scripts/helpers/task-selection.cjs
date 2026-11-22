@@ -29,7 +29,7 @@ function fixture() {
         operations:[{type:{trash:'Trash',restore:'Restore',clear:'Deletion'}[action],data:{path:t.fullPath}}],
         fileVersions:[{repoId:t.repoId,file:t.filePath,version:t.fileVersion}]})));
     }}}, './TaskOperationGroups':groups,'../ui/TaskActionPresentation':actions,
-    '../ui/TaskStatePresentation':{TaskStateCategory:{Todo:'Todo',Wait:'Wait'}}
+    '../ui/TaskStatePresentation':{TaskStateCategory:{Todo:'Todo',Wait:'Wait',Cancel:'Cancel'}}
   });
   const confirmation=compile('components/editors/TaskRecordConfirmation', {
     '../../ui/TaskActionPresentation':actions,'../../ui/Theme':{UiColor:{error:'red'}}});

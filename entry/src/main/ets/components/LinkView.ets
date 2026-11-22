@@ -544,7 +544,8 @@ export struct LinkView {
     Text(undefined, { controller: this.textController }) {
       if (this.parts.length === 0) {
         Span(this.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
-          .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None })
+          .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None,
+            color: UiColor.disabled })
       } else {
         ForEach(this.parts, (part: CoreTitlePart) => {
           if (part.count) {
@@ -554,11 +555,13 @@ export struct LinkView {
               .onClick((event: ClickEvent): void => { this.selectPart(part, event) })
             Span('\u2060' + part.text).fontColor(this.cancelled ? UiColor.disabled : part.href ? UiColor.primary : UiColor.secondary)
               .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline,
+                color: this.cancelled ? UiColor.disabled : undefined,
                 style: part.href ? TextDecorationStyle.SOLID : TextDecorationStyle.DASHED })
               .onClick((event: ClickEvent): void => { this.selectPart(part, event) })
           } else {
             Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
-              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None })
+              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None,
+                color: UiColor.disabled })
           }
         })
       }

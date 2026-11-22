@@ -69,8 +69,8 @@ struct Inbox {
   private mergeFocusTimer: number = -1
   private visible: boolean = true
   private actionPolicy: TaskPageActionPolicy = taskActionPolicy({
-    singleOperations: [TaskOperation.Move, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Project, TaskOperation.Delete],
-    bulkOperations: [TaskOperation.Move, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Merge, TaskOperation.Delete]
+    singleOperations: [TaskOperation.Move, TaskOperation.Cancel, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Project, TaskOperation.Delete],
+    bulkOperations: [TaskOperation.Move, TaskOperation.Cancel, TaskOperation.Someday, TaskOperation.Memo, TaskOperation.Merge, TaskOperation.Delete]
   }, TaskOperation.Schedule)
   private recentActionPolicy: TaskPageActionPolicy = taskPageActionPolicy('recent')
   private listScroller: ListScroller = new ListScroller()

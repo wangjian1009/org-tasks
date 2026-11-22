@@ -37,7 +37,7 @@ function fixture() {
   const calls = [], guards = [], submitted = [], messages = []; let editable = true, deletable = true, state, write = async () => {};
   const controller = new TaskEditorController(group => { state.receiveOperation(group).catch(error => messages.push(error.message)); });
   const editor = { actionsAvailable: () => editable, deletionAvailable: () => deletable };
-  for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'wait', 'toggleWait', 'moveToSomeday', 'convertToMemo']) {
+  for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'wait', 'cancelTask', 'toggleWait', 'moveToSomeday', 'convertToMemo']) {
     editor[method] = async allowed => {
       guards.push(allowed); if (allowed()) calls.push(method);
       if (allowed()) return groupBuilders.taskModificationGroup({ repoId: 'repo', filePath: 'tasks.org', fileVersion: 'v1', fullPath: { repoId: 'repo', file: 'tasks.org', titles: ['任务'] } }, [{ field: 'TODO', value: method }]);
@@ -53,7 +53,7 @@ function fixture() {
 test('状态、规划和整理操作全部调用编辑器接口，开始／暂停与等待／待办使用同一枚举的不同形态', async () => {
   for (const [action, target, method] of [['move', null, 'startMove'], ['schedule', null, 'startSchedule'],
     ['deadline', null, 'startDeadline'], ['delete', null, 'startDelete'], ['someday', null, 'moveToSomeday'],
-    ['memo', null, 'convertToMemo'], ['toggleWait', 'Wait', 'toggleWait'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
+    ['memo', null, 'convertToMemo'], ['cancel', null, 'cancelTask'], ['toggleWait', 'Wait', 'toggleWait'], ['toggleState', 'Doing', 'start'], ['toggleState', 'Todo', 'stop']]) {
     const f = fixture(); f.state.singleOperations = [action]; f.state.toggleStateCategory = target; f.state.toggleWaitCategory = target;
     await f.state.activateOperation(action); assert.deepEqual(f.calls, [method]);
     assert.equal(f.submitted.length, 1);

@@ -6,6 +6,7 @@ export enum TaskOperation {
   ToggleState = 'toggleState',
   ToggleWait = 'toggleWait',
   Wait = 'wait',
+  Cancel = 'cancel',
   Move = 'move',
   Project = 'project',
   Schedule = 'schedule',
@@ -20,7 +21,7 @@ export enum TaskOperation {
   Select = 'select'
 }
 
-type TaskCommonOperation = TaskOperation.Wait | TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
+type TaskCommonOperation = TaskOperation.Wait | TaskOperation.Cancel | TaskOperation.Move | TaskOperation.Schedule | TaskOperation.Deadline |
   TaskOperation.Someday | TaskOperation.Memo | TaskOperation.Delete | TaskOperation.Clear | TaskOperation.Restore | TaskOperation.Reopen
 export type TaskSingleOperation = TaskCommonOperation | TaskOperation.ToggleState | TaskOperation.ToggleWait | TaskOperation.Project
 export type TaskSwipeAction = TaskSingleOperation | TaskOperation.Select
@@ -59,11 +60,15 @@ export function taskActionPolicy(operations: TaskActionOperations = {}, rightSwi
 
 // 右滑手势保持独立；只有接入共享控件的列表才展示左滑与多选。
 export function taskPageActionPolicy(page: TaskActionPage): TaskPageActionPolicy {
+  const activeTaskOperations: TaskSingleOperation[] = [TaskOperation.ToggleState, TaskOperation.ToggleWait, TaskOperation.Cancel,
+    TaskOperation.Someday, TaskOperation.Delete]
   switch (page) {
-    case 'today': case 'recent': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete], bulkOperations: [] }, TaskOperation.Schedule)
-    case 'planned': case 'anytime': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete],
+    case 'today': case 'recent': case 'waiting':
+      return taskActionPolicy({ singleOperations: activeTaskOperations }, TaskOperation.Schedule)
+    case 'planned': return taskActionPolicy({ singleOperations: activeTaskOperations,
       bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
-    case 'waiting': return taskActionPolicy({ singleOperations: [TaskOperation.ToggleState, TaskOperation.ToggleWait, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
+    case 'anytime': return taskActionPolicy({ singleOperations: activeTaskOperations,
+      bulkOperations: [TaskOperation.Schedule, TaskOperation.Deadline, TaskOperation.Cancel, TaskOperation.Someday, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'someday': return taskActionPolicy({ singleOperations: [TaskOperation.Restore, TaskOperation.Delete],
       bulkOperations: [TaskOperation.Restore, TaskOperation.Delete] }, TaskOperation.Schedule)
     case 'inbox': return taskActionPolicy({}, TaskOperation.Schedule)
@@ -94,6 +99,10 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
         break
       case TaskOperation.Wait:
         items.push({ id: operation, title: '等待', label: '设为等待', icon: $r('app.media.ui_task_waiting'), busyTitle: '设置中…', action: () => activate(operation) })
+        break
+      case TaskOperation.Cancel:
+        items.push({ id: operation, title: '取消', label: '取消任务', icon: $r('app.media.ui_action_cancel'),
+          busyTitle: '处理中…', action: () => activate(operation) })
         break
       case TaskOperation.Project:
         items.push({ id: operation, title: '项目', label: '转换为项目', icon: $r('app.media.ui_action_project'), busyTitle: '创建中…', action: () => activate(operation) })

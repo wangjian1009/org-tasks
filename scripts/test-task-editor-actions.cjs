@@ -29,13 +29,13 @@ function method(name) {
   }
 }
 const methods = ['actionsAvailable', 'deletionAvailable', 'localDataSet', 'currentTask', 'actionError', 'actionSource', 'emitAction',
-  'start', 'stop', 'wait', 'toggleWait', 'changeState', 'withStateNote', 'startDelete', 'cancelDelete', 'remove', 'moveTo', 'startMove', 'confirmMove', 'closeMove', 'loadMoveTargets', 'refreshMove',
+  'start', 'stop', 'wait', 'cancelTask', 'toggleWait', 'changeState', 'withStateNote', 'startDelete', 'cancelDelete', 'remove', 'moveTo', 'startMove', 'confirmMove', 'closeMove', 'loadMoveTargets', 'refreshMove',
   'moveToSomeday', 'convertToMemo', 'organize', 'setSchedule', 'setDeadline', 'planningGroup',
   'startSchedule', 'startDeadline', 'startDate', 'aboutToDisappear'].map(method).join('\n');
 function task(category = 'Todo', target = 'INPROGRESS') {
   return { id: 'task', heading: '验收任务', repoId: 'repo', filePath: 'tasks.org', fileVersion: 'v1',
     fullPath: { repoId: 'repo', file: 'tasks.org', titles: ['验收任务'] }, state: category ? { category } : null,
-    editContent: {}, taskStateOf(category) { return target ? { name: category === 'Doing' ? target : category === 'Wait' ? 'HOLD' : 'TODO', category } : null; } };
+    editContent: {}, taskStateOf(category) { return target ? { name: category === 'Doing' ? target : category === 'Wait' ? 'HOLD' : category === 'Cancel' ? 'ABORTED' : 'TODO', category } : null; } };
 }
 function fixture(category = 'Todo', target = 'INPROGRESS') {
   const events = [], dialogs = [], messages = [], dates = [], emitted = [], planned = [];
@@ -43,7 +43,7 @@ function fixture(category = 'Todo', target = 'INPROGRESS') {
   class Missing extends Error {}
   class Dialog { constructor(options) { this.options = options; } open() { dialogs.push(this.options); } close() { this.options.onWillDismiss?.({ dismiss() {} }); } }
   const { Editor } = compile('export class Editor {' + methods + '}', { ...groupBuilders, TaskEditorActionResult, refileSections: values => [{ targets: values }],
-    TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait' }, TaskInlineSession: { release: key => events.push(['release', key]) },
+    TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Cancel: 'Cancel' }, TaskInlineSession: { release: key => events.push(['release', key]) },
     TaskInlineMissingError: Missing, coreErrorMessage: error => error.message, UiColor: { error: 'red' },
     InboxService: { async operationGroups(_context, records, action) {
       planned.push([records[0].fileVersion, action]);
@@ -79,6 +79,17 @@ test('start／stop 返回保存后版本的 TODO 修改组，生成阶段不执�
     assert.deepEqual(f.events, [['save', false], 'draft-ready']); assert.equal(f.emitted.length, 0); assert.equal(f.state.completing, false);
   }
 });
+test('单条取消使用保存后的文件版本与有效取消状态，只生成 TODO 修改', async () => {
+  const f = fixture(null);
+  f.draftWith(async () => { f.state.task = { ...f.state.task, fileVersion: 'saved' }; });
+  const group = await f.state.cancelTask();
+  assert.deepEqual(group.operations[0].data.modifications, [{ field: 'TODO', value: 'ABORTED' }]);
+  assert.equal(group.fileVersions[0].version, 'saved');
+  assert.equal(f.emitted.length, 0);
+  assert.equal(await fixture('Cancel').state.cancelTask(), undefined);
+  await assert.rejects(fixture('Todo', null).state.cancelTask(), /没有可用的取消状态/);
+});
+
 test('启动时仅为缺少计划或未来计划的任务设置今天，过去和今天保持原计划', async () => {
   for (const scheduled of ['', '2099-12-31', '2026-11-17', '2026-11-18']) {
     const f = fixture('Wait'); f.state.task = { ...f.state.task, scheduled }

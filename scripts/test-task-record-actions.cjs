@@ -105,3 +105,36 @@ test('批量等待遇到缺失状态、混合版本或版本冲突整组拒绝�
  h.fail(Object.assign(new Error('源版本变化'),{code:'invalidState'}));await h.selection.execute(h.context,'wait');
  assert.equal(h.writes.length,1);assert.equal(h.selection.selecting,true);assert.equal(h.selection.invalid,true);
 });
+
+test('批量取消按各文件有效状态一次提交，缺少取消状态时保留整组选项', async () => {
+  const f = fixture();
+  f.enable(['cancel']);
+  f.rows.get('A').taskStateOf = category => { assert.equal(category, 'Cancel'); return { name: 'ABORTED' }; };
+  f.rows.get('B').filePath = 'other.org';
+  f.rows.get('B').fullPath.file = 'other.org';
+  f.rows.get('B').taskStateOf = category => { assert.equal(category, 'Cancel'); return null; };
+  await f.selection.start('A');
+  f.selection.toggle('B');
+  await f.selection.execute(f.context, 'cancel');
+  assert.equal(f.writes.length, 0);
+  assert.match(f.selection.message, /没有可用的取消状态/);
+  assert.deepEqual(f.selection.selectedKeys, ['A', 'B']);
+
+  f.selection.reset();
+  f.rows.get('B').taskStateOf = category => { assert.equal(category, 'Cancel'); return { name: 'CNCL' }; };
+  await f.selection.start('A');
+  f.selection.toggle('B');
+  await f.selection.execute(f.context, 'cancel');
+  assert.equal(f.writes.length, 1);
+  assert.equal(f.writes[0].fileVersions.length, 2);
+  assert.deepEqual(f.writes[0].operations.map(op => op.data.modifications), [
+    [{ field: 'TODO', value: 'ABORTED' }], [{ field: 'TODO', value: 'CNCL' }]
+  ]);
+  assert.equal(f.selection.selecting, false);
+
+  f.rows.get('A').state = { category: 'Cancel' };
+  await f.selection.start('A');
+  await f.selection.execute(f.context, 'cancel');
+  assert.equal(f.writes.length, 1);
+  assert.equal(f.selection.selecting, false);
+});

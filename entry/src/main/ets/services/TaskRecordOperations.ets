@@ -7,18 +7,27 @@ import { taskModificationGroup, mergeTaskOperationGroups } from './TaskOperation
 import { TaskOperation } from '../ui/TaskActionPresentation'
 import { TaskStateCategory } from '../ui/TaskStatePresentation'
 
-export type TaskRecordOperation = TaskOperation.Wait | TaskOperation.Delete | TaskOperation.Reopen | TaskOperation.Restore | TaskOperation.Clear
+export type TaskRecordOperation = TaskOperation.Wait | TaskOperation.Cancel | TaskOperation.Delete |
+  TaskOperation.Reopen | TaskOperation.Restore | TaskOperation.Clear
 export interface TaskRecordResult { committed: boolean; retainedKeys: string[] }
 
 // 单条与批量共用操作组规划；状态变更、原位恢复和删除规则由 Core 执行。
 export class TaskRecordOperations {
   static async group(context: Context, tasks: CoreTask[], action: TaskRecordOperation): Promise<CoreTaskOperationGroup> {
     if (!tasks.length) throw new Error('请选择记录')
-    if (action === TaskOperation.Reopen || action === TaskOperation.Wait) {
-      return mergeTaskOperationGroups(tasks.map((task: CoreTask): CoreTaskOperationGroup => {
-        const waiting = action === TaskOperation.Wait
-        const state = task.taskStateOf(waiting ? TaskStateCategory.Wait : TaskStateCategory.Todo)
-        if (!state) throw new Error(`“${task.heading}”所在文件没有可用的${waiting ? '等待' : '待办'}状态，请检查 TODO 流程`)
+    if (action === TaskOperation.Reopen || action === TaskOperation.Wait || action === TaskOperation.Cancel) {
+      let category = TaskStateCategory.Todo
+      let stateLabel = '待办'
+      switch (action) {
+        case TaskOperation.Wait: category = TaskStateCategory.Wait; stateLabel = '等待'; break
+        case TaskOperation.Cancel: category = TaskStateCategory.Cancel; stateLabel = '取消'; break
+      }
+      const targets = action === TaskOperation.Cancel
+        ? tasks.filter((task: CoreTask): boolean => task.state?.category !== TaskStateCategory.Cancel)
+        : tasks
+      return mergeTaskOperationGroups(targets.map((task: CoreTask): CoreTaskOperationGroup => {
+        const state = task.taskStateOf(category)
+        if (!state) throw new Error(`“${task.heading}”所在文件没有可用的${stateLabel}状态，请检查 TODO 流程`)
         return taskModificationGroup(task, [{ field: 'TODO', value: state.name }])
       }))
     }
@@ -32,7 +41,7 @@ export class TaskRecordOperations {
     group: CoreTaskOperationGroup, allowed: () => boolean): Promise<TaskRecordResult> {
     if (!allowed()) throw new Error('操作已取消')
     const keys = tasks.map(task => dataSet.taskKey(task.id))
-    await dataSet.submitOperationGroup(group, allowed)
+    if (group.operations.length > 0) await dataSet.submitOperationGroup(group, allowed)
     // DataSet 已在本地覆盖层立即合并；提交由后台队列串行完成。
     return { committed: true, retainedKeys: action === TaskOperation.Restore ? keys.filter(key => dataSet.getTask(key) !== undefined) : [] }
   }

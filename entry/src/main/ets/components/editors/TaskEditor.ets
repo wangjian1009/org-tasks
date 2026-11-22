@@ -108,6 +108,10 @@ export struct TaskEditor {
   @State message: string = ''
   @State rowWidth: number = 366
   @State deadlineWidth: number = 0
+  private cancelledBoxPosition: Position | undefined = undefined
+  private cancelledTitlePosition: Position | undefined = undefined
+  @State private cancelLineWidth: number = 0
+  @State private cancelLineOffset: number = 0
   @State checkId: string = ''
   @State checkText: string = ''
   @State addingCheck: boolean = false
@@ -270,6 +274,9 @@ export struct TaskEditor {
   async wait(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
     return await this.changeState(undefined, TaskStateCategory.Wait, allowed)
   }
+  async cancelTask(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
+    return await this.changeState(undefined, TaskStateCategory.Cancel, allowed)
+  }
   async toggleWait(allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
     if (!this.actionsAvailable() || !allowed()) return
     this.completing = true
@@ -297,6 +304,7 @@ export struct TaskEditor {
       const state = source.taskStateOf(to)
       if (!state) {
         if (to === TaskStateCategory.Wait) throw new Error('文件没有可用的等待状态，请检查 TODO 流程')
+        if (to === TaskStateCategory.Cancel) throw new Error('文件没有可用的取消状态，请检查 TODO 流程')
         return
       }
       const modifications: CoreTaskModification[] = [{ field: 'TODO', value: state.name }]
@@ -1246,16 +1254,11 @@ export struct TaskEditor {
     Button({ type: ButtonType.Normal }) {
       if (this.value().state?.category === TaskStateCategory.Done) {
         Image($r('app.media.ui_task_done')).width(18).height(18).syncLoad(true)
-      } else if (this.value().state?.category === TaskStateCategory.Cancel) {
-        Stack() {
-          Text('').width(18).height(18)
-            .border({ width: 1.4, color: UiColor.disabled }).borderRadius(4)
-          Divider().width(18).strokeWidth(1.4).color(UiColor.disabled)
-        }.width(18).height(18)
       } else {
         Stack() {
           Text('').width(18).height(18)
-            .border({ width: 1.4, color: '#8B8986' }).borderRadius(4)
+            .border({ width: 1.4, color: this.value().state?.category === TaskStateCategory.Cancel ?
+              UiColor.disabled : '#8B8986' }).borderRadius(4)
           if (this.value().state?.category === TaskStateCategory.Wait) {
             Row({ space: 3 }) {
               Rect().width(1.4).height(8).fill(UiColor.text)
@@ -1271,11 +1274,42 @@ export struct TaskEditor {
       .accessibilityText(this.readOnly && !this.allowCompletion ? taskStateCategoryLabel(this.value().state?.category) : `${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? '点击重新打开任务' : '点击完成任务'}`).onClick(() => { this.complete() })
   }
 
+  private updateCancelLine(): void {
+    const box = this.cancelledBoxPosition
+    const title = this.cancelledTitlePosition
+    if (this.value().state?.category !== TaskStateCategory.Cancel || !box || !title) {
+      this.cancelLineWidth = 0
+      return
+    }
+    // 标题保留原生删除线，以首行字形的位置连接前面的状态框。
+    this.cancelLineWidth = Math.max(0, Number(title.x) - Number(box.x) + 0.5)
+    this.cancelLineOffset = Number(title.y) - Number(box.y) + UiSize.taskTitleLineHeight / 2 + 1.25
+  }
+
+  private locateCancelTitle(area: Area): void {
+    this.cancelledTitlePosition = area.globalPosition
+    this.updateCancelLine()
+  }
+
   @Builder
   stateIndicator() {
     if (this.value().state === null) {
       Image($r('app.media.ui_note')).width(18).height(18)
         .accessibilityText('笔记，无任务状态')
+    } else if (this.value().state?.category === TaskStateCategory.Cancel) {
+      Stack({ alignContent: Alignment.TopStart }) {
+        Row() { this.completionState() }
+          .offset({ y: this.cancelLineWidth > 0 ? Math.min(0, this.cancelLineOffset - 5) : 0 })
+        if (this.cancelLineWidth > 0) {
+          Rect().width(this.cancelLineWidth).height(1).fill(UiColor.disabled)
+            .position({ x: 0, y: this.cancelLineOffset })
+            .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+        }
+      }.width(18).height(18).clip(false)
+        .onAreaChange((_old: Area, area: Area): void => {
+          this.cancelledBoxPosition = area.globalPosition
+          this.updateCancelLine()
+        })
     } else {
       this.completionState()
     }
@@ -1356,6 +1390,7 @@ export struct TaskEditor {
             lineLimit: 1, lineHeight: UiSize.taskTitleLineHeight, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
             activate: (): void => { this.toggleFromCompact() } })
             .width('100%').constraintSize({ minWidth: 0 })
+            .onAreaChange((_old: Area, area: Area): void => { this.locateCancelTitle(area) })
           if (taskSourceText(this.value(), false, this.regionPolicy())) {
             this.categoryProject()
           }
@@ -1599,7 +1634,8 @@ export struct TaskEditor {
               .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
               .width('100%').lineHeight(UiSize.taskTitleLineHeight).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
               .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
-              .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None })
+              .decoration({ type: this.value().state?.category === TaskStateCategory.Cancel ? TextDecorationType.LineThrough : TextDecorationType.None,
+                color: UiColor.disabled })
               .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
               .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
               .onChange((value: string) => { this.heading = value; this.headingEditing = true; this.headingDirty = value !== this.headingBaseline })
@@ -1608,6 +1644,7 @@ export struct TaskEditor {
               .onAppear(() => { this.checkFocus.appeared(`inline_title_${this.ownerKey}`) })
               .onDisAppear(() => { this.checkFocus.disappeared(`inline_title_${this.ownerKey}`) })
               .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
+              .onAreaChange((_old: Area, area: Area): void => { this.locateCancelTitle(area) })
           } else {
             TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
               weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
@@ -1615,6 +1652,7 @@ export struct TaskEditor {
               changeLink: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink('title', link, value),
               linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
               activate: (): void => { if (this.readOnly) this.toggle(); else this.editHeading() } }).width('100%')
+              .onAreaChange((_old: Area, area: Area): void => { this.locateCancelTitle(area) })
           }
         }.layoutWeight(1).constraintSize({ minWidth: 0 }).padding({ top: (UiSize.taskRow - UiSize.taskTitleLineHeight) / 2,
             bottom: (UiSize.taskRow - UiSize.taskTitleLineHeight) / 2 })
