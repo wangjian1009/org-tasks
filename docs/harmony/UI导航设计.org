@@ -5,7 +5,7 @@
 
 * 共享控件目录与嵌入边界
 
-与业务无关的基础控件统一放在 ~entry/src/main/ets/components/controls/~ ： ~IconButton~ 、 ~EmptyState~ 、 ~MessageBar~ 、 ~SectionHeading~ 、 ~ListSectionHeader~ 、 ~PreferenceRow~ 、 ~SettingsChoiceRow~ 、 ~PopupMenu~ 与 ~PopupMenuButton~ 。每个控件独立维护，使用展示参数和事件回调，不读取任务、文件、仓库或同步状态。
+与业务无关的基础控件统一放在 ~entry/src/main/ets/components/controls/~ ，包括 ~IconButton~ 、 ~EmptyState~ 、 ~MessageBar~ 、 ~ListSectionHeader~ 、 ~SettingsChoiceRow~ 、 ~PopupMenu~ 与 ~PopupMenuButton~ 。每个控件独立维护，使用展示参数和事件回调，不读取任务、文件、仓库或同步状态。
 
 任务与备忘编辑控件统一放在 ~entry/src/main/ets/components/editors/~ ： ~TaskEditor~ 、 ~MemoEditor~ 、 ~TaskDateDialog~ 、 ~TaskTagsDialog~ 、 ~TaskRepeatDialog~ 、 ~TaskPriorityChoices~ 、 ~TaskChecklistBlock~ 、 ~TaskTextBlock~ 、 ~TaskListBlock~ 、 ~TaskTableBlock~ 、 ~TaskContentBlocks~ 、 ~TaskDocumentContent~ 、 ~MoveToTarget~ 、 ~TaskLogView~ 与 ~TaskLogItem~ 。原任务项统一改名为 ~TaskEditor~ ，它是原位编辑控件；独立任务编辑页面及旧路由已移除。标题、链接、文件阅读、同步通知等仍按业务职责维护，不放入基础控件目录。
 
