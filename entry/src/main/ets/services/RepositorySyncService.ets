@@ -205,7 +205,8 @@ export class RepositorySyncService {
             if (generation === RepositorySyncService.generation) RepositorySyncService.updateProgress(event)
           }, todoDefaults, coreSettings, options.source, options.repositoryId)
         : NativeCoreService.workspaceFor(repos, todoDefaults, coreSettings))
-      if (source === 'manual' && (RepositorySyncService.repositoryCount === 0 || NotificationManager.hasMissingRepository())) {
+      if (options.source === 'manual' &&
+        (RepositorySyncService.repositoryCount === 0 || NotificationManager.hasMissingRepository())) {
         await DataSetManager.reloadRepositories()
       }
       state.progress = 100
