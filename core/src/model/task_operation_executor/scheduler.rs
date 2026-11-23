@@ -571,7 +571,7 @@ pub(super) async fn run(
                         .path
                         .as_ref()
                         .ok_or(CoreError::InvalidState("冲突文件尚未解析"))?)?,
-                    TaskOperation::Trash(_) | TaskOperation::Restore(_) => unreachable!(),
+                    TaskOperation::FileDeletion(_) | TaskOperation::Trash(_) | TaskOperation::Restore(_) => unreachable!(),
                 };
                 scheduler.ensure(workspace, group, &file_key)?;
                 scheduler.send(&file_key, FileModification::Operation(operation), false)?;

@@ -9,7 +9,7 @@
 
 普通操作组已携带文件与任务的精确增量，继续通过查询订阅直接更新数据集。原 ~DataChangeEvent::RepositoryChanged~ 改名为 ~DataChangeEvent::NotificationEvent~ ，JSON 为 ~notificationEvent~ ，保留原字段并增加 ~notifications: Vec<CoreNotification>~ 。通知处理 task 在分发前附加当前缓存中的该仓库消息列表；应用级通知订阅仍按自己的范围提供完整列表，不由页面重查。
 
-同步和 reset 属于外部文件变化，使用独立文件监控接口；事件不包含任务内容，不尝试从文件增删改推断任务移动或任务身份。
+同步、Reset 和整文件删除使用外部文件变化，使用独立文件监控接口；事件不包含任务内容，不尝试从文件增删改推断任务移动或任务身份。
 
 #+begin_src rust
 pub enum ExternalFileChangeKind { Created, Deleted, Updated }
@@ -53,11 +53,13 @@ reset 在持有仓库锁、确认没有活动同步后收集将删除的相对�
 
 该接口监听 Core 已知的外部业务变化，不新增操作系统目录轮询或跨进程文件监听。
 
-* 数据集刷新
+* 数据集更新
 
-每个 ~DataSetManager~ 注册一个文件监控，并统一持有跨自然日检查。收到事件后根据每项查询的仓库范围、 ~includeFiles~ 与 ~excludeFiles~ 判断是否相关；宿主仓库别名先通过仓库根目录映射为 Core ID。有限文件包含集合无交集时不刷新，没有包含限制时必须刷新，不根据当前命中记录反推文件范围。
+每个 ~DataSetManager~ 注册一个文件监控，并统一持有跨自然日检查。收到事件后根据每项查询的仓库范围、 ~includeFiles~ 与 ~excludeFiles~ 判断是否相关；宿主仓库别名先通过仓库根目录映射为 Core ID。有限文件包含集合无交集时跳过事件。没有包含限制时覆盖仓库内所有变更路径。
 
-Manager 将连续事件影响的数据集名去重，并发请求这些数据集刷新，由同一个订阅收集器组合为一次 ~subscribeQuery~ 。该批每仓库共享一次扫描和加载。Core 查询订阅仅把相关文件范围标记失效，不隐式重查；无关的有限范围订阅保持有效。
+查询范围只命中 ~Deleted~ 时，Core 从查询订阅清除对应文件的版本、成员与分类贡献，通过 ~notificationEvent.removedFiles~ 发出文件引用。 DataSet 删除相同仓库和路径的任务或元信息，使用 Core 返回的分类计数。文件删除和 Reset 均沿用此路径，订阅保持有效。
+
+查询范围命中 ~Created~ 或 ~Updated~ 时，Core 将订阅标记失效，DataSetManager 合并受影响的数据集并提交一次 ~subscribeQuery~ 。该批每仓库共享一次扫描和加载。
 
 完整结果按输入位置交给各 ~DataSet~ ，由其比较新旧快照、维护稳定行身份并向已注册 Monitor 发布 ~insert~ 、 ~remove~ 、 ~update~ 或混合 ~refresh~ 。相同内容不重复发布数据变化， ~ready~ 只表示读取完成。刷新期间的新文件事件保留到下一批；配置换代、过期回调和关闭按 generation／identity 边界清理。缓存保存等待刷新、提交与事件归并完成。
 

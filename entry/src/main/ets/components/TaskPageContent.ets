@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from './controls/DangerousConfirmation'
 import { AppDataManager } from '../services/AppDataManager'
 import { PageNavigator } from '../services/PageNavigator'
 import { DataSetManager, DataSet } from '../services/DataSetManager'
@@ -140,9 +141,8 @@ export struct TaskPageContent {
 
   confirmDeleteMemo(task: CoreTask) {
     if (this.deletingMemo || !this.pageReady) return
-    this.getUIContext().showAlertDialog({ title: '删除这条备忘？', message: `“${task.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
-      primaryButton: { value: '取消', action: (): void => {} },
-      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.deleteMemo(task) } } })
+    showDangerousConfirmation(this.getUIContext(), { title: '删除这条备忘？', message: `“${task.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
+      confirmLabel: '删除', onConfirm: (): void => { this.deleteMemo(task) } })
   }
 
   async deleteMemo(task: CoreTask) {

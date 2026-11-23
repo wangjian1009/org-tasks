@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { ReminderOperationList } from '../components/ReminderOperationList'
 import { SettingsAutoSave } from '../services/SettingsAutoSave'
 import { ReminderManager, TaskReminderConfiguration, CalendarPermissionState } from '../services/ReminderManager'
@@ -257,9 +258,8 @@ struct Settings {
 
   deleteAppLink(name: string): void {
     if (this.appLinkBusy || this.appLinkPickerBusy) return
-    this.getUIContext().showAlertDialog({ title: '解除应用绑定？', message: `以后点击“${name}”的链接时需要重新选择应用。`,
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '解除绑定', fontColor: UiColor.error, action: (): void => { this.removeAppLink(name) } } })
+    showDangerousConfirmation(this.getUIContext(), { title: '解除应用绑定？', message: `以后点击“${name}”的链接时需要重新选择应用。`,
+      confirmLabel: '解除绑定', onConfirm: (): void => { this.removeAppLink(name) } })
   }
 
   private async removeAppLink(name: string): Promise<void> {

@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { PageNavigator } from '../services/PageNavigator'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
@@ -265,10 +266,9 @@ struct ConflictFile {
 
   confirmAbandon(action: () => void) {
     if (!this.manuallyEdited) { action(); return }
-    this.getUIContext().showAlertDialog({ title: '放弃未应用的调整？',
+    showDangerousConfirmation(this.getUIContext(), { title: '放弃未应用的调整？',
       message: '本项手动调整仅保存在预览中，继续会放弃这些调整。已经应用的结果不受影响。',
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '放弃调整', fontColor: UiColor.error, action } })
+      confirmLabel: '放弃调整', onConfirm: action })
   }
 
   async prepare(conflict: CoreFileConflict, action: string, target?: CoreConflictTarget) {
@@ -360,10 +360,9 @@ struct ConflictFile {
     }
     if (!this.stagedAction && this.projection?.status !== 'ready') { this.openTargets(); return }
     if (['reorder', 'structure'].includes(conflict.reason)) {
-      this.getUIContext().showAlertDialog({ title: '用本地内容替换主树？',
+      showDangerousConfirmation(this.getUIContext(), { title: '用本地内容替换主树？',
         message: '将采用预览中的完整本地内容，替换文件前言和全部普通节点，其他冲突点继续保留。',
-        primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '替换主树',
-          action: (): void => { this.submitChoice('useLocal', { type: 'replaceMain' }) } } })
+        confirmLabel: '替换主树', onConfirm: (): void => { this.submitChoice('useLocal', { type: 'replaceMain' }) } })
     } else await this.submitChoice('useLocal', this.selectedTarget)
   }
 
@@ -503,8 +502,8 @@ struct ConflictFile {
 
   recreate() {
     if (this.saving) return
-    this.getUIContext().showAlertDialog({ title: '重新创建预览？', message: '将放弃本项未应用的取舍与手动调整，并重新读取当前文件。',
-      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '重新创建', fontColor: UiColor.error, action: (): void => { this.reloadDiscardingPreview() } } })
+    showDangerousConfirmation(this.getUIContext(), { title: '重新创建预览？', message: '将放弃本项未应用的取舍与手动调整，并重新读取当前文件。',
+      confirmLabel: '重新创建', onConfirm: (): void => { this.reloadDiscardingPreview() } })
   }
 
   async reloadDiscardingPreview() {
@@ -521,9 +520,9 @@ struct ConflictFile {
 
   confirmDiscard() {
     if (this.saving || !this.file || this.file.conflictIds.length === 0) return
-    this.getUIContext().showAlertDialog({ title: '丢弃全部冲突？',
+    showDangerousConfirmation(this.getUIContext(), { title: '丢弃全部冲突？',
       message: `将移除“${this.path}”中的 ${this.file.conflictIds.length} 个冲突点，保留当前主树内容，并放弃尚未应用的预览调整。`,
-      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '丢弃全部', fontColor: UiColor.error, action: (): void => { this.discardAll() } } })
+      confirmLabel: '丢弃全部', onConfirm: (): void => { this.discardAll() } })
   }
 
   async discardAll() {

@@ -43,6 +43,7 @@ export interface DataSetEvent {
   removed: string[]
   updated: string[]
   structureChanged?: boolean
+  removedFiles?: OrgFileRef[]
   message?: string
   targetKey?: string
   rejectedChanges?: TaskModification[]
@@ -487,6 +488,7 @@ export class DataSet {
       let committed: boolean = false
       try {
         if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
+        if (edit.missingFrames.size) throw new Error('操作涉及的文件或记录已移除')
         if (this.clock && await this.clock.status(this.name) !== 'current') {
           this.requestExternalRefresh()
           throw new Error('数据订阅已失效，正在刷新页面')
@@ -538,8 +540,9 @@ export class DataSet {
   private rebasedGroup(source: CoreTaskOperationGroup, operationId: string): CoreTaskOperationGroup {
     const group = JSON.parse(JSON.stringify(source)) as CoreTaskOperationGroup
     group.operationId = operationId
-    // 转换项目使用打开表单时确认的源版本，源记录变化后需要重新确认。
-    if (!group.fileVersions?.length || group.operations.some(operation => operation.type === 'FileNew')) return group
+    // 文件删除与项目转换使用确认时的版本。
+    if (!group.fileVersions?.length ||
+      group.operations.some(operation => operation.type === 'FileNew' || operation.type === 'FileDeletion')) return group
     group.fileVersions = group.fileVersions.map(version => {
       const current = this.currentFileVersion(version.repoId, version.file)
       return current ? { repoId: version.repoId, file: version.file, version: current } : version
@@ -574,8 +577,13 @@ export class DataSet {
   private onCoreDataChanged(name: string, event: CoreDataChangeEvent, refreshId: string): void {
     const data = this.confirmed.get(name)
     if (!data) return
-    const version = this.eventVersion(event.operationId) ?? this.eventVersion(refreshId) ?? 1
-    const operationId = event.operationId ?? refreshId
+    const deletedFiles = data.type === 'task' ? event.removedFiles ?? [] : []
+    const deletedKeys = new Set(deletedFiles.map(file => JSON.stringify([file.repoId, file.path])))
+    const deletionVersion = !event.operationId && event.removedFiles?.length ?
+      this.clock?.next() ?? this.sequence + 1 : undefined
+    const version = deletionVersion ?? this.eventVersion(event.operationId) ?? this.eventVersion(refreshId) ?? 1
+    const operationId = deletionVersion === undefined ? event.operationId ?? refreshId : this.operationId(version, 'file-removal')
+    this.sequence = Math.max(this.sequence, version)
     const incomplete = data.type === 'task' ? event.changes.some(change => change.after && !change.after.view) :
       event.files?.some(file => !file.afterView)
     const discontinuous = data.type === 'task' && event.files?.some(file => file.beforeVersion && data.result.tasks.some(task =>
@@ -588,6 +596,10 @@ export class DataSet {
     }
     const edit = this.pending.find(item => item.id === event.operationId)
     if (edit) edit.observed.add(name)
+    if (deletedKeys.size) for (const pending of this.pending) {
+      if (pending.group && !pending.group.fileVersions?.length) continue
+      for (const file of pending.files) if (deletedKeys.has(file)) pending.missingFrames.add(operationId)
+    }
     // 在前序提交改名或移动后，把尚未提交的操作组衔接到 Core 返回的新路径。
     for (const pending of this.pending) if (pending.kind === 'group' && pending.group) {
       for (const operation of pending.group.operations) {
@@ -632,7 +644,8 @@ export class DataSet {
       }
       const removed = new Set(event.changes.filter(change => !!change.before).map(change => taskKeyFromRaw(change.before!.task.fullPath.repoId, change.before!.task.id)))
       // 文件版本属于整份文件；未产生字段变化的记录也必须跟随已确认的文件事件。
-      const tasks = data.result.tasks.filter(task => !removed.has(taskKey(task))).map((task: CoreTask): CoreTask => {
+      const tasks = data.result.tasks.filter(task => !removed.has(taskKey(task)) &&
+        !deletedKeys.has(JSON.stringify([task.repoId, task.filePath]))).map((task: CoreTask): CoreTask => {
         const file = event.files?.find(file => file.after.repoId === task.repoId && file.after.path === task.filePath)
         if (!file || task.fileVersion === file.afterVersion) return task
         const record = taskRecord(task)
@@ -661,10 +674,14 @@ export class DataSet {
       before: taskKeyFromRaw(change.before!.task.fullPath.repoId, change.before!.task.id), after: taskKeyFromRaw(change.after!.task.fullPath.repoId, change.after!.task.id) }))
     if (createdIdentity) identities.push(createdIdentity)
     const removedRecords = event.changes.filter(change => !!change.before && !change.after).map(change => taskKeyFromRaw(change.before!.task.fullPath.repoId, change.before!.task.id))
+    if (data.type === 'task' && deletedKeys.size) {
+      for (const task of data.result.tasks) if (deletedKeys.has(JSON.stringify([task.repoId, task.filePath]))) removedRecords.push(taskKey(task))
+    }
     const addedRecords = event.changes.filter(change => !change.before && !!change.after).map(change => taskKeyFromRaw(change.after!.task.fullPath.repoId, change.after!.task.id))
-    this.rebuild(name, operationId, this.pending.length > 0, identities, removedRecords, addedRecords)
+    this.rebuild(name, operationId, this.pending.length > 0, identities, removedRecords, addedRecords, deletedFiles)
   }
-  private rebuild(name: string, operationId: string, optimistic: boolean, identities: DataSetIdentity[] = [], removedRecords: string[] = [], addedRecords: string[] = []): void {
+  private rebuild(name: string, operationId: string, optimistic: boolean, identities: DataSetIdentity[] = [],
+    removedRecords: string[] = [], addedRecords: string[] = [], removedFiles: OrgFileRef[] = []): void {
     const confirmed = this.confirmed.get(name)
     if (!confirmed) return
     let data = confirmed
@@ -759,9 +776,10 @@ export class DataSet {
     for (const rowId of cleanupRows) if (!retainedRows.has(rowId)) {
       sources?.get(rowId)?.close(); sources?.delete(rowId)
     }
-    if (changed) {
+    if (changed || removedFiles.length > 0) {
       this.publish({ name, type: added.length && !removed.length && !updated.length ? 'insert' : removed.length && !added.length && !updated.length ? 'remove' : updated.length && !added.length && !removed.length ? 'update' : 'refresh',
-        version: this.eventVersion(operationId) ?? version, dataVersion: version, operationId, optimistic, added, removed, updated, identities, structureChanged })
+        version: this.eventVersion(operationId) ?? version, dataVersion: version, operationId, optimistic, added, removed, updated, identities,
+        structureChanged, removedFiles: removedFiles.length ? removedFiles : undefined })
     }
   }
   private publish(event: DataSetEvent): void {

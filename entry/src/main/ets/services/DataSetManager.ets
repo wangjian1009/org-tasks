@@ -230,7 +230,8 @@ export class DataSetManager {
     if (this.externalWatch) return
     const id = await workspace.watchExternalFileChanges((event: CoreExternalFileChanged): void => {
       if (this.closed || this.closing || workspace !== this.workspace) return
-      const affected = Array.from(this.sets.values()).filter(dataSet => event.changeFiles.some(change => this.needsFile(dataSet, change.file)))
+      const affected = Array.from(this.sets.values()).filter(dataSet => event.changeFiles
+        .some(change => change.kind !== 'deleted' && this.needsFile(dataSet, change.file)))
       this.requestRefresh(affected.map(dataSet => dataSet.name))
     })
     if (this.closed || this.closing || workspace !== this.workspace) { workspace.stopWatchingExternalFileChanges(id); return }

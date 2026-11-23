@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from '../controls/DangerousConfirmation'
 import { RegionOrder, ProjectOrder, OrderRegion, OrderProject, orderedRegionCatalog } from '../../ui/RegionOrderPresentation'
 import { coreErrorMessage, CoreBridgeError } from '../../services/NativeCoreService'
 import { UiColor } from '../../ui/Theme'
@@ -37,9 +38,9 @@ export struct RegionOrderSheet {
   cancel(): void {
     if (this.busy) return
     if (this.resetDraft || this.signature() !== this.original) {
-      this.getUIContext().showAlertDialog({ title: '放弃顺序调整？', message: '本次调整尚未保存。',
-        primaryButton: { value: '继续编辑', action: (): void => {} },
-        secondaryButton: { value: '放弃', action: (): void => { this.visible = false } } })
+      showDangerousConfirmation(this.getUIContext(), { title: '放弃顺序调整？', message: '本次调整尚未保存。',
+        cancelLabel: '继续编辑',
+        confirmLabel: '放弃', onConfirm: (): void => { this.visible = false } })
     } else this.visible = false
   }
 

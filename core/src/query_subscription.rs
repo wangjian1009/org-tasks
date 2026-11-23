@@ -114,12 +114,7 @@ where
 impl QuerySubscription {
     pub(crate) fn watch_external_files(&mut self, center: &crate::NotificationCenter) {
         let hub = self.hub.clone();
-        self.external_watch = Some(crate::model::external_files::watch(center, move |event| {
-            let mut state = hub.state.lock().unwrap();
-            if event.change_files.iter().any(|change| state.query.needs_file(&change.file.repo_id, &change.file.path)) {
-                state.invalidated = true;
-            }
-        }));
+        self.external_watch = Some(crate::model::external_files::watch(center, move |event| hub.receive_external(event)));
     }
     pub(crate) fn monitor(&self) -> Box<dyn Fn(DataChangeEvent) + Send + Sync> {
         let hub = self.hub.clone();
@@ -193,13 +188,46 @@ impl QuerySubscription {
 }
 
 impl Hub {
+    fn receive_external(&self, event: crate::ExternalFileChanged) {
+        let deleted = {
+            let mut state = self.state.lock().unwrap();
+            if state.closed || state.invalidated {
+                return;
+            }
+            let mut deleted = BTreeMap::<String, Vec<OrgFileRef>>::new();
+            for change in event.change_files {
+                let file = change.file;
+                if !state.query.needs_file(&file.repo_id, &file.path) {
+                    continue;
+                }
+                if change.kind != crate::ExternalFileChangeKind::Deleted {
+                    state.invalidated = true;
+                    return;
+                }
+                deleted.entry(file.repo_id.clone()).or_default().push(file);
+            }
+            deleted
+        };
+        for (repo_id, removed_files) in deleted {
+            self.receive(DataChangeEvent::NotificationEvent {
+                repo_id,
+                operation_id: None,
+                files: Some(Vec::new()),
+                changes: Vec::new(),
+                notifications: Vec::new(),
+                removed_files,
+                categories: None,
+            });
+        }
+    }
+
     fn receive(&self, event: DataChangeEvent) {
         {
             let mut state = self.state.lock().unwrap();
             if state.closed || state.invalidated {
                 return;
             }
-            let DataChangeEvent::NotificationEvent { repo_id, files, .. } = &event;
+            let DataChangeEvent::NotificationEvent { repo_id, files, removed_files, .. } = &event;
             if !state.query.includes_repo(repo_id) {
                 return;
             }
@@ -208,7 +236,7 @@ impl Hub {
                 state.invalidated = true;
                 return;
             }
-            if !files.as_ref().unwrap().iter().any(|file| {
+            if removed_files.is_empty() && !files.as_ref().unwrap().iter().any(|file| {
                 state
                     .query
                     .needs_file(&file.after.repo_id, &file.after.path)
@@ -345,8 +373,36 @@ impl State {
                     files,
                     changes,
                     notifications,
+                    removed_files,
                     ..
                 } = event;
+                if !removed_files.is_empty() {
+                    let keys = removed_files.iter().map(|file| (file.repo_id.clone(), file.path.clone()))
+                        .collect::<BTreeSet<_>>();
+                    for key in &keys {
+                        self.members.remove(key);
+                        self.versions.remove(key);
+                        self.counts.remove(key);
+                        covered.remove(key);
+                    }
+                    for event in &mut self.pending {
+                        let DataChangeEvent::NotificationEvent { files, .. } = event;
+                        if let Some(files) = files {
+                            files.retain(|file| !keys.contains(&file_key(&file.after)));
+                        }
+                    }
+                    output.push(DataChangeEvent::NotificationEvent {
+                        repo_id,
+                        operation_id,
+                        files: Some(Vec::new()),
+                        changes: Vec::new(),
+                        notifications,
+                        removed_files,
+                        categories: matches!(self.query, CoreQuery::Task { .. }).then(|| self.categories()),
+                    });
+                    progress = true;
+                    continue;
+                }
                 let mut ready = Vec::new();
                 let mut waiting = Vec::new();
                 for file in files.unwrap_or_default() {
@@ -590,9 +646,11 @@ fn apply_initial(data: &mut CoreQueryResult, event: &DataChangeEvent) {
                 .filter_map(|change| change.before.as_ref())
                 .map(|snapshot| (task_key(&snapshot.task), snapshot.task.id().to_owned()))
                 .collect::<BTreeSet<_>>();
-            result
-                .tasks
-                .retain(|task| !removed.contains(&(task_key(task), task.id().to_owned())));
+            let deleted = |repo_id: &str, path: &str| removed_files.iter()
+                .any(|file| file.repo_id == repo_id && file.path == path);
+            result.tasks.retain(|task| !deleted(task.repo_id(), task.path())
+                && !removed.contains(&(task_key(task), task.id().to_owned())));
+            result.full_files.retain(|file| !deleted(&file.repo_id, &file.path));
             result.tasks.extend(
                 changes
                     .iter()

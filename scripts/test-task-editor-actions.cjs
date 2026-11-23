@@ -42,7 +42,8 @@ function fixture(category = 'Todo', target = 'INPROGRESS') {
   let save = async () => true, draft = async () => {};
   class Missing extends Error {}
   class Dialog { constructor(options) { this.options = options; } open() { dialogs.push(this.options); } close() { this.options.onWillDismiss?.({ dismiss() {} }); } }
-  const { Editor } = compile('export class Editor {' + methods + '}', { ...groupBuilders, TaskEditorActionResult, refileSections: values => [{ targets: values }],
+  const { Editor } = compile('export class Editor {' + methods + '}', {
+    ...require('./helpers/dangerous-confirmation.cjs'), ...groupBuilders, TaskEditorActionResult, refileSections: values => [{ targets: values }],
     TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Cancel: 'Cancel' }, TaskInlineSession: { release: key => events.push(['release', key]) },
     TaskInlineMissingError: Missing, coreErrorMessage: error => error.message, UiColor: { error: 'red' },
     InboxService: { async operationGroups(_context, records, action) {

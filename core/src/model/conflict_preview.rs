@@ -602,10 +602,10 @@ impl WorkspaceState {
         if group.operations.iter().any(|op| {
             matches!(
                 op,
-                TaskOperation::FileNew(_) | TaskOperation::FileHaderModification(_)
+                TaskOperation::FileNew(_) | TaskOperation::FileDeletion(_) | TaskOperation::FileHaderModification(_)
             )
         }) {
-            return Err(CoreError::InvalidInput("冲突预览不能创建文件"));
+            return Err(CoreError::InvalidInput("冲突预览不能创建或删除文件，也不能修改文件头"));
         }
         for path in operation_paths(group) {
             path.validate()?;
@@ -683,6 +683,7 @@ pub(super) fn operation_paths(group: &TaskOperationGroup) -> Vec<&TaskPath> {
     for op in &group.operations {
         match op {
             TaskOperation::FileNew(v) => paths.push(&v.path),
+            TaskOperation::FileDeletion(v) => paths.push(&v.path),
             TaskOperation::FileHaderModification(_) => {}
             TaskOperation::Creation(v) => {
                 paths.push(&v.position.parent);
@@ -1431,9 +1432,9 @@ fn remap_operation(
         Ok(())
     }
     match &mut operation {
-        TaskOperation::FileNew(_) | TaskOperation::FileHaderModification(_) => {
+        TaskOperation::FileNew(_) | TaskOperation::FileDeletion(_) | TaskOperation::FileHaderModification(_) => {
             return Err(CoreError::InvalidInput(
-                "冲突预览不支持直接创建文件或修改文件属性",
+                "冲突预览不能创建或删除文件，也不能修改文件头",
             ));
         }
         TaskOperation::Trash(_) | TaskOperation::Restore(_) => return Err(CoreError::InvalidInput("冲突预览不能执行废纸篓操作")),

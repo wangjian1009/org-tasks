@@ -82,8 +82,9 @@ export type TaskStructureEdit =
   | { type: 'move'; ids: string[]; parent: string | null; after: string | null };
 export interface TaskStructureRequest { file: TaskPath; fileVersion: string; edits: TaskStructureEdit[]; }
 export interface TaskConfilictSelection { path?: TaskPath; id: string; action: 'discard' | 'useLocal'; target?: ConflictTarget | null; }
-export type TaskOperationType = 'FileNew' | 'FileHaderModification' | 'Creation' | 'Modification' | 'Note' | 'Movement' | 'Deletion' | 'Trash' | 'Restore' | 'ConfilictSelection';
-export interface TaskOperation { type: TaskOperationType; data: TaskFileNew | FileHaderModification | TaskCreation | TaskModificationOperation | TaskNoteAddition | TaskMovement | TaskDeletion | TaskTrash | TaskRestore | TaskConfilictSelection; }
+export interface TaskFileDeletion { path: TaskPath; }
+export type TaskOperationType = 'FileNew' | 'FileDeletion' | 'FileHaderModification' | 'Creation' | 'Modification' | 'Note' | 'Movement' | 'Deletion' | 'Trash' | 'Restore' | 'ConfilictSelection';
+export interface TaskOperation { type: TaskOperationType; data: TaskFileNew | TaskFileDeletion | FileHaderModification | TaskCreation | TaskModificationOperation | TaskNoteAddition | TaskMovement | TaskDeletion | TaskTrash | TaskRestore | TaskConfilictSelection; }
 export interface TaskFileVersion { repoId: string; file: string; version: string; }
 export interface TaskOperationGroup { operationId?: string | null; operations: TaskOperation[]; fileVersions?: TaskFileVersion[]; }
 // 事件中的记录是纯数据，不具有 native Task/OrgFileMetadata 对象的方法。

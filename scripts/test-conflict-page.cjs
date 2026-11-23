@@ -92,7 +92,7 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
     '../ui/Theme':{repositoryLabel:()=> '测试仓库', UiColor:{error:'#FF7592'}}
   };
   const module={exports:{}};
-  vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>{if(name.endsWith('/PageNavigator'))return require('./helpers/page-navigator.cjs').pageNavigatorMock;assert.ok(name in dependencies,name);return dependencies[name];},module,module.exports);
+  vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>{if(name.endsWith('/DangerousConfirmation'))return require('./helpers/dangerous-confirmation.cjs');if(name.endsWith('/PageNavigator'))return require('./helpers/page-navigator.cjs').pageNavigatorMock;assert.ok(name in dependencies,name);return dependencies[name];},module,module.exports);
   const page=new module.exports();
   page.getUIContext=()=>({getHostContext:()=>({cacheDir:'/cache'}),showAlertDialog:dialog=>dialogs.push(dialog),getRouter:()=>({getParams:()=>params,back:()=>{backs++;},async pushUrl(){}})});
   return {page,requests,dialogs,events,handles,config,creates:()=>creates,backs:()=>backs,requireTarget:()=>targetRequired=true,fail:value=>failure=value,stageFail:value=>stageFailure=value,projectionFail:value=>projectionFailure=value,projectionWait:value=>projectionWait=value,wait:value=>submitWait=value,replaceRepo:()=>coreId='other',externalEdit:()=>realFile=makeFile('core','a.org','external')};

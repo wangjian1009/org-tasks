@@ -529,14 +529,30 @@ test('一个文件监控按包含与排除范围筛选数据集，连续文件�
  }finally{await f.cleanup()}
 });
 
-test('文件删除按宿主仓库别名定位查询，完整快照由 DataSet 比较后向 Monitor 发布移除',async()=>{
+test('纯删除事件直接清除任务和文件快照，不重新查询',async()=>{
  const f=await fixture();try{
-  const manager=f.manager('别名刷新',[{name:'tasks',query:{type:'task',query:{includeFiles:[{repoId:'config',path:'a.org'}]}},repositoryBindings:[{id:'config',rootDirectory:'/repo'}]}]);
-  await manager.start();const events=[];manager.dataSet('tasks').subscribe(event=>events.push(event));
-  f.setRows([]);f.external([{file:{repoId:'repo',path:'a.org'},kind:'deleted'}]);
-  await until(()=>f.batches.length===2&&manager.dataSet('tasks').data.result.tasks.length===0);
+  const manager=f.manager('别名刷新',[
+   {name:'tasks',query:{type:'task',query:{includeFiles:[{repoId:'config',path:'a.org'}]}},repositoryBindings:[{id:'config',rootDirectory:'/repo'}]},
+   {name:'files',query:{type:'file',query:{}}}
+  ]);
+  await manager.start();
+  const tasks=manager.dataSet('tasks'), files=manager.dataSet('files'), events=[];
+  tasks.subscribe(event=>events.push(event));
+  const file={repoId:'repo',path:'a.org'};
+  f.setRows([]);
+  for (const item of f.subscriptions.values()) {
+   item.callback({type:'notificationEvent',repoId:'repo',operationId:null,files:[],changes:[],removedFiles:[file],
+     categories:item.query.type==='task'?[]:undefined});
+  }
+  f.external([{file,kind:'deleted'}]);
+  await manager.flush();
+  assert.equal(tasks.data.result.tasks.length,0);
+  assert.equal(tasks.data.result.categories.length,0);
+  assert.equal(files.data.result.length,0);
   assert.equal(events.filter(event=>event.type==='remove').length,1);assert.equal(events.find(event=>event.type==='remove').removed.length,1);
-  f.external([{file:{repoId:'other',path:'a.org'},kind:'updated'}]);await new Promise(resolve=>setTimeout(resolve,80));assert.equal(f.batches.length,2);
+  assert.deepEqual(events.find(event=>event.type==='remove').removedFiles,[file]);
+  assert.equal(f.batches.length,1);
+  f.external([{file,kind:'updated'}]);await manager.flush();assert.equal(f.batches.length,2);
  }finally{await f.cleanup()}
 });
 

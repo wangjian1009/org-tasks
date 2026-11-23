@@ -9,6 +9,7 @@ function compile(name, mocks = {}) {
   const code = ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module = {exports:{}};
   vm.runInThisContext('(function(require,module,exports,$r){'+code+'\n})', {filename:file})(dependency => {
+    if (dependency.endsWith('/DangerousConfirmation')) return require('./dangerous-confirmation.cjs');
     assert.ok(Object.hasOwn(mocks,dependency),`缺少替身 ${dependency}`); return mocks[dependency];
   }, module,module.exports, name=>name);
   return module.exports;

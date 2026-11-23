@@ -1,7 +1,8 @@
 import { AppDataManager } from './AppDataManager'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
-import { CoreRepo, CoreOrgFile, CoreSyncRecord, CoreSyncRecordDetail, CoreTaskOperationGroup, NativeCoreService } from './NativeCoreService'
+import { CoreRepo, CoreOrgFile, CoreOrgFileMetadata, CoreSyncRecord, CoreSyncRecordDetail,
+  CoreTaskFileDeletion, CoreTaskOperationGroup, NativeCoreService } from './NativeCoreService'
 import { NotebookGroup } from './NotebookService'
 import { SnapshotState, SnapshotDataManager } from './SnapshotDataManager'
 import { repositoryLabel } from '../ui/Theme'
@@ -46,6 +47,17 @@ export class NotebookDataManager {
   async refresh(): Promise<void> { await this.app.dataSet('notebookFiles').refresh(); this.publish() }
   async createFile(group: CoreTaskOperationGroup): Promise<void> {
     await this.app.dataSet('notebookFiles').submitOperationGroup(group, () => !this.closed, true)
+  }
+  async deleteFile(file: CoreOrgFileMetadata, allowed: () => boolean): Promise<void> {
+    const dataSet = this.app.dataSet('notebookFiles')
+    const snapshot = dataSet.data
+    const current = snapshot?.type === 'file' && snapshot.result.find(item => item.repoId === file.repoId && item.path === file.path)
+    if (!current || current.fileVersion !== file.fileVersion) throw new Error('文件已变化，请重新确认删除')
+    const data: CoreTaskFileDeletion = { path: { repoId: file.repoId, file: file.path, titles: [] } }
+    await dataSet.submitOperationGroup({
+      operations: [{ type: 'FileDeletion', data }],
+      fileVersions: [{ repoId: file.repoId, file: file.path, version: file.fileVersion }]
+    }, () => !this.closed && allowed(), true)
   }
   close(): void { this.closed = true; this.stopData(); this.listeners.clear() }
 }

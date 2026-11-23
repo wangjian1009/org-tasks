@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { MemoNavigation } from '../services/MemoNavigation'
 import { PageNavigator } from '../services/PageNavigator'
 import { CoreTask } from '../services/NativeCoreService'
@@ -98,11 +99,10 @@ struct MemoEdit {
 
   confirmDelete() {
     if (!this.memo || this.working || this.committed) return
-    this.getUIContext().showAlertDialog({
+    showDangerousConfirmation(this.getUIContext(), {
       title: '删除备忘？',
       message: `“${this.memo.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.deleteMemo() } }
+      confirmLabel: '删除', onConfirm: (): void => { this.deleteMemo() }
     })
   }
 

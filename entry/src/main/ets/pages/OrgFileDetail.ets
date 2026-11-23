@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { PageNavigator } from '../services/PageNavigator'
 import { DataManager, DataSet, DataSetEvent } from '../services/DataManager'
 import { util } from '@kit.ArkTS'
@@ -57,6 +58,8 @@ struct OrgFileDetail {
   @State refreshing: boolean = false
   @State message: string = ''
   @State refreshMessage: string = ''
+  @State editHeaderOnAppear: boolean = false
+  @State fileDeleted: boolean = false
   @State drawerOpen: boolean = false
   @State renderReady: boolean = false
   @State structureOpen: boolean = false
@@ -125,6 +128,7 @@ struct OrgFileDetail {
   // 页面退出时使进行中的文件读取失效。
   onPageHide() { this.needsReload = this.loading || this.refreshing; this.pageVisible = false; this.loadRevision++; this.filterRequest++; this.filtering = false }
   onBackPress(): boolean {
+    if (this.fileDeleted) { this.leaveDeletedFile(); return true }
     if (this.structureOpen) { this.structureSheet.back(); return true }
     if (this.editSession || this.editBusy) { this.backStructureEdit(); return true }
     if (this.navigation.closePanel()) return true
@@ -169,6 +173,7 @@ struct OrgFileDetail {
       this.entryTaskRead = true
       this.entryTask = params.focusTask
     }
+    if (!this.fileIdentity && !params.syncId) this.editHeaderOnAppear = params.editHeader === true
     if (params.syncId) {
       await this.loadHistory(params, params.syncId, force)
       return
@@ -193,6 +198,11 @@ struct OrgFileDetail {
       this.fileDataSet = fileDataSet
       const stopTasks = fileDataSet.subscribe((event: DataSetEvent): void => {
         if (fileDataSet !== this.fileDataSet) return
+        if (event.removedFiles?.some(file => file.repoId === repoId && file.path === path)) {
+          this.pendingFile = undefined
+          this.fileDeleted = true
+          return
+        }
         if (event.added?.length || event.removed?.length || event.updated?.length) this.linkSnapshotDirty = true
         if (event.type === 'error' && !event.targetKey) this.applyFileState({ message: fileDataSet.error })
         else if (event.structureChanged) { this.structurePending = true; this.refreshDocument() }
@@ -435,9 +445,9 @@ struct OrgFileDetail {
       return
     }
     if (session.refactoring && this.structureEdit.changes.length) {
-      this.getUIContext().showAlertDialog({ title: '放弃变更？', message: '本次结构调整尚未保存。',
-        primaryButton: { value: '继续编辑', action: (): void => {} },
-        secondaryButton: { value: '放弃', action: (): void => { this.exitStructureEdit() } } })
+      showDangerousConfirmation(this.getUIContext(), { title: '放弃变更？', message: '本次结构调整尚未保存。',
+        cancelLabel: '继续编辑',
+        confirmLabel: '放弃', onConfirm: (): void => { this.exitStructureEdit() } })
     } else this.exitStructureEdit()
   }
 
@@ -538,16 +548,24 @@ struct OrgFileDetail {
     if (!samePageValue(this.structureOrderParents, parents)) this.structureOrderParents = parents
   }
 
+  private async leaveDeletedFile(): Promise<void> {
+    const ui = this.getUIContext()
+    if (this.hasParent) await PageNavigator.shared.back(ui)
+    else await PageNavigator.shared.openPrimary(ui, { url: 'pages/Files' })
+  }
+
   private projectMenu(): PopupMenuItem[] {
+    const actions: PopupMenuItem[] = []
+    if (this.renderReady && !this.sourceMode && !this.historyLabel) {
+      actions.push(...this.addStructureActions(''),
+        { title: '重构', icon: $r('app.media.ui_move_to'), action: (): void => { this.beginStructureEdit('', false, true) } })
+    }
     const refresh: PopupMenuItem = { title: '刷新', icon: $r('app.media.ui_sync'), action: (): void => { this.refreshFile() } }
     if (this.sourceMode) {
-      return [{ title: '文档', icon: $r('app.media.ui_document_outline'), action: (): void => { this.toggleSource() } }, refresh]
+      actions.push({ title: '文档', icon: $r('app.media.ui_document_outline'), action: (): void => { this.toggleSource() } }, refresh)
+    } else {
+      actions.push(refresh, { title: '原文', icon: $r('app.media.ui_body'), action: (): void => { this.toggleSource() } })
     }
-    if (!this.renderReady || this.historyLabel) return [refresh, { title: '原文', icon: $r('app.media.ui_body'), action: (): void => { this.toggleSource() } }]
-    const actions: PopupMenuItem[] = this.addStructureActions('').concat([
-      { title: '重构', icon: $r('app.media.ui_move_to'), action: (): void => { this.beginStructureEdit('', false, true) } }
-    ])
-    actions.push(refresh, { title: '原文', icon: $r('app.media.ui_body'), action: (): void => { this.toggleSource() } })
     return actions
   }
 
@@ -630,6 +648,10 @@ struct OrgFileDetail {
         const context = this.getUIContext().getHostContext()!
         this.sourceMode = AppDataManager.shared(context).configuration?.fileDisplayMode === 'source'
       }
+      if (this.editHeaderOnAppear) {
+        this.sourceMode = false
+        this.readingState = JSON.stringify({ scroll: 0 })
+      }
       this.sections = sections
       this.updateStructureOrderParents(snapshot.tasks)
       this.structurePending = false
@@ -664,19 +686,21 @@ struct OrgFileDetail {
       AppShell({ title: this.title || (this.hasParent ? '文件' : '项目'), titleParts: this.titleParts,
         titleIcon: this.projectFile ? '' : $r('app.media.ui_folder'), activeRoute: 'pages/OrgFileDetail',
         back: this.hasParent, drawerOpen: $drawerOpen,
-        pullToSync: !this.historyLabel, pullDisabled: this.refreshing || this.structureOpen || this.structureEdit.phase !== 'idle',
+        pullToSync: !this.historyLabel, pullDisabled: this.refreshing || this.fileDeleted || this.structureOpen || this.structureEdit.phase !== 'idle',
         busy: this.editBusy || this.structureEdit.phase !== 'idle',
         backAction: (): void => { this.onBackPress() },
         secondaryActionIcon: $r('app.media.ui_document_outline'),
         secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing && this.structureEdit.phase === 'idle' ? '文档目录' : '',
         secondaryAction: (): void => { this.navigation.openOutline() },
         actionIcon: $r('app.media.ui_more'),
-        actionLabel: this.loading || this.message || this.refreshing || this.structureEdit.phase !== 'idle' ? '' :
+        actionLabel: this.loading || this.message || this.refreshing || this.fileDeleted || this.structureEdit.phase !== 'idle' ? '' :
           this.projectFile ? '更多项目操作' : '更多文档操作',
         actionMenuItems: this.projectMenu() }) {
         Column() {
           if (!this.historyLabel) { CoreNotificationsView({ disabled: this.refreshing }) }
-          if (this.loading) {
+          if (this.fileDeleted) {
+            EmptyState({ title: '文件已删除', actionLabel: '返回', action: (): void => { this.leaveDeletedFile() } })
+          } else if (this.loading) {
             EmptyState({ title: '正在打开文件', busy: true })
           } else if (this.message) {
             EmptyState({ title: '无法打开文件', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile(true) } })
@@ -713,6 +737,7 @@ struct OrgFileDetail {
                 focusTask: this.entryTask, focusConsumed: (): void => { this.entryTask = undefined },
                 readOnly: !!this.historyLabel, fileContext: this.historyLabel,
                 tagFiltered: this.selectedTags.length > 0 || this.selectedCategory.length > 0,
+                editHeaderOnAppear: this.editHeaderOnAppear,
                 headerEntries: this.headerEntries, headerVersion: this.headerVersion, categoryOptions: this.categoryOptions, tagOptions: this.tagOptions,
                 beforeHeaderEdit: async (): Promise<boolean> => TaskInlineSession.end(true),
                 saveHeader: (changes: CoreFileHeaderValueChange[], version: string): Promise<void> => this.saveHeader(changes, version),
@@ -734,7 +759,7 @@ struct OrgFileDetail {
                 },
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,
                 scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
-                ready: (): void => { this.renderReady = true } })
+                ready: (): void => { this.renderReady = true; this.editHeaderOnAppear = false } })
                 .width('100%').height('100%').visibility(this.sourceMode ? Visibility.None : Visibility.Visible)
               }, (identity: string) => identity)
               if (this.sourceMode) {

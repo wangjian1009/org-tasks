@@ -12,6 +12,12 @@ interface RepositoryTemplate {
   content: string
 }
 
+interface EntryFile {
+  path: string
+  title: string | null
+  isIgnore: boolean
+}
+
 const ENTRY_KINDS: FileTargetKind[] = ['inbox', 'someday', 'memo']
 const TEMPLATE_KINDS: RepositoryTemplateKind[] = [...ENTRY_KINDS, 'task']
 const DEFAULT_TASK_CATEGORY = '我的任务'
@@ -20,9 +26,9 @@ function templateName(kind: RepositoryTemplateKind): string {
   return kind === 'memo' ? 'note' : kind
 }
 
-function entryFile(files: CoreOrgFileMetadata[], kind: FileTargetKind): CoreOrgFileMetadata | undefined {
+function entryFile(files: EntryFile[], kind: FileTargetKind): EntryFile | undefined {
   const name = templateName(kind)
-  const matches = files.filter((file: CoreOrgFileMetadata): boolean => {
+  const matches = files.filter((file: EntryFile): boolean => {
     const title = file.title?.trim() || ''
     return !file.isIgnore && (title === fileTargetName(kind) || title.toLowerCase() === name)
   })
@@ -31,7 +37,7 @@ function entryFile(files: CoreOrgFileMetadata[], kind: FileTargetKind): CoreOrgF
 
 export class RepositorySetupService {
   static async initialize(context: Context, config: AppConfig, repository: RepoConfig, reset: boolean = false):
-    Promise<CoreOrgFileMetadata[]> {
+    Promise<EntryFile[]> {
     const templates: RepositoryTemplate[] = []
     const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true })
     for (const kind of TEMPLATE_KINDS) {
@@ -45,7 +51,7 @@ export class RepositorySetupService {
     const repo = (await workspace.repos()).find(item => item.rootDirectory === repository.rootDirectory)
     if (!repo) throw new Error('目标仓库不可用')
     if (reset) await repo.reset()
-    const files = await RepositorySetupService.files(workspace, repo.id)
+    const files = reset ? [] : await RepositorySetupService.files(workspace, repo.id)
     const operations: CoreTaskOperation[] = []
     for (const template of templates) {
       const file = `${template.name}.org`
@@ -63,10 +69,13 @@ export class RepositorySetupService {
     }
     if (operations.length === 0) return files
     await workspace.executeTaskOperations({ operations })
+    if (reset) return templates.map((template: RepositoryTemplate): EntryFile => ({
+      path: `${template.name}.org`, title: template.kind === 'task' ? DEFAULT_TASK_CATEGORY : fileTargetName(template.kind), isIgnore: false
+    }))
     return await RepositorySetupService.files(workspace, repo.id)
   }
 
-  static bindEntries(config: AppConfig, repository: RepoConfig, files: CoreOrgFileMetadata[], afterReset: boolean = false): boolean {
+  static bindEntries(config: AppConfig, repository: RepoConfig, files: EntryFile[], afterReset: boolean = false): boolean {
     let changed = false
     for (const kind of ENTRY_KINDS) {
       const target = configuredFileTarget(config, kind)

@@ -11,6 +11,7 @@ import { AppShell } from '../components/AppShell'
 import { IconButton } from '../components/controls/IconButton'
 import { PopupMenuButton } from '../components/controls/PopupMenuButton'
 import { PopupMenuItem } from '../components/controls/PopupMenu'
+import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { OrgFileCreateSheet } from '../components/editors/OrgFileCreateSheet'
 import { OrgFileCreateService } from '../services/OrgFileCreateService'
 import { NotebookDataManager, NotebookSnapshot } from '../services/ReadingDataManager'
@@ -41,6 +42,8 @@ struct Files {
   @State createMessage: string = ''
   @State createRepositories: OrgFileRepositoryOption[] = []
   @State createRepoId: string = ''
+  @State deletePending: boolean = false
+  private listScroller: ListScroller = new ListScroller()
   private keyboardAvoidMode: KeyboardAvoidMode | undefined = undefined
   private active: boolean = false
   private trashMaintenance: Promise<void> | undefined = undefined
@@ -61,10 +64,50 @@ struct Files {
   }
 
   onBackPress(): boolean {
+    if (this.deletePending) return true
     if (this.createOpen) { this.dismissCreate(); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     PageNavigator.shared.back(this.getUIContext())
     return true
+  }
+
+  private closeFileSwipe(): void {
+    try { this.listScroller.closeAllSwipeActions() } catch (_) { /* 列表退出时不再需要收起按钮。 */ }
+  }
+
+  private confirmFileDeletion(file: CoreOrgFileMetadata, group: NotebookGroup): void {
+    const manager = this.dataManager
+    const repository = this.config.repos.find(repo => repo.id === group.configId)
+    if (!this.active || this.deletePending || !manager || !repository ||
+      repository.id === SYSTEM_REPOSITORY_ID || !file.fileVersion) return
+    const pagePath = PageNavigator.shared.path
+    const allowed = (): boolean => this.active && PageNavigator.shared.path === pagePath
+    const remote = repository.webdavEnabled ? '后续同步可能删除 WebDAV 上的对应文件。' : ''
+    this.deletePending = true
+    try {
+      showDangerousConfirmation(this.getUIContext(), {
+        title: '删除文件？',
+        message: `将删除“${group.name}”中的“${file.path}”及其全部内容。整份文件无法通过废纸篓恢复。${remote}`,
+        confirmLabel: '删除文件',
+        onCancel: (): void => { this.deletePending = false },
+        onConfirm: (): void => {
+          if (!allowed()) { this.deletePending = false; return }
+          manager.deleteFile(file, allowed)
+            .catch((error: CoreBridgeError): void => {
+              if (allowed()) this.reportFileDeletionError(error)
+            })
+            .finally((): void => { this.deletePending = false })
+        }
+      })
+    } catch (error) {
+      this.deletePending = false
+      if (allowed()) this.reportFileDeletionError(error as CoreBridgeError)
+    }
+  }
+
+  private reportFileDeletionError(error: CoreBridgeError): void {
+    try { this.getUIContext().getPromptAction().showToast({ message: `删除文件失败：${coreErrorMessage(error)}` }) }
+    catch (_) { /* 离开页面后不再显示提示。 */ }
   }
 
   private async openCreate(repoId: string): Promise<void> {
@@ -177,7 +220,8 @@ struct Files {
       AppShell({ title: '笔记本', titleIcon: $r('app.media.nav_repository'),
         actionIcon: $r('app.media.ui_add'), actionLabel: '添加存储库',
         action: (): void => { addRepository(this.getUIContext()) },
-        activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true,
+        activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletePending,
+        pullDisabled: this.deletePending,
         beforePull: async (): Promise<void> => await this.loadFiles(true) }) {
         Column() {
           if (this.loading) {
@@ -187,7 +231,7 @@ struct Files {
           } else if (this.groups.length === 0) {
             NotificationEmptyState({ title: '还没有存储库', actionLabel: '添加存储库', action: (): void => { addRepository(this.getUIContext()) } })
           } else {
-            List() {
+            List({ scroller: this.listScroller }) {
               if (this.showNotifications) {
                 ListItem() { CoreNotificationsView({ horizontalInset: 0 }) }
               }
@@ -201,13 +245,14 @@ struct Files {
                     }
                   }
                   ForEach(this.visibleFiles(group), (file: CoreOrgFileMetadata) => {
-                    ListItem() {
-                      NotebookFileRow({ file, configRepoId: group.configId, usages: fileUsageKinds(this.config, group.configId, file.path) })
-                    }
+                    NotebookFileRow({ file, configRepoId: group.configId, usages: fileUsageKinds(this.config, group.configId, file.path),
+                      actionsEnabled: !!group.configId && group.configId !== SYSTEM_REPOSITORY_ID && !!file.fileVersion,
+                      closeSwipe: (): void => { this.closeFileSwipe() },
+                      remove: (): void => { this.confirmFileDeletion(file, group) } })
                   }, (file: CoreOrgFileMetadata) => JSON.stringify(file))
                 }
               }, (group: NotebookGroup) => JSON.stringify(group))
-            }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
+            }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 }).enabled(!this.deletePending)
               .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
               .edgeEffect(EdgeEffect.None)
           }

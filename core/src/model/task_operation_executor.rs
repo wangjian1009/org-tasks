@@ -197,6 +197,12 @@ impl WorkspaceState {
         group: &TaskOperationGroup,
     ) -> Result<(), CoreError> {
         let _activity = self.tasks.enter()?;
+        if let Some(deletion) = group.operations.iter().find_map(|operation| match operation {
+            TaskOperation::FileDeletion(deletion) => Some(deletion),
+            _ => None,
+        }) {
+            return self.execute_file_deletion(group, deletion).await;
+        }
         if super::conflict_preview::has_preview_path(group) {
             return self.execute_preview_operations(group).await;
         }
@@ -228,6 +234,7 @@ impl WorkspaceState {
         let mut touched = BTreeSet::new();
         for operation in &source_group.operations {
             match operation {
+                TaskOperation::FileDeletion(_) => unreachable!(),
                 TaskOperation::FileNew(data) => {
                     touched.insert(data.path.repo_id.clone());
                 }
@@ -363,6 +370,47 @@ impl WorkspaceState {
                 group.operation_id.as_deref(), Some(changed_files), changes);
         }
         drop(guards);
+        self.notifications.flush().await
+    }
+
+    async fn execute_file_deletion(
+        &self,
+        group: &TaskOperationGroup,
+        deletion: &TaskFileDeletion,
+    ) -> Result<(), CoreError> {
+        use crate::webdav::transaction;
+
+        let path = &deletion.path;
+        if group.operations.len() != 1 || !path.titles.is_empty() || path.repo_id == "<preview>" {
+            return Err(CoreError::InvalidInput("删除文件必须单独提交真实文件根路径"));
+        }
+        let (repo_id, relative) = key(path)?;
+        let [version] = group.file_versions.as_slice() else {
+            return Err(CoreError::InvalidInput("删除文件必须提供唯一的文件版本"));
+        };
+        if version.repo_id != repo_id || version.file != relative || version.version.is_empty() {
+            return Err(CoreError::InvalidInput("删除文件的版本与目标不匹配"));
+        }
+        let repo = self.repo(&repo_id).ok_or(CoreError::InvalidInput("路径仓库不属于 workspace"))?;
+        let root = Path::new(&repo.root_directory);
+        let guard = super::access::enter(root, &repo.id).await?;
+        let mut plan = transaction::Plan::default();
+        plan.set(root, relative.clone(), None).await?;
+        let source = plan.changes[0].before.as_deref().ok_or(CoreError::InvalidState("文件已不存在"))?;
+        if LocalFileVersion::from_bytes(source).content_hash != version.version {
+            return Err(CoreError::InvalidState("文件版本已变化，请刷新后重新确认"));
+        }
+        plan.commit(root).await?;
+        let stamp = self.notifications.files().stamp(repo, &self.notifications);
+        self.notifications.files().delete_files(repo, stamp, vec![relative.clone()])?;
+        self.notifications.files().flush().await?;
+        self.notifications.publish(sync_events::SyncCommitted::ExternalFiles(ExternalFileChanged {
+            change_files: vec![ExternalFileChange {
+                file: OrgFileRef { repo_id, path: relative },
+                kind: ExternalFileChangeKind::Deleted,
+            }],
+        }));
+        drop(guard);
         self.notifications.flush().await
     }
 }
@@ -591,7 +639,7 @@ fn execute(
         TaskOperation::Creation(data) => {
             position_hint(&files[&key(&data.position.parent)?].file, &data.position)?;
         }
-        TaskOperation::Trash(_) | TaskOperation::Restore(_) => return Err(CoreError::InvalidState("高级操作必须由请求调度器分解")),
+        TaskOperation::FileDeletion(_) | TaskOperation::Trash(_) | TaskOperation::Restore(_) => return Err(CoreError::InvalidState("高级操作必须由请求调度器分解")),
         TaskOperation::ConfilictSelection(_) => unreachable!(),
     }
     // 普通操作只编辑主树；把容器及其专属分隔符原样放回，避免正文替换或插入吞掉分隔符。
@@ -634,7 +682,7 @@ fn execute_inner(
             super::file_header::apply(&mut item.file, &data.changes)?;
             Ok(None)
         }
-        TaskOperation::Trash(_) | TaskOperation::Restore(_) => Err(CoreError::InvalidState("高级操作必须由请求调度器分解")),
+        TaskOperation::FileDeletion(_) | TaskOperation::Trash(_) | TaskOperation::Restore(_) => Err(CoreError::InvalidState("高级操作必须由请求调度器分解")),
         TaskOperation::FileNew(data) => {
             let file_key = key(&data.path)?;
             let item = files.get_mut(&file_key).expect("已加载文件");

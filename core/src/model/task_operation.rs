@@ -25,6 +25,7 @@ pub struct TaskOperationGroup {
 #[serde(tag = "type", content = "data", deny_unknown_fields)]
 pub enum TaskOperation {
     FileNew(TaskFileNew),
+    FileDeletion(TaskFileDeletion),
     FileHaderModification(FileHaderModification),
     Creation(TaskCreation),
     Modification(TaskModificationOperation),
@@ -76,6 +77,13 @@ pub struct TaskFileNew {
     pub arguments: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub init_tasks: Vec<TaskFileInitialTask>,
+}
+
+/// 删除一份真实的 Org 文件，操作组必须提供该文件的当前版本。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskFileDeletion {
+    pub path: TaskPath,
 }
 
 /// 采用与 Creation 相同的字段及校验，不接受由调用方指定的插入位置。

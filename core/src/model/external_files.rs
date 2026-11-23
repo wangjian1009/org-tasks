@@ -1,4 +1,4 @@
-//! 外部文件变化只描述路径与增删改；接收方按自己的查询范围重新读取。
+//! 外部文件变化描述路径与增删改；查询订阅可直接清除已删除文件。
 use serde::Serialize;
 
 use crate::{OrgFileRef, OrgWorkspace};
@@ -185,6 +185,7 @@ mod tests {
                 .len(),
             1
         );
+        let (send, mut data_events) = tokio::sync::mpsc::unbounded_channel();
         let starts = workspace
             .subscribe_query(vec![
                 crate::QuerySubscriptionRequest::new(
@@ -196,7 +197,7 @@ mod tests {
                         ..Default::default()
                     }
                     .into(),
-                    |_| {},
+                    move |event| { send.send(event).unwrap(); },
                 ),
                 crate::QuerySubscriptionRequest::new(
                     crate::TaskQuery {
@@ -223,13 +224,16 @@ mod tests {
         assert_eq!(*ordering.lock().unwrap(), ["conflict", "empty", "files"]);
         assert_eq!(
             workspace.query_subscription_status(&starts[0].subscription),
-            crate::QuerySubscriptionStatus::Invalidated
+            crate::QuerySubscriptionStatus::Current
         );
         assert_eq!(
             workspace.query_subscription_status(&starts[1].subscription),
             crate::QuerySubscriptionStatus::Current
         );
         let events = events.lock().unwrap().clone();
+        let crate::DataChangeEvent::NotificationEvent { removed_files, .. } = data_events.try_recv().unwrap();
+        assert_eq!(removed_files.len(), 1);
+        assert_eq!(removed_files[0].path, "dir/a.org");
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0]

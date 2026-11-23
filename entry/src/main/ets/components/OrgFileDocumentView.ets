@@ -57,6 +57,7 @@ export struct OrgFileDocumentView {
   @StorageLink('taskInlineActive') @Watch('inlineChanged') inlineActive: string = ''
   @Prop headerEntries: CoreFileHeaderEntry[] = []
   @Prop headerVersion: string = ''
+  @Prop editHeaderOnAppear: boolean = false
   @Prop categoryOptions: string[] = []
   beforeHeaderEdit: () => Promise<boolean> = async () => true
   saveHeader: (changes: CoreFileHeaderValueChange[], version: string) => Promise<void> = async () => {}
@@ -137,7 +138,7 @@ export struct OrgFileDocumentView {
 
   aboutToAppear() {
     this.active = true
-    this.initialOffsetApplied = this.readOffset() !== undefined
+    this.initialOffsetApplied = this.editHeaderOnAppear || this.readOffset() !== undefined
     this.stopTasks = this.dataSet?.subscribeStructure((): void => { this.updateDocument() })
     this.updateDocument()
     this.navigation.locateSection = (path: CoreTaskPath): Promise<boolean> => this.locateSection(path)
@@ -411,6 +412,7 @@ export struct OrgFileDocumentView {
         }
         if (!this.readOnly && (this.headerEntries.length > 0 || this.tagOptions.length > 0 || this.category)) {
           OrgFileHeader({ headerEntries: this.headerEntries, fileVersion: this.headerVersion, categoryOptions: this.categoryOptions,
+            editOnAppear: this.editHeaderOnAppear,
             beforeEdit: this.beforeHeaderEdit, save: this.saveHeader, navigation: this.headerNavigation,
             tags: this.tagOptions, selectedTags: this.selectedTags,
             category: this.category, selectedCategory: this.selectedCategory,

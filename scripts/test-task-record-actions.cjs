@@ -25,6 +25,8 @@ test('清除确认取消、点击遮罩或控件离开都不写入，迟到确�
     const f=fixture(),runner=new f.Runner();let active=true;
     const pending=runner.execute(f.context,f.dataSet,[task('A')],'clear',()=>active);await tick();
     assert.equal(f.writes.length,0);const dialog=f.dialogs[0];assert.match(dialog.message,/无法恢复/);
+    assert.equal(dialog.primaryButton.defaultFocus,true);
+    assert.equal(dialog.secondaryButton.fontColor,'red');
     if(mode==='leave'){active=false;runner.close();}else if(mode==='cancel')dialog.primaryButton.action();else dialog.cancel();
     dialog.secondaryButton.action();assert.equal((await pending).committed,false);assert.equal(f.writes.length,0);
   }

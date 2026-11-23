@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from '../controls/DangerousConfirmation'
 import { reminderPlanning, reminderModification, reminderTimeLabel } from '../../ui/TaskReminderPresentation'
 import { PageNavigator } from '../../services/PageNavigator'
 import { ReminderManager } from '../../services/ReminderManager'
@@ -338,13 +339,12 @@ export struct TaskEditor {
       const result = new TaskEditorActionResult()
       action = result; this.pendingAction = result
       this.deleteConfirming = true
-      this.getUIContext().showAlertDialog({ title: '删除这条记录？', message: `“${source.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
-        cancel: (): void => { this.cancelDelete() },
-        primaryButton: { value: '取消', action: (): void => { this.cancelDelete() } },
-        secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => {
+      showDangerousConfirmation(this.getUIContext(), { title: '删除这条记录？', message: `“${source.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
+        onCancel: (): void => { this.cancelDelete() },
+        confirmLabel: '删除', onConfirm: (): void => {
           if (!this.appeared || !allowed()) { result.finish(); return }
           result.finish(groups[0])
-        } } })
+        } })
       this.completing = false
       return await result.result
     } catch (error) { this.actionError(error as Error); return undefined }
@@ -1026,9 +1026,8 @@ export struct TaskEditor {
   }
   reloadDraft() {
     if (this.working) return
-    this.getUIContext().showAlertDialog({ title: '重新载入任务？', message: '将放弃卡片中未保存的输入，读取文件中的最新内容。',
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '重新载入', action: async () => {
+    showDangerousConfirmation(this.getUIContext(), { title: '重新载入任务？', message: '将放弃卡片中未保存的输入，读取文件中的最新内容。',
+      confirmLabel: '重新载入', onConfirm: async () => {
         this.working = true
         try {
           await this.localDataSet().refresh()
@@ -1044,7 +1043,7 @@ export struct TaskEditor {
           else this.message = coreErrorMessage(error as CoreBridgeError)
         }
         finally { this.working = false }
-      } } })
+      } })
   }
   async tags() {
     if (this.readOnly) return

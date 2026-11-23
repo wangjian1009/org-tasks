@@ -43,7 +43,7 @@ export interface TaskPageActionPolicy {
 }
 
 export interface TaskActionItem {
-  id: TaskOperation
+  id: string
   title: string
   label: string
   icon: Resource

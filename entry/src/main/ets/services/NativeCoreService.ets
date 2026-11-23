@@ -11,6 +11,7 @@ import {
   TaskPath as NativeTaskPath,
   TaskFileVersion as NativeTaskFileVersion,
   TaskFileNew as NativeTaskFileNew,
+  TaskFileDeletion as NativeTaskFileDeletion,
   TaskFileInitialTask as NativeTaskFileInitialTask,
   TaskOperation as NativeTaskOperation,
   TaskTrash as NativeTaskTrash,
@@ -183,6 +184,7 @@ export type CoreRefileTarget = NativeRefileTarget
 export type CoreTaskPath = NativeTaskPath
 export type CoreTaskFileVersion = NativeTaskFileVersion
 export type CoreTaskFileNew = NativeTaskFileNew
+export type CoreTaskFileDeletion = NativeTaskFileDeletion
 export type CoreTaskFileInitialTask = NativeTaskFileInitialTask
 export type CoreTaskTrash = NativeTaskTrash
 export type CoreTaskRestore = NativeTaskRestore

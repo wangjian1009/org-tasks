@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { PageNavigator } from '../services/PageNavigator'
 import { PageQueryService } from '../services/PageQueryService'
 import { fileIo } from '@kit.CoreFileKit'
@@ -83,9 +84,9 @@ struct RepositorySettings {
 
   cannotSave(message: string) {
     this.message = message
-    this.getUIContext().showAlertDialog({ title: '无法保存修改', message,
-      primaryButton: { value: '继续编辑', action: () => {} },
-      secondaryButton: { value: '放弃修改并返回', fontColor: UiColor.error, action: (): void => { PageNavigator.shared.back(this.getUIContext()) } } })
+    showDangerousConfirmation(this.getUIContext(), { title: '无法保存修改', message,
+      cancelLabel: '继续编辑',
+      confirmLabel: '放弃修改并返回', onConfirm: (): void => { PageNavigator.shared.back(this.getUIContext()) } })
   }
 
   clearTestResult() {
@@ -226,11 +227,10 @@ struct RepositorySettings {
         this.cannotSave('请先保存本地目录的修改，再切换为本地仓库')
         return
       }
-      this.getUIContext().showAlertDialog({ title: '切换为本地仓库？',
+      showDangerousConfirmation(this.getUIContext(), { title: '切换为本地仓库？',
         message: '将清除本机保存的 WebDAV 地址、账号、密码、同步历史和待上传记录。本机与远端的文件都会保留。以后重新开启同步时，同路径文件将采用远端版本。',
-        primaryButton: { value: '取消', action: (): void => { this.changeSyncMethod(true) } },
-        secondaryButton: { value: '切换为本地', fontColor: UiColor.error,
-          action: (): void => { this.finishLocalConversion(saved.rootDirectory) } } })
+        onCancel: (): void => { this.changeSyncMethod(true) },
+        confirmLabel: '切换为本地', onConfirm: (): void => { this.finishLocalConversion(saved.rootDirectory) } })
       return
     }
     if (!this.rootDirectory.trim().startsWith('/')) { this.cannotSave('请输入本地 Org 文件目录的绝对路径'); return }
@@ -251,11 +251,9 @@ struct RepositorySettings {
       const repository = this.draft()
       const encodedDraft = JSON.stringify(repository)
       if (previous && !previous.webdavEnabled && repository.webdavEnabled && confirmedDraft !== encodedDraft) {
-        this.getUIContext().showAlertDialog({ title: '启用 WebDAV 同步？',
+        showDangerousConfirmation(this.getUIContext(), { title: '启用 WebDAV 同步？',
           message: '首次同步时，同路径的本地 Org 文件会被远端版本覆盖，未被远端版本保留的本地任务会在同步后移入废纸篓。本地独有文件会保留并上传。',
-          primaryButton: { value: '取消', action: () => {} },
-          secondaryButton: { value: '启用同步', fontColor: UiColor.error,
-            action: (): void => { this.save(encodedDraft) } } })
+          confirmLabel: '启用同步', onConfirm: (): void => { this.save(encodedDraft) } })
         return
       }
       const managed = this.managedDirectory()
@@ -332,10 +330,9 @@ struct RepositorySettings {
     if (!this.existing || this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
     if (!repo) return
-    this.getUIContext().showAlertDialog({ title: '删除存储库？',
+    showDangerousConfirmation(this.getUIContext(), { title: '删除存储库？',
       message: `将移除“${repositoryLabel(repo)}”的配置、密码和指向该仓库的文件入口，保留本地 Org 文件及远端文件。`,
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '删除', fontColor: UiColor.error, action: (): void => { this.removeRepository() } } })
+      confirmLabel: '删除', onConfirm: (): void => { this.removeRepository() } })
   }
 
   async removeRepository() {
@@ -358,10 +355,9 @@ struct RepositorySettings {
       this.message = '本地目录已修改，请先点击“确定”保存后再重置'
       return
     }
-    this.getUIContext().showAlertDialog({ title: '重置本地目录？',
+    showDangerousConfirmation(this.getUIContext(), { title: '重置本地目录？',
       message: `将清空“${repositoryLabel(repo)}”的全部本地文件、同步历史和未上传修改。${repo.webdavEnabled ? '随后从 WebDAV 重新同步。' : '随后从模板重新创建收件箱、某天、备忘和我的任务文件。'}此操作无法撤销。\n${repo.rootDirectory}`,
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: { value: '重置', fontColor: UiColor.error, action: (): void => { this.resetRepository(repo.rootDirectory) } } })
+      confirmLabel: '重置', onConfirm: (): void => { this.resetRepository(repo.rootDirectory) } })
   }
 
   async resetRepository(expectedRoot: string, initializeOnly: boolean = false) {
@@ -385,7 +381,6 @@ struct RepositorySettings {
         if (RepositorySetupService.bindEntries(current, repository, files, true)) await AppConfigService.save(context, current)
         this.retryInitialization = false
       }
-      try { await PageQueryService.query(await AppConfigService.load(context, false), []) } catch (_) {}
       this.getUIContext().getPromptAction().showToast({ message: repository.webdavEnabled ? '仓库已重置并同步' : '本地目录已重置' })
     } catch (e) {
       const detail = coreErrorMessage(e as CoreBridgeError)

@@ -151,7 +151,7 @@ APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共�
 
 * 外部文件变化与通知刷新
 
-普通操作组提交后的事件为 ~DataChangeEvent::NotificationEvent~ ，携带任务／文件增量和当前仓库通知列表。同步与 reset 的文件增删改通过独立 ~ExternalFileChanged~ 广播。Core 先按各类通知条件更新通知缓存并广播列表变化，UI 通知模块只消费列表，不监听文件变化。数据管理层按查询范围合并刷新，Core 查询订阅只标记相关订阅失效，不隐式查询。完整契约见 [[file:core/外部文件变化监控设计.org][外部文件变化监控设计]] 。
+普通操作组提交后的事件为 ~DataChangeEvent::NotificationEvent~ ，携带任务／文件增量和当前仓库通知列表。同步、Reset 和整文件删除通过 ~ExternalFileChanged~ 广播。纯删除按查询范围生成 ~removedFiles~ 增量，DataSet 直接清除对应文件与任务。新增或更新使匹配订阅失效，由数据管理层合并刷新。UI 通知模块消费 Core 已广播的通知缓存。完整契约见 [[file:core/外部文件变化监控设计.org][外部文件变化监控设计]] 。
 
 * 任务提醒平台接入
 

@@ -16,7 +16,9 @@ function load(file, mocks = {}, sheet = false) {
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports){' + ts.transpileModule(source, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
-  }).outputText + '\n})')(name => { assert.ok(name in mocks, name); return mocks[name]; }, module, module.exports);
+  }).outputText + '\n})')(name => {
+    if (name.endsWith('/DangerousConfirmation')) return require('./helpers/dangerous-confirmation.cjs');
+    assert.ok(name in mocks, name); return mocks[name]; }, module, module.exports);
   return module.exports;
 }
 const p = load('ui/RegionOrderPresentation');

@@ -9,6 +9,7 @@ export interface PageParameters {
   readonly repositoryName?: string
   readonly backupTime?: number | null
   readonly backupPath?: string
+  readonly editHeader?: boolean
   readonly section?: string
   readonly task?: CoreTask
   readonly memoId?: string

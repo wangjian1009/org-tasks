@@ -1,3 +1,4 @@
+import { showDangerousConfirmation } from './controls/DangerousConfirmation'
 import { LengthMetrics, window } from '@kit.ArkUI'
 import { CoreFileHeaderEntry, CoreFileHeaderValueChange } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
@@ -27,6 +28,7 @@ export struct OrgFileHeader {
   @Prop categoryOptions: string[] = []
   @Prop category: string = ''
   @Prop selectedCategory: string = ''
+  @Prop editOnAppear: boolean = false
   beforeEdit: () => Promise<boolean> = async () => true
   save: (changes: CoreFileHeaderValueChange[], version: string) => Promise<void> = async () => {}
   navigation: OrgFileHeaderNavigation = new OrgFileHeaderNavigation()
@@ -58,6 +60,7 @@ export struct OrgFileHeader {
       else this.closeEditor()
       return true
     }
+    if (this.editOnAppear) await this.openEditor()
     try {
       const current = await window.getLastWindow(this.getUIContext().getHostContext()!)
       if (!this.alive) return
@@ -152,9 +155,9 @@ export struct OrgFileHeader {
   closeEditor(): void {
     if (this.busy) return
     if (this.dirty() && !this.saved) {
-      this.getUIContext().showAlertDialog({ title: '放弃属性修改？', message: '本次未保存的修改将被丢弃。',
-        primaryButton: { value: '继续编辑', action: (): void => {} },
-        secondaryButton: { value: '放弃修改', action: (): void => { this.finishEditor() } } })
+      showDangerousConfirmation(this.getUIContext(), { title: '放弃属性修改？', message: '本次未保存的修改将被丢弃。',
+        cancelLabel: '继续编辑',
+        confirmLabel: '放弃修改', onConfirm: (): void => { this.finishEditor() } })
     } else this.finishEditor()
   }
 

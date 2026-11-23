@@ -401,3 +401,105 @@ async fn project_template_assigns_unique_persistent_ids_and_resolves_optional_se
         assert_ne!(ids[0], ids[1]);
     }
 }
+
+#[tokio::test]
+async fn file_deletion_checks_version_and_removes_query_members_after_commit() {
+    let f = Fixture::new().await;
+    for path in ["delete.org", "keep.org"] {
+        f.execute(vec![f.operation(path, "#+TITLE: 文档\n* TODO 内容\n", vec![])])
+            .await
+            .unwrap();
+    }
+    let file = f.file("delete.org").await;
+    let path = file.full_path();
+    let versions = vec![TaskFileVersion {
+        repo_id: f.id.clone(),
+        file: "delete.org".into(),
+        version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+    }];
+    let (send, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let _watch = f.workspace.watch_external_file_changes(move |event| {
+        send.send(event).unwrap();
+    });
+    let (send_query, mut query_events) = tokio::sync::mpsc::unbounded_channel();
+    let requests = ["delete.org", "keep.org"].map(|path| {
+        let send_query = send_query.clone();
+        QuerySubscriptionRequest::new(
+            TaskQuery {
+                include_files: vec![OrgFileRef { repo_id: f.id.clone(), path: path.into() }],
+                ..Default::default()
+            }
+            .into(),
+            move |event| { send_query.send(event).unwrap(); },
+        )
+    });
+    let subscriptions = f.workspace.subscribe_query(requests.into()).await.unwrap();
+    let group = TaskOperationGroup {
+        operation_id: Some("file-deletion".into()),
+        operations: vec![TaskOperation::FileDeletion(TaskFileDeletion { path })],
+        file_versions: versions,
+    };
+    let mut stale = group.clone();
+    stale.file_versions[0].version = "旧版本".into();
+    assert!(f.workspace.execute_task_operations(&stale).await.is_err());
+    assert!(f.root.join("delete.org").exists());
+    assert!(events.try_recv().is_err());
+    assert_eq!(
+        f.workspace.query_subscription_status(&subscriptions[0].subscription),
+        QuerySubscriptionStatus::Current
+    );
+
+    f.workspace.execute_task_operations(&group).await.unwrap();
+    assert!(!f.root.join("delete.org").exists());
+    assert!(f.root.join("keep.org").exists());
+    let event = events.try_recv().unwrap();
+    assert_eq!(event.change_files.len(), 1);
+    assert_eq!(event.change_files[0].file.path, "delete.org");
+    assert_eq!(event.change_files[0].kind, ExternalFileChangeKind::Deleted);
+    assert_eq!(
+        f.workspace.query_subscription_status(&subscriptions[0].subscription),
+        QuerySubscriptionStatus::Current
+    );
+    assert_eq!(
+        f.workspace.query_subscription_status(&subscriptions[1].subscription),
+        QuerySubscriptionStatus::Current
+    );
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    assert!(events.try_recv().is_err());
+    let DataChangeEvent::NotificationEvent { removed_files, categories, .. } = query_events.try_recv().unwrap();
+    assert_eq!(removed_files, vec![OrgFileRef { repo_id: f.id.clone(), path: "delete.org".into() }]);
+    assert_eq!(categories, Some(Vec::new()));
+    assert!(query_events.try_recv().is_err());
+    f.execute(vec![f.operation("delete.org", "* TODO 新内容\n", vec![])])
+        .await
+        .unwrap();
+    let DataChangeEvent::NotificationEvent { files, changes, .. } = query_events.try_recv().unwrap();
+    assert_eq!(files.unwrap().len(), 1);
+    assert_eq!(changes[0].kind, TaskDataChangeKind::Created);
+}
+
+#[tokio::test]
+async fn file_deletion_rejects_child_paths_missing_versions_and_mixed_groups() {
+    let f = Fixture::new().await;
+    f.execute(vec![f.operation("delete.org", "* TODO 内容\n", vec![])])
+        .await
+        .unwrap();
+    let file = f.file("delete.org").await;
+    let operation = TaskOperation::FileDeletion(TaskFileDeletion { path: file.full_path() });
+    let mut group = TaskOperationGroup {
+        operations: vec![operation.clone()],
+        ..Default::default()
+    };
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    group.file_versions.push(TaskFileVersion {
+        repo_id: f.id.clone(),
+        file: file.path.clone(),
+        version: LocalFileVersion::from_bytes(file.source_bytes()).content_hash,
+    });
+    group.operations.push(f.operation("new.org", "", vec![]));
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    group.operations = vec![TaskOperation::FileDeletion(TaskFileDeletion { path: file.node_paths()[0].clone() })];
+    assert!(f.workspace.execute_task_operations(&group).await.is_err());
+    assert_eq!(fs::read(f.root.join("delete.org")).await.unwrap(), file.source_bytes());
+    assert!(!f.root.join("new.org").exists());
+}
