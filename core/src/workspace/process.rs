@@ -464,6 +464,7 @@ fn operation_access(group: &crate::TaskOperationGroup) -> Access {
                 data.file.path.clone(),
             )),
             FileDeletion(data) => insert(&data.path),
+            FileRename(_) => return Access::Exclusive,
             Creation(data) => insert(&data.position.parent),
             Modification(data) => insert(&data.path),
             Note(data) => insert(&data.path),

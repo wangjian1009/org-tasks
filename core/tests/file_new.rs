@@ -503,3 +503,55 @@ async fn file_deletion_rejects_child_paths_missing_versions_and_mixed_groups() {
     assert_eq!(fs::read(f.root.join("delete.org")).await.unwrap(), file.source_bytes());
     assert!(!f.root.join("new.org").exists());
 }
+
+#[tokio::test]
+async fn file_rename_preserves_bytes_and_rejects_stale_or_occupied_destinations() {
+    let f = Fixture::new().await;
+    fs::create_dir(f.root.join("notes")).await.unwrap();
+    let source_path = "notes/旧文件.org";
+    let source = ":PROPERTIES:\r\n:ID: file-identity\r\n:END:\r\n#+TITLE: 保留标题\r\n* TODO 内容\r\n";
+    f.execute(vec![
+        f.operation(source_path, source, vec![]),
+        f.operation("notes/已有.org", "#+TITLE: 已有\n", vec![]),
+    ])
+    .await
+    .unwrap();
+    let before = f.file(source_path).await;
+    let version = LocalFileVersion::from_bytes(before.source_bytes()).content_hash;
+    let (send, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let _watch = f.workspace.watch_external_file_changes(move |event| {
+        send.send(event).unwrap();
+    });
+    let request = |new_name: &str, version: &str| TaskOperationGroup {
+        operations: vec![TaskOperation::FileRename(TaskFileRename {
+            path: before.full_path(),
+            new_name: new_name.into(),
+        })],
+        file_versions: vec![TaskFileVersion {
+            repo_id: f.id.clone(),
+            file: source_path.into(),
+            version: version.into(),
+        }],
+        ..Default::default()
+    };
+    for group in [
+        request("已有.org", &version),
+        request("../越界.org", &version),
+        request("新的文件.org", "stale"),
+    ] {
+        assert!(f.workspace.execute_task_operations(&group).await.is_err());
+        assert_eq!(fs::read(f.root.join(source_path)).await.unwrap(), before.source_bytes());
+        assert!(events.try_recv().is_err());
+    }
+    f.workspace.execute_task_operations(&request("新的文件.org", &version)).await.unwrap();
+    assert!(!f.root.join(source_path).exists());
+    assert_eq!(fs::read(f.root.join("notes/新的文件.org")).await.unwrap(), before.source_bytes());
+    let event = events.try_recv().unwrap();
+    assert_eq!(event.change_files.len(), 2);
+    assert!(event.change_files.iter().any(|change| {
+        change.file.path == "notes/新的文件.org" && change.kind == ExternalFileChangeKind::Created
+    }));
+    assert!(event.change_files.iter().any(|change| {
+        change.file.path == source_path && change.kind == ExternalFileChangeKind::Deleted
+    }));
+}

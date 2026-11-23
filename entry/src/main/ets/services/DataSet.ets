@@ -540,9 +540,10 @@ export class DataSet {
   private rebasedGroup(source: CoreTaskOperationGroup, operationId: string): CoreTaskOperationGroup {
     const group = JSON.parse(JSON.stringify(source)) as CoreTaskOperationGroup
     group.operationId = operationId
-    // 文件删除与项目转换使用确认时的版本。
+    // 文件删除、改名和项目转换使用确认时的版本。
     if (!group.fileVersions?.length ||
-      group.operations.some(operation => operation.type === 'FileNew' || operation.type === 'FileDeletion')) return group
+      group.operations.some(operation => operation.type === 'FileNew' || operation.type === 'FileDeletion' ||
+        operation.type === 'FileRename')) return group
     group.fileVersions = group.fileVersions.map(version => {
       const current = this.currentFileVersion(version.repoId, version.file)
       return current ? { repoId: version.repoId, file: version.file, version: current } : version

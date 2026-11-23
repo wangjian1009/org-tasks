@@ -955,6 +955,10 @@ pub struct TaskRestore { pub path: TaskPath }
 
 Core 在仓库锁内校验版本并执行可恢复事务。提交成功后更新文件状态，发送包含 ~kind: deleted~ 的 ~externalFileChanged~ 事件。查询订阅通过 ~removedFiles~ 返回删除引用和更新后的分类计数，宿主直接清除对应文件与任务。WebDAV 根据现有基线判断是否传播删除。
 
+* 整文件改名
+
+~FileRename~ 通过 ~execute_task_operations~ 提交。操作组只包含这一项操作及源文件的唯一 ~fileVersions~ 条目。 ~data.path~ 使用真实文件根路径， ~data.newName~ 使用不含目录分隔符的 ~.org~ 文件名。文件版本变化或目标已经存在时拒绝操作。Core 在同一仓库事务中保留原始字节并替换路径。提交后，同一外部文件事件报告旧路径删除与新路径新增。已启用 WebDAV 的仓库沿用文件 ID 和共同祖先的同步规则。
+
 * 查询文件定位与创建日期条件
 
 ~TaskQuery.include_files~ 与 ~exclude_files~ 均为 ~Vec<OrgFileRef>~ ，每项包含 Core 稳定仓库 ID 与安全相对 ~path~ 。非空包含集合限定可读取文件，空包含集合表示不限制，然后减去排除集合；同时配置合法，排除优先。空 ID、未知仓库或非法路径返回输入错误。旧 ~excludedFiles~ 字段和表达式 ~b.文件~ 、 ~.b.文件~ 不再支持，返回输入错误；查询文件必须使用 JSON 的 ~includeFiles~ 与 ~excludeFiles~ 。扫描阶段只读取同批至少一个查询需要的文件，不读取无关文件正文，也不解析其 UTF-8 或 Org。

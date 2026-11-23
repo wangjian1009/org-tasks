@@ -167,7 +167,7 @@ test('本地仓库直接提交操作，取消预览不提交真实操作',async(
 
 function repositoryRow(hasConflict, project = null) {
  const filename=path.resolve('entry/src/main/ets/components/NotebookFileRow.ets');
- const source=fs.readFileSync(filename,'utf8').split('  build()')[0].replace(/@Component\n|@Prop /g,'').replace('export struct NotebookFileRow','class NotebookFileRow')+'}\nmodule.exports=NotebookFileRow;';
+ const source=fs.readFileSync(filename,'utf8').split('  @Builder')[0].replace(/@Component\n|@Prop /g,'').replace('export struct NotebookFileRow','class NotebookFileRow')+'}\nmodule.exports=NotebookFileRow;';
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  const module={exports:{}};
  vm.runInThisContext('(function(require,module,exports){'+code+'\n})')((name)=>name.endsWith('/PageNavigator')?require('./helpers/page-navigator.cjs').pageNavigatorMock:{},module,module.exports);

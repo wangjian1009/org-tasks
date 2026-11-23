@@ -800,6 +800,10 @@ Harmony 根据项目名称是否填写，从应用资源读取 ~templates/projec
 
 ArkTS 通过已有 ~executeTaskOperations~ 工作线程入口提交 ~FileDeletion~ 。 ~TaskFileDeletion~ 的 ~path~ 为文件根路径， ~fileVersions~ 必须提供表单确认时的版本。C++ 与 Rust bridge 原样传入 Core。成功后 Core 使用已有 ~externalFileChanged~ 事件报告 ~deleted~ ，查询订阅以 ~removedFiles~ 返回对应根路径和更新后的分类计数， DataSet 直接清除对应记录。
 
+* 整文件改名
+
+~TaskFileRename~ 包含文件根 ~path~ 和同一目录的新文件名 ~newName~ ，沿用 ~executeTaskOperations~ 工作线程入口。笔记本的数据集携带确认时的源版本等待提交结果。Core 发布旧路径删除和新路径新增。宿主按原配置仓库 ID 和路径更新已绑定的文件入口。
+
 * 文件头顺序投影
 
 ~OrgFile.headerEntries(): FileHeaderEntry[]~ 同步读取已返回文件快照；Rust worker 调用 ~OrgFile.header_entries()~ ，C++ N-API 原样透传，ArkTS wrapper 导出 ~CoreFileHeaderEntry~ 。每项包含 ~id~ 、 ~name~ 、 ~value~ 、 ~keyword~ 、 ~tags~ 和 ~edit~ ；顶部属性抽屉与 PROPERTY 声明的 ~keyword~ 为 false，避免同名属性被当作 TAGS 或 CATEGORY 配置。候选 ~tags~ 由 Core 对单条真实 TAGS 声明解析，去掉快捷键与组标记，顺序不变。字段不加入持久化或同步记录；FILETAGS 保留每条声明原值，包含 project、todo，界面只读展示。

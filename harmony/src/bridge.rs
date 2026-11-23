@@ -2426,7 +2426,7 @@ pub fn workspace_execute_task_operations(
     handle: u64,
     request: String,
 ) -> Result<String, CoreError> {
-    // bridge 透传结构化操作组，由 Core 校验文件与任务操作并提交。
+    // bridge 透传结构化操作组，Core 校验并提交文件改名等操作。
     let group: org_tasks_core::TaskOperationGroup = serde_json::from_str(&request)
         .map_err(|_| CoreError::InvalidInput("任务操作组参数无效"))?;
     let session = workspace_for_handle(handle)?;

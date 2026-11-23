@@ -26,8 +26,7 @@
 ** 导航、仓库与同步
 
 - ~AppShell~ 用于组装页面标题栏、侧边栏导航和正文区域，并接入共享的同步展示。 [[file:../../entry/src/main/ets/components/AppShell.ets][源码]]
-- ~FileItem~ 用于显示笔记本中的文件或项目标题及其辅助信息，并响应打开操作。 [[file:../../entry/src/main/ets/components/FileItem.ets][源码]]
-- ~NotebookFileRow~ 用于在笔记本中将文件行接到普通文件、项目文档或冲突处理页面。 [[file:../../entry/src/main/ets/components/NotebookFileRow.ets][源码]]
+- ~NotebookFileRow~ 用于显示笔记本文件的单行概要和展开详情，处理左滑操作与文件导航。 [[file:../../entry/src/main/ets/components/NotebookFileRow.ets][源码]]
 - ~OrgFileProgressIcon~ 用于在侧边栏项目入口显示已完成任务占总任务的比例。 [[file:../../entry/src/main/ets/components/OrgFileProgressIcon.ets][源码]]
 - ~RegionOrderSheet~ 用于调整今天页和侧边栏共用的分类与项目顺序。 [[file:../../entry/src/main/ets/components/editors/RegionOrderSheet.ets][源码]]
 - ~CoreNotificationsView~ 用于在列表和阅读页集中呈现 Core 发出的仓库与同步通知。 [[file:../../entry/src/main/ets/components/CoreNotificationsView.ets][源码]]

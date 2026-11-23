@@ -2016,7 +2016,7 @@ napi_value WorkspaceExecuteTaskOperations(napi_env env, napi_callback_info info)
         napi_throw_error(env, nullptr, "Workspace.executeTaskOperations 参数无效"); return nullptr;
     }
     auto* work = new WorkspaceStringWork(); work->handle = workspace->handle; work->execute_operations = true;
-    // 结构化操作组通过 worker 原样转发，文件创建与删除、清单插入和任务恢复均由 Rust Core 执行。
+    // 结构化操作组通过 worker 原样转发，文件变更与任务操作由 Rust Core 执行。
     if (!EncodeJson(env, args[0], &work->expression)) { delete work; napi_throw_error(env, nullptr, "任务整理参数无效"); return nullptr; }
     return QueueWorkspaceString(env, work, "OrgTasksExecuteTaskOperations", self);
 }

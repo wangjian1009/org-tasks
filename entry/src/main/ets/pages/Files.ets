@@ -7,6 +7,7 @@ import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { NotificationManager } from '../services/NotificationManager'
 import { NotebookFileRow } from '../components/NotebookFileRow'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
+import { AppConfigService } from '../services/AppConfigService'
 import { AppShell } from '../components/AppShell'
 import { IconButton } from '../components/controls/IconButton'
 import { PopupMenuButton } from '../components/controls/PopupMenuButton'
@@ -18,9 +19,9 @@ import { NotebookDataManager, NotebookSnapshot } from '../services/ReadingDataMa
 import { SnapshotState } from '../services/SnapshotDataManager'
 import { NotebookGroup } from '../services/NotebookService'
 import { CoreBridgeError, CoreOrgFileMetadata, CoreTaskOperationGroup, coreErrorMessage } from '../services/NativeCoreService'
-import { OrgFileRepositoryOption } from '../ui/OrgFileCreatePresentation'
+import { OrgFileRepositoryOption, orgFileName } from '../ui/OrgFileCreatePresentation'
 import { UiColor } from '../ui/Theme'
-import { fileUsageKinds } from '../ui/NotebookPresentation'
+import { filePathLabel, fileUsageKinds } from '../ui/NotebookPresentation'
 import { SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
 
 @Entry
@@ -33,6 +34,7 @@ struct Files {
   @State message: string = ''
   @State drawerOpen: boolean = false
   @State showIgnoredRepoIds: string[] = []
+  @State expandedFileKeys: string[] = []
   @State config: AppConfig = DEFAULT_CONFIG
   @State createOpen: boolean = false
   @State createLoading: boolean = false
@@ -43,6 +45,14 @@ struct Files {
   @State createRepositories: OrgFileRepositoryOption[] = []
   @State createRepoId: string = ''
   @State deletePending: boolean = false
+  @State renameOpen: boolean = false
+  @State renameBusy: boolean = false
+  @State renameName: string = ''
+  @State renameMessage: string = ''
+  @State renamedPath: string = ''
+  private renameSource: CoreOrgFileMetadata | undefined = undefined
+  private renameRepoId: string = ''
+  private originalRenameName: string = ''
   private listScroller: ListScroller = new ListScroller()
   private keyboardAvoidMode: KeyboardAvoidMode | undefined = undefined
   private active: boolean = false
@@ -57,6 +67,7 @@ struct Files {
   onPageShow(): void { this.loadFiles() }
   aboutToDisappear(): void {
     this.active = false
+    this.closeRename()
     this.closeCreate()
     this.stopNotifications?.()
     this.stopNotifications = undefined
@@ -65,6 +76,7 @@ struct Files {
 
   onBackPress(): boolean {
     if (this.deletePending) return true
+    if (this.renameOpen) { this.closeRename(); return true }
     if (this.createOpen) { this.dismissCreate(); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     PageNavigator.shared.back(this.getUIContext())
@@ -108,6 +120,86 @@ struct Files {
   private reportFileDeletionError(error: CoreBridgeError): void {
     try { this.getUIContext().getPromptAction().showToast({ message: `删除文件失败：${coreErrorMessage(error)}` }) }
     catch (_) { /* 离开页面后不再显示提示。 */ }
+  }
+
+  private openRename(file: CoreOrgFileMetadata, group: NotebookGroup): void {
+    if (!this.active || this.renameOpen || this.deletePending || !file.fileVersion ||
+      !group.configId || group.configId === SYSTEM_REPOSITORY_ID) return
+    this.renameSource = file
+    this.renameRepoId = group.configId
+    this.originalRenameName = filePathLabel(file.path.slice(file.path.lastIndexOf('/') + 1))
+    this.renameName = this.originalRenameName
+    this.renamedPath = ''
+    this.renameMessage = ''
+    const ui = this.getUIContext()
+    this.keyboardAvoidMode = ui.getKeyboardAvoidMode()
+    ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+    this.renameOpen = true
+  }
+
+  private closeRename(): void {
+    if (this.renameBusy && this.active) return
+    this.renameOpen = false
+    this.renameSource = undefined
+    if (this.keyboardAvoidMode !== undefined) {
+      this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)
+      this.keyboardAvoidMode = undefined
+    }
+  }
+
+  private async submitRename(): Promise<void> {
+    const file = this.renameSource
+    const manager = this.dataManager
+    if (!this.renameOpen || this.renameBusy || !file || !manager) return
+    const name = this.renameName.trim()
+    if (!this.renamedPath) {
+      if (!name || name === '.' || name === '..' || /[\/\\\x00-\x1f\x7f]/.test(name) || orgFileName(name) === '.org') {
+        this.renameMessage = '请输入有效的文件名，文件名不能包含目录分隔符'
+        return
+      }
+      if (orgFileName(name) === this.originalRenameName) { this.closeRename(); return }
+    }
+    const pagePath = PageNavigator.shared.path
+    const allowed = (): boolean => this.active && PageNavigator.shared.path === pagePath
+    const context = this.getUIContext().getHostContext()!
+    const repoId = this.renameRepoId
+    this.renameBusy = true
+    this.renameMessage = ''
+    try {
+      if (!this.renamedPath) {
+        const newName = orgFileName(name)
+        await manager.renameFile(file, newName, allowed)
+        this.renamedPath = file.path.slice(0, file.path.lastIndexOf('/') + 1) + newName
+      }
+      await AppConfigService.renameFileTargets(context, repoId, file.path, this.renamedPath)
+    } catch (error) {
+      this.renameMessage = (this.renamedPath ? '文件已改名，入口更新失败。' : '') + coreErrorMessage(error as CoreBridgeError)
+      return
+    } finally {
+      this.renameBusy = false
+    }
+    if (allowed()) this.closeRename()
+  }
+
+  @Builder
+  renamePanel() {
+    Column({ space: 16 }) {
+      Row() {
+        Text('改文件名').fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
+        Button('取消').height(44).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+          .enabled(!this.renameBusy).onClick((): void => { this.closeRename() })
+      }.width('100%')
+      TextInput({ text: this.renameName, placeholder: '文件名' }).id('notebook_rename_name')
+        .width('100%').height(48).fontSize(16).fontColor(UiColor.text).backgroundColor('#414542')
+        .enabled(!this.renameBusy && !this.renamedPath).onChange((value: string): void => { this.renameName = value })
+        .onSubmit((): void => { this.submitRename() })
+      if (this.renameMessage) {
+        Text(this.renameMessage).fontSize(14).fontColor(UiColor.error).width('100%')
+      }
+      Button(this.renameBusy ? '保存中…' : this.renamedPath ? '重试更新入口' : '保存')
+        .id('notebook_rename_save').width('100%').height(48).backgroundColor(UiColor.primary)
+        .fontColor(UiColor.onPrimary).enabled(!this.renameBusy).onClick((): void => { this.submitRename() })
+    }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 24 })
   }
 
   private async openCreate(repoId: string): Promise<void> {
@@ -182,6 +274,17 @@ struct Files {
     return this.showIgnoredRepoIds.includes(group.repoId) ? group.files : group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore)
   }
 
+  private fileKey(file: CoreOrgFileMetadata): string {
+    return JSON.stringify([file.repoId, file.path])
+  }
+
+  private toggleFileDetails(file: CoreOrgFileMetadata): void {
+    const key = this.fileKey(file)
+    this.expandedFileKeys = this.expandedFileKeys.includes(key)
+      ? this.expandedFileKeys.filter(value => value !== key)
+      : [...this.expandedFileKeys, key]
+  }
+
   repositoryActions(group: NotebookGroup): PopupMenuItem[] {
     return [
       { title: '新增文件', icon: $r('app.media.ui_add'), disabled: this.createLoading || this.createOpen,
@@ -206,7 +309,12 @@ struct Files {
     if (!this.dataManager) {
       this.dataManager = new NotebookDataManager(this.getUIContext().getHostContext()!)
       this.stopData = this.dataManager.subscribe((state: SnapshotState<NotebookSnapshot>): void => {
-        if (state.value) { this.config = state.value.config; this.groups = state.value.groups; this.loading = false }
+        if (state.value) {
+          const keys = new Set(state.value.groups.flatMap(group => group.files.map(file => this.fileKey(file))))
+          const retained = this.expandedFileKeys.filter(key => keys.has(key))
+          if (retained.length !== this.expandedFileKeys.length) this.expandedFileKeys = retained
+          this.config = state.value.config; this.groups = state.value.groups; this.loading = false
+        }
         this.message = state.message ? `读取笔记本失败：${state.message}` : ''
         if (state.message) this.loading = false
       })
@@ -220,8 +328,8 @@ struct Files {
       AppShell({ title: '笔记本', titleIcon: $r('app.media.nav_repository'),
         actionIcon: $r('app.media.ui_add'), actionLabel: '添加存储库',
         action: (): void => { addRepository(this.getUIContext()) },
-        activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletePending,
-        pullDisabled: this.deletePending,
+        activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletePending || this.renameOpen,
+        pullDisabled: this.deletePending || this.renameOpen,
         beforePull: async (): Promise<void> => await this.loadFiles(true) }) {
         Column() {
           if (this.loading) {
@@ -246,8 +354,11 @@ struct Files {
                   }
                   ForEach(this.visibleFiles(group), (file: CoreOrgFileMetadata) => {
                     NotebookFileRow({ file, configRepoId: group.configId, usages: fileUsageKinds(this.config, group.configId, file.path),
+                      expanded: this.expandedFileKeys.includes(this.fileKey(file)),
+                      toggleExpanded: (): void => { this.toggleFileDetails(file) },
                       actionsEnabled: !!group.configId && group.configId !== SYSTEM_REPOSITORY_ID && !!file.fileVersion,
                       closeSwipe: (): void => { this.closeFileSwipe() },
+                      rename: (): void => { this.openRename(file, group) },
                       remove: (): void => { this.confirmFileDeletion(file, group) } })
                   }, (file: CoreOrgFileMetadata) => JSON.stringify(file))
                 }
@@ -256,7 +367,10 @@ struct Files {
               .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
               .edgeEffect(EdgeEffect.None)
           }
-        }.width('100%').height('100%')
+        }.width('100%').height('100%').bindSheet($$this.renameOpen, this.renamePanel, {
+          height: SheetSize.FIT_CONTENT, preferType: SheetType.BOTTOM, backgroundColor: '#363A38', showClose: false,
+          onWillDismiss: (): void => { this.closeRename() }
+        })
       }
     }.width('100%').height('100%').bindSheet($$this.createOpen, this.createPanel, {
       height: SheetSize.FIT_CONTENT, preferType: SheetType.BOTTOM, backgroundColor: '#363A38', showClose: false,

@@ -26,6 +26,7 @@ pub struct TaskOperationGroup {
 pub enum TaskOperation {
     FileNew(TaskFileNew),
     FileDeletion(TaskFileDeletion),
+    FileRename(TaskFileRename),
     FileHaderModification(FileHaderModification),
     Creation(TaskCreation),
     Modification(TaskModificationOperation),
@@ -84,6 +85,14 @@ pub struct TaskFileNew {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskFileDeletion {
     pub path: TaskPath,
+}
+
+/// 在原目录中更改文件名，保留 Org 原文。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskFileRename {
+    pub path: TaskPath,
+    pub new_name: String,
 }
 
 /// 采用与 Creation 相同的字段及校验，不接受由调用方指定的插入位置。

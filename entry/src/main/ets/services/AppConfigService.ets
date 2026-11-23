@@ -78,6 +78,19 @@ export class AppConfigService {
     })
   }
 
+  static renameFileTargets(context: Context, repoId: string, oldPath: string, newPath: string): Promise<void> {
+    return AppConfigService.enqueueSave(async (): Promise<void> => {
+      const config = await AppConfigService.load(context, false)
+      const inbox = config.inboxRepoId === repoId && config.inboxFile === oldPath
+      const someday = config.somedayRepoId === repoId && config.somedayFile === oldPath
+      const memo = config.memoRepoId === repoId && config.memoFile === oldPath
+      if (inbox) config.inboxFile = newPath
+      if (someday) config.somedayFile = newPath
+      if (memo) config.memoFile = newPath
+      if (inbox || someday || memo) await AppConfigService.persist(context, config, false)
+    })
+  }
+
   private static enqueueSave(save: () => Promise<void>): Promise<void> {
     const pending = AppConfigService.pendingSave.then(save)
     AppConfigService.pendingSave = pending.catch((): void => {})
