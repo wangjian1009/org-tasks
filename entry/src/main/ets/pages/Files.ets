@@ -96,7 +96,8 @@ struct Files {
       AppShell({ title: '笔记本', titleIcon: $r('app.media.nav_repository'),
         actionIcon: $r('app.media.ui_add'), actionLabel: '添加存储库',
         action: (): void => { addRepository(this.getUIContext()) },
-        activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true }) {
+        activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true,
+        beforePull: async (): Promise<void> => await this.loadFiles(true) }) {
         Column() {
           if (this.loading) {
             NotificationEmptyState({ title: '正在读取笔记本', busy: true })

@@ -359,7 +359,7 @@ struct RepositorySettings {
       return
     }
     this.getUIContext().showAlertDialog({ title: '重置本地目录？',
-      message: `将清空“${repositoryLabel(repo)}”的全部本地文件、同步历史和未上传修改。${repo.webdavEnabled ? '随后从 WebDAV 重新同步。' : '随后从模板重新创建收件箱、某天和备忘文件。'}此操作无法撤销。\n${repo.rootDirectory}`,
+      message: `将清空“${repositoryLabel(repo)}”的全部本地文件、同步历史和未上传修改。${repo.webdavEnabled ? '随后从 WebDAV 重新同步。' : '随后从模板重新创建收件箱、某天、备忘和我的任务文件。'}此操作无法撤销。\n${repo.rootDirectory}`,
       primaryButton: { value: '取消', action: () => {} },
       secondaryButton: { value: '重置', fontColor: UiColor.error, action: (): void => { this.resetRepository(repo.rootDirectory) } } })
   }

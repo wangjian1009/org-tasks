@@ -41,6 +41,7 @@ export struct AppShell {
   @BuilderParam content: () => void
   action: () => void = () => {}
   secondaryAction: () => void = () => {}
+  beforePull: () => Promise<void> = async (): Promise<void> => {}
   backAction: () => void = (): void => { PageNavigator.shared.back(this.getUIContext()) }
   @State inboxCount: number = -1
   @State todayCount: number = -1
@@ -314,7 +315,11 @@ export struct AppShell {
         }
         Column() {
           RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen || this.pullDisabled,
-            beforePull: async (): Promise<boolean> => await TaskInlineSession.end(true) }) {
+            beforePull: async (): Promise<boolean> => {
+              if (!await TaskInlineSession.end(true)) return false
+              await this.beforePull()
+              return true
+            } }) {
             this.content()
           }
         }.width('100%').layoutWeight(1)

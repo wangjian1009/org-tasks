@@ -4,15 +4,19 @@ import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { configuredFileTarget, FileTargetKind, fileTargetName } from './FileTargetService'
 import { CoreOrgFileMetadata, CoreTaskFileNew, CoreTaskOperation, CoreWorkspace, NativeCoreService, fileResult } from './NativeCoreService'
 
-interface EntryTemplate {
-  kind: FileTargetKind
+type RepositoryTemplateKind = FileTargetKind | 'task'
+
+interface RepositoryTemplate {
+  kind: RepositoryTemplateKind
   name: string
   content: string
 }
 
 const ENTRY_KINDS: FileTargetKind[] = ['inbox', 'someday', 'memo']
+const TEMPLATE_KINDS: RepositoryTemplateKind[] = [...ENTRY_KINDS, 'task']
+const DEFAULT_TASK_CATEGORY = '我的任务'
 
-function templateName(kind: FileTargetKind): string {
+function templateName(kind: RepositoryTemplateKind): string {
   return kind === 'memo' ? 'note' : kind
 }
 
@@ -28,14 +32,14 @@ function entryFile(files: CoreOrgFileMetadata[], kind: FileTargetKind): CoreOrgF
 export class RepositorySetupService {
   static async initialize(context: Context, config: AppConfig, repository: RepoConfig, reset: boolean = false):
     Promise<CoreOrgFileMetadata[]> {
-    const templates: EntryTemplate[] = []
+    const templates: RepositoryTemplate[] = []
     const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true })
-    for (const kind of ENTRY_KINDS) {
+    for (const kind of TEMPLATE_KINDS) {
       const name = templateName(kind)
       try {
         const resource = await context.resourceManager.getRawFileContent(`templates/${name}.org`)
         templates.push({ kind, name, content: decoder.decodeToString(resource) })
-      } catch (_) { throw new Error(`无法读取${fileTargetName(kind)}模板，请重试`) }
+      } catch (_) { throw new Error(`无法读取${kind === 'task' ? '任务' : fileTargetName(kind)}模板，请重试`) }
     }
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repo = (await workspace.repos()).find(item => item.rootDirectory === repository.rootDirectory)
@@ -45,10 +49,15 @@ export class RepositorySetupService {
     const operations: CoreTaskOperation[] = []
     for (const template of templates) {
       const file = `${template.name}.org`
-      if (files.some(item => item.path === file) || entryFile(files, template.kind)) continue
+      if (files.some(item => item.path === file) || (template.kind !== 'task' && entryFile(files, template.kind))) continue
+      const argumentsByName: Record<string, string> = {}
+      if (template.kind === 'task') {
+        argumentsByName['title'] = DEFAULT_TASK_CATEGORY
+        argumentsByName['category'] = DEFAULT_TASK_CATEGORY
+      }
       const data: CoreTaskFileNew = {
         path: { repoId: repo.id, file, titles: [] },
-        templatePath: '', templateContent: template.content, arguments: {}, initTasks: []
+        templatePath: '', templateContent: template.content, arguments: argumentsByName, initTasks: []
       }
       operations.push({ type: 'FileNew', data })
     }
