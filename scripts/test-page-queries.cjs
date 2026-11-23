@@ -405,6 +405,14 @@ test('项目进度按 Core 分类汇总，取消和未分类状态只计入总�
   assert.equal(fileTaskProgress({taskStateCounts:[]}),'0/0');
 });
 
+test('笔记本的文件路径显示解码 Unicode 字符并保留其他路径字符', () => {
+  const {filePathLabel} = fixture().load('ui/NotebookPresentation');
+  assert.equal(filePathLabel('记录/%E6%97%A5%E6%8A%A5.org'), '记录/日报.org');
+  assert.equal(filePathLabel('%E5%B7%A5%E4%BD%9C/%F0%A0%80%80%2F%25.org'), '工作/𠀀%2F%25.org');
+  assert.equal(filePathLabel('中文%20名称%ZZ.org'), '中文%20名称%ZZ.org');
+  assert.equal(filePathLabel('%FF-%E6%97%A5.org'), '%FF-日.org');
+});
+
 test('失效文件和未配置文件不退回全仓库任务，通知仍在同一个批次内加载',async()=>{
   const f=fixture();f.missing();const page=f.page('components/TaskPageContent',['loadTasks','supportsTagFilter','applyTagFilter']);
   page.view='memo';await page.loadTasks();assert.equal(page.needsConfiguration,true);assert.equal(f.batches.length,1);

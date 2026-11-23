@@ -3,6 +3,13 @@ import { configuredFileTarget, FileTargetKind } from '../services/FileTargetServ
 import { CoreOrgFileMetadata, CoreTaskStateCount } from '../services/NativeCoreService'
 import { RegionOrder, orderedKeys, orderProjectKey, orderRegionKey } from './RegionOrderPresentation'
 
+export function filePathLabel(path: string): string {
+  // 只解码显示用的 UTF-8 字符，保留百分号编码的 ASCII 分隔符和字面百分号。
+  return path.replace(/%[C-Fc-f][0-9A-Fa-f](?:%[89ABab][0-9A-Fa-f]){1,3}/g, (encoded: string): string => {
+    try { return decodeURIComponent(encoded) } catch (_) { return encoded }
+  })
+}
+
 export function fileTaskCount(file: CoreOrgFileMetadata): number {
   return file.taskStateCounts.reduce((total: number, item: CoreTaskStateCount): number => total + item.count, 0)
 }

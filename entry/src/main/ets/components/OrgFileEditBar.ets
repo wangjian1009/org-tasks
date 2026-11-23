@@ -80,7 +80,7 @@ export struct OrgFileEditBar {
             .width('100%')
         }, (change: OrgFileStructureChange) => change.id)
       }.width('100%').alignItems(HorizontalAlign.Start)
-    }.width('100%').constraintSize({ maxHeight: 124 }).scrollBar(BarState.Auto)
+    }.width('100%').constraintSize({ maxHeight: 124 }).scrollBar(BarState.Off)
   }
 
   @Builder

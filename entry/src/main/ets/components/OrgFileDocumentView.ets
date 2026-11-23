@@ -353,7 +353,7 @@ export struct OrgFileDocumentView {
             }
           }
         }, (section: OrgFileReadingSection) => section.key)
-      }.width('100%').layoutWeight(1)
+      }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
     }.width('100%').height('100%').padding(24)
   }
 
@@ -425,7 +425,7 @@ export struct OrgFileDocumentView {
           this.scheduleInitialOffset()
         })
     }.id('project_document_scroll').width('100%').height('100%').align(Alignment.Top)
-      .scrollBar(BarState.Auto)
+      .scrollBar(BarState.Off)
       .onAppear((): void => { this.ready() })
       .onScrollStart((): void => { this.swipeMenus.close() })
       .onDidScroll((): void => { if (this.showing) this.scrolled(this.scroller.currentOffset().yOffset) })

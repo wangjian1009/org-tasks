@@ -9,6 +9,8 @@ import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
 import { IconButton } from '../components/controls/IconButton'
+import { PopupMenuButton } from '../components/controls/PopupMenuButton'
+import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { NotebookDataManager, NotebookSnapshot } from '../services/ReadingDataManager'
 import { SnapshotState } from '../services/SnapshotDataManager'
 import { NotebookGroup } from '../services/NotebookService'
@@ -56,6 +58,17 @@ struct Files {
 
   visibleFiles(group: NotebookGroup): CoreOrgFileMetadata[] {
     return this.showIgnoredRepoIds.includes(group.repoId) ? group.files : group.files.filter((file: CoreOrgFileMetadata) => !file.isIgnore)
+  }
+
+  repositoryActions(group: NotebookGroup): PopupMenuItem[] {
+    return [
+      { title: '设置', icon: $r('app.media.ui_settings'), action: (): void => {
+        PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: group.configId } })
+      } },
+      { title: '历史', icon: $r('app.media.ui_sync_log'), action: (): void => {
+        PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/SyncLog', params: { repoId: group.configId } })
+      } }
+    ]
   }
 
   async loadFiles(reload: boolean = false) {
@@ -132,16 +145,12 @@ struct Files {
         }.layoutWeight(1).height(48)
           .accessibilityText(`存储库 ${group.name}`)
         if (group.configId !== SYSTEM_REPOSITORY_ID) {
-        IconButton({ icon: $r('app.media.ui_settings'), label: `${group.name}：管理存储库`, disabled: group.configId.length === 0,
-          iconSize: 20, buttonWidth: 40,
-          action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: group.configId } }) } })
-        IconButton({ icon: this.showIgnoredRepoIds.includes(group.repoId) ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
-          iconSize: 20, buttonWidth: 40,
-          label: `${group.name}：${this.showIgnoredRepoIds.includes(group.repoId) ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件'}`,
-          action: (): void => { this.toggleIgnored(group) } })
-        IconButton({ icon: $r('app.media.ui_sync_log'), label: `${group.name}：同步日志`, disabled: group.configId.length === 0,
-          iconSize: 20, buttonWidth: 40,
-          action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/SyncLog', params: { repoId: group.configId } }) } })
+          IconButton({ icon: this.showIgnoredRepoIds.includes(group.repoId) ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
+            iconSize: 20, buttonWidth: 40,
+            label: `${group.name}：${this.showIgnoredRepoIds.includes(group.repoId) ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件'}`,
+            action: (): void => { this.toggleIgnored(group) } })
+          PopupMenuButton({ label: `${group.name}：更多`, disabled: group.configId.length === 0,
+            iconSize: 20, buttonWidth: 40, items: this.repositoryActions(group) })
         }
       }.width('100%')
       Divider().color(UiColor.outline).strokeWidth(0.5)

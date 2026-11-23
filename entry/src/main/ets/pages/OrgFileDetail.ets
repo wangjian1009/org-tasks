@@ -739,7 +739,7 @@ struct OrgFileDetail {
                     Text(this.content || '空白 Org 文件').fontSize(14).fontFamily('monospace')
                       .fontColor(UiColor.text).width('100%').copyOption(CopyOptions.LocalDevice)
                   }.width('100%').padding(20)
-                }.width('100%').height('100%').align(Alignment.TopStart)
+                }.width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
               }
             }.width('100%').layoutWeight(1)
             if (this.structureEdit.phase !== 'idle') {
