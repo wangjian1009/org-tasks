@@ -8,7 +8,6 @@ import { addRepository } from '../services/RepositoryNavigation'
 import { validateConfiguration } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
 import { common } from '@kit.AbilityKit'
-import { pasteboard } from '@kit.BasicServicesKit'
 import { picker } from '@kit.CoreFileKit'
 import { AppConfig, AppLinkAssociation, AppLinkCatalogEntry, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
@@ -487,8 +486,8 @@ struct Settings {
       try {
         const choice = await this.getUIContext().getPromptAction().showActionMenu({
           title: '备份', buttons: [
-            { text: '存储为文件', color: UiColor.text },
-            { text: '备忘录', color: UiColor.text }
+            { text: '文件', color: UiColor.text },
+            { text: '分享', color: UiColor.text }
           ]
         })
         destination = choice.index
@@ -505,11 +504,6 @@ struct Settings {
           this.getUIContext().getPromptAction().showToast({ message: '配置文件已保存' })
         }
       } else if (destination === 1) {
-        try {
-          const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, title)
-          await pasteboard.getSystemPasteboard().setData(data)
-          this.getUIContext().getPromptAction().showToast({ message: '已复制备份名称，可在备忘录粘贴为标题' })
-        } catch (_) { /* 剪贴板不可用时仍可分享备份文件。 */ }
         await ConfigTransfer.shareBackup(context, title, text)
       }
     } catch (_) { this.message = '备份配置失败，请重试' }
