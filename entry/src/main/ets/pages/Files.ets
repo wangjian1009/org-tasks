@@ -34,7 +34,7 @@ struct Files {
   @State message: string = ''
   @State drawerOpen: boolean = false
   @State showIgnoredRepoIds: string[] = []
-  @State expandedFileKeys: string[] = []
+  @State expandedFileKey: string = ''
   @State config: AppConfig = DEFAULT_CONFIG
   @State createOpen: boolean = false
   @State createLoading: boolean = false
@@ -280,9 +280,7 @@ struct Files {
 
   private toggleFileDetails(file: CoreOrgFileMetadata): void {
     const key = this.fileKey(file)
-    this.expandedFileKeys = this.expandedFileKeys.includes(key)
-      ? this.expandedFileKeys.filter(value => value !== key)
-      : [...this.expandedFileKeys, key]
+    this.expandedFileKey = this.expandedFileKey === key ? '' : key
   }
 
   repositoryActions(group: NotebookGroup): PopupMenuItem[] {
@@ -310,9 +308,11 @@ struct Files {
       this.dataManager = new NotebookDataManager(this.getUIContext().getHostContext()!)
       this.stopData = this.dataManager.subscribe((state: SnapshotState<NotebookSnapshot>): void => {
         if (state.value) {
-          const keys = new Set(state.value.groups.flatMap(group => group.files.map(file => this.fileKey(file))))
-          const retained = this.expandedFileKeys.filter(key => keys.has(key))
-          if (retained.length !== this.expandedFileKeys.length) this.expandedFileKeys = retained
+          const expandedFileKey = this.expandedFileKey
+          if (expandedFileKey && !state.value.groups.some(group =>
+            group.files.some(file => this.fileKey(file) === expandedFileKey))) {
+            this.expandedFileKey = ''
+          }
           this.config = state.value.config; this.groups = state.value.groups; this.loading = false
         }
         this.message = state.message ? `读取笔记本失败：${state.message}` : ''
@@ -354,7 +354,7 @@ struct Files {
                   }
                   ForEach(this.visibleFiles(group), (file: CoreOrgFileMetadata) => {
                     NotebookFileRow({ file, configRepoId: group.configId, usages: fileUsageKinds(this.config, group.configId, file.path),
-                      expanded: this.expandedFileKeys.includes(this.fileKey(file)),
+                      expanded: this.expandedFileKey === this.fileKey(file),
                       toggleExpanded: (): void => { this.toggleFileDetails(file) },
                       actionsEnabled: !!group.configId && group.configId !== SYSTEM_REPOSITORY_ID && !!file.fileVersion,
                       closeSwipe: (): void => { this.closeFileSwipe() },
