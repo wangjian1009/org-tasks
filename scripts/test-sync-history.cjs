@@ -97,7 +97,7 @@ test('收起后较早读取不能更新已销毁详情，读取失败保留重�
 test('仅远端删除备份可打开，其余历史文件不产生导航', async () => {
   const f = fixture('SyncLogDetails');
   await f.view.openFile(f.detail.files[0]);
-  assert.equal(f.routes[0].url, 'pages/FileDetail');
+  assert.equal(f.routes[0].url, 'pages/OrgFileDetail');
   assert.equal(f.routes[0].params.path, 'removed.org');
   for (const outcome of ['conflict', 'merged', 'uploaded', 'unchanged', 'created']) {
     await f.view.openFile({ path: 'a.org', outcome, backup: { path: 'a.org' } });

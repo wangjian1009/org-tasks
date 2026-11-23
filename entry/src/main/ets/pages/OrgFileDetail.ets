@@ -3,35 +3,40 @@ import { DataManager, DataSet, DataSetEvent } from '../services/DataManager'
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
-import { OrgFilePreviewView, OrgFilePreviewNavigation } from '../components/OrgFilePreviewView'
-import { CoreBridgeError, CoreFileHeaderEntry, CoreFileHeaderValueChange, CoreOrgFile, CoreTask, CoreTaskStructureEdit, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreFileHeaderEntry, CoreFileHeaderValueChange, CoreOrgFile, CoreTask, CoreTaskStructureEdit, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
-import { ProjectDocumentView, ProjectDocumentNavigation } from '../components/ProjectDocumentView'
+import { OrgFileDocumentView, OrgFileDocumentNavigation } from '../components/OrgFileDocumentView'
 import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
-import { ProjectReadingSection, projectReadingSections, reconcileProjectSections } from '../ui/ProjectReadingPresentation'
+import { OrgFileReadingSection, projectReadingSections, reconcileProjectSections } from '../ui/OrgFileReadingPresentation'
 import { TaskInlineSession } from '../services/TaskInlineService'
-import { projectHeaderTitle, projectTagExpression } from '../ui/ProjectHeaderPresentation'
+import { projectHeaderTitle, projectTagExpression } from '../ui/OrgFileHeaderPresentation'
 import { toggleTaskTag, reconcileTaskTags } from '../ui/TaskTagFilterPresentation'
 import { AppDataManager } from '../services/AppDataManager'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
 import { samePageValue } from '../services/PageDataEquality'
 import { PopupMenuItem } from '../components/controls/PopupMenu'
-import { ProjectStructureMode, ProjectStructureNodeKind, ProjectStructureSheet,
-  ProjectStructureSheetController } from '../components/editors/ProjectStructureSheet'
-import { ProjectEditSession, ProjectEditView, ProjectPlacement, ProjectStructureSnapshot,
-  projectEditIdle, projectStructureNodes } from '../ui/ProjectStructurePresentation'
-import { ProjectEditBar } from '../components/ProjectEditBar'
+import { OrgFileStructureMode, OrgFileStructureNodeKind, OrgFileStructureSheet,
+  OrgFileStructureSheetController } from '../components/editors/OrgFileStructureSheet'
+import { OrgFileEditSession, OrgFileEditView, OrgFilePlacement, OrgFileStructureSnapshot,
+  projectEditIdle, projectStructureNodes } from '../ui/OrgFileStructurePresentation'
+import { OrgFileEditBar } from '../components/OrgFileEditBar'
+import { PageParameters } from '../services/PagePath'
+import { HistoryFileDataManager, HistoryFileReadingSnapshot } from '../services/ReadingDataManager'
+import { SnapshotState } from '../services/SnapshotDataManager'
+import { syncLogTimeLabel } from '../ui/SyncLogPresentation'
 
-interface ProjectFileState { snapshot?: ProjectFileSnapshot; message: string }
-interface ProjectFileSnapshot { file: CoreOrgFile | undefined; tasks: CoreTask[] }
-
-interface ProjectParams { repoId?: string; path?: string }
+interface OrgFileState { snapshot?: OrgFileSnapshot; message: string }
+interface OrgFileSnapshot { file: CoreOrgFile | undefined; tasks: CoreTask[] }
 
 @Entry
 @Component
-struct ProjectDetail {
+struct OrgFileDetail {
   @State title: string = ''
-  @State sections: ProjectReadingSection[] = []
+  @State titleParts: CoreTitlePart[] = []
+  @State projectFile: boolean = true
+  @State hasParent: boolean = PageNavigator.shared.path.depth > 1
+  @State historyLabel: string = ''
+  @State sections: OrgFileReadingSection[] = []
   @State headerEntries: CoreFileHeaderEntry[] = []
   @State headerVersion: string = ''
   @State categoryOptions: string[] = []
@@ -55,21 +60,21 @@ struct ProjectDetail {
   @State drawerOpen: boolean = false
   @State renderReady: boolean = false
   @State structureOpen: boolean = false
-  @State structureMode: ProjectStructureMode = 'add'
-  @State structureKind: ProjectStructureNodeKind = 'task'
-  @State structureSnapshot: ProjectStructureSnapshot | undefined = undefined
+  @State structureMode: OrgFileStructureMode = 'add'
+  @State structureKind: OrgFileStructureNodeKind = 'task'
+  @State structureSnapshot: OrgFileStructureSnapshot | undefined = undefined
   @State structureParent: string | null = null
   @State createdRow: string = ''
   @State structureMessage: string = ''
-  private structureSheet: ProjectStructureSheetController = new ProjectStructureSheetController()
-  @State structureEdit: ProjectEditView = projectEditIdle()
+  private structureSheet: OrgFileStructureSheetController = new OrgFileStructureSheetController()
+  @State structureEdit: OrgFileEditView = projectEditIdle()
   @State editBusy: boolean = false
   @State editVersion: string = ''
   @State editConflict: boolean = false
   @State editMessage: string = ''
   @State renameRow: string = ''
   @State renameValue: string = ''
-  private editSession: ProjectEditSession | undefined = undefined
+  private editSession: OrgFileEditSession | undefined = undefined
   @State structureOrderParents: string[] = []
   private fileDataSet: DataSet | undefined = undefined
   private stopFile: (() => void) | undefined = undefined
@@ -80,7 +85,7 @@ struct ProjectDetail {
   private readingState: string = ''
   @State renderRevision: number = 0
   @State documentSession: string = ''
-  private navigation: ProjectDocumentNavigation = new ProjectDocumentNavigation()
+  private navigation: OrgFileDocumentNavigation = new OrgFileDocumentNavigation()
   private internalLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
     async (target: string): Promise<boolean> =>
       this.pageVisible && !this.sourceMode && !this.refreshing && this.structureEdit.phase === 'idle' &&
@@ -91,13 +96,15 @@ struct ProjectDetail {
       await this.navigation.followInternalLink(target)
     }
   )
-  private sourceNavigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
+  private historyManager: HistoryFileDataManager | undefined = undefined
+  private latestHistory: SnapshotState<HistoryFileReadingSnapshot> | undefined = undefined
+  private appliedHistoryRevision: number = -1
   private loadRevision: number = 0
   private needsReload: boolean = false
   private fileVersion: string = ''
   private fileIdentity: string = ''
   private structurePending: boolean = false
-  private pendingFile: ProjectFileSnapshot | undefined = undefined
+  private pendingFile: OrgFileSnapshot | undefined = undefined
   private linkSnapshotDirty: boolean = false
   private linksRefreshing: boolean = false
   @State pageVisible: boolean = true
@@ -105,9 +112,11 @@ struct ProjectDetail {
   aboutToDisappear(): void {
     this.stopFile?.(); this.stopFile = undefined
     this.dataManager?.close().catch((): void => { console.error('关闭项目数据集失败') })
+    this.historyManager?.close()
   }
   onPageShow() {
     this.pageVisible = true
+    this.hasParent = PageNavigator.shared.path.depth > 1
     const reload = this.needsReload; this.needsReload = false
     this.loadFile(reload); this.refreshDocument()
   }
@@ -118,13 +127,13 @@ struct ProjectDetail {
     if (this.editSession || this.editBusy) { this.backStructureEdit(); return true }
     if (this.navigation.closePanel()) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
-    if (this.sourceMode) { this.toggleSource(); return true }
-    if (TaskInlineSession.active()) { this.leaveProject(); return true }
+    if (!this.hasParent && this.sourceMode) { this.toggleSource(); return true }
+    if (TaskInlineSession.active()) { this.leaveFile(); return true }
     PageNavigator.shared.back(this.getUIContext())
     return true
   }
 
-  async leaveProject() {
+  async leaveFile() {
     if (await TaskInlineSession.end(true)) PageNavigator.shared.back(this.getUIContext())
   }
 
@@ -153,7 +162,11 @@ struct ProjectDetail {
 
   async loadFile(force: boolean = false) {
     if (!this.pageVisible) return
-    const params = this.getUIContext().getRouter().getParams() as ProjectParams
+    const params = this.getUIContext().getRouter().getParams() as PageParameters
+    if (params.syncId) {
+      await this.loadHistory(params, params.syncId, force)
+      return
+    }
     const repoId = params.repoId || '', path = params.path || ''
     if (force || this.message || this.refreshMessage || !this.dataManager || !this.dataManager.hasValidScope() || this.repoId !== repoId || this.path !== path) {
       this.refreshing = true; this.filterRequest++; this.filtering = false
@@ -209,6 +222,38 @@ struct ProjectDetail {
     }
   }
 
+  private async loadHistory(params: PageParameters, syncId: string, force: boolean): Promise<void> {
+    if (!this.historyManager) {
+      this.repoId = params.repoId || ''
+      this.path = params.path || ''
+      const label = `历史备份 · ${params.backupPath || this.path}`
+      const time = params.backupTime ? ` · ${syncLogTimeLabel(params.backupTime)}` : ''
+      this.historyLabel = `${label}\n${params.repositoryName || ''}${time}`
+      this.historyManager = new HistoryFileDataManager(this.getUIContext().getHostContext()!,
+        { repoId: this.repoId, path: this.path, syncId })
+      this.stopFile = this.historyManager.subscribe((state: SnapshotState<HistoryFileReadingSnapshot>): void => {
+        if (!params.repositoryName && state.value) {
+          this.historyLabel = `${label}\n${state.value.repositoryName}${time}`
+        }
+        this.latestHistory = state
+        this.applyHistory()
+      })
+    }
+    if (force) await this.historyManager.refresh()
+    else await this.historyManager.start()
+    this.applyHistory()
+  }
+
+  private applyHistory(): void {
+    const state = this.latestHistory
+    if (!this.pageVisible || !state || state.revision === this.appliedHistoryRevision || (!state.value && !state.message)) return
+    this.appliedHistoryRevision = state.revision
+    const file = state.value?.file
+    if (!this.fileVersion && state.value) this.sourceMode = state.value.config.fileDisplayMode === 'source'
+    const snapshot: OrgFileSnapshot = { file, tasks: file?.nodes() ?? [] }
+    this.applyFileState({ snapshot, message: state.message })
+  }
+
   tagExpression(): string { return projectTagExpression(this.selectedTags, this.tagGroups) }
   categoryQuery(): string[] { return this.selectedCategory ? [this.selectedCategory] : [] }
 
@@ -254,7 +299,9 @@ struct ProjectDetail {
       const file = metadata.result[0]
       const expression = this.tagExpression()
       const selectedCategory = this.selectedCategory
-      this.title = projectHeaderTitle(file.category ?? '', file.projectName ?? '')
+      this.projectFile = file.projectName != null
+      this.title = this.projectFile ? projectHeaderTitle(file.category ?? '', file.projectName!) : file.title || this.path
+      this.titleParts = this.projectFile ? [] : file.titleParts
       this.tagOptions = file.tagOptions.filter(tag => !this.specialTags.includes(tag) && tag !== 'todo')
       this.tagRows = file.tagRows ?? [this.tagOptions]
       this.tagGroups = file.tagGroups
@@ -284,7 +331,7 @@ struct ProjectDetail {
     this.refreshDocument()
   }
 
-  private currentStructure(): ProjectStructureSnapshot {
+  private currentStructure(): OrgFileStructureSnapshot {
     const dataSet = this.fileDataSet
     const confirmed = dataSet?.getConfirmed()?.data
     if (!dataSet || confirmed?.type !== 'task' || !this.pageVisible) throw new Error('项目文件尚未载入')
@@ -299,7 +346,7 @@ struct ProjectDetail {
       hasConflict: file?.hasConflict ?? false }
   }
 
-  private async openStructure(mode: ProjectStructureMode, row: string = '', kind: ProjectStructureNodeKind = 'task'): Promise<void> {
+  private async openStructure(mode: OrgFileStructureMode, row: string = '', kind: OrgFileStructureNodeKind = 'task'): Promise<void> {
     if (this.structureOpen || this.editSession || this.editBusy || this.refreshing || this.sourceMode || !await TaskInlineSession.end(true)) return
     this.structureMessage = ''
     try {
@@ -319,7 +366,7 @@ struct ProjectDetail {
     } catch (error) { this.structureMessage = coreErrorMessage(error as CoreBridgeError) }
   }
 
-  private async commitStructure(snapshot: ProjectStructureSnapshot, edits: CoreTaskStructureEdit[]): Promise<string[]> {
+  private async commitStructure(snapshot: OrgFileStructureSnapshot, edits: CoreTaskStructureEdit[]): Promise<string[]> {
     const dataSet = this.fileDataSet
     if (!dataSet || !this.structureOpen || !this.pageVisible) throw new Error('项目页面已离开')
     const rows = await dataSet.commitStructure({ file: snapshot.file, fileVersion: snapshot.version, edits })
@@ -340,7 +387,7 @@ struct ProjectDetail {
       if (row && !snapshot.nodes.some(node => node.row === row)) throw new Error('节点已移除，请重新选择')
       this.navigation.closePanel()
       this.drawerOpen = false
-      this.editSession = new ProjectEditSession(snapshot, refactoring, row, direct)
+      this.editSession = new OrgFileEditSession(snapshot, refactoring, row, direct)
       this.editVersion = snapshot.version
       this.editConflict = false
       this.editMessage = ''
@@ -405,7 +452,7 @@ struct ProjectDetail {
     this.publishStructureEdit()
   }
 
-  private stagePlacement(placement: ProjectPlacement): void {
+  private stagePlacement(placement: OrgFilePlacement): void {
     if (!this.canEditStructure() || this.editSession?.phase !== 'target') return
     this.editMessage = this.editSession.stagePlacement(placement) ? '' : '请选择其他放置位置'
     this.publishStructureEdit()
@@ -449,7 +496,7 @@ struct ProjectDetail {
     } finally { this.editBusy = false }
   }
 
-  private async reloadStructure(force: boolean): Promise<ProjectStructureSnapshot> {
+  private async reloadStructure(force: boolean): Promise<OrgFileStructureSnapshot> {
     if (force) await this.dataManager?.refreshFiles('tasks')
     return this.currentStructure()
   }
@@ -490,7 +537,7 @@ struct ProjectDetail {
     if (this.sourceMode) {
       return [{ title: '文档', icon: $r('app.media.ui_document_outline'), action: (): void => { this.toggleSource() } }, refresh]
     }
-    if (!this.renderReady) return [refresh, { title: '原文', icon: $r('app.media.ui_body'), action: (): void => { this.toggleSource() } }]
+    if (!this.renderReady || this.historyLabel) return [refresh, { title: '原文', icon: $r('app.media.ui_body'), action: (): void => { this.toggleSource() } }]
     const actions: PopupMenuItem[] = this.addStructureActions('').concat([
       { title: '重构', icon: $r('app.media.ui_move_to'), action: (): void => { this.beginStructureEdit('', false, true) } }
     ])
@@ -508,12 +555,12 @@ struct ProjectDetail {
   @Builder
   structurePanel() {
     if (this.structureSnapshot) {
-      ProjectStructureSheet({ mode: this.structureMode, snapshot: this.structureSnapshot, initialParent: this.structureParent,
+      OrgFileStructureSheet({ mode: this.structureMode, snapshot: this.structureSnapshot, initialParent: this.structureParent,
         initialKind: this.structureKind,
         liveVersion: this.headerVersion, controller: this.structureSheet,
         close: (): void => { this.structureOpen = false },
-        save: (snapshot: ProjectStructureSnapshot, edits: CoreTaskStructureEdit[]): Promise<string[]> => this.commitStructure(snapshot, edits),
-        reload: (force: boolean): Promise<ProjectStructureSnapshot> => this.reloadStructure(force),
+        save: (snapshot: OrgFileStructureSnapshot, edits: CoreTaskStructureEdit[]): Promise<string[]> => this.commitStructure(snapshot, edits),
+        reload: (force: boolean): Promise<OrgFileStructureSnapshot> => this.reloadStructure(force),
         created: (row: string): void => { this.locateNewRow(row, false) } })
     }
   }
@@ -547,7 +594,7 @@ struct ProjectDetail {
     return manager === this.dataManager && this.pageVisible && !this.sourceMode && !this.linkSnapshotDirty
   }
 
-  async applyFileState(state: ProjectFileState): Promise<void> {
+  async applyFileState(state: OrgFileState): Promise<void> {
     if (!this.pageVisible || TaskInlineSession.active() || (!state.snapshot && !state.message)) return
     const revision = ++this.loadRevision
     const hasSnapshot = this.fileVersion.length > 0
@@ -560,17 +607,23 @@ struct ProjectDetail {
       const repoId = this.repoId, path = this.path
       const file = snapshot.file
       if (revision !== this.loadRevision) return
-      if (!file) throw new Error('项目文件已不存在，请返回存储库列表。')
-      if (file.project() === null) {
-        await PageNavigator.shared.replacePage(this.getUIContext(), { url: 'pages/FileDetail', params: { repoId, path } })
-        return
-      }
+      if (!file) throw new Error('此文件已不存在，请返回。')
       const sections = projectReadingSections(file, snapshot.tasks)
-      for (const section of sections) if (section.node) section.key = this.fileDataSet!.taskKey(section.node.id)
+      for (const section of sections) {
+        if (section.node && this.fileDataSet) section.key = this.fileDataSet.taskKey(section.node.id)
+      }
       const specialTags = file.specialTags()
       const identity = JSON.stringify([repoId, path])
-      const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion || this.documentSession !== this.fileDataSet!.identity
-      this.title = projectHeaderTitle(file.category() || '', file.project() || '')
+      const session = this.fileDataSet?.identity ?? identity
+      const changed = identity !== this.fileIdentity || file.fileVersion !== this.fileVersion || this.documentSession !== session
+      const project = file.project()
+      this.projectFile = project !== null && !this.historyLabel
+      this.title = this.projectFile ? projectHeaderTitle(file.category() || '', project!) : file.title() || path
+      this.titleParts = this.projectFile ? [] : file.titleParts()
+      if (identity !== this.fileIdentity && !this.projectFile && !this.historyLabel) {
+        const context = this.getUIContext().getHostContext()!
+        this.sourceMode = AppDataManager.shared(context).configuration?.fileDisplayMode === 'source'
+      }
       this.sections = sections
       this.updateStructureOrderParents(snapshot.tasks)
       this.structurePending = false
@@ -584,7 +637,7 @@ struct ProjectDetail {
         if (identity !== this.fileIdentity) this.readingState = ''
         this.fileIdentity = identity
         this.fileVersion = file.fileVersion
-        this.documentSession = this.fileDataSet!.identity
+        this.documentSession = session
         this.renderReady = false
         this.renderRevision++
       }
@@ -592,7 +645,7 @@ struct ProjectDetail {
       this.refreshMessage = ''
     } catch (e) {
       if (revision !== this.loadRevision) return
-      const message = `读取项目失败：${coreErrorMessage(e as CoreBridgeError)}`
+      const message = `读取文件失败：${coreErrorMessage(e as CoreBridgeError)}`
       if (hasSnapshot) this.refreshMessage = `${message}。当前保留上次读取的内容。`
       else this.message = message
     } finally {
@@ -602,28 +655,30 @@ struct ProjectDetail {
 
   build() {
     Column() {
-      AppShell({ title: this.title || '项目', activeRoute: 'pages/ProjectDetail',
-        back: PageNavigator.shared.path.depth > 1, drawerOpen: $drawerOpen,
-        pullToSync: true, pullDisabled: this.refreshing || this.structureOpen || this.structureEdit.phase !== 'idle',
+      AppShell({ title: this.title || (this.hasParent ? '文件' : '项目'), titleParts: this.titleParts,
+        titleIcon: this.projectFile ? '' : $r('app.media.ui_folder'), activeRoute: 'pages/OrgFileDetail',
+        back: this.hasParent, drawerOpen: $drawerOpen,
+        pullToSync: !this.historyLabel, pullDisabled: this.refreshing || this.structureOpen || this.structureEdit.phase !== 'idle',
         busy: this.editBusy || this.structureEdit.phase !== 'idle',
         backAction: (): void => { this.onBackPress() },
         secondaryActionIcon: $r('app.media.ui_document_outline'),
         secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing && this.structureEdit.phase === 'idle' ? '文档目录' : '',
         secondaryAction: (): void => { this.navigation.openOutline() },
         actionIcon: $r('app.media.ui_more'),
-        actionLabel: this.loading || this.message || this.refreshing || this.structureEdit.phase !== 'idle' ? '' : '更多项目操作',
+        actionLabel: this.loading || this.message || this.refreshing || this.structureEdit.phase !== 'idle' ? '' :
+          this.projectFile ? '更多项目操作' : '更多文档操作',
         actionMenuItems: this.projectMenu() }) {
         Column() {
-          CoreNotificationsView({ disabled: this.refreshing })
+          if (!this.historyLabel) { CoreNotificationsView({ disabled: this.refreshing }) }
           if (this.loading) {
-            EmptyState({ title: '正在打开项目', busy: true })
+            EmptyState({ title: '正在打开文件', busy: true })
           } else if (this.message) {
-            EmptyState({ title: '无法打开项目', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile() } })
+            EmptyState({ title: '无法打开文件', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile(true) } })
           } else {
             if (this.refreshing) {
               Row({ space: 8 }) {
                 LoadingProgress().width(16).height(16).color(UiColor.primary)
-                Text('正在刷新项目').fontSize(12).fontColor(UiColor.secondary)
+                Text('正在刷新文件').fontSize(12).fontColor(UiColor.secondary)
               }.width('100%').padding({ left: 20, top: 8, bottom: 8 })
             }
             if (this.refreshMessage) {
@@ -648,7 +703,8 @@ struct ProjectDetail {
             }
             Stack() {
               ForEach([this.documentSession], (identity: string) => {
-              ProjectDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds,
+              OrgFileDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds,
+                readOnly: !!this.historyLabel, fileContext: this.historyLabel,
                 tagFiltered: this.selectedTags.length > 0 || this.selectedCategory.length > 0,
                 headerEntries: this.headerEntries, headerVersion: this.headerVersion, categoryOptions: this.categoryOptions, tagOptions: this.tagOptions,
                 beforeHeaderEdit: async (): Promise<boolean> => TaskInlineSession.end(true),
@@ -675,19 +731,24 @@ struct ProjectDetail {
                 .width('100%').height('100%').visibility(this.sourceMode ? Visibility.None : Visibility.Visible)
               }, (identity: string) => identity)
               if (this.sourceMode) {
-                OrgFilePreviewView({ content: this.content, displayMode: 'source',
-                  title: this.title,
-                  revision: `${this.documentSession}:${this.fileIdentity}:${this.renderRevision}`, navigation: this.sourceNavigation })
-                  .width('100%').height('100%')
+                Scroll() {
+                  Column({ space: 8 }) {
+                    if (this.historyLabel) {
+                      Text(this.historyLabel).fontSize(12).fontColor(UiColor.secondary).width('100%')
+                    }
+                    Text(this.content || '空白 Org 文件').fontSize(14).fontFamily('monospace')
+                      .fontColor(UiColor.text).width('100%').copyOption(CopyOptions.LocalDevice)
+                  }.width('100%').padding(20)
+                }.width('100%').height('100%').align(Alignment.TopStart)
               }
             }.width('100%').layoutWeight(1)
             if (this.structureEdit.phase !== 'idle') {
-              ProjectEditBar({ edit: this.structureEdit, busy: this.editBusy, stale: this.staleStructureEdit(),
+              OrgFileEditBar({ edit: this.structureEdit, busy: this.editBusy, stale: this.staleStructureEdit(),
                 message: this.editMessage, renaming: !!this.renameRow, renameValue: this.renameValue,
                 cancel: (): void => { this.backStructureEdit() },
                 place: (): void => { this.startPlacement() },
                 root: (): void => { this.chooseStructureRow('') },
-                choose: (placement: ProjectPlacement): void => { this.stagePlacement(placement) },
+                choose: (placement: OrgFilePlacement): void => { this.stagePlacement(placement) },
                 undo: (): void => {
                   if (!this.canEditStructure()) return
                   this.editSession?.draft.undo()

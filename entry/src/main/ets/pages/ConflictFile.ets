@@ -1,8 +1,7 @@
 import { PageNavigator } from '../services/PageNavigator'
-import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
-import { OrgFilePreviewView, OrgFilePreviewNavigation, OrgConflictCard } from '../components/OrgFilePreviewView'
+import { OrgFileConflictView, OrgFileConflictNavigation, OrgConflictCard } from '../components/OrgFileConflictView'
 import { AppConfigService } from '../services/AppConfigService'
 import { CoreBridgeError, CoreConflictPreview, CoreConflictPreviewChanges, CoreConflictPreviewProjection, CoreConflictTarget, CoreFileConflict,
   CoreOrgFile, CoreTaskOperation, CoreTaskOperationGroup, CoreTitlePart, CoreWorkspace, NativeCoreService, coreErrorMessage } from '../services/NativeCoreService'
@@ -23,13 +22,11 @@ struct ConflictFile {
   @State beforeText: string = ''
   @State afterText: string = ''
   @State comparisonLoading: boolean = false
-  @State content: string = ''
   @State html: string = ''
   @State path: string = ''
   @State title: string = ''
   @State titleParts: CoreTitlePart[] = []
   @State fileContext: string = ''
-  @State sourceMode: boolean = false
   @State loading: boolean = true
   @State saving: boolean = false
   @State message: string = ''
@@ -43,7 +40,7 @@ struct ConflictFile {
   @State stagedAction: string = ''
   @State manuallyEdited: boolean = false
   @State renderRevision: number = 0
-  private navigation: OrgFilePreviewNavigation = new OrgFilePreviewNavigation()
+  private navigation: OrgFileConflictNavigation = new OrgFileConflictNavigation()
   private pendingGroup: CoreTaskOperationGroup | undefined = undefined
   private preview: CoreConflictPreview | undefined = undefined
   private workspace: CoreWorkspace | undefined = undefined
@@ -116,7 +113,6 @@ struct ConflictFile {
       this.title = file.title() || this.path
       this.titleParts = file.titleParts()
       this.fileContext = `${repositoryLabel(repository)} / ${params.path}`
-      this.sourceMode = false
       this.file = file
       conflicts.sort((a: CoreFileConflict, b: CoreFileConflict): number =>
         (a.displayAnchor?.start.byte_offset ?? Number.MAX_SAFE_INTEGER) - (b.displayAnchor?.start.byte_offset ?? Number.MAX_SAFE_INTEGER))
@@ -147,14 +143,12 @@ struct ConflictFile {
   }
 
   present(file: CoreOrgFile) {
-    this.content = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(file.sourceBytes())
     this.html = file.renderHtml()
     this.renderRevision++
   }
 
   presentProjection() {
     if (!this.projection) return
-    this.content = this.projection.content
     this.html = this.projection.renderedHtml
     this.renderRevision++
   }
@@ -295,7 +289,6 @@ struct ConflictFile {
     this.targetRoot = undefined
     this.expandedTargetKeys = []
     this.detailsExpanded = true
-    this.content = ''
     this.html = ''
     this.renderRevision++
     this.stagedAction = ''
@@ -620,8 +613,7 @@ struct ConflictFile {
                 }
               }.width('100%').padding({ left: 20, right: 20, bottom: 8 })
             }
-            OrgFilePreviewView({ content: this.content, renderedHtml: this.html, displayMode: this.sourceMode ? 'source' : 'rendered',
-              fileContext: '', title: this.file.title() || this.path, revision: `${this.renderRevision}`,
+            OrgFileConflictView({ renderedHtml: this.html, title: this.file.title() || this.path, revision: `${this.renderRevision}`,
               conflictCards: this.conflictCards(), navigation: this.navigation,
               conflictCardActivated: (id: string, action: string): void => { this.activateCard(id, action) },
               ready: (): void => {

@@ -1,34 +1,34 @@
 import { util } from '@kit.ArkTS'
 import { CoreBridgeError, CoreTaskStructureEdit, coreErrorMessage } from '../../services/NativeCoreService'
-import { ProjectStructureDraft, ProjectStructureNode, ProjectStructureSnapshot, projectOrderMove, projectSiblings } from '../../ui/ProjectStructurePresentation'
+import { ProjectStructureDraft, OrgFileStructureNode, OrgFileStructureSnapshot, projectOrderMove, projectSiblings } from '../../ui/OrgFileStructurePresentation'
 import { UiColor } from '../../ui/Theme'
 import { PopupMenu, PopupMenuItem } from '../controls/PopupMenu'
 
-export class ProjectStructureSheetController {
+export class OrgFileStructureSheetController {
   back: () => void = () => {}
 }
 
-export type ProjectStructureMode = 'add' | 'order'
-export type ProjectStructureNodeKind = 'task' | 'section'
+export type OrgFileStructureMode = 'add' | 'order'
+export type OrgFileStructureNodeKind = 'task' | 'section'
 
 @Component
-export struct ProjectStructureSheet {
-  @Prop mode: ProjectStructureMode = 'add'
-  @Prop snapshot: ProjectStructureSnapshot
+export struct OrgFileStructureSheet {
+  @Prop mode: OrgFileStructureMode = 'add'
+  @Prop snapshot: OrgFileStructureSnapshot
   @Prop initialParent: string | null = null
-  @Prop initialKind: ProjectStructureNodeKind = 'task'
+  @Prop initialKind: OrgFileStructureNodeKind = 'task'
   @Prop liveVersion: string = ''
-  controller: ProjectStructureSheetController = new ProjectStructureSheetController()
+  controller: OrgFileStructureSheetController = new OrgFileStructureSheetController()
   close: () => void = () => {}
-  save: (snapshot: ProjectStructureSnapshot, edits: CoreTaskStructureEdit[]) => Promise<string[]> = async () => []
-  reload: (force: boolean) => Promise<ProjectStructureSnapshot> = async (_force: boolean) => { throw new Error('项目文件尚未载入') }
+  save: (snapshot: OrgFileStructureSnapshot, edits: CoreTaskStructureEdit[]) => Promise<string[]> = async () => []
+  reload: (force: boolean) => Promise<OrgFileStructureSnapshot> = async (_force: boolean) => { throw new Error('项目文件尚未载入') }
   created: (row: string) => void = () => {}
 
   @State parent: string | null = null
   @State titleInput: string = ''
-  @State source: ProjectStructureSnapshot = { file: { repoId: '', file: null, titles: [] },
+  @State source: OrgFileStructureSnapshot = { file: { repoId: '', file: null, titles: [] },
     version: '', title: '', nodes: [], hasConflict: false }
-  @State ordered: ProjectStructureNode[] = []
+  @State ordered: OrgFileStructureNode[] = []
   @State busy: boolean = false
   @State message: string = ''
   @State conflict: boolean = false
@@ -131,7 +131,7 @@ export struct ProjectStructureSheet {
     this.commit([{ type: 'move', ids: [id], parent: position.parent, after: position.after }], false)
   }
 
-  private sortItems(node: ProjectStructureNode): PopupMenuItem[] {
+  private sortItems(node: OrgFileStructureNode): PopupMenuItem[] {
     const siblings = projectSiblings(this.draft?.nodes ?? [], node.parent)
     const index = siblings.findIndex(item => item.id === node.id)
     const actions: PopupMenuItem[] = []
@@ -175,7 +175,7 @@ export struct ProjectStructureSheet {
     }
     if (this.stale()) {
       Text('文件已更新，请重新载入结构').fontSize(13).fontColor(UiColor.error).width('100%')
-      ProjectStructureAction({ title: '重新载入结构', available: !this.busy, action: (): void => { this.loadCurrent() } })
+      OrgFileStructureAction({ title: '重新载入结构', available: !this.busy, action: (): void => { this.loadCurrent() } })
     }
   }
 
@@ -190,7 +190,7 @@ export struct ProjectStructureSheet {
   }
 
   @Builder
-  grip(node: ProjectStructureNode) {
+  grip(node: OrgFileStructureNode) {
     if (this.sortItems(node).length) {
       Row() {
         Image($r('app.media.ui_drag_handle')).width(24).height(24).draggable(false).accessibilityLevel('no')
@@ -206,7 +206,7 @@ export struct ProjectStructureSheet {
   }
 
   @Builder
-  gripActions(node: ProjectStructureNode) {
+  gripActions(node: OrgFileStructureNode) {
     PopupMenu({ items: this.sortItems(node), maximumWidth: 180, disabled: this.busy || this.stale(),
       activate: (item: PopupMenuItem): void => { this.gripMenu = ''; item.action() } })
   }
@@ -237,7 +237,7 @@ export struct ProjectStructureSheet {
     Row() {
       Text(this.initialKind === 'task' ? '添加任务' : '添加章节')
         .fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
-      ProjectStructureAction({ title: '取消', available: !this.busy, action: (): void => { this.back() } })
+      OrgFileStructureAction({ title: '取消', available: !this.busy, action: (): void => { this.back() } })
       Button(this.busy ? '正在保存' : '保存')
         .id('project_structure_save').height(44).fontColor(UiColor.surface).backgroundColor(UiColor.primary)
         .enabled(!this.busy && !this.stale() && !!this.titleInput.trim()).onClick((): void => { this.applyForm() })
@@ -254,7 +254,7 @@ export struct ProjectStructureSheet {
     Row() {
       Text('调整子节点顺序')
         .fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
-      ProjectStructureAction({ title: this.busy ? '正在保存' : '完成', available: !this.busy, action: this.close })
+      OrgFileStructureAction({ title: this.busy ? '正在保存' : '完成', available: !this.busy, action: this.close })
     }.width('100%')
     Text(this.draft?.path(this.parent) ?? this.source.title).fontSize(14).fontColor(UiColor.secondary).width('100%')
     this.status()
@@ -262,7 +262,7 @@ export struct ProjectStructureSheet {
       Text('文件包含受保护的同步冲突').fontSize(13).fontColor(UiColor.secondary).width('100%').padding({top: 6, bottom: 6})
     }
     List() {
-      ForEach(this.ordered, (node: ProjectStructureNode) => {
+      ForEach(this.ordered, (node: OrgFileStructureNode) => {
         ListItem() {
           Stack({ alignContent: Alignment.Center }) {
             Row({ space: 10 }) {
@@ -275,7 +275,7 @@ export struct ProjectStructureSheet {
             this.dropLine(node.id)
           }.width('100%').alignContent(this.dropBefore === node.id ? Alignment.Top : Alignment.Bottom)
         }
-      }, (node: ProjectStructureNode) => node.id)
+      }, (node: OrgFileStructureNode) => node.id)
         .onMove((from: number, to: number): void => { this.sortFromDrag(from, to) }, {
           onMoveThrough: (from: number, to: number): void => { this.showDrop(from, to) },
           onDrop: (): void => { this.clearDrop() }
@@ -301,7 +301,7 @@ export struct ProjectStructureSheet {
 
 
 @Component
-struct ProjectStructureAction {
+struct OrgFileStructureAction {
   @Prop title: string = ''
   @Prop available: boolean = true
   action: () => void = () => {}

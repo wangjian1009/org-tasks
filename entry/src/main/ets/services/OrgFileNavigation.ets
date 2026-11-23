@@ -4,11 +4,11 @@ import { UIContext } from '@kit.ArkUI'
 import { TaskInlineSession } from './TaskInlineService'
 
 // 项目入口只传递真实文件身份；先结束现有编辑，保存失败时保留草稿与当前页面。
-export class ProjectNavigation {
+export class OrgFileNavigation {
   static async open(context: UIContext, repoId: string, path: string, primary: boolean = false): Promise<boolean> {
     try {
       if (!await TaskInlineSession.end(true)) return false
-      const page: PageRoute = { url: 'pages/ProjectDetail', params: { repoId, path } }
+      const page: PageRoute = { url: 'pages/OrgFileDetail', params: { repoId, path } }
       return primary ? await PageNavigator.shared.openPrimary(context, page) : await PageNavigator.shared.pushPage(context, page)
     }
     catch (_) {

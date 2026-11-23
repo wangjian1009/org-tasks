@@ -21,6 +21,7 @@ Org Tasks 是用于展示和操作 org-mode 任务的 HarmonyOS NEXT 应用。�
 | Rust、C++ 与 ArkTS 接口 | [[file:harmony/Rust bridge设计.org][Rust bridge 设计]] |
 | Preferences、Asset Store 与日历状态 | [[file:harmony/配置项设计.org][配置项设计]] |
 | 页面、交互与设计画板 | [[file:harmony/UI导航设计.org][UI 导航设计]] |
+| HarmonyOS 控件与使用场景 | [[file:harmony/控件目录.org][控件目录]] |
 | 手机功能范围与设计 | [[file:手机应用功能设计.org][手机应用功能设计]] |
 | HTTP 服务运行与访问边界 | [[file:http/服务命令行设计.org][服务命令行设计]] |
 

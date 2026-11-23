@@ -3,10 +3,8 @@ import { UiColor } from './Theme'
 // 输入是 Core 生成的安全 HTML 片段，宿主只负责阅读版式和主题。
 export function orgDocumentPage(fragment: string, empty: boolean, embedded: boolean = false,
   backgroundColor: string = UiColor.surface, embeddedPadding: number = 16,
-  fileReading: boolean = false, fileContext: string = '', flowReading: boolean = false,
-  compactLogs: boolean = false, projectReading: boolean = false): string {
-  const reading = fileReading && (!embedded || flowReading)
-  const context = fileContext.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  fileReading: boolean = false, compactLogs: boolean = false, projectReading: boolean = false): string {
+  const reading = fileReading && !embedded
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; base-uri 'none'; form-action 'none'">
@@ -66,7 +64,6 @@ li.checkbox-item .checkbox { display: inline-block; width: 1.4em; white-space: n
 /* 文件整篇阅读独立启用；任务编辑与冲突阅读沿用原有版式。 */
 html { background: ${backgroundColor}; }
 .file-reading { max-width: 740px; margin: 0 auto; padding: 18px 22px 60px; line-height: 1.78; }
-.file-context { margin: 0 0 14px; font-size: 11px; line-height: 1.7; color: ${UiColor.secondary}; }
 .file-reading p { margin: 0 0 17px; }
 .file-reading details.heading { margin: 28px 0 0; scroll-margin-top: 18px; }
 .file-reading details.heading > summary { padding: 0; margin-bottom: 12px; min-height: 34px; line-height: 1.45; }
@@ -152,9 +149,7 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .task-note-body > :first-child { margin-top: 0; }
 .task-note-body > :last-child { margin-bottom: 0; }
 .project-reading { line-height: 1.75; padding: 16px 24px 60px; }
-.embedded.project-reading, .file-reading.project-reading.embedded-section { padding: 0; max-width: none; }
-/* 将片段首尾留白计入 WebView 测量，章节舒展、清单连续排列。 */
-.file-reading.project-reading.embedded-section { display: flow-root; }
+.embedded.project-reading { padding: 0; max-width: none; }
 /* 原生项目区块的段距由 Core 边界决定，单段 WebView 不再叠加 margin 或最小行高。 */
 .embedded.project-reading.embedded-section { display: flow-root; font: 16px/26px sans-serif; }
 .embedded.project-reading.embedded-section > p,
@@ -173,24 +168,6 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .embedded.project-reading.embedded-section li > dl > dd { margin-left: 0; }
 .embedded.project-reading.embedded-section li > p { margin: 0; }
 .embedded.project-reading.embedded-section li > ul, .embedded.project-reading.embedded-section li > ol { margin: 6px 0 0; padding-left: 20px; }
-.file-reading.project-reading p { margin: 0 0 20px; }
-.file-reading.project-reading ul, .file-reading.project-reading ol { margin: 0 0 20px; }
-.file-reading.project-reading li { margin: 4px 0; }
-.file-reading.project-reading li > p { margin: 0; }
-.file-reading.project-reading li > ul, .file-reading.project-reading li > ol { margin: 4px 0 0; }
-.project-reading .document-header { margin-bottom: 24px; padding-bottom: 22px; border-bottom: 1px solid #454746; }
-.project-reading .document-category { font-size: 12px; color: ${UiColor.secondary}; margin-bottom: 12px; }
-.project-reading .document-project-name { font-size: 28px; font-weight: 650; line-height: 1.35; color: #F0EFED; margin-bottom: 12px; }
-.project-reading .file-tags { margin: 0; }
-.project-reading .file-tags .tag { margin: 0 10px 4px 0; padding: 0; border-radius: 0; background: transparent; color: ${UiColor.primary}; font-size: 12px; }
-.project-reading .file-tags .tag::before { content: '#'; }
-.project-reading .file-tags:empty { display: none; }
-.project-reading .document-file-title { font-size: 13px; margin: 8px 0; }
-.project-reading .document-file-title::before { content: '文档　'; color: #AEACA9; }
-.project-reading .file-context { font-size: 12px; margin: 12px 0 0; user-select: text; }
-.project-reading .document-file-stats { font-size: 11px; color: #AEACA9; margin-top: 14px; }
-.project-reading .file-properties { display: grid; grid-template-columns: minmax(72px, 30%) minmax(0, 1fr); gap: 8px 12px; font-size: 13px; margin: 16px 0 0; }
-.project-reading .file-properties:empty { display: none; }
 .project-reading dt { color: #AEACA9; font-weight: 400; }
 .project-reading dd { margin: 0; min-width: 0; }
 .project-reading .heading { margin: 28px 0 0; scroll-margin-top: 18px; }
@@ -203,15 +180,6 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .project-reading .task-heading > .heading-summary { margin-bottom: 0; }
 .project-reading .task-heading > .heading-summary .planning { margin: 4px 0 0; }
 .project-reading .task-heading .todo { vertical-align: 1px; }
-.project-reading .task-description { margin: 0; }
-.project-reading .description-summary { display: flex; align-items: center; gap: 7px; min-height: 48px; width: fit-content; min-width: 96px; padding: 8px 0; list-style: none; cursor: pointer; font-size: 12px; color: ${UiColor.secondary}; }
-.project-reading .description-summary::before { content: ''; width: 6px; height: 6px; margin: 0 3px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
-.project-reading .task-description[open] > .description-summary::before { transform: rotate(45deg); }
-.project-reading .description-collapse, .project-reading .task-description[open] > .description-summary .description-expand { display: none; }
-.project-reading .task-description[open] > .description-summary .description-collapse { display: inline; }
-.project-reading .description-summary:focus-visible { outline: 1px solid ${UiColor.primary}; outline-offset: 2px; border-radius: 3px; }
-.project-reading .task-description > .heading-body { padding: 4px 0 8px; }
-.project-reading .task-description + .heading { margin-top: 0; }
 .project-reading [data-org-state="Doing"] > .heading-summary .todo { background: #32423F; color: #5AC4B9; }
 .project-reading [data-org-state="Wait"] > .heading-summary .todo { background: #403D33; color: #E3C98B; }
 .project-reading [data-org-state="Done"] > .heading-summary .todo { background: #333F36; color: #8FCCA1; }
@@ -227,5 +195,5 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .project-reading .metadata { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 340px) { .project-reading { padding-left: 16px; padding-right: 16px; } }
 
-</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}${projectReading && embedded ? ' embedded-section' : ''}">${reading && context ? `<div class="file-context">${context}</div>` : ''}${empty ? (projectReading ? fragment + '<p class="empty">项目还没有内容</p>' : '<p class="empty">空白 Org 文件</p>') : fragment}</body></html>`
+</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}${projectReading && embedded ? ' embedded-section' : ''}">${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
 }

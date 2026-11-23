@@ -18,7 +18,7 @@ function load(file, mocks = {}) {
     assert.ok(name in mocks,name);return mocks[name]},value=>value);
   return module.exports;
 }
-const presentation = load('entry/src/main/ets/ui/ProjectCreatePresentation.ets');
+const presentation = load('entry/src/main/ets/ui/OrgFileCreatePresentation.ets');
 const { configuredFileTarget } = load('entry/src/main/ets/services/FileTargetService.ets', {
   './AppConfigService': {}, './NativeCoreService': {}, './PageQueryService': {}, './TaskViewQueries': {}
 });
@@ -29,36 +29,36 @@ function fixture() {
   const config = {repos:[{id:'host-source',name:'源仓库',rootDirectory:'/source'},{id:'host-target',name:'目标仓库',rootDirectory:'/target'}]};
   const files = [{repoId:'core-source',path:'work.org',category:'工作',isIgnore:false},{repoId:'core-source',path:'life.org',category:'生活',isIgnore:false},{repoId:'core-source',path:'other.org',category:'工作',isIgnore:false},{repoId:'core-target',path:'research.org',category:'研究',isIgnore:false},{repoId:'core-target',path:'hidden.org',category:'隐藏',isIgnore:true}];
   const workspace = {async repos(){return repos}, async query(batch){queries.push(batch);const excluded=batch[0].query.excludeFiles ?? [];return [{type:'file',result:files.filter(file=>!excluded.some(target=>target.repoId===file.repoId && target.path===file.path))}]}, async executeTaskOperations(group){writes.push(group);if(failure)throw failure}};
-  const {ProjectCreateService}=load('entry/src/main/ets/services/ProjectCreateService.ets',{
+  const {OrgFileCreateService}=load('entry/src/main/ets/services/OrgFileCreateService.ets',{
     '@kit.ArkTS':{util:{TextDecoder:{create:()=>({decodeToString:value=>Buffer.from(value).toString('utf8')})}}},
     './AppConfigService':{AppConfigService:{async load(){return config}}},
     './FileTargetService':{configuredFileTarget},
     './AppDataManager':{AppDataManager:{shared:()=>({start:async()=>{},configuration:config,manager:{get repositoryInfo(){return repos}},dataSet:name=>{assert.equal(name,'categories');return{isReady:()=>true,error:'',data:{type:'file',result:sharedFiles??files}}}})}},
     './NativeCoreService':{fileResult:value=>value.result,NativeCoreService:{async workspaceFor(){return workspace}}},
-    '../ui/ProjectCreatePresentation':presentation
+    '../ui/OrgFileCreatePresentation':presentation
   });
   const context={resourceManager:{async getRawFileContent(file){reads.push(file);if(readFailure)throw readFailure;return fs.readFileSync(path.join('entry/src/main/resources/rawfile',file))}}};
   const source={id:'task',repoId:'core-source',filePath:'inbox.org',fileVersion:'source-version',category:'工作',fullPath:{repoId:'core-source',file:'inbox.org',titles:['草稿'],occurrence:2}};
-  return {ProjectCreateService,context,source,writes,reads,queries,config,files,setCategories(value){sharedFiles=value},fail(error){failure=error},failRead(){readFailure=new Error('raw')},removeRepos(){repos=[]}};
+  return {OrgFileCreateService,context,source,writes,reads,queries,config,files,setCategories(value){sharedFiles=value},fail(error){failure=error},failRead(){readFailure=new Error('raw')},removeRepos(){repos=[]}};
 }
 test('仓库候选使用真实 Core ID，展示名称按宿主目录映射',async()=>{
-  const f=fixture();assert.deepEqual(await f.ProjectCreateService.repositories(f.context),[{repoId:'core-source',name:'源仓库',regions:['工作','生活']},{repoId:'core-target',name:'目标仓库',regions:['研究']}]);
+  const f=fixture();assert.deepEqual(await f.OrgFileCreateService.repositories(f.context),[{repoId:'core-source',name:'源仓库',regions:['工作','生活']},{repoId:'core-target',name:'目标仓库',regions:['研究']}]);
 });
 test('分类候选直接消费全局已筛选的元信息，不再查询仓库',async()=>{
   const f=fixture();f.setCategories([{repoId:'core-source',path:'other.org',category:'工作',isIgnore:false},
     {repoId:'core-target',path:'inbox.org',category:'同名普通文件',isIgnore:false},
     {repoId:'core-target',path:'hidden.org',category:'隐藏',isIgnore:true}]);
-  const options=await f.ProjectCreateService.repositories(f.context);
+  const options=await f.OrgFileCreateService.repositories(f.context);
   assert.equal(f.queries.length,0);assert.deepEqual(options[0].regions,['工作']);assert.deepEqual(options[1].regions,['同名普通文件']);
 });
 test('每次打开面板读取全局当前快照，分类变化不会保留上次候选',async()=>{
-  const f=fixture();await f.ProjectCreateService.repositories(f.context);
+  const f=fixture();await f.OrgFileCreateService.repositories(f.context);
   f.setCategories([{repoId:'core-source',path:'new.org',category:'新分类',isIgnore:false}]);
-  const options=await f.ProjectCreateService.repositories(f.context);
+  const options=await f.OrgFileCreateService.repositories(f.context);
   assert.deepEqual(options[0].regions,['新分类']);assert.deepEqual(options[1].regions,[]);assert.equal(f.queries.length,0);
 });
 test('项目面板生成 FileNew 和 Movement，保留源版本与重名序号且不执行写入',async()=>{
-  const f=fixture();const group=await f.ProjectCreateService.operationGroup(f.context,f.source,{repoId:'core-target',region:'新 Region'},' 新项目 ','自选文件');
+  const f=fixture();const group=await f.OrgFileCreateService.operationGroup(f.context,f.source,{repoId:'core-target',region:'新 Region'},' 新项目 ','自选文件');
   assert.equal(f.writes.length,0);assert.equal(group.operationId,undefined);
   assert.deepEqual(group.fileVersions,[{repoId:'core-source',file:'inbox.org',version:'source-version'}]);
   assert.deepEqual(group.operations.map(op=>op.type),['FileNew','Movement']);
@@ -68,20 +68,20 @@ test('项目面板生成 FileNew 和 Movement，保留源版本与重名序号�
   assert.deepEqual(group.operations[1].data,{path:f.source.fullPath,position:{parent:file.path}});
 });
 test('模板不可读、目标仓库失效和无效文件名在提交前失败',async()=>{
-  const missing=fixture();missing.failRead();await assert.rejects(missing.ProjectCreateService.operationGroup(missing.context,missing.source,{repoId:'core-target',region:'研究'},'项目','项目'),/模板读取失败/);assert.equal(missing.writes.length,0);
-  const removed=fixture();removed.removeRepos();await assert.rejects(removed.ProjectCreateService.operationGroup(removed.context,removed.source,{repoId:'core-target',region:'研究'},'项目','项目'),/失效/);assert.equal(removed.writes.length,0);
-  const invalid=fixture();await assert.rejects(invalid.ProjectCreateService.operationGroup(invalid.context,invalid.source,{repoId:'core-target',region:'研究'},'项目','../项目'),/文件名/);assert.equal(invalid.writes.length,0);
+  const missing=fixture();missing.failRead();await assert.rejects(missing.OrgFileCreateService.operationGroup(missing.context,missing.source,{repoId:'core-target',region:'研究'},'项目','项目'),/模板读取失败/);assert.equal(missing.writes.length,0);
+  const removed=fixture();removed.removeRepos();await assert.rejects(removed.OrgFileCreateService.operationGroup(removed.context,removed.source,{repoId:'core-target',region:'研究'},'项目','项目'),/失效/);assert.equal(removed.writes.length,0);
+  const invalid=fixture();await assert.rejects(invalid.OrgFileCreateService.operationGroup(invalid.context,invalid.source,{repoId:'core-target',region:'研究'},'项目','../项目'),/文件名/);assert.equal(invalid.writes.length,0);
   assert.equal(presentation.projectFileName(' 项目.ORG '),'项目.org');assert.equal(presentation.projectFileName('项目'),'项目.org');
 });
 function locationForm() {
-  const file='entry/src/main/ets/components/editors/ProjectCreateSheet.ets';
+  const file='entry/src/main/ets/components/editors/OrgFileCreateSheet.ets';
   const source=fs.readFileSync(file,'utf8');
   const methods=['initializeFields','defaultRegion','selectRepository','regionOptions','selectRegion','saveRegion','changeName','changeFileName','isBusy','submit'].map(name=>{
     const match=source.match(new RegExp('  (?:async )?'+name+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));assert.ok(match,name);return match[0];
   });
   const code=ts.transpileModule('exports.Form = class Form {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021}}).outputText;
   const exports={};
-  vm.runInThisContext('(function(exports,projectInputError,projectFileName,ProjectCreateService,coreErrorMessage){'+code+'\n})')(exports,presentation.projectInputError,presentation.projectFileName,{operationGroup:async(_context,_source,...args)=>{if(_context.generate)return await _context.generate(...args);return {args}}},error=>error.message);
+  vm.runInThisContext('(function(exports,projectInputError,projectFileName,OrgFileCreateService,coreErrorMessage){'+code+'\n})')(exports,presentation.projectInputError,presentation.projectFileName,{operationGroup:async(_context,_source,...args)=>{if(_context.generate)return await _context.generate(...args);return {args}}},error=>error.message);
   const calls=[];
   const form=Object.assign(new exports.Form(),{repositories:[{repoId:'source',name:'源仓库',regions:['工作','生活']},{repoId:'target',name:'目标仓库',regions:['研究']}],
     active:true,source:{id:'task'},getUIContext:()=>({getHostContext:()=>({})}),initialRepoId:'source',initialRegion:'工作',initialName:'项目',repoId:'source',region:'工作',newRegions:[],newRegionName:'',name:'项目',fileName:'项目',generated:group=>calls.push(group.args)});

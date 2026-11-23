@@ -302,7 +302,7 @@ test('编译后的清单区块在菜单外壳中仍调用原宿主的阅读槽',
 });
 
 test('编译后的项目竖线仅在二级及更深正文按实测高度收尾，一级与前言不画线', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('ProjectSectionBody',['initialRender','bodyGuide'],'components');
+  const f=compiledBuilders('OrgFileSectionBody',['initialRender','bodyGuide'],'components');
   Object.assign(f.host,{task:{state:null,level:2},blocks:[],bodyHeight:0});
   f.host.initialRender();assert.equal(f.children[0].projectReading,true);
   for(const height of [52,26,130]){

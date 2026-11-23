@@ -85,7 +85,7 @@ curl --fail-with-body http://127.0.0.1:18787/api/v1/queries \
 #+begin_src sh
 curl --fail-with-body -X PUT http://127.0.0.1:18787/api/v1/ui/navigation \
   -H 'Content-Type: application/json' \
-  -d '{"pages":[{"url":"pages/Files"},{"url":"pages/ProjectDetail","params":{"repoId":"实际Core仓库ID","path":"project.org"}}]}'
+  -d '{"pages":[{"url":"pages/Files"},{"url":"pages/OrgFileDetail","params":{"repoId":"实际Core仓库ID","path":"project.org"}}]}'
 #+end_src
 
 设置后显示项目页，系统返回或工具栏返回进入“笔记本”；此时 GET 返回 ~{"pages":[{"url":"pages/Files"}]}~ 。若请求只保留项目节点，则项目为一级页面，返回遵循收件箱计数规则。
@@ -169,16 +169,16 @@ Harmony 注册 ~GET /api/v1/ui/navigation~ 与 ~PUT /api/v1/ui/navigation~ 。GE
 {
   "pages": [
     { "url": "pages/Files" },
-    { "url": "pages/ProjectDetail", "params": { "repoId": "Core仓库ID", "path": "project.org" } }
+    { "url": "pages/OrgFileDetail", "params": { "repoId": "Core仓库ID", "path": "project.org" } }
   ]
 }
 #+end_src
 
-单节点路径可直接指定界面，例如任务页面分别使用 ~pages/Today~ 、 ~pages/Planned~ 、 ~pages/Waiting~ 、 ~pages/Anytime~ 、 ~pages/Someday~ 、 ~pages/Memo~ 和 ~pages/Logbook~ 。其余支持 ~pages/Inbox~ 、 ~pages/Files~ 、 ~pages/Settings~ 、 ~pages/ProjectDetail~ 、 ~pages/FileDetail~ 、 ~pages/RepositorySettings~ 、 ~pages/SyncLog~ 、 ~pages/ConflictFile~ 与 ~pages/MemoEdit~ 。独立捕捉与卡片配置窗口不属于主窗口路径。
+单节点路径可直接指定界面，例如任务页面分别使用 ~pages/Today~ 、 ~pages/Planned~ 、 ~pages/Waiting~ 、 ~pages/Anytime~ 、 ~pages/Someday~ 、 ~pages/Memo~ 和 ~pages/Logbook~ 。其余支持 ~pages/Inbox~ 、 ~pages/Files~ 、 ~pages/Settings~ 、 ~pages/OrgFileDetail~ 、 ~pages/RepositorySettings~ 、 ~pages/SyncLog~ 、 ~pages/ConflictFile~ 与 ~pages/MemoEdit~ 。独立捕捉与卡片配置窗口不属于主窗口路径。
 
 ~pages~ 必须包含 1 至 32 项，各页面仅接受自身已定义参数；未知字段、页面或参数类型返回 400。文件与项目使用 Core 仓库 ID 和相对路径；仓库设置、同步日志、冲突处理使用配置仓库 ID。设置页可传 ~section~ ；备忘新建使用 ~create=true~ ，编辑可使用 ~memoId~ 指定当前配置备忘文件中的记录，或使用 ~task~ 中的 ~repoId~ 、 ~filePath~ 和 ~id~ ，三个目标指定方式互斥；宿主从当前 Workspace 恢复真实 Task，不采信请求中的其他任务快照字段。
 
-PUT 先校验全部节点和目标，再结束原位编辑并调用 ~PageNavigator.setPath~ ；目标不存在返回 404，编辑保存失败、编辑页面存在未提交草稿、并发跳转或当前路径已变化返回 409。这些检查失败时保留当前路径。完整路径只加载末级页面，祖先页面在返回时才加载；平台跳转失败时返回 409 并恢复原路径。文件自动识别为项目时规范化为项目节点。成功返回 200 和实际路径，表示路由操作完成；页面数据与绘制仍异步完成。
+PUT 先校验全部节点和目标，再结束原位编辑并调用 ~PageNavigator.setPath~ ；目标不存在返回 404，编辑保存失败、编辑页面存在未提交草稿、并发跳转或当前路径已变化返回 409。这些检查失败时保留当前路径。完整路径只加载末级页面，祖先页面在返回时才加载；平台跳转失败时返回 409 并恢复原路径。普通文件、项目与历史备份均使用 ~pages/OrgFileDetail~ 。历史备份使用配置仓库 ID、相对路径及 ~syncId~ 。成功返回 200 和实际路径，表示路由操作完成；页面数据与绘制仍异步完成。
 
 #+begin_export latex
 \begin{tikzpicture}

@@ -17,10 +17,10 @@ export struct NotebookFileRow {
       if (this.configRepoId === SYSTEM_REPOSITORY_ID && this.file.path === TRASH_FILE) {
         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Trash' }); return
       }
-      const project = this.file.project() !== null
+      const resolveConflict = this.file.project() === null && this.file.hasConflict
       PageNavigator.shared.pushPage(this.getUIContext(), {
-        url: project ? 'pages/ProjectDetail' : this.file.hasConflict ? 'pages/ConflictFile' : 'pages/FileDetail',
-        params: { repoId: !project && this.file.hasConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
+        url: resolveConflict ? 'pages/ConflictFile' : 'pages/OrgFileDetail',
+        params: { repoId: resolveConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
       })
     } catch (_) {
       // 页面退出或路由失效时忽略此次导航。

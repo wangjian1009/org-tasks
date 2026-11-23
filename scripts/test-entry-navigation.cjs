@@ -30,7 +30,7 @@ test('显式测试启动可直接指定共享页面，普通启动、字符串�
       assert.equal(entryNavigation({ parameters: { httpApiEnabled: enabled, httpApiPage: url } }), undefined);
     }
   }
-  for (const httpApiPage of ['pages/ProjectDetail', 'pages/MemoEdit', '../pages/Today', '', 1]) {
+  for (const httpApiPage of ['pages/OrgFileDetail', 'pages/MemoEdit', '../pages/Today', '', 1]) {
     assert.equal(entryNavigation({ parameters: { httpApiEnabled: true, httpApiPage } }), undefined);
   }
 });

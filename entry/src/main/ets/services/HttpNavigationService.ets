@@ -14,8 +14,8 @@ class NavigationError extends Error {
   readonly status: number
   constructor(status: number, message: string) { super(message); this.status = status }
 }
-const PAGE_NAMES: string[] = ['pages/Trash', 'pages/Inbox', 'pages/Today', 'pages/Planned', 'pages/Waiting', 'pages/Anytime', 'pages/Someday', 'pages/Memo', 'pages/Logbook', 'pages/Files', 'pages/Settings', 'pages/ProjectDetail',
-  'pages/FileDetail', 'pages/RepositorySettings', 'pages/SyncLog', 'pages/ConflictFile', 'pages/MemoEdit']
+const PAGE_NAMES: string[] = ['pages/Trash', 'pages/Inbox', 'pages/Today', 'pages/Planned', 'pages/Waiting', 'pages/Anytime', 'pages/Someday', 'pages/Memo', 'pages/Logbook', 'pages/Files', 'pages/Settings', 'pages/OrgFileDetail',
+  'pages/RepositorySettings', 'pages/SyncLog', 'pages/ConflictFile', 'pages/MemoEdit']
 const SECTIONS: string[] = ['', '废纸篓', '存储库', '文件入口', '任务状态分类', '应用程序', '关于小清单']
 
 // 只处理导航协议与页面身份；数据读取沿用当前 Workspace，页面语义留在 Harmony。
@@ -66,15 +66,15 @@ export class HttpNavigationService {
         Object.keys(page).some(key => key !== 'url' && key !== 'params')) throw new NavigationError(400, '页面名称或页面结构无效')
       const p = page.params
       if (p === undefined) {
-        if (['pages/ProjectDetail', 'pages/FileDetail', 'pages/ConflictFile', 'pages/SyncLog', 'pages/MemoEdit'].includes(page.url)) throw new NavigationError(400, '页面缺少必要参数')
+        if (['pages/OrgFileDetail', 'pages/ConflictFile', 'pages/SyncLog', 'pages/MemoEdit'].includes(page.url)) throw new NavigationError(400, '页面缺少必要参数')
         continue
       }
       if (!p || typeof p !== 'object' || Array.isArray(p)) throw new NavigationError(400, '页面参数无效')
       let allowed: string[] = []
       switch (page.url) {
         case 'pages/Settings': allowed = ['section']; break
-        case 'pages/ProjectDetail': case 'pages/ConflictFile': allowed = ['repoId', 'path']; break
-        case 'pages/FileDetail': allowed = ['repoId', 'path', 'syncId', 'repositoryName', 'backupTime', 'backupPath']; break
+        case 'pages/ConflictFile': allowed = ['repoId', 'path']; break
+        case 'pages/OrgFileDetail': allowed = ['repoId', 'path', 'syncId', 'repositoryName', 'backupTime', 'backupPath']; break
         case 'pages/RepositorySettings': allowed = ['repoId']; break
         case 'pages/SyncLog': allowed = ['repoId', 'syncId']; break
         case 'pages/MemoEdit': allowed = ['task', 'create', 'memoId']; break
@@ -85,7 +85,7 @@ export class HttpNavigationService {
         (p.backupPath !== undefined && typeof p.backupPath !== 'string') ||
         (p.backupTime !== undefined && p.backupTime !== null && (typeof p.backupTime !== 'number' || !Number.isFinite(p.backupTime)))) throw new NavigationError(400, '页面参数类型无效')
       if (p.section !== undefined && !SECTIONS.includes(p.section)) throw new NavigationError(400, '设置分组无效')
-      if (['pages/ProjectDetail', 'pages/FileDetail', 'pages/ConflictFile'].includes(page.url) && (!p.repoId || !p.path)) throw new NavigationError(400, '必须指定 repoId 和 path')
+      if (['pages/OrgFileDetail', 'pages/ConflictFile'].includes(page.url) && (!p.repoId || !p.path)) throw new NavigationError(400, '必须指定 repoId 和 path')
       if (page.url === 'pages/SyncLog' && !p.repoId) throw new NavigationError(400, '必须指定 repoId')
       if (page.url === 'pages/MemoEdit' && ((p.create !== undefined && typeof p.create !== 'boolean') ||
         (p.memoId !== undefined && (typeof p.memoId !== 'string' || !p.memoId)) ||
@@ -99,22 +99,20 @@ export class HttpNavigationService {
     const p = page.params ?? {}
     if (['pages/RepositorySettings', 'pages/SyncLog', 'pages/ConflictFile'].includes(page.url) && p.repoId &&
       !config.repos.some(repo => repo.id === p.repoId)) throw new NavigationError(404, '仓库不存在')
-    if (page.url === 'pages/FileDetail' && p.syncId) {
+    if (page.url === 'pages/OrgFileDetail' && p.syncId) {
       const repo = (await workspace.repos()).find(repo => config.repos.some(item => item.id === p.repoId && item.rootDirectory === repo.rootDirectory))
       if (!repo) throw new NavigationError(404, '历史仓库不存在')
       try { await repo.historyFile(p.syncId, p.path!, false) }
       catch (_) { throw new NavigationError(404, '历史文件不存在') }
-    } else if (['pages/FileDetail', 'pages/ProjectDetail', 'pages/ConflictFile'].includes(page.url)) {
+    } else if (['pages/OrgFileDetail', 'pages/ConflictFile'].includes(page.url)) {
       let repoId = p.repoId!
       if (page.url === 'pages/ConflictFile') {
         const configRepo = config.repos.find(repo => repo.id === p.repoId)!
         repoId = (await workspace.repos()).find(repo => repo.rootDirectory === configRepo.rootDirectory)?.id ?? ''
       }
-      const files = fileResult((await workspace.query([{ type: 'file', query: { includeFiles: [{ repoId, path: p.path! }] } }]))[0])
+      const files = fileResult((await workspace.query([{ type: 'file', query: { includeFiles: [{ repoId, path: p.path! }], includeIgnored: true } }]))[0])
       const file = files[0]
       if (!file) throw new NavigationError(404, '文件不存在')
-      if (page.url === 'pages/ProjectDetail' && file.project() === null) throw new NavigationError(404, '此文件不是项目')
-      if (page.url === 'pages/FileDetail' && file.project() !== null) return { url: 'pages/ProjectDetail', params: { repoId, path: p.path } }
     }
     if (page.url === 'pages/MemoEdit' && p.memoId) {
       const task = await MemoNavigation.findInConfig(config, p.memoId)

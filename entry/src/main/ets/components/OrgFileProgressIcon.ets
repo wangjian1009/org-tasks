@@ -1,5 +1,5 @@
 @Component
-export struct ProjectProgressIcon {
+export struct OrgFileProgressIcon {
   @Prop @Watch('draw') completed: number = 0
   @Prop @Watch('draw') total: number = 0
   private context: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true))

@@ -1,8 +1,8 @@
 import { AppDataManager } from './AppDataManager'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
-import { CoreRepo, CoreOrgFile, CoreSyncRecord, CoreSyncRecordDetail, CoreWorkspace, NativeCoreService } from './NativeCoreService'
-import { NotebookService, NotebookGroup } from './NotebookService'
+import { CoreRepo, CoreOrgFile, CoreSyncRecord, CoreSyncRecordDetail, NativeCoreService } from './NativeCoreService'
+import { NotebookGroup } from './NotebookService'
 import { SnapshotState, SnapshotDataManager } from './SnapshotDataManager'
 import { repositoryLabel } from '../ui/Theme'
 
@@ -46,25 +46,17 @@ export class NotebookDataManager {
   async refresh(): Promise<void> { await this.app.dataSet('notebookFiles').refresh(); this.publish() }
   close(): void { this.closed = true; this.stopData(); this.listeners.clear() }
 }
-export interface FileReadingTarget { repoId: string; path: string; syncId?: string }
-export interface FileReadingSnapshot { config: AppConfig; file?: CoreOrgFile; repositoryName: string }
-export class FileDataManager extends SnapshotDataManager<FileReadingSnapshot> {
-  constructor(context: Context, target: FileReadingTarget) {
-    super(context, async (config: AppConfig, workspace: CoreWorkspace): Promise<FileReadingSnapshot> => {
-      let file: CoreOrgFile | undefined = undefined
-      const coreRepo = (await workspace.repos()).find(repo => repo.id === target.repoId)
-      const repository = config.repos.find(repo => repo.id === target.repoId || repo.rootDirectory === coreRepo?.rootDirectory)
-      if (target.syncId) {
-        if (!repository) throw new Error('此存储库已不存在')
-        const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
-        file = await repo.historyFile(target.syncId, target.path, false)
-      } else {
-        file = await NotebookService.open(config.repos, target.repoId, target.path, config.todoDefaults, config.coreSettings)
-      }
+export interface HistoryFileReadingTarget { repoId: string; path: string; syncId: string }
+export interface HistoryFileReadingSnapshot { config: AppConfig; file: CoreOrgFile; repositoryName: string }
+export class HistoryFileDataManager extends SnapshotDataManager<HistoryFileReadingSnapshot> {
+  constructor(context: Context, target: HistoryFileReadingTarget) {
+    super(context, async (config: AppConfig): Promise<HistoryFileReadingSnapshot> => {
+      const repository = config.repos.find(repo => repo.id === target.repoId)
+      if (!repository) throw new Error('此存储库已不存在')
+      const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
+      const file = await repo.historyFile(target.syncId, target.path, false)
       return { config, file, repositoryName: repositoryLabel(repository) }
-    }, event => event.repoId === target.repoId && (event.files === null || !!event.files?.some(file => file.after.path === target.path) ||
-      event.changes.some(change => change.before?.task.fullPath.file === target.path || change.after?.task.fullPath.file === target.path)),
-      event => event.changeFiles.some(change => change.file.repoId === target.repoId && change.file.path === target.path))
+    }, () => false, () => false)
   }
 }
 export interface SyncLogSnapshot { items: CoreSyncRecord[]; repositoryName: string; repoId: string }

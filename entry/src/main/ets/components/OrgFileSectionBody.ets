@@ -5,7 +5,7 @@ import { UiColor } from '../ui/Theme'
 
 // 装饰线作为不参与命中的独立子节点，按正文实测高度收尾。
 @Component
-export struct ProjectSectionBody {
+export struct OrgFileSectionBody {
   modify: (task: CoreTask, changes: CoreTaskModification[]) => Promise<CoreTask> = async (): Promise<CoreTask> => { throw new Error('未提供项目数据管理接口') }
   readTask: (() => CoreTask | undefined) | undefined = undefined
   @Prop task: CoreTask | null = null

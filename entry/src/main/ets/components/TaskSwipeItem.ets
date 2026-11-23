@@ -2,10 +2,10 @@ import { TaskSelectionController } from '../ui/TaskSelectionController'
 import { TaskRecordActionController } from '../ui/TaskRecordActionController'
 import { TaskRecordOperations, TaskRecordOperation } from '../services/TaskRecordOperations'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
-import { ProjectCreateService } from '../services/ProjectCreateService'
-import { ProjectRepositoryOption } from '../ui/ProjectCreatePresentation'
+import { OrgFileCreateService } from '../services/OrgFileCreateService'
+import { OrgFileRepositoryOption } from '../ui/OrgFileCreatePresentation'
 import { TaskInlineSession } from '../services/TaskInlineService'
-import { ProjectCreateSheet } from './editors/ProjectCreateSheet'
+import { OrgFileCreateSheet } from './editors/OrgFileCreateSheet'
 import { DataSet } from '../services/DataSet'
 import { CoreTask, CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskSwipeOperations } from './TaskSwipeOperations'
@@ -65,7 +65,7 @@ export struct TaskSwipeItem {
   @State projectTyping: boolean = false
   @State projectMessage: string = ''
   @State projectSource: CoreTask | undefined = undefined
-  @State projectRepositories: ProjectRepositoryOption[] = []
+  @State projectRepositories: OrgFileRepositoryOption[] = []
   private projectOwner: string = ''
   private projectScope: string = ''
   private projectKeyboardAvoidMode: KeyboardAvoidMode | undefined = undefined
@@ -196,7 +196,7 @@ export struct TaskSwipeItem {
         this.dismissProject()
         return false
       })) return
-      const repositories = await ProjectCreateService.repositories(this.getUIContext().getHostContext()!)
+      const repositories = await OrgFileCreateService.repositories(this.getUIContext().getHostContext()!)
       if (!valid()) return
       this.projectRepositories = repositories
       this.projectSource = source
@@ -292,7 +292,7 @@ export struct TaskSwipeItem {
 
   @Builder
   projectPanel() {
-    ProjectCreateSheet({ source: this.projectSource, repositories: this.projectRepositories,
+    OrgFileCreateSheet({ source: this.projectSource, repositories: this.projectRepositories,
       initialRepoId: this.projectSource?.repoId || '', initialRegion: this.projectSource?.category || '',
       initialName: this.projectSource?.heading || '', busy: this.submitting, generating: $projectGenerating,
       message: this.projectMessage, typingChanged: (typing: boolean): void => { this.projectTyping = typing },

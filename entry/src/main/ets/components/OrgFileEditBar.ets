@@ -1,11 +1,11 @@
-import { ProjectEditView, ProjectPlacement, ProjectStructureChange, projectEditIdle } from '../ui/ProjectStructurePresentation'
+import { OrgFileEditView, OrgFilePlacement, OrgFileStructureChange, projectEditIdle } from '../ui/OrgFileStructurePresentation'
 import { UiColor } from '../ui/Theme'
 import { TaskBatchToolbar } from './TaskBatchToolbar'
 import { TaskOperation } from '../ui/TaskActionPresentation'
 
 @Component
-export struct ProjectEditBar {
-  @Prop edit: ProjectEditView = projectEditIdle()
+export struct OrgFileEditBar {
+  @Prop edit: OrgFileEditView = projectEditIdle()
   @Prop busy: boolean = false
   @Prop stale: boolean = false
   @Prop message: string = ''
@@ -14,7 +14,7 @@ export struct ProjectEditBar {
   cancel: () => void = () => {}
   place: () => void = () => {}
   root: () => void = () => {}
-  choose: (placement: ProjectPlacement) => void = () => {}
+  choose: (placement: OrgFilePlacement) => void = () => {}
   undo: () => void = () => {}
   review: () => void = () => {}
   save: () => void = () => {}
@@ -75,10 +75,10 @@ export struct ProjectEditBar {
     }.width('100%')
     Scroll() {
       Column({ space: 8 }) {
-        ForEach(this.edit.changes, (change: ProjectStructureChange) => {
+        ForEach(this.edit.changes, (change: OrgFileStructureChange) => {
           Text(`${change.title} › ${change.parentPath} › ${change.after}`).fontSize(13).fontColor(UiColor.secondary)
             .width('100%')
-        }, (change: ProjectStructureChange) => change.id)
+        }, (change: OrgFileStructureChange) => change.id)
       }.width('100%').alignItems(HorizontalAlign.Start)
     }.width('100%').constraintSize({ maxHeight: 124 }).scrollBar(BarState.Auto)
   }

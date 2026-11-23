@@ -680,7 +680,7 @@ Task 的 ~taskPriorityOf~ 按现有 ~taskStateOf~ 的方式绑定原生对象，
 
 ~OrgFile.documentSections()~ 、 ~fileTags()~ 和 ~specialTags()~ 分别读取 Rust bridge 在同一文件工作线程中通过 Core 的 ~document_sections()~ 、 ~file_tags()~ 和 ~special_tags()~ 生成的快照。 ~DocumentSection { path: TaskPath | null, html: string, blocks: ContentBlock[], linkTargets: DocumentLinkTarget[] }~ 按文件顺序排列，前言路径为空；标题项路径关联同版本 ~nodes()~ ，不在 ArkTS 解释 Org 或筛选任务。C++ 注册快照方法，类型声明和 ArkTS wrapper 同步维护，不新增同步 FFI 请求。
 
-~ProjectDetail~ 使用 ~ProjectDocumentView~ 将原生 ~TaskEditor~ 、普通标题控件和直属 HTML 正文放到共享 Scroll；任务卡片的文档模式隐藏重复备注和清单编辑，正文持续可见；Core 的正文分段不输出真实的 PROPERTIES 与 LOGBOOK，Task 的完整属性与结构化日志仍来自原快照。任务展开后通过“更多 → 日志”查看或收起日志，默认收起。文件与普通标题标签按特殊标签列表隐藏，原始标签保留。更多菜单支持刷新与原文，下拉沿用手动同步。普通文件和历史备份继续使用 ~renderHtml()~ ；项目会话按真实仓库、路径和版本隔离，新版本清除旧坐标与展开状态。
+~OrgFileDetail~ 使用 ~OrgFileDocumentView~ 将原生 ~TaskEditor~ 、普通标题控件和直属 HTML 正文放到共享 Scroll；任务卡片的文档模式隐藏重复备注和清单编辑，正文持续可见；Core 的正文分段不输出真实的 PROPERTIES 与 LOGBOOK，Task 的完整属性与结构化日志仍来自原快照。任务展开后通过“更多 → 日志”查看或收起日志，默认收起。文件与普通标题标签按特殊标签列表隐藏，原始标签保留。更多菜单支持刷新与原文，下拉沿用手动同步。普通文件和历史备份继续使用 ~renderHtml()~ ；项目会话按真实仓库、路径和版本隔离，新版本清除旧坐标与展开状态。
 
 * 默认优先级快照
 
@@ -792,7 +792,7 @@ Task.property(name) 是绑定到原快照的只读方法，ArkUI 深拷贝时继
 
 Rust 由 Core 反序列化并执行新增枚举；C++ 继续通过既有 ~Workspace.executeTaskOperations~ 的结构化编组与 worker，ArkTS wrapper 提供对应类型别名，不在 bridge 扫描模板、判断根标题或生成 Org 内容。HTTP 和 CLI 的既有操作组入口同步获得该类型，不增加另一个创建文件接口。
 
-Harmony 从应用资源读取 ~templates/project.org~ ，以 ~templateContent~ 传入并提供项目名与位置所选 Region 的分类参数；随包模板声明 ~FILETAGS: :project:todo:~ ，顶部空 ~ID~ 由 Core 自动生成 UUID v4，空 SETUPFILE 由 Core 按目标库共享设置是否存在补全或保留，不提供这两个字段的模板参数。 ~ProjectCreateService~ 只组装同一操作组中的 ~FileNew~ 与 ~Movement~ ，携带原记录文件版本和 ~operationId~ ；不复制或重建正文、属性、日志与子条目。仓库候选使用 Core ID，通过真实目录关联宿主展示名称；用户默认选择转换收件箱所在仓库；按所选仓库的文件元信息汇总 Region 候选，新增 Region 以 CATEGORY 模板参数随新项目落地，不新增 Core 分类接口。
+Harmony 从应用资源读取 ~templates/project.org~ ，以 ~templateContent~ 传入并提供项目名与位置所选 Region 的分类参数；随包模板声明 ~FILETAGS: :project:todo:~ ，顶部空 ~ID~ 由 Core 自动生成 UUID v4，空 SETUPFILE 由 Core 按目标库共享设置是否存在补全或保留，不提供这两个字段的模板参数。 ~OrgFileCreateService~ 只组装同一操作组中的 ~FileNew~ 与 ~Movement~ ，携带原记录文件版本和 ~operationId~ ；不复制或重建正文、属性、日志与子条目。仓库候选使用 Core ID，通过真实目录关联宿主展示名称；用户默认选择转换收件箱所在仓库；按所选仓库的文件元信息汇总 Region 候选，新增 Region 以 CATEGORY 模板参数随新项目落地，不新增 Core 分类接口。
 
 * 文件头顺序投影
 

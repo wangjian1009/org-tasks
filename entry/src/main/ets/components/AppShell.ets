@@ -5,13 +5,13 @@ import { CoreTitlePart } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
 import { UiColor, UiSize } from '../ui/Theme'
 import { IconButton } from './controls/IconButton'
-import { ProjectProgressIcon } from './ProjectProgressIcon'
+import { OrgFileProgressIcon } from './OrgFileProgressIcon'
 import { PopupMenuButton } from './controls/PopupMenuButton'
 import { PopupMenuItem } from './controls/PopupMenu'
 import { RepositorySyncView } from './RepositorySyncView'
 import { NotificationManager } from '../services/NotificationManager'
 import { SidebarDataManager, SidebarSnapshot } from '../services/SidebarDataManager'
-import { ProjectNavigation } from '../services/ProjectNavigation'
+import { OrgFileNavigation } from '../services/OrgFileNavigation'
 import { fileTaskProgress, fileTaskCount, fileCompletedTaskCount, projectSections, ProjectSection } from '../ui/NotebookPresentation'
 import { TaskView } from '../services/TaskViewQueries'
 import { CoreOrgFileMetadata } from '../services/NativeCoreService'
@@ -145,7 +145,7 @@ export struct AppShell {
   }
 
   async openProject(file: CoreOrgFileMetadata) {
-    if (await ProjectNavigation.open(this.getUIContext(), file.repoId, file.path, true)) {
+    if (await OrgFileNavigation.open(this.getUIContext(), file.repoId, file.path, true)) {
       this.drawerOpen = false
     }
   }
@@ -187,7 +187,7 @@ export struct AppShell {
   @Builder
   projectItem(file: CoreOrgFileMetadata) {
     Row({ space: 12 }) {
-      ProjectProgressIcon({ completed: fileCompletedTaskCount(file), total: fileTaskCount(file) }).flexShrink(0)
+      OrgFileProgressIcon({ completed: fileCompletedTaskCount(file), total: fileTaskCount(file) }).flexShrink(0)
       Text(file.project() || '未命名项目').fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
         .fontColor(UiColor.drawerText).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
     }.width('100%').height(UiSize.drawerRow).padding({ left: 12, right: 12 }).borderRadius(12)

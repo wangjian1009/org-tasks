@@ -13,13 +13,13 @@ interface HeaderDraft {
   newTag: string
 }
 
-export class ProjectHeaderNavigation {
+export class OrgFileHeaderNavigation {
   close: () => boolean = () => false
 }
 
 // 整个属性区域长按进入原位编辑，所有草稿使用同一文件版本并一起保存。
 @Component
-export struct ProjectFileHeader {
+export struct OrgFileHeader {
   @Prop headerEntries: CoreFileHeaderEntry[] = []
   @Prop tags: string[] = []
   @Prop selectedTags: string[] = []
@@ -29,7 +29,7 @@ export struct ProjectFileHeader {
   @Prop selectedCategory: string = ''
   beforeEdit: () => Promise<boolean> = async () => true
   save: (changes: CoreFileHeaderValueChange[], version: string) => Promise<void> = async () => {}
-  navigation: ProjectHeaderNavigation = new ProjectHeaderNavigation()
+  navigation: OrgFileHeaderNavigation = new OrgFileHeaderNavigation()
   toggle: (tag: string) => void = () => {}
   toggleCategory: () => void = () => {}
   @State editing: boolean = false

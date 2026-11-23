@@ -1,0 +1,117 @@
+#+TITLE: HarmonyOS 控件目录
+#+STARTUP: show2levels hidestars
+#+LANGUAGE: zh-CN
+
+收录小清单当前在 ~entry/src/main/ets/components/~ 中定义的 ArkUI 控件及标题进度构建器。
+
+* 通用控件
+
+** 基础交互与设置
+
+- ~IconButton~ 用于工具栏等紧凑区域，以图标触发单项操作并提供无障碍名称。 [[file:../../entry/src/main/ets/components/controls/IconButton.ets][源码]]
+- ~EmptyState~ 用于没有内容、正在加载或读取失败的区域，按需展示说明和可点击操作。 [[file:../../entry/src/main/ets/components/controls/EmptyState.ets][源码]]
+- ~ListSectionHeader~ 用于位置分享页，为坐标、地址等列表分组标明内容。 [[file:../../entry/src/main/ets/components/controls/ListSectionHeader.ets][源码]]
+- ~MessageBar~ 用于在设置表单或选择面板内显示操作结果和错误。 [[file:../../entry/src/main/ets/components/controls/MessageBar.ets][源码]]
+- ~PopupMenu~ 用于显示带图标、勾选状态或禁用项的操作菜单。 [[file:../../entry/src/main/ets/components/controls/PopupMenu.ets][源码]]
+- ~PopupMenuRow~ 用于在弹出菜单内部渲染单个选项及其勾选、禁用和点击状态。 [[file:../../entry/src/main/ets/components/controls/PopupMenu.ets::PopupMenuRow][源码]]
+- ~PopupMenuButton~ 用于让工具栏、章节行或任务卡片的按钮打开对应操作菜单。 [[file:../../entry/src/main/ets/components/controls/PopupMenuButton.ets][源码]]
+- ~RightSwipe~ 用于在任务或章节行中通过滑动显示操作，并协调同组菜单的开关。 [[file:../../entry/src/main/ets/components/controls/RightSwipe.ets][源码]]
+- ~SettingsChoiceRow~ 用于在设置行旁弹出互斥选项，例如同步方式和文件展示方式。 [[file:../../entry/src/main/ets/components/controls/SettingsChoiceRow.ets][源码]]
+- ~SettingsField~ 用于编辑仓库名称、WebDAV 地址、账号、密码或过滤目录。 [[file:../../entry/src/main/ets/components/controls/SettingsField.ets][源码]]
+- ~SettingsGroup~ 用于组织同类设置项，并为整组配置提供标题和说明。 [[file:../../entry/src/main/ets/components/controls/SettingsGroup.ets][源码]]
+- ~SettingsRow~ 用于展示设置名称、当前值或详情，并打开配置项或触发操作。 [[file:../../entry/src/main/ets/components/controls/SettingsRow.ets][源码]]
+- ~FileTargetSheet~ 用于在设置中为收件箱、某天或备忘选择 Org 文件。 [[file:../../entry/src/main/ets/components/editors/FileTargetSheet.ets][源码]]
+- ~LocalDirectorySheet~ 用于在仓库表单中浏览、新建并选定应用可访问的本地目录。 [[file:../../entry/src/main/ets/components/editors/LocalDirectorySheet.ets][源码]]
+
+** 导航、仓库与同步
+
+- ~AppShell~ 用于组装页面标题栏、侧边栏导航和正文区域，并接入共享的同步展示。 [[file:../../entry/src/main/ets/components/AppShell.ets][源码]]
+- ~FileItem~ 用于显示笔记本中的文件或项目标题及其辅助信息，并响应打开操作。 [[file:../../entry/src/main/ets/components/FileItem.ets][源码]]
+- ~NotebookFileRow~ 用于在笔记本中将文件行接到普通文件、项目文档或冲突处理页面。 [[file:../../entry/src/main/ets/components/NotebookFileRow.ets][源码]]
+- ~OrgFileProgressIcon~ 用于在侧边栏项目入口显示已完成任务占总任务的比例。 [[file:../../entry/src/main/ets/components/OrgFileProgressIcon.ets][源码]]
+- ~RegionOrderSheet~ 用于调整今天页和侧边栏共用的分类与项目顺序。 [[file:../../entry/src/main/ets/components/editors/RegionOrderSheet.ets][源码]]
+- ~CoreNotificationsView~ 用于在列表和阅读页集中呈现 Core 发出的仓库与同步通知。 [[file:../../entry/src/main/ets/components/CoreNotificationsView.ets][源码]]
+- ~NotificationEmptyState~ 用于在空列表中同时显示待关注通知和页面的空态操作。 [[file:../../entry/src/main/ets/components/NotificationEmptyState.ets][源码]]
+- ~RepositoryRootMissingNotificationView~ 用于提示仓库目录缺失，并提供进入仓库设置的入口。 [[file:../../entry/src/main/ets/components/RepositoryRootMissingNotificationView.ets][源码]]
+- ~RepositorySyncBanner~ 用于在页面标题下显示同步进度。 [[file:../../entry/src/main/ets/components/RepositorySyncBanner.ets][源码]]
+- ~RepositorySyncView~ 用于为页面接入下拉同步、共享进度状态和失败提示。 [[file:../../entry/src/main/ets/components/RepositorySyncView.ets][源码]]
+- ~SyncBaselineNotificationView~ 用于提示仓库同步基线异常。 [[file:../../entry/src/main/ets/components/SyncBaselineNotificationView.ets][源码]]
+- ~SyncConflictNotificationView~ 用于提示存在同步冲突的文件，并打开对应的冲突解决页。 [[file:../../entry/src/main/ets/components/SyncConflictNotificationView.ets][源码]]
+- ~SyncRequiredNotificationView~ 用于提示本地文件有待同步修改，并提供同步入口。 [[file:../../entry/src/main/ets/components/SyncRequiredNotificationView.ets][源码]]
+- ~SyncLogItem~ 用于在同步日志列表显示一轮同步的结果、传输摘要和时间。 [[file:../../entry/src/main/ets/components/SyncLogItem.ets][源码]]
+- ~SyncLogDetails~ 用于展开一轮同步的文件结果，并打开有备份的文件原文。 [[file:../../entry/src/main/ets/components/SyncLogDetails.ets][源码]]
+
+* 任务编辑控件
+
+
+** 任务列表与操作
+
+- ~TaskPageContent~ 用于组装今天、计划、等待、随时、某天、备忘和日志簿页面的筛选、列表及批量操作。 [[file:../../entry/src/main/ets/components/TaskPageContent.ets][源码]]
+- ~TodayTaskList~ 用于在今天页及复用该布局的任务页展示日程、任务分组和任务行。 [[file:../../entry/src/main/ets/components/TodayTaskList.ets][源码]]
+- ~PlannedTaskList~ 用于按日期组织计划任务并接入任务编辑与多选。 [[file:../../entry/src/main/ets/components/PlannedTaskList.ets][源码]]
+- ~LogbookTaskList~ 用于按日期展示日志簿和废纸篓记录，并提供对应的单条和批量操作。 [[file:../../entry/src/main/ets/components/LogbookTaskList.ets][源码]]
+- ~TaskRegion~ 用于在任务列表中显示带标题的任务分区及其内容。 [[file:../../entry/src/main/ets/components/TaskRegion.ets][源码]]
+- ~CategoryRegion~ 用于在今天页按分类组织任务和项目。 [[file:../../entry/src/main/ets/components/CategoryRegion.ets][源码]]
+- ~ScheduleRegion~ 用于在今天页集中展示日程区的任务。 [[file:../../entry/src/main/ets/components/ScheduleRegion.ets][源码]]
+- ~MemoListItem~ 用于显示备忘列表的标题及摘要，点击进入备忘编辑页。 [[file:../../entry/src/main/ets/components/MemoListItem.ets][源码]]
+- ~RegionProjectFilter~ 用于在任务页按分类或项目切换展示范围。 [[file:../../entry/src/main/ets/components/RegionProjectFilter.ets][源码]]
+- ~TaskTagFilter~ 用于在任务页切换标签筛选及“全部”等选项。 [[file:../../entry/src/main/ets/components/TaskTagFilter.ets][源码]]
+- ~TaskTagChip~ 用于在标签筛选条内显示一个候选项及其选中状态。 [[file:../../entry/src/main/ets/components/TaskTagFilter.ets::TaskTagChip][源码]]
+- ~TaskActionMenu~ 用于展示当前任务或多选状态下可执行的操作。 [[file:../../entry/src/main/ets/components/TaskActionMenu.ets][源码]]
+- ~TaskSwipeActions~ 用于在任务或章节的左滑菜单内渲染各项操作。 [[file:../../entry/src/main/ets/components/TaskSwipeActions.ets][源码]]
+- ~TaskSwipeItem~ 用于在任务列表或项目文档中承载任务行、滑动操作与展开编辑器。 [[file:../../entry/src/main/ets/components/TaskSwipeItem.ets][源码]]
+- ~TaskSelectionRow~ 用于给可选任务或章节行接上多选状态及选中交互。 [[file:../../entry/src/main/ets/components/TaskSelectionRow.ets][源码]]
+- ~TaskSelectionToolbar~ 用于在多选时提供批量操作、日期修改和移动面板等入口。 [[file:../../entry/src/main/ets/components/TaskSelectionToolbar.ets][源码]]
+- ~TaskBatchToolbar~ 用于任务多选或项目批量放置时展示当前选择对应的操作栏。 [[file:../../entry/src/main/ets/components/TaskBatchToolbar.ets][源码]]
+
+** 字段、批量编辑与操作记录
+
+- ~TaskEditor~ 用于在任务行原位编辑标题、状态、优先级、规划、标签和正文。 [[file:../../entry/src/main/ets/components/editors/TaskEditor.ets][源码]]
+- ~MemoEditor~ 用于在备忘详情页编辑标题、标签和正文。 [[file:../../entry/src/main/ets/components/editors/MemoEditor.ets][源码]]
+- ~TaskDateDialog~ 用于选定任务的计划日期、截止日期或提醒时间。 [[file:../../entry/src/main/ets/components/editors/TaskDateDialog.ets][源码]]
+- ~TaskRepeatDialog~ 用于设置计划或截止日期的重复方式、间隔和下次日期，也可停止已有重复。 [[file:../../entry/src/main/ets/components/editors/TaskRepeatDialog.ets][源码]]
+- ~TaskTagsDialog~ 用于在任务编辑时选择或输入标签。 [[file:../../entry/src/main/ets/components/editors/TaskTagsDialog.ets][源码]]
+- ~TaskPriorityChoices~ 用于在任务编辑时选择优先级或移除已有优先级。 [[file:../../entry/src/main/ets/components/editors/TaskPriorityChoices.ets][源码]]
+- ~TaskNoteDialog~ 用于为任务追加备注，也可在任务状态变更时记录备注。 [[file:../../entry/src/main/ets/components/editors/TaskNoteDialog.ets][源码]]
+- ~MoveToTarget~ 用于选择任务要移动到的文件、项目或标题位置。 [[file:../../entry/src/main/ets/components/editors/MoveToTarget.ets][源码]]
+- ~TaskBatchMoveSheet~ 用于多选后选择目标并一次移动所选任务。 [[file:../../entry/src/main/ets/components/editors/TaskBatchMoveSheet.ets][源码]]
+- ~TaskBatchDateDialog~ 用于多选后为所选任务设置日期字段。 [[file:../../entry/src/main/ets/components/editors/TaskBatchDateDialog.ets][源码]]
+- ~TaskLogView~ 用于在展开的任务卡片中显示该任务的日志。 [[file:../../entry/src/main/ets/components/editors/TaskLogView.ets][源码]]
+- ~TaskLogItem~ 用于呈现一条任务日志的时间、事件或备注正文。 [[file:../../entry/src/main/ets/components/editors/TaskLogItem.ets][源码]]
+- ~TaskReminderList~ 用于在设置页查看带提醒的任务并调整其提醒时间。 [[file:../../entry/src/main/ets/components/TaskReminderList.ets][源码]]
+- ~ReminderOperationList~ 用于在设置页查看本次运行期间的提醒增删改记录和结果。 [[file:../../entry/src/main/ets/components/ReminderOperationList.ets][源码]]
+
+* 文档编辑控件
+
+
+** 阅读、标题与链接
+
+- ~OrgFileConflictView~ 用于将冲突操作卡片嵌入冲突文件正文，并按卡片或章节定位。 [[file:../../entry/src/main/ets/components/OrgFileConflictView.ets][源码]]
+- ~OrgContentView~ 用于渲染 Org 正文并接收段落和链接交互，供文件预览、任务、备忘及日志复用。 [[file:../../entry/src/main/ets/components/OrgContentView.ets][源码]]
+- ~TitleText~ 用于在页面标题、文件行、任务行和章节中显示带链接或进度的标题。 [[file:../../entry/src/main/ets/components/TitleText.ets][源码]]
+- ~LinkView~ 用于在标题和正文中显示、打开和编辑链接。 [[file:../../entry/src/main/ets/components/LinkView.ets][源码]]
+- ~TitleCounts~ 用于在任务标题旁显示一组清单进度徽标，并在宽度不足时压缩显示。 [[file:../../entry/src/main/ets/components/TitleCounts.ets][源码]]
+- ~TitleCountBadge~ 用于显示单个标题计数的进度环和数值。 [[file:../../entry/src/main/ets/components/TitleCountBadge.ets][源码]]
+- ~titleCountInline~ 用于把进度环和计数插入可换行的标题文本。 [[file:../../entry/src/main/ets/components/TitleCountInline.ets][源码]]
+
+** 正文区块
+
+- ~TaskDocumentContent~ 用于在项目章节正文中组织文字、列表、表格和检查清单区块。 [[file:../../entry/src/main/ets/components/editors/TaskDocumentContent.ets][源码]]
+- ~TaskContentEditor~ 用于按 Org 区块组织任务或章节的正文交互，并分派到对应的区块控件。 [[file:../../entry/src/main/ets/components/editors/TaskContentEditor.ets][源码]]
+- ~TaskBlockView~ 用于展示单个正文区块，并提供区块长按菜单和编辑入口。 [[file:../../entry/src/main/ets/components/editors/TaskBlockView.ets][源码]]
+- ~TaskTextBlock~ 用于展示和编辑任务或章节正文中的文本段落。 [[file:../../entry/src/main/ets/components/editors/TaskTextBlock.ets][源码]]
+- ~TaskListBlock~ 用于展示和编辑任务或章节正文中的普通列表。 [[file:../../entry/src/main/ets/components/editors/TaskListBlock.ets][源码]]
+- ~TaskTableBlock~ 用于展示和编辑任务或章节正文中的表格。 [[file:../../entry/src/main/ets/components/editors/TaskTableBlock.ets][源码]]
+- ~TaskChecklistBlock~ 用于勾选、编辑、新增、删除和排序任务或章节中的复选清单条目。 [[file:../../entry/src/main/ets/components/editors/TaskChecklistBlock.ets][源码]]
+
+** 项目文档和结构
+
+- ~OrgFileCreateSheet~ 用于将任务转为项目时选择仓库和分类，并确认项目文件的创建。 [[file:../../entry/src/main/ets/components/editors/OrgFileCreateSheet.ets][源码]]
+- ~OrgFileDocumentView~ 用于组装普通文件、项目或历史备份的连续文档，并支持按目录定位。 [[file:../../entry/src/main/ets/components/OrgFileDocumentView.ets][源码]]
+- ~OrgFileHeader~ 用于在项目文档顶部查看和编辑分类、标签等文件头属性。 [[file:../../entry/src/main/ets/components/OrgFileHeader.ets][源码]]
+- ~OrgFileSectionBody~ 用于显示普通章节或父任务的直属正文和检查清单。 [[file:../../entry/src/main/ets/components/OrgFileSectionBody.ets][源码]]
+- ~OrgFileTaskSection~ 用于在项目文档中呈现单个章节或任务节点，并接入正文编辑和结构操作。 [[file:../../entry/src/main/ets/components/OrgFileTaskSection.ets][源码]]
+- ~OrgHeadingView~ 用于展示无任务状态的章节标题，并提供收起、归档及结构操作。 [[file:../../entry/src/main/ets/components/OrgHeadingView.ets][源码]]
+- ~OrgFileStructureSheet~ 用于在指定项目位置新增任务或章节，或调整直属节点的顺序。 [[file:../../entry/src/main/ets/components/editors/OrgFileStructureSheet.ets][源码]]
+- ~OrgFileStructureAction~ 用于在结构面板内部呈现单个确认或保存操作。 [[file:../../entry/src/main/ets/components/editors/OrgFileStructureSheet.ets::OrgFileStructureAction][源码]]
+- ~OrgFileEditBar~ 用于在项目重构模式中操作放置、撤销、查看变更和保存。 [[file:../../entry/src/main/ets/components/OrgFileEditBar.ets][源码]]

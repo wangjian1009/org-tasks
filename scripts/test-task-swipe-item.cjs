@@ -29,7 +29,7 @@ const session = {
   release(owner) { if (this.owner === owner) { this.owner = ''; this.finish = undefined; } }
 };
 const { Item } = compile('export class Item {' + methods + '}', { ...actions, ...states, TaskSwipeOperations, TaskInlineSession: session, KeyboardAvoidMode: { RESIZE: 1 },
-  ProjectCreateService: { repositories: async context => context.repositories() }, setTimeout: callback => callback(), coreErrorMessage: error => error.message });
+  OrgFileCreateService: { repositories: async context => context.repositories() }, setTimeout: callback => callback(), coreErrorMessage: error => error.message });
 function task(category = 'Todo', available = true) {
   return { state: category ? { category } : null, taskStateOf: category => available ? { name: category, category } : null };
 }

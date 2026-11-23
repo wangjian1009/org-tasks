@@ -250,7 +250,7 @@ version 是提交阶段，revision 是显示数据修订号，两者独立。管
 
 ~start(): Promise<DataLoadResult[]>~ 返回命名查询的一次性文件数组，管理器在交给 DataSet 前移除完整文件。首次成功后不保存文件或包含文件的已完成 Promise；普通任务增量不再请求 ~fullFiles~ ；管理器检测到外部失效时，可向注册 ~subscribeFiles~ 的宿主一次性交付新的完整文件，完整文件仍不进入 DataSet 或缓存。页面从文件提取导言、文件标签、源文本与文档分段，用完整 ~path~ 关联 Task，随后释放文件对象；查看原文使用本次打开时的源文本，显式“刷新项目”开启新的阅读会话重新取得一次完整文件；会话身份驱动文档组件重建，即使文件版本相同也重新绑定新 DataSet，并恢复阅读偏移。
 
-DataSet 不提供 document、getFile 或完整文件事件，普通提交不进行文件确认重读；外部失效恢复由 Manager 管理。编辑统一使用 updateTask，Core 的原始提交事件维护改名、移动和重名出现序号的映射，控件按稳定行 ID 订阅 Task。每个 ProjectTaskSection 直接取得 ~taskSource(rowId)~ 并注册 Monitor，维护自己的标题与段落；退出时取消。Task 的实际字段变化只驱动该章节，页面不接收整批变化后再遍历分发；正文从 Task.editContent.blocks 取得。只有来源更新而可见内容相同时，新正文会话直接读取来源中的最新文件版本，不依赖尚未重绘的 node；草稿进入编辑后冻结源版本，提交继续携带该版本，外部变化后不能静默覆盖。位置 ID 与文件版本仅更新编辑上下文，可见正文未变化时保留 HTML 修订号；属性修改不重建文档容器或其他章节。
+DataSet 不提供 document、getFile 或完整文件事件，普通提交不进行文件确认重读；外部失效恢复由 Manager 管理。编辑统一使用 updateTask，Core 的原始提交事件维护改名、移动和重名出现序号的映射，控件按稳定行 ID 订阅 Task。每个 OrgFileTaskSection 直接取得 ~taskSource(rowId)~ 并注册 Monitor，维护自己的标题与段落；退出时取消。Task 的实际字段变化只驱动该章节，页面不接收整批变化后再遍历分发；正文从 Task.editContent.blocks 取得。只有来源更新而可见内容相同时，新正文会话直接读取来源中的最新文件版本，不依赖尚未重绘的 node；草稿进入编辑后冻结源版本，提交继续携带该版本，外部变化后不能静默覆盖。位置 ID 与文件版本仅更新编辑上下文，可见正文未变化时保留 HTML 修订号；属性修改不重建文档容器或其他章节。
 
 新增、删除及顺序变化只调整受影响章节的成员；保留其他章节实例和滚动位置。目录打开时读取最新任务名称与状态。编辑会话期间延迟应用章节外部快照，结束后应用最新 Task，避免打断草稿；失败沿用原有定向回滚和禁止重复提交规则。页级阅读状态与任务数据缓存分离，不读取或写入 page-data 目录。flush 仍等待提交及事件确认。
 
@@ -292,7 +292,7 @@ AppShell 只组合标题栏、导航和下拉同步，不注册 Workspace 监控
 
 SnapshotDataManager 为非任务查询结果提供统一的 start、refresh、subscribe、close 生命周期，内部注册当前 Workspace 的变化并合并读取，配置改变重新绑定连接；同步完成也会触发读取，覆盖没有业务文件变化但产生新日志的场景。读取期间发生新变化时丢弃旧结果，失败保留最近成功快照，关闭后清理监控并拒绝迟到发布。该管理对象仅在内存保存快照，不伪装为任务 JSON 缓存。
 
-NotebookDataManager 发布仓库分组与当前配置；FileDataManager 发布普通文件或指定同步历史备份和读取上下文；SyncLogDataManager 发布排序后的同步记录、仓库身份与展示名，展开详情由 SyncLogDetailDataManager 按固定同步 ID 发布完整记录。完整文件、历史与同步规则仍调用既有 Core 接口，管理类不解析 Org。页面的渲染、原文切换、目录定位与展开状态只使用管理对象快照；普通文件变为项目时沿用既有导航。
+NotebookDataManager 发布仓库分组与当前配置。普通文件和项目共用 OrgFileDetail 的文件范围 DataSet，HistoryFileDataManager 发布指定同步历史备份和读取上下文。SyncLogDataManager 发布排序后的同步记录、仓库身份与展示名，展开详情由 SyncLogDetailDataManager 按固定同步 ID 发布完整记录。完整文件、历史与同步规则仍调用既有 Core 接口，管理类不解析 Org。页面的渲染、原文切换、目录定位与展开状态只使用管理对象快照；普通文件变为项目时保留当前路径，更新文档标题。
 
 项目页首次获取文件，随后通过 Task 更新标题与正文，属性修改不重建整个文档；来自同一 Workspace 的 UI／HTTP 操作由完整任务事件直接归并；同步、reset 或磁盘外部失效由管理器合并刷新，项目宿主注册的一次性文件接收者同时取得最新导言和链接索引。项目正文控件只接收修改回调，组合层将回调转交 updateTask，等待管理层确认后取得同版本的新区块与清单 ID；已提交但确认读取失败时保留草稿并阻止重放。通知打开失败后的重新订阅也统一调用 NotificationManager，不由通知控件拼装底层查询。
 
@@ -444,9 +444,9 @@ Monitor 回调允许继续发起编辑。嵌套更新发生后，来源不再向
 \renewcommand{\tikzumlDefaultFont}{\scriptsize}
 \umlclass[x=0,y=0]{DataSet}{stable rows / confirmed tasks}{taskSource(rowId) / subscribeStructure()}
 \umlclass[x=8,y=0]{TaskDataSource}{current task / monitors}{monitor()}
-\umlclass[x=8,y=-4]{ProjectTaskSection}{source / node / pending}{接收单任务变化 / 读取最新版本}
-\umlclass[x=0,y=-4]{ProjectDocumentView}{sections / visibility}{仅归并结构与筛选变化}
+\umlclass[x=8,y=-4]{OrgFileTaskSection}{source / node / pending}{接收单任务变化 / 读取最新版本}
+\umlclass[x=0,y=-4]{OrgFileDocumentView}{sections / visibility}{仅归并结构与筛选变化}
 \umlcompo{DataSet}{TaskDataSource}
-\umluniassoc{ProjectTaskSection}{TaskDataSource}
-\umldep{ProjectDocumentView}{DataSet}
+\umluniassoc{OrgFileTaskSection}{TaskDataSource}
+\umldep{OrgFileDocumentView}{DataSet}
 \end{tikzpicture}

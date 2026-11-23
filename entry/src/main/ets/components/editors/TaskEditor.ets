@@ -2,7 +2,7 @@ import { reminderPlanning, reminderModification, reminderTimeLabel } from '../..
 import { PageNavigator } from '../../services/PageNavigator'
 import { ReminderManager } from '../../services/ReminderManager'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
-import { ProjectNavigation } from '../../services/ProjectNavigation'
+import { OrgFileNavigation } from '../../services/OrgFileNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
 import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskPriorityPresentation'
 import { TaskEditorController } from '../../ui/TaskEditorController'
@@ -1353,7 +1353,7 @@ export struct TaskEditor {
   async openProject() {
     try {
       if (this.value().project() === null) return
-      await ProjectNavigation.open(this.getUIContext(), this.value().repoId, this.value().filePath)
+      await OrgFileNavigation.open(this.getUIContext(), this.value().repoId, this.value().filePath)
     } catch (_) { this.message = '暂时无法打开项目，请重试。' }
   }
 

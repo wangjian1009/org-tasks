@@ -26,13 +26,12 @@ function load(filename, mocks = {}, transform = source => source) {
 }
 const base = 'entry/src/main/ets/';
 const navigation = load(base + 'ui/OrgDocumentNavigation.ets');
-const projectPresentation = load(base + 'ui/ProjectDocumentPresentation.ets');
-const projectHeader = load(base + 'ui/ProjectHeaderPresentation.ets');
+const projectHeader = load(base + 'ui/OrgFileHeaderPresentation.ets');
 const tagFilter = load(base + 'ui/TaskTagFilterPresentation.ets', {
   './TaskStatePresentation': load(base + 'ui/TaskStatePresentation.ets')
 });
-const projectReading = load(base + 'ui/ProjectReadingPresentation.ets');
-const projectStructure = load(base + 'ui/ProjectStructurePresentation.ets');
+const projectReading = load(base + 'ui/OrgFileReadingPresentation.ets');
+const projectStructure = load(base + 'ui/OrgFileStructurePresentation.ets');
 const swipeMenus = load(base + 'components/controls/RightSwipe.ets', {}, source => source.split('@Component')[0]);
 const taskActions = load(base + 'ui/TaskActionPresentation.ets');
 const internalLinkProcessors = load(base + 'ui/InternalLinkProcessor.ets');
@@ -131,7 +130,7 @@ test('未命中父任务保留其普通子章节路径，已归档与已收起�
 function fixture() {
   const calls = [], toasts = [];
   let evaluate = async () => JSON.stringify({ chapters: [{ index: 0, level: 1, title: '章节' }], activeIndex: 0 });
-  const { FileDetail } = load(base + 'components/OrgFilePreviewView.ets', {
+  const { ConflictView } = load(base + 'components/OrgFileConflictView.ets', {
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
     '@kit.ArkWeb': { webview: { WebviewController: class { async runJavaScript(script) { calls.push(script); return evaluate(script); } } } },
     '../services/AppConfigService': {},
@@ -139,11 +138,10 @@ function fixture() {
     '../services/NativeCoreService': { coreErrorMessage: error => error.message },
     '../ui/SyncLogPresentation': {},
     '../ui/Theme': theme,
-    '../ui/OrgDocumentNavigation': navigation,
-    '../ui/ProjectDocumentPresentation': projectPresentation
+    '../ui/OrgDocumentNavigation': navigation
   }, source => source.split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State |@BuilderParam |@Prop(?: @Watch\('[^']+'\))? /g, '')
-    .replace('export struct OrgFilePreviewView', 'class FileDetail') + '}\nmodule.exports = { FileDetail };');
-  const page = new FileDetail();
+    .replace('export struct OrgFileConflictView', 'class ConflictView') + '}\nmodule.exports = { ConflictView };');
+  const page = new ConflictView();
   page.aboutToAppear();
   page.loading = false;
   page.renderReady = true;
@@ -159,7 +157,7 @@ test('目录读取当前快照，跳转成功后关闭面板', async () => {
   f.evaluate(async () => 'true');
   await f.page.openChapter(f.page.chapters[0]);
   assert.equal(f.page.outlineVisible, false);
-  assert.equal(f.page.content, '');
+  assert.equal(f.page.renderedHtml, '');
 });
 
 test('兼容 Web 引擎对目录字符串进行 JSON 二次编码', async () => {
@@ -183,13 +181,10 @@ test('离开页面后迟到的目录读取不会重新打开面板', async () =>
   assert.equal(f.page.renderReady, false);
 });
 
-test('原文和尚未加载的页面不执行阅读 DOM 操作', async () => {
+test('冲突正文尚未加载时不执行阅读 DOM 操作', async () => {
   const f = fixture();
-  f.page.displayMode = 'source';
-  await f.page.openOutline();
-  await f.page.expandAll(false);
-  f.page.displayMode = 'rendered';
   f.page.renderReady = false;
+  await f.page.expandAll(false);
   await f.page.openOutline();
   await f.page.openChapter({ index: 0, title: '章节', level: 1 });
   assert.deepEqual(f.calls, []);
@@ -201,7 +196,7 @@ test('定位失败保留正文和目录供重试，返回键只关闭面板', as
   f.evaluate(async () => 'false');
   await f.page.openChapter(f.page.chapters[0]);
   assert.equal(f.page.outlineVisible, true);
-  assert.equal(f.page.content, '');
+  assert.equal(f.page.renderedHtml, '');
   assert.match(f.toasts[0], /目录已失效/);
   assert.equal(f.page.navigation.closePanel(), true);
   assert.equal(f.page.outlineVisible, false);
@@ -225,45 +220,29 @@ test('最新目录请求优先；旧章节跳转不修改新文件状态', async
   assert.equal(f.page.activeChapter, -1);
 });
 
-test('正文包装保留安全边界，路径按文本转义，新版式只在文件阅读启用', () => {
+test('冲突和嵌入正文采用各自的版式并保留安全边界', () => {
   const fragment = '<p>原正文</p>';
-  const context = '<script>alert(1)</script> & 仓库';
-  const document = presentation.orgDocumentPage(fragment, false, false, theme.UiColor.surface, 16, true, context);
+  const document = presentation.orgDocumentPage(fragment, false, false, theme.UiColor.surface, 16, true);
   assert.ok(document.includes('script-src \'none\''));
   assert.ok(document.includes('<body class="file-reading">'));
-  assert.ok(document.includes('&lt;script&gt;alert(1)&lt;/script&gt; &amp; 仓库'));
   assert.ok(document.includes(fragment));
-  const embedded = presentation.orgDocumentPage(fragment, false, true, theme.UiColor.surface, 16, true, context);
+  const embedded = presentation.orgDocumentPage(fragment, false, true, theme.UiColor.surface, 16);
   assert.ok(embedded.includes('<body class="embedded">'));
-  assert.ok(!embedded.includes('<div class="file-context">'));
   assert.ok(presentation.orgDocumentPage(fragment, false).includes('<body class="">'));
   assert.ok(presentation.orgDocumentPage('', true, false, theme.UiColor.surface, 16, true).includes('空白 Org 文件'));
   for (const invalid of [-1, 1.5, NaN, Infinity]) assert.equal(navigation.documentChapterScript(invalid), 'false');
 });
 
-test('项目目录只定位标题，不改变当前任务或祖先的展开状态', () => {
+test('冲突文件目录展开目标及其祖先并定位', () => {
   const ancestor = { open: false, matches: () => true, parentElement: null };
   let position;
   const target = { open: false, parentElement: ancestor, matches: () => true,
     scrollIntoView: options => { position = options; } };
   const document = { querySelectorAll: () => [target] };
-  assert.equal(vm.runInNewContext(navigation.documentChapterScript(0, true), { document }), true);
-  assert.equal(target.open, false);
-  assert.equal(ancestor.open, false);
-  assert.equal(position.block, 'start');
   assert.equal(vm.runInNewContext(navigation.documentChapterScript(0), { document }), true);
   assert.equal(target.open, true);
   assert.equal(ancestor.open, true);
-});
-
-test('原文变化定位使用当前快照坐标，切换快照清除旧坐标', async () => {
-  const f = fixture();f.page.displayMode = 'source';
-  f.page.sourceOffsets.set(1, 284);
-  await f.page.focusChange(1);
-  assert.deepEqual(f.page.sourceScroller.lastScroll, { xOffset: 0, yOffset: 284, animation: false });
-  assert.deepEqual(f.calls, []);
-  f.page.snapshotChanged();
-  assert.equal(f.page.sourceOffsets.size, 0);
+  assert.equal(position.block, 'start');
 });
 
 test('文档载入中切换相同正文的版本，完成回调仍只发布最新快照', () => {
@@ -305,47 +284,17 @@ test('任务区块仅版本变化不重载相同正文，正文改变仍加载�
   assert.equal(loads.length, initial + 2);
 });
 
-test('正文带详情卡时在原生滚动容器中定位，离开后的旧定位不会滚动新快照', async () => {
-  const f=fixture();f.page.flowContent=true;f.page.contentWidth=390;f.page.viewportHeight=600;
-  f.page.footerOffset=900;f.evaluate(async()=> '2');
-  await f.page.focusChange(0);
-  assert.deepEqual(f.page.sourceScroller.lastScroll,{xOffset:0,yOffset:660,animation:false});
-  assert.ok(!f.calls.at(-1).includes('scrollIntoView'));
-  let release;f.evaluate(()=>new Promise(resolve=>release=resolve));const pending=f.page.focusChange(0);
-  f.page.snapshotChanged();release('9');await pending;
-  assert.equal(f.page.sourceScroller.lastScroll.yOffset,660);
-  f.page.focusFooter();assert.equal(f.page.sourceScroller.lastScroll.yOffset,690);
-  assert.equal(await f.page.navigation.capturePosition(),690);
-});
-
-test('原文与详情卡共用滚动位置；缺少变化锚点时定位详情卡', async () => {
-  const f=fixture();f.page.flowContent=true;f.page.displayMode='source';f.page.viewportHeight=600;f.page.footerOffset=900;
-  f.page.changes={changes:[{after:{start:{line:4}}}]};f.page.lineOffsets.set(3,128);
-  await f.page.focusChange(0);assert.equal(f.page.sourceScroller.lastScroll.yOffset,128);
-  f.page.snapshotChanged();assert.equal(f.page.lineOffsets.size,0);
-  await f.page.focusChange(0);assert.equal(f.page.sourceScroller.lastScroll.yOffset,690);
-  assert.deepEqual(f.calls,[]);
-});
-
-test('正文随外层滚动时仍保持整篇阅读版式和安全边界', () => {
-  const doc=presentation.orgDocumentPage('<p>正文</p>',false,true,theme.UiColor.surface,16,true,'',true);
-  assert.ok(doc.includes('<body class="file-reading">'));
-  assert.ok(doc.includes("script-src 'none'"));
-  const task=presentation.orgDocumentPage('<p>任务</p>',false,true,theme.UiColor.surface,16,true);
-  assert.ok(task.includes('<body class="embedded">'));
-});
-
-test('嵌入正文点击链接或折叠标题时不进入编辑，正文区域可以选中节点', async () => {
-  let hit='true';const selected=[];
+test('嵌入正文只在点击可编辑正文时进入编辑', async () => {
+  let hit='true', opened=0;
   const { Content }=load(base+'components/OrgContentView.ets',{
-    '@kit.ArkWeb':{webview:{WebviewController:class {async runJavaScript(script){return script.includes('const action =')?hit:'0';}}}},
+    '@kit.ArkWeb':{webview:{WebviewController:class {async runJavaScript(){return hit;}}}},
     '../ui/OrgDocumentPresentation':presentation,'../ui/Theme':theme,
     '../services/NativeCoreService':{coreErrorMessage:e=>e.message},'./LinkView':{LinkEditController:class {async finish(){return true}}}
   },source=>source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? /g,'')
     .replace('export struct OrgContentView','class Content')+'}\nmodule.exports={Content};');
-  const view=new Content();view.loaded=true;view.widthVp=390;view.nodeActivated=index=>selected.push(index);
-  await view.activateAt(20,20);assert.deepEqual(selected,[]);
-  hit='false';await view.activateAt(20,20);assert.deepEqual(selected,[0]);
+  const view=new Content();view.loaded=true;view.widthVp=390;view.activate=()=>{opened++;};
+  await view.activateAt(20,20);assert.equal(opened,0);
+  hit='false';await view.activateAt(20,20);assert.equal(opened,1);
 });
 
 test('区块长按跳过链接与输入表单；切换快照或离开后忽略迟到命中', async () => {
@@ -435,8 +384,6 @@ test('长文档冲突卡片使用 Web 视口定位，保留浏览器滚动位置
   await f.page.focusConflictCard('far-card');
   assert.equal(browser.scrollY,240000);
   assert.equal(parent.open,true);
-  assert.equal(f.page.sourceScroller.lastScroll,undefined);
-  assert.equal(f.page.contentMeasureRevision,0);
   assert.equal(await f.page.navigation.capturePosition(),240000);
   await f.page.navigation.restorePosition(123000);
   assert.equal(browser.scrollY,123000);
@@ -451,8 +398,10 @@ function projectPageFixture() {
   let end = async () => true;
   let capture = '{"open":["org-node-12"],"anchor":"org-node-12","offset":0,"scroll":80}';
   const file = (version = 'v1') => ({ fileVersion: version, hasConflict: false,
-    nodes: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'todo', 'work'], headerEntries: () => [], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
-  const { ProjectDetail } = load(base + 'pages/ProjectDetail.ets', {
+    nodes: () => [], title: () => '普通文档', titleParts: () => [], project: () => '项目', category: () => '工作', fileTags: () => ['project', 'todo', 'work'], headerEntries: () => [], specialTags: () => ['project', 'REFILE', 'ARCHIVE', 'CONFLICT', 'ATTACH'], documentSections: () => [{ path: null, html: '<p>完整文档</p>' }], sourceBytes: () => Buffer.from('项目原文'), renderDocumentHtml: () => '<p>完整文档</p>' });
+  const { OrgFileDetail } = load(base + 'pages/OrgFileDetail.ets', {
+    '../services/ReadingDataManager': {},
+    '../ui/SyncLogPresentation': {},
     '../services/AppDataManager': { AppDataManager: { shared: () => ({ manager: {} }) } },
     '../services/DataManager': { DataManager: class {
       static create(context,page,definitions,options){assert.equal(definitions.length,3);assert.ok(options.parent);assert.ok(definitions.every(item=>item.query.query.includeFiles?.[0]?.path==='project.org'));assert.equal(options.cache,false);assert.equal(definitions[0].query.type,'task');assert.deepEqual(definitions[0].query.query.fullFiles,[{repoId:'core',path:'project.org'}]);return new this();}
@@ -474,28 +423,25 @@ function projectPageFixture() {
       async close(){}
     } },
     '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: value => Buffer.from(value).toString('utf8') }) } } },
-    '../components/ProjectFileHeader': {}, '../ui/ProjectHeaderPresentation': projectHeader,
+    '../components/OrgFileHeader': {}, '../ui/OrgFileHeaderPresentation': projectHeader,
     '../ui/TaskTagFilterPresentation': tagFilter,
     '../services/FileTargetService': { configuredSpecialFileExclusions: () => ({ files: [], repositoryBindings: [] }) },
     '../components/AppShell': {}, '../components/controls/EmptyState': {},
-    '../components/OrgFilePreviewView': { OrgFilePreviewNavigation: class {
+    '../components/OrgFileDocumentView': { OrgFileDocumentNavigation: class {
       async captureReadingState() { return capture; } closePanel() { return false; }
     } },
-    '../components/ProjectDocumentView': { ProjectDocumentNavigation: class {
-      async captureReadingState() { return capture; } closePanel() { return false; }
-    } },
-    '../components/editors/ProjectStructureSheet': { ProjectStructureSheetController: class {} },
-    '../ui/ProjectStructurePresentation': projectStructure,
+    '../components/editors/OrgFileStructureSheet': { OrgFileStructureSheetController: class {} },
+    '../ui/OrgFileStructurePresentation': projectStructure,
     '../ui/InternalLinkProcessor': internalLinkProcessors,
     '../services/AppConfigService': { AppConfigService: { async load() { return { repos: [{ id: 'config', rootDirectory: '/repo', name: '仓库' }] }; } } },
     '../services/NotebookService': { NotebookService: { open: (...args) => open(...args) } },
     '../services/NativeCoreService': { coreErrorMessage: error => error.message,
       NativeCoreService: { async workspaceFor() { return { async repos() { return [{ id: 'core', rootDirectory: '/repo' }]; } }; } } },
-    '../ui/Theme': theme, '../ui/ProjectReadingPresentation': projectReading,
+    '../ui/Theme': theme, '../ui/OrgFileReadingPresentation': projectReading,
     '../services/TaskInlineService': { TaskInlineSession: { active:()=>inlineActive,end: (...args) => end(...args) } }
   }, source => source.split('  build()')[0].replace(/@Entry\n|@Component\n|@Builder\n|@State |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g, '')
-    .replace('struct ProjectDetail', 'class ProjectDetail') + '}\nmodule.exports = { ProjectDetail };');
-  const page = new ProjectDetail(), routes = [];
+    .replace('struct OrgFileDetail', 'class OrgFileDetail') + '}\nmodule.exports = { OrgFileDetail };');
+  const page = new OrgFileDetail(), routes = [];
   page.getUIContext = () => ({ getHostContext: () => ({}), getRouter: () => ({
     getParams: () => ({ repoId: 'core', path: 'project.org' }), replaceUrl: async route => routes.push(route), back: () => routes.push('back')
   }) });
@@ -567,12 +513,12 @@ test('项目页面离开时不再向可能销毁的 Web 发送阅读状态脚本
   assert.equal(f.page.loadRevision, revision + 1);
 });
 
-test('项目文件改为普通文件时跳转，含冲突的项目仍展示文档快照', async () => {
+test('项目文件改为普通文件后沿用同一阅读页面，含冲突的项目仍展示快照', async () => {
   const f = projectPageFixture();
   f.setOpen(async () => ({ ...f.file(), project: () => null }));
-  await f.page.loadFile(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes[0].url, 'pages/FileDetail');
+  await f.page.loadFile(); await new Promise(resolve=>setImmediate(resolve)); assert.deepEqual(f.routes, []); assert.equal(f.page.title, '普通文档');
   f.setOpen(async () => ({ ...f.file(), hasConflict: true }));
-  await f.page.refreshFile(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes.length, 1);
+  await f.page.refreshFile(); await new Promise(resolve=>setImmediate(resolve)); assert.equal(f.routes.length, 0);
   assert.equal(f.page.content, '项目原文');
   assert.equal(f.page.sections[0].html, '<p>完整文档</p>');
 });
@@ -580,15 +526,15 @@ test('项目文件改为普通文件时跳转，含冲突的项目仍展示文�
 test('项目跳转等待草稿保存成功，失败保留页面，成功使用真实文件身份', async () => {
   const routes = [];
   let saved = false;
-  const { ProjectNavigation } = load(base + 'services/ProjectNavigation.ets', {
+  const { OrgFileNavigation } = load(base + 'services/OrgFileNavigation.ets', {
     './TaskInlineService': { TaskInlineSession: { async end(collapse) { assert.equal(collapse, true); return saved; } } }
   });
   const context = { getRouter: () => ({ async pushUrl(route) { routes.push(route); } }), getPromptAction: () => ({ showToast() {} }) };
-  assert.equal(await ProjectNavigation.open(context, 'core', 'folder/project.org'), false);
+  assert.equal(await OrgFileNavigation.open(context, 'core', 'folder/project.org'), false);
   assert.deepEqual(routes, []);
   saved = true;
-  assert.equal(await ProjectNavigation.open(context, 'core', 'folder/project.org'), true);
-  assert.deepEqual(routes, [{ url: 'pages/ProjectDetail', params: { repoId: 'core', path: 'folder/project.org' } }]);
+  assert.equal(await OrgFileNavigation.open(context, 'core', 'folder/project.org'), true);
+  assert.deepEqual(routes, [{ url: 'pages/OrgFileDetail', params: { repoId: 'core', path: 'folder/project.org' } }]);
 });
 
 test('项目分段一次批量关联全部节点，保留重名标题与无状态章节', () => {
@@ -650,17 +596,16 @@ test('项目目录仅列普通章节，保留任务下的章节与重名路径�
 
 function nativeProjectFixture() {
   let save = async () => true;
-  const { View } = load(base + 'components/ProjectDocumentView.ets', {
+  const { View } = load(base + 'components/OrgFileDocumentView.ets', {
     '../services/PageDataSnapshot': load(base + 'services/PageDataSnapshot.ets'),
-    '../ui/ProjectReadingPresentation': projectReading,
-    '../ui/ProjectStructurePresentation': projectStructure,
-    './OrgFilePreviewView': { OrgFilePreviewNavigation: class {} },
-    './ProjectFileHeader': { ProjectHeaderNavigation: class { close() { return false; } } },
+    '../ui/OrgFileReadingPresentation': projectReading,
+    '../ui/OrgFileStructurePresentation': projectStructure,
+    './OrgFileHeader': { OrgFileHeaderNavigation: class { close() { return false; } } },
     './controls/RightSwipe': swipeMenus,
     '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args), active: () => false } }
   }, source => source.split('  @Builder\n')[0]
     .replace(/@Component\n|@State |@Prop(?: @Watch\('[^']+'\))? |@StorageLink\('[^']+'\) @Watch\('[^']+'\) /g, '')
-    .replace('export struct ProjectDocumentView', 'class View') + '}\nmodule.exports = { View };');
+    .replace('export struct OrgFileDocumentView', 'class View') + '}\nmodule.exports = { View };');
   const view = new View(); view.aboutToAppear();
   function section(key, title, offset, linkTargets = [], occurrence = 1) {
     const fullPath = { repoId: 'r', file: 'p.org', titles: ['上级', title], occurrence };
@@ -752,8 +697,8 @@ test('标签窗口隐藏内部标签，修改普通互斥组仍保留原有项�
 test('项目返回先保存原位编辑，保存失败不离开页面', async () => {
   const f = projectPageFixture();
   f.setEnd(async collapse => { assert.equal(collapse, true); return false; });
-  await f.page.leaveProject(); assert.deepEqual(f.routes, []);
-  f.setEnd(async () => true); await f.page.leaveProject(); assert.deepEqual(f.routes, ['back']);
+  await f.page.leaveFile(); assert.deepEqual(f.routes, []);
+  f.setEnd(async () => true); await f.page.leaveFile(); assert.deepEqual(f.routes, ['back']);
 });
 
 test('项目任务展开后可从更多菜单查看和收起日志，没有日志时隐藏入口', () => {
@@ -842,13 +787,13 @@ test('项目属性变化保留文档结构，新增删除与移动仅更新成�
 
 test('项目章节按稳定任务身份订阅，属性修改保留正文修订，正文变化仅更新当前章节', () => {
  const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);let active=false,listener,stopped=false;
- const {Section}=load(base+'components/ProjectTaskSection.ets',{
+ const {Section}=load(base+'components/OrgFileTaskSection.ets',{
   './controls/PopupMenuButton': {},
   './TaskSelectionRow': {},
   '../services/PageDataEquality':{samePageValue:equal},'../services/TaskInlineService':{TaskInlineSession:{active:()=>active}},
   '../ui/TaskActionPresentation':taskActions,
   '../ui/Theme':theme
- },source=>source.split('  build()')[0].replace(/@Component\n|@Builder\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
+ },source=>source.split('  build()')[0].replace(/@Component\n|@Builder\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct OrgFileTaskSection','class Section')+'}\nmodule.exports={Section};');
  const value=(body='正文',extra={})=>({id:'a',heading:'标题',modifiedAt:null,fileVersion:'v1',editContent:{blocks:[{id:'10',kind:'text',source:body,html:'<p>'+body+'</p>',paragraph:true,blankLinesBefore:0,items:[]}]},...extra});
  const source={task:value(),monitor(fn){listener=change=>{source.task=change.task;fn(change)};fn({task:source.task});return()=>stopped=true}};
  const section=new Section();section.taskId='stable-a';section.dataSet={taskSource(id){assert.equal(id,'stable-a');return source}};
@@ -922,12 +867,12 @@ test('文件配置分行穿过元信息缓存，旧缓存恢复为单行', () =>
 
 function headerEditorFixture() {
   class WriteError extends Error { constructor(message, committed) { super(message); this.committed = committed; } }
-  const { Header } = load(base + 'components/ProjectFileHeader.ets', {
+  const { Header } = load(base + 'components/OrgFileHeader.ets', {
     '@kit.ArkUI': {}, '@kit.BasicServicesKit': {}, '../services/NativeCoreService': {},
     '../ui/Theme': theme, '../services/DataSet': { DataSetWriteError: WriteError },
     '../services/TaskInlineService': { TaskInlineSession: { begin: async () => true, release() {} } }
   }, source => source.split('  @Builder\n')[0].replace(/@Component\n|@State |@Prop /g, '')
-    .replace('export struct ProjectFileHeader', 'class Header') + '}\nmodule.exports = { Header };');
+    .replace('export struct OrgFileHeader', 'class Header') + '}\nmodule.exports = { Header };');
   const header = new Header(), calls = [], dialogs = [];
   header.alive = true;
   header.getUIContext = () => ({ showAlertDialog: value => dialogs.push(value), getPromptAction: () => ({ showToast() {} }) });
@@ -1039,11 +984,11 @@ test('项目属性编辑期间父级分类候选继续更新，不覆盖本地�
 
 test('项目单章节保存直接读取来源最新版本，删除通知清除节点且退出取消 Monitor', async()=>{
  let callback,cancelled=false;const source={task:{fileVersion:'v1',editContent:{blocks:[]}},monitor(fn){callback=fn;fn({task:this.task});return()=>cancelled=true}};
- const {Section}=load(base+'components/ProjectTaskSection.ets',{
+ const {Section}=load(base+'components/OrgFileTaskSection.ets',{
   './controls/PopupMenuButton': {}, './TaskSelectionRow': {},
   '../ui/TaskActionPresentation':taskActions,
   '../services/TaskInlineService':{TaskInlineSession:{active:()=>false}},'../ui/Theme':theme
- },text=>text.split('  build()')[0].replace(/@Component\n|@Builder\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct ProjectTaskSection','class Section')+'}\nmodule.exports={Section};');
+ },text=>text.split('  build()')[0].replace(/@Component\n|@Builder\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct OrgFileTaskSection','class Section')+'}\nmodule.exports={Section};');
  const section=new Section(),writes=[];section.taskId='row';section.dataSet={taskSource:()=>source,async updateTask(...args){writes.push(args);return source.task}};
  section.aboutToAppear();source.task={...source.task,fileVersion:'v2'};
  assert.equal(section.node.fileVersion,'v1');await section.modify([{field:'PRIORITY',value:'A'}]);assert.equal(writes[0][2],'v2');

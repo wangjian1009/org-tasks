@@ -8,19 +8,19 @@ import { TaskActionItem, TaskOperation, taskPageActionPolicy, taskSelectItem } f
 import { UiColor } from '../ui/Theme'
 import { TaskSwipeItem } from './TaskSwipeItem'
 import { OrgHeadingView } from './OrgHeadingView'
-import { ProjectSectionBody } from './ProjectSectionBody'
+import { OrgFileSectionBody } from './OrgFileSectionBody'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 import { PopupMenuItem } from './controls/PopupMenu'
 import { PopupMenuButton } from './controls/PopupMenuButton'
 import { TaskSelectionRow } from './TaskSelectionRow'
-import { ProjectEditPhase, ProjectEditRow } from '../ui/ProjectStructurePresentation'
+import { OrgFileEditPhase, OrgFileEditRow } from '../ui/OrgFileStructurePresentation'
 
 interface ProjectBlockItemValue { text: string; checked: boolean; partial: boolean; depth: number }
 interface ProjectBlockValue { kind: string; source: string; html: string; paragraph: boolean; blankLinesBefore: number; items: ProjectBlockItemValue[] }
 
 // 章节按稳定行身份订阅 Task，属性变化不重建文档容器或其他章节。
 @Component
-export struct ProjectTaskSection {
+export struct OrgFileTaskSection {
   dataSet: DataSet | undefined = undefined
   taskId: string = ''
   @Prop specialTags: string[] = []
@@ -32,8 +32,8 @@ export struct ProjectTaskSection {
   menuCoordinator: SwipeMenuCoordinator | undefined = undefined
   @Prop canOrderChildren: boolean = false
   structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
-  @Prop editPhase: ProjectEditPhase = 'idle'
-  @Prop editRow: ProjectEditRow | undefined = undefined
+  @Prop editPhase: OrgFileEditPhase = 'idle'
+  @Prop editRow: OrgFileEditRow | undefined = undefined
   @Prop editBusy: boolean = false
   @Prop refactoring: boolean = false
   @Prop targetChosen: boolean = false
@@ -166,7 +166,7 @@ export struct ProjectTaskSection {
             } }).width('100%')
         }
         if (!this.node.state || this.hasChildren) {
-          ProjectSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
+          OrgFileSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
             return await this.modify(changes, task.fileVersion)
           }, readTask: (): CoreTask | undefined => this.source?.task,
             internalLinkProcessor: this.internalLinkProcessor, task: this.node, blocks: this.node.editContent.blocks,

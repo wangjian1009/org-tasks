@@ -1,14 +1,14 @@
 import { CoreTask, CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
-import { ProjectCreateService } from '../../services/ProjectCreateService'
-import { ProjectRepositoryOption, ProjectRegionDraft, projectFileName, projectInputError } from '../../ui/ProjectCreatePresentation'
+import { OrgFileCreateService } from '../../services/OrgFileCreateService'
+import { OrgFileRepositoryOption, OrgFileRegionDraft, projectFileName, projectInputError } from '../../ui/OrgFileCreatePresentation'
 import { window } from '@kit.ArkUI'
 import { UiColor } from '../../ui/Theme'
 
 @Component
-export struct ProjectCreateSheet {
+export struct OrgFileCreateSheet {
   source: CoreTask | undefined = undefined
   @Link generating: boolean
-  @Prop repositories: ProjectRepositoryOption[] = []
+  @Prop repositories: OrgFileRepositoryOption[] = []
   @Prop initialRepoId: string = ''
   @Prop initialRegion: string = ''
   @Prop initialName: string = ''
@@ -18,7 +18,7 @@ export struct ProjectCreateSheet {
   @State region: string = ''
   @State addingRegion: boolean = false
   @State newRegionName: string = ''
-  @State newRegions: ProjectRegionDraft[] = []
+  @State newRegions: OrgFileRegionDraft[] = []
   @State name: string = ''
   @State fileName: string = ''
   @State inputError: string = ''
@@ -91,7 +91,7 @@ export struct ProjectCreateSheet {
     if (!this.source) { this.inputError = '原记录已失效，请重新打开'; return }
     this.generating = true
     try {
-      const group = await ProjectCreateService.operationGroup(this.getUIContext().getHostContext()!, this.source,
+      const group = await OrgFileCreateService.operationGroup(this.getUIContext().getHostContext()!, this.source,
         { repoId: this.repoId, region: this.region }, this.name.trim(), projectFileName(this.fileName))
       if (this.active) this.generated(group)
     } catch (error) { if (this.active) this.inputError = coreErrorMessage(error as CoreBridgeError) }
@@ -163,7 +163,7 @@ export struct ProjectCreateSheet {
           Row({ space: 12 }) {
             Text('位置').fontSize(16).fontColor(UiColor.text).width(64)
             Row({ space: 8 }) {
-              Select(this.repositories.map((option: ProjectRepositoryOption): SelectOption => ({ value: option.name })))
+              Select(this.repositories.map((option: OrgFileRepositoryOption): SelectOption => ({ value: option.name })))
                 .id('project_create_repository').selected(Math.max(0, this.repositories.findIndex(option => option.repoId === this.repoId)))
                 .value(this.repositories.find(option => option.repoId === this.repoId)?.name || '选择存储库')
                 .layoutWeight(1).height(48).font({ size: 14 }).fontColor(UiColor.text).backgroundColor('#414542')

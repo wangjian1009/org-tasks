@@ -1,6 +1,5 @@
-import { CoreSettings } from 'liborg_tasks_harmony.so'
-import { AppConfig, RepoConfig } from '../models/OrgTask'
-import { CoreBridgeError, CoreOrgFile, CoreOrgFileMetadata, NativeCoreService, fileResult, coreErrorMessage } from './NativeCoreService'
+import { AppConfig } from '../models/OrgTask'
+import { CoreBridgeError, CoreOrgFileMetadata, NativeCoreService, fileResult, coreErrorMessage } from './NativeCoreService'
 import { PageQueryService } from './PageQueryService'
 import { repositoryLabel } from '../ui/Theme'
 
@@ -29,17 +28,5 @@ export class NotebookService {
         rootDirectory: repo.rootDirectory, files: files.filter(file => file.repoId === repo.id), message })
     }
     return groups
-  }
-
-  // 完整阅读只打开目标仓库和文件，不查询或过滤任务列表。
-  static async open(repositories: RepoConfig[], repoId: string, path: string,
-    todoDefaults?: string, coreSettings?: CoreSettings): Promise<CoreOrgFile | undefined> {
-    const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
-    const repo = (await workspace.repos()).find((item) => item.id === repoId)
-    if (!repo) return undefined
-    const files = fileResult((await workspace.query([{ type: 'file', query: {
-      includeFiles: [{ repoId, path }], includeIgnored: true } }]))[0])
-    if (!files.some((file: CoreOrgFileMetadata) => file.path === path)) return undefined
-    return await repo.file(path)
   }
 }

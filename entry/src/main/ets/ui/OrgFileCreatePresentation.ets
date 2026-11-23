@@ -1,11 +1,11 @@
-export interface ProjectRepositoryOption {
+export interface OrgFileRepositoryOption {
   repoId: string
   name: string
   regions: string[]
 }
 
-export interface ProjectLocation { repoId: string; region: string }
-export interface ProjectRegionDraft { repoId: string; name: string }
+export interface OrgFileLocation { repoId: string; region: string }
+export interface OrgFileRegionDraft { repoId: string; name: string }
 
 export function projectFileName(name: string): string {
   const trimmed = name.trim()

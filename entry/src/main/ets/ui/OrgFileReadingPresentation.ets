@@ -1,6 +1,6 @@
 import { CoreOrgFile, CoreTask, CoreDocumentSection, CoreContentBlock, CoreDocumentLinkTarget } from '../services/NativeCoreService'
 
-export interface ProjectReadingSection {
+export interface OrgFileReadingSection {
   key: string
   node: CoreTask | null
   html: string
@@ -9,10 +9,10 @@ export interface ProjectReadingSection {
 }
 
 // 只组装 Core 提供的同版本节点与直属正文，不解释 Org 或筛选任务。
-export function projectReadingSections(file: CoreOrgFile, tasks: CoreTask[] = file.nodes()): ProjectReadingSection[] {
+export function projectReadingSections(file: CoreOrgFile, tasks: CoreTask[] = file.nodes()): OrgFileReadingSection[] {
   const nodes: Map<string, CoreTask> = new Map()
   tasks.forEach((node: CoreTask) => { nodes.set(JSON.stringify(node.fullPath), node) })
-  return file.documentSections().map((section: CoreDocumentSection): ProjectReadingSection => {
+  return file.documentSections().map((section: CoreDocumentSection): OrgFileReadingSection => {
     const key = section.path ? JSON.stringify(section.path) : 'preamble'
     const node = section.path ? nodes.get(key) : null
     if (section.path && !node) throw new Error('文档节点与正文版本不一致，请刷新项目。')
@@ -25,8 +25,8 @@ export function visibleProjectTags(tags: string[], specialTags: string[]): strin
 }
 
 // 目录只列普通章节；任务及其直属正文仍保留在完整文档中。
-export function projectOutlineSections(sections: ProjectReadingSection[]): ProjectReadingSection[] {
-  return sections.filter((section: ProjectReadingSection) => section.node !== null && !section.node.state)
+export function projectOutlineSections(sections: OrgFileReadingSection[]): OrgFileReadingSection[] {
+  return sections.filter((section: OrgFileReadingSection) => section.node !== null && !section.node.state)
 }
 
 // 原文边界由 Core 提供；首段无外留白，普通段落之间只在多空行时增加固定段距。
@@ -38,28 +38,28 @@ export function projectContentGap(blocks: CoreContentBlock[], index: number): nu
 }
 
 // 成员与源顺序变化才更新文档容器，属性和正文由各章节的任务订阅局部更新。
-export function reconcileProjectSections(previous: ProjectReadingSection[], tasks: CoreTask[], key: (task: CoreTask) => string): ProjectReadingSection[] {
+export function reconcileProjectSections(previous: OrgFileReadingSection[], tasks: CoreTask[], key: (task: CoreTask) => string): OrgFileReadingSection[] {
   const preamble = previous.filter(section => section.node === null)
-  const old = new Map<string, ProjectReadingSection>()
+  const old = new Map<string, OrgFileReadingSection>()
   for (const section of previous) if (section.node) old.set(section.key, section)
-  const next = preamble.concat(tasks.map((task: CoreTask): ProjectReadingSection => {
+  const next = preamble.concat(tasks.map((task: CoreTask): OrgFileReadingSection => {
     const identity = key(task)
     return old.get(identity) ?? { key: identity, node: task, html: '', blocks: task.editContent.blocks, linkTargets: [] }
   }))
   return previous.length === next.length && previous.every((section, index) => section === next[index]) ? previous : next
 }
 
-export interface ProjectReadingItem {
-  section: ProjectReadingSection
+export interface OrgFileReadingItem {
+  section: OrgFileReadingSection
   hasChildren: boolean
   contextOnly: boolean
   visible: boolean
 }
 
 // 完整保留源节点；标签命中集合由 Core 查询提供，展示只更新可见性与祖先路径。
-export function projectReadingItems(sections: ProjectReadingSection[], matches: string[] | null = null,
-  revealed: string[] = [], editLevels?: Map<string, number>): ProjectReadingItem[] {
-  const result: ProjectReadingItem[] = []
+export function projectReadingItems(sections: OrgFileReadingSection[], matches: string[] | null = null,
+  revealed: string[] = [], editLevels?: Map<string, number>): OrgFileReadingItem[] {
+  const result: OrgFileReadingItem[] = []
   const parents: number[] = []
   const available: boolean[] = []
   const ancestors: number[] = []

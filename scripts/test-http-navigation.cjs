@@ -36,7 +36,7 @@ function fixture() {
   return {call,navigator,applied,queries,task,missing(){missing=true},plain(){project=false},block(){canLeave=false},busy(){busy=true},failSave(){failSave=true},stop(){active=false},delay(value){delay=value}};
 }
 const overview=view=>({pages:[{url:'pages/'+view[0].toUpperCase()+view.slice(1)}]});
-const projectPath={pages:[{url:'pages/Files'},{url:'pages/ProjectDetail',params:{repoId:'core',path:'project.org'}}]};
+const projectPath={pages:[{url:'pages/Files'},{url:'pages/OrgFileDetail',params:{repoId:'core',path:'project.org'}}]};
 test('GET 返回真实路径，PUT 设置完整带参数路径并返回实际状态',async()=>{
   const f=fixture();assert.deepEqual((await f.call('GET')).body,overview('today'));
   const result=await f.call('PUT',projectPath);assert.equal(result.status,200);assert.deepEqual(result.body,projectPath);
@@ -45,7 +45,7 @@ test('GET 返回真实路径，PUT 设置完整带参数路径并返回实际状
 test('空路径、错误结构、无效页面、参数类型和视图在跳转前拒绝',async()=>{
   const f=fixture();for(const body of [null,[],{},'{bad',{pages:[]},{pages:Array(33).fill({url:'pages/Files'})},
     {pages:[{url:'pages/Capture'}]},overview('bad'),{pages:[{url:'pages/Files',params:{view:'today'}}]},
-    {pages:[{url:'pages/FileDetail',params:{repoId:'core',path:1}}]}, {pages:[{url:'pages/MemoEdit',params:{}}]},
+    {pages:[{url:'pages/OrgFileDetail',params:{repoId:'core',path:1}}]}, {pages:[{url:'pages/MemoEdit',params:{}}]},
     {pages:[{url:'pages/MemoEdit',params:{create:'true'}}]}, {pages:[{url:'pages/Settings',params:{section:'不存在'}}]}]) {
     const result=await f.call('PUT',body);assert.equal(result.status,400,JSON.stringify(body));
   } assert.equal(f.applied.length,0);
@@ -65,9 +65,9 @@ test('并发请求与等待期间关闭服务不执行迟到跳转',async()=>{
   f.stop();release();assert.equal((await pending).status,409);assert.equal(f.applied.length,0);
   assert.equal((await f.call('GET')).status,503);
 });
-test('普通文件入口自动规范化项目路径，省略任务视图时规范化为今天',async()=>{
-  const f=fixture();const result=await f.call('PUT',{pages:[{url:'pages/FileDetail',params:{repoId:'core',path:'project.org'}}]});
-  assert.equal(result.status,200);assert.equal(result.body.pages[0].url,'pages/ProjectDetail');
+test('Org 文件入口保留统一路径，省略任务视图时规范化为今天',async()=>{
+  const f=fixture();const result=await f.call('PUT',{pages:[{url:'pages/OrgFileDetail',params:{repoId:'core',path:'project.org'}}]});
+  assert.equal(result.status,200);assert.equal(result.body.pages[0].url,'pages/OrgFileDetail');
   assert.deepEqual((await f.call('PUT',{pages:[{url:'pages/Today'}]})).body,overview('today'));
 });
 test('备忘按稳定身份读取真实 native Task，JSON 不能伪造编辑快照',async()=>{

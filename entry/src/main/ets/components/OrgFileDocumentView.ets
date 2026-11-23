@@ -1,22 +1,24 @@
 import { DataSet } from '../services/DataSet'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
-import { ProjectReadingSection, projectOutlineSections, projectReadingItems, ProjectReadingItem } from '../ui/ProjectReadingPresentation'
-import { OrgFilePreviewNavigation } from './OrgFilePreviewView'
-import { ProjectSectionBody } from './ProjectSectionBody'
-import { ProjectTaskSection } from './ProjectTaskSection'
+import { OrgFileReadingSection, projectOutlineSections, projectReadingItems, OrgFileReadingItem } from '../ui/OrgFileReadingPresentation'
+import { OrgFileSectionBody } from './OrgFileSectionBody'
+import { OrgFileTaskSection } from './OrgFileTaskSection'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { UiColor } from '../ui/Theme'
 import { TitleText } from './TitleText'
 import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
-import { ProjectFileHeader, ProjectHeaderNavigation } from './ProjectFileHeader'
+import { OrgFileHeader, OrgFileHeaderNavigation } from './OrgFileHeader'
 import { CoreFileHeaderEntry, CoreFileHeaderValueChange, CoreTaskPath } from '../services/NativeCoreService'
 import { samePageValue } from '../services/PageDataEquality'
 import { samePagePath } from '../services/PageDataSnapshot'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 import { PopupMenuItem } from './controls/PopupMenu'
-import { ProjectEditRow, ProjectEditView, projectEditIdle } from '../ui/ProjectStructurePresentation'
+import { OrgFileEditRow, OrgFileEditView, projectEditIdle } from '../ui/OrgFileStructurePresentation'
 
-export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
+export class OrgFileDocumentNavigation {
+  captureReadingState: () => Promise<string> = async () => ''
+  openOutline: () => void = () => {}
+  closePanel: () => boolean = () => false
   locateSection: (path: CoreTaskPath) => Promise<boolean> = async (): Promise<boolean> => false
   locateCreated: (row: string, reveal: boolean) => Promise<boolean> = async () => false
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
@@ -25,18 +27,20 @@ export class ProjectDocumentNavigation extends OrgFilePreviewNavigation {
 
 // 原生标题和任务行与安全 HTML 正文共用一个滚动容器。
 @Component
-export struct ProjectDocumentView {
+export struct OrgFileDocumentView {
+  @Prop readOnly: boolean = false
+  @Prop fileContext: string = ''
   dataSet: DataSet | undefined = undefined
   private taskDataSet(): DataSet {
     if (!this.dataSet) throw new Error('项目文件数据集尚未载入')
     return this.dataSet
   }
 
-  @Prop @Watch('updateDocument') sections: ProjectReadingSection[] = []
+  @Prop @Watch('updateDocument') sections: OrgFileReadingSection[] = []
   @Prop @Watch('updateDocument') matchedIds: string[] = []
   @Prop @Watch('updateDocument') tagFiltered: boolean = false
-  @State readingItems: ProjectReadingItem[] = []
-  @State displayedSections: ProjectReadingSection[] = []
+  @State readingItems: OrgFileReadingItem[] = []
+  @State displayedSections: OrgFileReadingSection[] = []
   @State visibleKeys: string[] = []
   @State contextKeys: string[] = []
   @State parentKeys: string[] = []
@@ -62,12 +66,12 @@ export struct ProjectDocumentView {
   @Prop @Watch('snapshotChanged') revision: string = ''
   @Prop readingState: string = ''
   @Prop @Watch('visibilityChanged') showing: boolean = true
-  navigation: ProjectDocumentNavigation = new ProjectDocumentNavigation()
+  navigation: OrgFileDocumentNavigation = new OrgFileDocumentNavigation()
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   ready: () => void = () => {}
   @Prop structureOrderParents: string[] = []
   structureActions: (row: string, canOrder: boolean) => PopupMenuItem[] = () => []
-  @Prop @Watch('editingChanged') edit: ProjectEditView = projectEditIdle()
+  @Prop @Watch('editingChanged') edit: OrgFileEditView = projectEditIdle()
   @Prop editBusy: boolean = false
   selectNode: (row: string) => void = () => {}
   placeNode: (row: string) => void = () => {}
@@ -76,15 +80,15 @@ export struct ProjectDocumentView {
   reorderNode: (row: string, sibling: string) => void = () => {}
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
-  @State outlineItems: ProjectReadingSection[] = []
-  private headerNavigation: ProjectHeaderNavigation = new ProjectHeaderNavigation()
+  @State outlineItems: OrgFileReadingSection[] = []
+  private headerNavigation: OrgFileHeaderNavigation = new OrgFileHeaderNavigation()
   private swipeMenus: SwipeMenuCoordinator = new SwipeMenuCoordinator()
   private stopTasks: (() => void) | undefined = undefined
   private updatePending: boolean = false
 
-  linkSection(target: string): ProjectReadingSection | undefined {
+  linkSection(target: string): OrgFileReadingSection | undefined {
     let priority = Infinity
-    let found: ProjectReadingSection | undefined = undefined
+    let found: OrgFileReadingSection | undefined = undefined
     for (const section of this.sections) {
       if (!this.visibleKeys.includes(section.key)) continue
       for (const destination of section.linkTargets) {
@@ -139,7 +143,7 @@ export struct ProjectDocumentView {
       if (!section || !this.active || !this.showing) throw new Error('内部链接目标不存在或项目文档已隐藏')
       const located = section.node
         ? await this.navigation.locateSection(section.node.fullPath)
-        : await this.scrollToSection((): ProjectReadingSection | undefined => {
+        : await this.scrollToSection((): OrgFileReadingSection | undefined => {
           const current = this.linkSection(target)
           return current?.key === section.key ? current : undefined
         })
@@ -183,7 +187,7 @@ export struct ProjectDocumentView {
   }
 
   private locateSection(path: CoreTaskPath): Promise<boolean> {
-    return this.scrollToSection((): ProjectReadingSection | undefined => this.sections.find(section => {
+    return this.scrollToSection((): OrgFileReadingSection | undefined => this.sections.find(section => {
       const node = this.dataSet?.getTask(section.key) ?? section.node
       return node !== null && samePagePath(node.fullPath, path)
     }))
@@ -204,7 +208,7 @@ export struct ProjectDocumentView {
       this.updateDocument()
     }
     for (let attempt = 0; attempt < 12 && this.active && this.showing; attempt++) {
-      if (await this.scrollToSection((): ProjectReadingSection | undefined => this.sections.find(section => section.key === row))) {
+      if (await this.scrollToSection((): OrgFileReadingSection | undefined => this.sections.find(section => section.key === row))) {
         this.highlightedRow = row
         clearTimeout(this.highlightTimer)
         this.highlightTimer = setTimeout((): void => { this.highlightedRow = '' }, 2400)
@@ -215,7 +219,7 @@ export struct ProjectDocumentView {
     return false
   }
 
-  private async scrollToSection(resolve: () => ProjectReadingSection | undefined): Promise<boolean> {
+  private async scrollToSection(resolve: () => OrgFileReadingSection | undefined): Promise<boolean> {
     const revision = this.navigationRevision
     if (!this.active || !this.showing || !resolve() || !await TaskInlineSession.end(false)) return false
     if (!this.active || !this.showing || revision !== this.navigationRevision) return false
@@ -232,7 +236,7 @@ export struct ProjectDocumentView {
   }
 
   updateOutline(): void {
-    this.outlineItems = projectOutlineSections(this.readingItems.filter(item => item.visible).map(item => item.section).map((section: ProjectReadingSection): ProjectReadingSection => ({
+    this.outlineItems = projectOutlineSections(this.readingItems.filter(item => item.visible).map(item => item.section).map((section: OrgFileReadingSection): OrgFileReadingSection => ({
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     })))
@@ -241,7 +245,7 @@ export struct ProjectDocumentView {
   updateDocument(): void {
     if (TaskInlineSession.active()) { this.updatePending = true; return }
     this.updatePending = false
-    const current = this.sections.map((section: ProjectReadingSection): ProjectReadingSection => ({
+    const current = this.sections.map((section: OrgFileReadingSection): OrgFileReadingSection => ({
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     }))
@@ -249,7 +253,7 @@ export struct ProjectDocumentView {
     const levels = new Map<string, number>()
     let displayed = current
     if (editing) {
-      const byRow = new Map<string, ProjectReadingSection>()
+      const byRow = new Map<string, OrgFileReadingSection>()
       current.forEach(section => byRow.set(section.key, section))
       displayed = current.filter(section => section.node === null)
       for (const row of this.edit.rows) {
@@ -275,7 +279,7 @@ export struct ProjectDocumentView {
     this.updateDocument()
   }
 
-  private draftRow(row: string): ProjectEditRow | undefined { return this.edit.rows.find(item => item.row === row) }
+  private draftRow(row: string): OrgFileEditRow | undefined { return this.edit.rows.find(item => item.row === row) }
 
   private dragRow(row: string, offset: number, dropped: boolean): void {
     if (this.editBusy || !this.edit.refactoring || this.edit.phase !== 'select') return
@@ -315,7 +319,7 @@ export struct ProjectDocumentView {
         Text('本文没有章节标题').fontSize(14).fontColor(UiColor.secondary).padding(24)
       }
       List() {
-        ForEach(this.outlineItems, (section: ProjectReadingSection) => {
+        ForEach(this.outlineItems, (section: OrgFileReadingSection) => {
           if (section.node) {
             ListItem() {
               Column({ space: 0 }) {
@@ -348,7 +352,7 @@ export struct ProjectDocumentView {
                 .accessibilityDescription(`${section.node.level} 级章节，点击定位正文`)
             }
           }
-        }, (section: ProjectReadingSection) => section.key)
+        }, (section: OrgFileReadingSection) => section.key)
       }.width('100%').layoutWeight(1)
     }.width('100%').height('100%').padding(24)
   }
@@ -356,8 +360,11 @@ export struct ProjectDocumentView {
   build() {
     Scroll(this.scroller) {
       Column() {
-        if (this.headerEntries.length > 0 || this.tagOptions.length > 0 || this.category) {
-          ProjectFileHeader({ headerEntries: this.headerEntries, fileVersion: this.headerVersion, categoryOptions: this.categoryOptions,
+        if (this.fileContext) {
+          Text(this.fileContext).fontSize(12).fontColor(UiColor.secondary).width('100%').padding(8)
+        }
+        if (!this.readOnly && (this.headerEntries.length > 0 || this.tagOptions.length > 0 || this.category)) {
+          OrgFileHeader({ headerEntries: this.headerEntries, fileVersion: this.headerVersion, categoryOptions: this.categoryOptions,
             beforeEdit: this.beforeHeaderEdit, save: this.saveHeader, navigation: this.headerNavigation,
             tags: this.tagOptions, selectedTags: this.selectedTags,
             category: this.category, selectedCategory: this.selectedCategory,
@@ -367,14 +374,21 @@ export struct ProjectDocumentView {
               this.scheduleInitialOffset()
             })
         }
-        ForEach(this.displayedSections, (section: ProjectReadingSection) => {
+        ForEach(this.displayedSections, (section: OrgFileReadingSection) => {
           Column({ space: section.node ? 0 : 12 }) {
             if (this.dropRow === section.key && !this.dropAfter) { Divider().color(UiColor.primary).strokeWidth(2) }
             if (!section.node && section.blocks.length > 0) {
               Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
             }
-            if (section.node) {
-              ProjectTaskSection({ dataSet: this.taskDataSet(), taskId: section.key, hasChildren: this.parentKeys.includes(section.key), contextOnly: this.contextKeys.includes(section.key),
+            if (section.node && this.readOnly) {
+              TitleText({ text: section.node.heading, parts: section.node.headingParts, textSize: 17, weight: FontWeight.Medium })
+                .width('100%').padding({ left: Math.min(section.node.level - 1, 4) * 12, top: 8 })
+              if (section.blocks.length > 0) {
+                OrgFileSectionBody({ task: null, blocks: section.blocks, internalLinkProcessor: this.internalLinkProcessor })
+                  .width('100%')
+              }
+            } else if (section.node) {
+              OrgFileTaskSection({ dataSet: this.taskDataSet(), taskId: section.key, hasChildren: this.parentKeys.includes(section.key), contextOnly: this.contextKeys.includes(section.key),
                 menuCoordinator: this.swipeMenus, interactionEnabled: this.showing && this.visibleKeys.includes(section.key),
                 canOrderChildren: this.structureOrderParents.includes(section.key),
                 structureActions: (canOrder: boolean): PopupMenuItem[] => this.structureActions(section.key, canOrder),
@@ -386,7 +400,7 @@ export struct ProjectDocumentView {
                 cancelDrag: (): void => { this.dropRow = '' },
                 internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
             } else if (section.blocks.length > 0) {
-              ProjectSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
+              OrgFileSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
                 contentBackground: UiColor.projectBlock }).width('100%')
             }
             if (this.dropRow === section.key && this.dropAfter) { Divider().color(UiColor.primary).strokeWidth(2) }
@@ -398,12 +412,12 @@ export struct ProjectDocumentView {
             .borderRadius(section.node ? 0 : 12)
             .visibility(this.visibleKeys.includes(section.key) ? Visibility.Visible : Visibility.None)
             .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(section.key, Number(area.position.y)) })
-        }, (section: ProjectReadingSection) => `${this.revision}:${section.key}`)
+        }, (section: OrgFileReadingSection) => `${this.revision}:${section.key}`)
         if (this.edit.phase === 'idle' && this.tagFiltered && !this.readingItems.some(item => item.visible && item.section.node?.state && !item.contextOnly)) {
           Text('没有匹配标签的任务').fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
         }
-        if (this.sections.every((section: ProjectReadingSection) => section.node === null && section.blocks.length === 0)) {
-          Text('项目还没有内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 64, bottom: 64 })
+        if (this.sections.every((section: OrgFileReadingSection) => section.node === null && section.blocks.length === 0)) {
+          Text('文件还没有内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 64, bottom: 64 })
         }
       }.width('100%').padding({ left: 12, right: 12, top: 4, bottom: 48 })
         .onAreaChange((_old: Area, area: Area): void => {

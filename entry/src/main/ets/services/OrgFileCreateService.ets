@@ -4,11 +4,11 @@ import { AppConfigService } from './AppConfigService'
 import { AppDataManager } from './AppDataManager'
 import { isSystemRepository } from '../models/SystemRepository'
 import { CoreRepo, CoreTask, CoreTaskFileNew, CoreTaskOperationGroup, NativeCoreService } from './NativeCoreService'
-import { ProjectRepositoryOption, ProjectLocation, projectFileName, projectInputError } from '../ui/ProjectCreatePresentation'
+import { OrgFileRepositoryOption, OrgFileLocation, projectFileName, projectInputError } from '../ui/OrgFileCreatePresentation'
 
 // 模板替换、SETUPFILE、文件创建与原记录移动全部交给 Core 的同一个操作组。
-export class ProjectCreateService {
-  static async repositories(context: Context): Promise<ProjectRepositoryOption[]> {
+export class OrgFileCreateService {
+  static async repositories(context: Context): Promise<OrgFileRepositoryOption[]> {
     const app = AppDataManager.shared(context)
     await app.start()
     const categories = app.dataSet('categories')
@@ -17,13 +17,13 @@ export class ProjectCreateService {
     const config = app.configuration!
     const repos = app.manager.repositoryInfo
     const files = categories.data.result
-    return repos.filter(repo => !config.repos.some(item => item.rootDirectory === repo.rootDirectory && isSystemRepository(item))).map((repo: CoreRepo): ProjectRepositoryOption => ({ repoId: repo.id,
+    return repos.filter(repo => !config.repos.some(item => item.rootDirectory === repo.rootDirectory && isSystemRepository(item))).map((repo: CoreRepo): OrgFileRepositoryOption => ({ repoId: repo.id,
       name: config.repos.find(item => item.rootDirectory === repo.rootDirectory)?.name || '未命名存储库',
       regions: Array.from(new Set(files.filter(file => file.repoId === repo.id && !file.isIgnore && !!file.category)
         .map(file => file.category!))).sort() }))
   }
 
-  static async operationGroup(context: Context, source: CoreTask, location: ProjectLocation, name: string,
+  static async operationGroup(context: Context, source: CoreTask, location: OrgFileLocation, name: string,
     fileName: string): Promise<CoreTaskOperationGroup> {
     const error = projectInputError(location.repoId, name, fileName, location.region)
     if (error) throw new Error(error)

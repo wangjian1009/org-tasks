@@ -85,7 +85,7 @@ function fixture(params = {repoId:'config',path:'a.org'}) {
   };
   const dependencies={
     '@kit.ArkTS':{util:{TextDecoder:{create:()=>({decodeToString:value=>Buffer.from(value).toString('utf8')})}}},
-    '../components/OrgFilePreviewView':{OrgFilePreviewNavigation:class{closePanel(){return false;}focusChange(){} focusFooter(){} focusConflictCard(id){this.focused=id;} async capturePosition(){return 240;}restorePosition(){};}},
+    '../components/OrgFileConflictView':{OrgFileConflictNavigation:class{closePanel(){return false;}focusChange(){} focusFooter(){} focusConflictCard(id){this.focused=id;} async capturePosition(){return 240;}restorePosition(){};}},
     '../ui/ConflictTargetTree':targetTree,
     '../services/AppConfigService':{AppConfigService:{async load(){return config;}}},
     '../services/NativeCoreService':{coreErrorMessage:e=>e.message,NativeCoreService:{async workspaceFor(){return workspace;},async repository(){return repo;},async executeTaskOperations(repos,group){return workspace.executeTaskOperations(group);}}},
@@ -104,10 +104,10 @@ test('进入页面创建纯主树预览，独立读取冲突列表且不提交�
  assert.equal(f.page.selectedId,'first');assert.equal(f.page.beforeText,'');assert.equal(f.page.afterText,'');assert.equal(f.events.includes('project'),false);assert.equal(f.page.stagedAction,'');assert.equal(f.page.canApply(),false);
 });
 test('定位卡片保留全部文档和卡片，不读取投影、不执行取舍',async()=>{
- const f=fixture();await f.page.load();const html=f.page.html,content=f.page.content,revision=f.page.renderRevision;
+ const f=fixture();await f.page.load();const html=f.page.html,revision=f.page.renderRevision;
  f.page.selectConflict(f.page.conflicts[1]);await tick();
  assert.equal(f.page.selectedId,'second');assert.equal(f.page.navigation.focused,'second');
- assert.equal(f.page.content,content);assert.equal(f.page.html,html);assert.equal(f.page.renderRevision,revision);
+ assert.equal(f.page.html,html);assert.equal(f.page.renderRevision,revision);
  assert.equal(f.events.includes('project'),false);assert.equal(f.requests.length,0);assert.equal(f.creates(),1);
  assert.equal(f.page.conflictCards().length,2);
 });
@@ -123,7 +123,7 @@ test('详情卡应用按钮按冲突原因显示插入放置删除',async()=>{
 });
 test('差异读取失败保留冲突身份与当前主树，重试不提前取舍',async()=>{
  const f=fixture();await f.page.load();f.projectionFail(new Error('差异读取失败'));f.page.selectConflict(f.page.conflicts[1]);await f.page.applyChoice();
- assert.equal(f.page.selectedId,'second');assert.equal(f.page.projection,undefined);assert.equal(f.page.afterText,'');assert.match(f.page.content,/remote/);assert.match(f.page.message,/差异读取失败/);
+ assert.equal(f.page.selectedId,'second');assert.equal(f.page.projection,undefined);assert.equal(f.page.afterText,'');assert.match(f.page.baseFile.sourceBytes().toString(),/remote/);assert.match(f.page.message,/差异读取失败/);
  assert.equal(f.page.canApply(),false);f.projectionFail(undefined);await f.page.retryPreview();assert.equal(f.page.afterText,'local second\n');assert.equal(f.requests.length,0);
 });
 test('过期的异步差异不会覆盖新冲突详情',async()=>{
@@ -182,18 +182,17 @@ test('仓库普通冲突文件使用配置 ID 打开解决页，Core ID 与配�
  const f=fixture(target.params);await f.page.load();assert.equal(f.page.message,'');assert.equal(f.page.conflicts.length,2);
 });
 test('仓库普通文件继续使用 Core ID 打开文件阅读页',()=>{
- const target=repositoryRow(false);assert.equal(target.url,'pages/FileDetail');assert.deepEqual(target.params,{repoId:'core',path:'a.org'});
+ const target=repositoryRow(false);assert.equal(target.url,'pages/OrgFileDetail');assert.deepEqual(target.params,{repoId:'core',path:'a.org'});
 });
 
 test('正文、当前文件和预览只展示主树，原文件的候选仍由独立列表读取',async()=>{
  const f=fixture();await f.page.load();
  assert.match(f.page.file.sourceBytes().toString('utf8'),/同步冲突/);
- assert.doesNotMatch(f.page.content,/同步冲突|CONFILICT_ID/);
- assert.doesNotMatch(f.page.html,/同步冲突/);
+ assert.doesNotMatch(f.page.html,/同步冲突|CONFILICT_ID/);
  assert.equal(f.page.conflicts.length,2);
  await f.page.prepare(f.page.conflicts[0],'useLocal');
  assert.match(f.page.baseFile.sourceBytes().toString('utf8'),/remote/);assert.doesNotMatch(f.page.baseFile.sourceBytes().toString('utf8'),/同步冲突|CONFILICT_ID/);
- assert.match(f.page.content,/local/);assert.doesNotMatch(f.page.content,/同步冲突|CONFILICT_ID/);
+ assert.equal(f.page.html,f.page.previewFile.renderHtml());assert.doesNotMatch(f.page.html,/同步冲突|CONFILICT_ID/);
 });
 
 test('已读取差异时点击一次应用即完成真实提交，且保留其他冲突',async()=>{
@@ -267,7 +266,7 @@ test('仓库项目文件有无冲突或名称为空时均使用 Core 身份进�
  for(const hasConflict of [false,true]){
   for(const project of ['项目','']){
    assert.deepEqual(repositoryRow(hasConflict,project),{
-    url:'pages/ProjectDetail',params:{repoId:'core',path:'a.org'}
+    url:'pages/OrgFileDetail',params:{repoId:'core',path:'a.org'}
    },JSON.stringify({hasConflict,project}));
   }
  }

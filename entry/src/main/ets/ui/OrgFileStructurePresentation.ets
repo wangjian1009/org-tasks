@@ -1,6 +1,6 @@
 import { CoreTask, CoreTaskPath, CoreTaskStructureEdit } from '../services/NativeCoreService'
 
-export interface ProjectStructureNode {
+export interface OrgFileStructureNode {
   id: string
   row: string
   parent: string | null
@@ -8,24 +8,24 @@ export interface ProjectStructureNode {
   task: boolean
   hidden: boolean
 }
-export interface ProjectStructureSnapshot {
+export interface OrgFileStructureSnapshot {
   file: CoreTaskPath
   version: string
   title: string
-  nodes: ProjectStructureNode[]
+  nodes: OrgFileStructureNode[]
   hasConflict: boolean
 }
-export interface ProjectStructureRow {
-  node: ProjectStructureNode
+export interface OrgFileStructureRow {
+  node: OrgFileStructureNode
   depth: number
   hasChildren: boolean
   path: string
 }
-export interface ProjectStructureMove {
+export interface OrgFileStructureMove {
   parent: string | null
   after: string | null
 }
-export interface ProjectStructureChange {
+export interface OrgFileStructureChange {
   id: string
   title: string
   parent: string | null
@@ -35,15 +35,15 @@ export interface ProjectStructureChange {
   moved: boolean
 }
 interface StructureStep {
-  nodes: ProjectStructureNode[]
+  nodes: OrgFileStructureNode[]
   edit: CoreTaskStructureEdit
 }
 
 export function projectStructureNodes(tasks: CoreTask[], key: (task: CoreTask) => string,
-  matched: string[] | null): ProjectStructureNode[] {
+  matched: string[] | null): OrgFileStructureNode[] {
   const ancestors: CoreTask[] = []
   const matches = matched === null ? null : new Set<string>(matched)
-  return tasks.map((task: CoreTask): ProjectStructureNode => {
+  return tasks.map((task: CoreTask): OrgFileStructureNode => {
     while (ancestors.length && ancestors[ancestors.length - 1].level >= task.level) ancestors.pop()
     const parent = ancestors.length ? ancestors[ancestors.length - 1].id : null
     ancestors.push(task)
@@ -52,11 +52,11 @@ export function projectStructureNodes(tasks: CoreTask[], key: (task: CoreTask) =
   })
 }
 
-export function projectSiblings(nodes: ProjectStructureNode[], parent: string | null): ProjectStructureNode[] {
+export function projectSiblings(nodes: OrgFileStructureNode[], parent: string | null): OrgFileStructureNode[] {
   return nodes.filter(node => node.parent === parent)
 }
 
-export function projectOrderMove(nodes: ProjectStructureNode[], id: string, to: number): ProjectStructureMove | undefined {
+export function projectOrderMove(nodes: OrgFileStructureNode[], id: string, to: number): OrgFileStructureMove | undefined {
   const node = nodes.find(item => item.id === id)
   if (!node) return undefined
   const siblings = projectSiblings(nodes, node.parent)
@@ -67,21 +67,21 @@ export function projectOrderMove(nodes: ProjectStructureNode[], id: string, to: 
 }
 
 export class ProjectStructureDraft {
-  readonly initial: ProjectStructureSnapshot
+  readonly initial: OrgFileStructureSnapshot
   private steps: StructureStep[] = []
 
-  constructor(snapshot: ProjectStructureSnapshot) { this.initial = snapshot }
-  get nodes(): ProjectStructureNode[] { return this.steps.length ? this.steps[this.steps.length - 1].nodes : this.initial.nodes }
+  constructor(snapshot: OrgFileStructureSnapshot) { this.initial = snapshot }
+  get nodes(): OrgFileStructureNode[] { return this.steps.length ? this.steps[this.steps.length - 1].nodes : this.initial.nodes }
   get edits(): CoreTaskStructureEdit[] { return this.steps.map(step => step.edit) }
   get canUndo(): boolean { return this.steps.length > 0 }
   undo(): void { this.steps.pop() }
 
-  private index(nodes: ProjectStructureNode[] = this.nodes): Map<string, ProjectStructureNode> {
-    return new Map<string, ProjectStructureNode>(nodes.map(node => [node.id, node]))
+  private index(nodes: OrgFileStructureNode[] = this.nodes): Map<string, OrgFileStructureNode> {
+    return new Map<string, OrgFileStructureNode>(nodes.map(node => [node.id, node]))
   }
 
-  private children(nodes: ProjectStructureNode[] = this.nodes): Map<string | null, ProjectStructureNode[]> {
-    const children = new Map<string | null, ProjectStructureNode[]>()
+  private children(nodes: OrgFileStructureNode[] = this.nodes): Map<string | null, OrgFileStructureNode[]> {
+    const children = new Map<string | null, OrgFileStructureNode[]>()
     for (const node of nodes) {
       const siblings = children.get(node.parent)
       if (siblings) siblings.push(node)
@@ -90,7 +90,7 @@ export class ProjectStructureDraft {
     return children
   }
 
-  path(id: string | null, nodes: ProjectStructureNode[] = this.nodes): string {
+  path(id: string | null, nodes: OrgFileStructureNode[] = this.nodes): string {
     const byId = this.index(nodes)
     const parts: string[] = []
     let current = id === null ? undefined : byId.get(id)
@@ -116,10 +116,10 @@ export class ProjectStructureDraft {
     return ids.includes(id) || this.ancestors(id).some(parent => ids.includes(parent))
   }
 
-  rows(expanded: string[], query: string): ProjectStructureRow[] {
+  rows(expanded: string[], query: string): OrgFileStructureRow[] {
     const children = this.children()
     const open = new Set<string>(expanded)
-    const result: ProjectStructureRow[] = []
+    const result: OrgFileStructureRow[] = []
     const text = query.trim().toLocaleLowerCase()
     const visit = (parent: string | null, depth: number, path: string): void => {
       for (const node of children.get(parent) ?? []) {
@@ -136,11 +136,11 @@ export class ProjectStructureDraft {
   rename(id: string, title: string): void {
     const current = this.nodes.find(node => node.id === id)
     if (!current || current.title === title) return
-    const changed: ProjectStructureNode = { id, row: current.row, parent: current.parent, title, task: current.task, hidden: current.hidden }
+    const changed: OrgFileStructureNode = { id, row: current.row, parent: current.parent, title, task: current.task, hidden: current.hidden }
     this.steps.push({ nodes: this.nodes.map(node => node.id === id ? changed : node), edit: { type: 'rename', id, title } })
   }
 
-  destination(target: string | null, placement: string, selected: string[]): ProjectStructureMove | undefined {
+  destination(target: string | null, placement: string, selected: string[]): OrgFileStructureMove | undefined {
     const node = this.nodes.find(item => item.id === target)
     if (target === null) {
       const remaining = projectSiblings(this.nodes, null).filter(item => !selected.includes(item.id))
@@ -154,7 +154,7 @@ export class ProjectStructureDraft {
     return { parent: node.parent, after: index > 0 ? remaining[index - 1].id : null }
   }
 
-  move(ids: string[], destination: ProjectStructureMove): boolean {
+  move(ids: string[], destination: OrgFileStructureMove): boolean {
     const selected = new Set<string>(ids)
     const children = this.children()
     const ordered = this.rows(this.nodes.map(node => node.id), '').map(item => item.node).filter(node => selected.has(node.id))
@@ -162,7 +162,7 @@ export class ProjectStructureDraft {
     const siblings = previous.filter(node => !selected.has(node.id))
     const index = destination.after === null ? 0 : siblings.findIndex(node => node.id === destination.after) + 1
     if (!ordered.length || (destination.after !== null && index === 0)) return false
-    const moved = ordered.map((node): ProjectStructureNode => ({
+    const moved = ordered.map((node): OrgFileStructureNode => ({
       id: node.id, row: node.row, title: node.title, parent: destination.parent, task: node.task, hidden: node.hidden
     }))
     siblings.splice(index, 0, ...moved)
@@ -173,7 +173,7 @@ export class ProjectStructureDraft {
     return true
   }
 
-  changes(): ProjectStructureChange[] {
+  changes(): OrgFileStructureChange[] {
     const original = this.index(this.initial.nodes)
     const originalChildren = this.children(this.initial.nodes)
     const currentChildren = this.children()
@@ -182,7 +182,7 @@ export class ProjectStructureDraft {
       if (step.edit.type === 'move') step.edit.ids.forEach(id => edited.add(id))
       else edited.add(step.edit.id)
     }
-    const changes: ProjectStructureChange[] = []
+    const changes: OrgFileStructureChange[] = []
     for (const node of this.nodes) {
       if (!edited.has(node.id)) continue
       const before = original.get(node.id)
@@ -209,10 +209,10 @@ export class ProjectStructureDraft {
   }
 }
 
-export type ProjectEditPhase = 'idle' | 'select' | 'target' | 'review'
-export type ProjectPlacement = 'first' | 'last' | 'before' | 'after' | 'child'
+export type OrgFileEditPhase = 'idle' | 'select' | 'target' | 'review'
+export type OrgFilePlacement = 'first' | 'last' | 'before' | 'after' | 'child'
 
-export interface ProjectEditRow {
+export interface OrgFileEditRow {
   row: string
   title: string
   level: number
@@ -221,33 +221,33 @@ export interface ProjectEditRow {
   children: boolean
 }
 
-export interface ProjectEditView {
-  phase: ProjectEditPhase
+export interface OrgFileEditView {
+  phase: OrgFileEditPhase
   refactoring: boolean
-  rows: ProjectEditRow[]
+  rows: OrgFileEditRow[]
   count: number
   target: string
   targetChosen: boolean
   targetPath: string
-  changes: ProjectStructureChange[]
+  changes: OrgFileStructureChange[]
 }
 
-export function projectEditIdle(): ProjectEditView {
+export function projectEditIdle(): OrgFileEditView {
   return { phase: 'idle', refactoring: false, rows: [], count: 0, target: '', targetChosen: false, targetPath: '', changes: [] }
 }
 
 // 编辑会话持有冻结的文件版本和节点身份，提交仍由 Core 规划。
-export class ProjectEditSession {
+export class OrgFileEditSession {
   readonly draft: ProjectStructureDraft
   readonly refactoring: boolean
-  phase: ProjectEditPhase
+  phase: OrgFileEditPhase
   selected: string[] = []
   target: string | null = null
   targetChosen = false
-  placement: ProjectPlacement = 'first'
+  placement: OrgFilePlacement = 'first'
   private staged = false
 
-  constructor(snapshot: ProjectStructureSnapshot, refactoring: boolean, row: string, direct: boolean) {
+  constructor(snapshot: OrgFileStructureSnapshot, refactoring: boolean, row: string, direct: boolean) {
     this.refactoring = refactoring
     this.draft = new ProjectStructureDraft(snapshot)
     const node = this.node(row)
@@ -255,7 +255,7 @@ export class ProjectEditSession {
     this.phase = direct ? 'target' : 'select'
   }
 
-  node(row: string): ProjectStructureNode | undefined { return this.draft.nodes.find(item => item.row === row) }
+  node(row: string): OrgFileStructureNode | undefined { return this.draft.nodes.find(item => item.row === row) }
 
   selectRow(row: string): void {
     const node = this.node(row)
@@ -283,7 +283,7 @@ export class ProjectEditSession {
     return true
   }
 
-  stagePlacement(placement: ProjectPlacement): boolean {
+  stagePlacement(placement: OrgFilePlacement): boolean {
     if (!this.targetChosen) return false
     const destination = this.draft.destination(this.target, placement, this.selected)
     if (!destination || !this.draft.move(this.selected, destination)) return false
@@ -321,13 +321,13 @@ export class ProjectEditSession {
     if (destination) this.draft.move([source.id], destination)
   }
 
-  view(): ProjectEditView {
+  view(): OrgFileEditView {
     const nodes = this.draft.nodes
     const selections = new Map<string, number>()
     this.selected.forEach((id, index) => selections.set(id, index))
     const covered = new Set<string>()
     const changes = this.draft.changes()
-    const rows = this.draft.rows(nodes.map(node => node.id), '').map((item): ProjectEditRow => {
+    const rows = this.draft.rows(nodes.map(node => node.id), '').map((item): OrgFileEditRow => {
       const node = item.node
       const selected = selections.get(node.id) ?? -1
       if (selected >= 0 || (node.parent !== null && covered.has(node.parent))) covered.add(node.id)

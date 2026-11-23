@@ -74,7 +74,7 @@ test('今天和收件箱互相返回，不受收件箱数量影响，连续返�
 test('所有其他一级页按最新收件箱快照返回；目标失效按空收件箱处理', async () => {
   const f = fixture(); await f.start();
   try { for (const page of ['planned', 'anytime', 'someday', 'memo', 'logbook'].map(f.primaryPage).concat([
-    { url: 'pages/Files' }, { url: 'pages/Settings' }, { url: 'pages/ProjectDetail', params: { repoId: 'a', path: 'project.org' } }
+    { url: 'pages/Files' }, { url: 'pages/Settings' }, { url: 'pages/OrgFileDetail', params: { repoId: 'a', path: 'project.org' } }
   ])) {
     for (const count of [0, 2]) {
       f.count(count); await f.navigator.openPrimary(f.context, page); await f.navigator.back(f.context);
@@ -93,15 +93,15 @@ test('深层返回恢复带参数的父页；侧边栏重设一级路径清除�
   await f.navigator.pushPage(f.context, page);
   await f.navigator.pushPage(f.context, { url: 'pages/SyncLog', params: { repoId: 'a', syncId: '1' } }); f.verify();
   await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, page); f.verify();
-  await f.navigator.openPrimary(f.context, { url: 'pages/ProjectDetail', params: { repoId: 'a', path: 'p.org' } });
+  await f.navigator.openPrimary(f.context, { url: 'pages/OrgFileDetail', params: { repoId: 'a', path: 'p.org' } });
   assert.equal(f.navigator.path.depth, 1); f.verify();
   await f.navigator.back(f.context); assert.equal(f.navigator.path.current.url, 'pages/Today'); f.verify();
 });
 
 test('支持设置完整路径和替换当前页面，保留深层祖先', async () => {
   const f = fixture();
-  await f.navigator.setPath(f.context, new PagePath([{ url: 'pages/Files' }, { url: 'pages/FileDetail', params: { path: 'a.org' } }]));
-  await f.navigator.replacePage(f.context, { url: 'pages/ProjectDetail', params: { path: 'a.org' } });
+  await f.navigator.setPath(f.context, new PagePath([{ url: 'pages/Files' }, { url: 'pages/OrgFileDetail', params: { path: 'a.org' } }]));
+  await f.navigator.replacePage(f.context, { url: 'pages/OrgFileDetail', params: { path: 'a.org' } });
   assert.equal(f.navigator.path.depth, 2); f.verify();
   await f.navigator.back(f.context); assert.equal(f.navigator.path.current.url, 'pages/Files'); f.verify();
 });
@@ -132,12 +132,12 @@ test('导航始终读取 App 当前收件箱计数，配置失效按空处理，
 test('完整路径只加载末级页面，返回才加载未创建的祖先并保留参数', async () => {
   const f = fixture();
   const root = { url: 'pages/Memo' };
-  const middle = { url: 'pages/ProjectDetail', params: { repoId: 'r', path: 'p.org' } };
+  const middle = { url: 'pages/OrgFileDetail', params: { repoId: 'r', path: 'p.org' } };
   const edit = { url: 'pages/MemoEdit', params: { memoId: 'id' } };
   await f.navigator.setPath(f.context, new PagePath([root, middle, edit]));
   assert.equal(f.loads.length, 1); assert.deepEqual(f.loads[0], ['replace',edit]);
   assert.equal(f.stack.length, 1); assert.equal(f.navigator.path.depth, 3); f.verify();
-  await f.navigator.pushPage(f.context, { url: 'pages/FileDetail', params: { path: 'a.org' } });
+  await f.navigator.pushPage(f.context, { url: 'pages/OrgFileDetail', params: { path: 'a.org' } });
   await f.navigator.back(f.context); assert.equal(f.loads.length, 2); assert.deepEqual(f.navigator.path.current, edit); f.verify();
   await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, middle); assert.equal(f.loads.length, 3); f.verify();
   await f.navigator.back(f.context); assert.equal(f.navigator.path.current.url, root.url); assert.equal(f.loads.length, 4); f.verify();
@@ -148,7 +148,7 @@ test('直接加载路径后返回失败保留当前页面，替换末级不会�
   await f.navigator.setPath(f.context, new PagePath([root, edit]));
   const before = f.navigator.path; f.fail(true);
   assert.equal(await f.navigator.back(f.context), false); assert.equal(f.navigator.path, before); f.verify();
-  f.fail(false); await f.navigator.replacePage(f.context, { url: 'pages/ProjectDetail', params: { path: 'p.org' } });
+  f.fail(false); await f.navigator.replacePage(f.context, { url: 'pages/OrgFileDetail', params: { path: 'p.org' } });
   await f.navigator.back(f.context); assert.deepEqual(f.navigator.path.current, {url:root.url, params:root.params}); f.verify();
 });
 

@@ -9,7 +9,7 @@ import { TaskBlockView } from './TaskBlockView'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { LinkEditController } from '../LinkView'
 import { UiColor } from '../../ui/Theme'
-import { projectContentGap } from '../../ui/ProjectReadingPresentation'
+import { projectContentGap } from '../../ui/OrgFileReadingPresentation'
 
 @Component
 export struct TaskContentEditor {
