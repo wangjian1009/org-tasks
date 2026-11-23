@@ -632,6 +632,32 @@ test('原生项目目录保存草稿后按完整路径定位，不改变任务�
   assert.equal(f.view.outlineVisible, true);
 });
 
+test('任务来源定位展开折叠父项并只提醒指定的同名任务', async () => {
+  const { view, section } = nativeProjectFixture();
+  section('parent', '章节', 90);
+  const parent = view.sections[0].node;
+  parent.level = 1;
+  parent.property = name => name === 'VISIBILITY' ? 'folded' : null;
+  section('first', '重名任务', 150);
+  const target = section('second', '重名任务', 900, [], 2);
+  for (const item of view.sections.slice(1)) item.node.state = { name: 'TODO' };
+  view.updateDocument();
+  assert.deepEqual(view.visibleKeys, ['parent']);
+  view.focusTask = target;
+  view.updateDocument();
+  view.focusWhenLaidOut();
+  assert.equal(view.attentionRow, '');
+  view.viewportHeight = 300;
+  view.contentHeight = 1200;
+  view.focusWhenLaidOut();
+  assert.equal(view.scroller.lastScroll.yOffset, 888);
+  assert.equal(view.attentionRow, 'second');
+  assert.deepEqual(view.visibleKeys, ['parent', 'first', 'second']);
+  view.showing = false;
+  view.visibilityChanged();
+  assert.equal(view.attentionRow, '');
+});
+
 test('原生项目离开或切换版本后，迟到目录定位失效；切回正文恢复原位置', async () => {
   const f = nativeProjectFixture(); let finish;
   const path = f.section('old', '旧章节', 999);

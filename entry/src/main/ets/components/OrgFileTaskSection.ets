@@ -26,6 +26,8 @@ export struct OrgFileTaskSection {
   @Prop specialTags: string[] = []
   @Prop hasChildren: boolean = false
   @Prop contextOnly: boolean = false
+  @Prop attentionRequested: boolean = false
+  attentionStarted: () => void = () => {}
   @Prop interactionEnabled: boolean = true
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   scrollHost: Scroller = new Scroller()
@@ -149,6 +151,7 @@ export struct OrgFileTaskSection {
           this.editControls()
         } else if (this.node.state) {
           TaskSwipeItem({ listItem: false, menuCoordinator: this.menuCoordinator, interactionEnabled: this.interactionEnabled,
+            attentionRequested: this.attentionRequested, attentionStarted: this.attentionStarted,
             singleOperations: this.actionPolicy.singleOperations, rightSwipeAction: this.actionPolicy.rightSwipeAction,
             menuIdPrefix: 'project_swipe', dataSet: this.dataSet!, taskId: this.taskId, internalLinkProcessor: this.internalLinkProcessor,
             contentHidden: this.hasChildren || this.contextOnly, hiddenTags: this.specialTags, instanceKey: `project:${this.taskId}`,

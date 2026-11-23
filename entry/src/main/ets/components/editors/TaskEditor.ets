@@ -60,6 +60,11 @@ export struct TaskEditor {
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
   @Prop contentHidden: boolean = false
   @Prop projectStructure: boolean = false
+  @Prop @Watch('attentionChanged') attentionRequested: boolean = false
+  @State attentionOpacity: number = 0
+  private attentionVisible: boolean = false
+  private attentionPlayed: boolean = false
+  attentionStarted: () => void = () => {}
   @Prop canOrderChildren: boolean = false
   structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
   @Prop hiddenTags: string[] = []
@@ -567,6 +572,8 @@ export struct TaskEditor {
     this.priorityOpen = false
     this.deleteConfirming = false
     this.appeared = false
+    this.attentionVisible = false
+    this.attentionOpacity = 0
     this.pendingAction?.finish()
     this.pendingAction = undefined
     this.controller?.release()
@@ -579,6 +586,21 @@ export struct TaskEditor {
     this.noteFinish?.(undefined); this.noteDialog?.close()
     if (this.hostWindow) this.hostWindow.off('keyboardHeightChange', this.keyboardChanged)
     TaskInlineSession.release(this.ownerKey)
+  }
+
+  private attentionChanged(): void {
+    if (!this.attentionRequested) {
+      this.attentionPlayed = false
+      return
+    }
+    if (!this.appeared || !this.attentionVisible || this.attentionPlayed) return
+    this.attentionPlayed = true
+    this.getUIContext().keyframeAnimateTo({ iterations: 1 }, [
+      { duration: 120, curve: Curve.EaseOut, event: (): void => { this.attentionOpacity = 0.32 } },
+      { duration: 260, curve: Curve.Linear, event: (): void => { this.attentionOpacity = 0.34 } },
+      { duration: 520, curve: Curve.EaseOut, event: (): void => { this.attentionOpacity = 0 } }
+    ])
+    this.attentionStarted()
   }
   async prepare(): Promise<boolean> {
     if (this.removed) return false
@@ -1353,7 +1375,8 @@ export struct TaskEditor {
   async openProject() {
     try {
       if (this.value().project() === null) return
-      await OrgFileNavigation.open(this.getUIContext(), this.value().repoId, this.value().filePath)
+      await OrgFileNavigation.open(this.getUIContext(), this.value().repoId, this.value().filePath, false,
+        () => this.recordSource?.task?.fullPath)
     } catch (_) { this.message = '暂时无法打开项目，请重试。' }
   }
 
@@ -1854,6 +1877,13 @@ export struct TaskEditor {
     }.width('100%').padding({ left: 27 })
   }
 
+  @Builder
+  attentionOverlay() {
+    Row().width('100%').height('100%').borderRadius(12)
+      .backgroundColor(UiColor.primary).opacity(this.attentionOpacity)
+      .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+  }
+
   build() {
     Column() {
       if (this.expanded) {
@@ -1888,6 +1918,11 @@ export struct TaskEditor {
       }
     }.width('100%').visibility(this.removed ? Visibility.None : Visibility.Visible)
       .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? UiColor.taskDoingTint : Color.Transparent).borderRadius(12)
+      .overlay(this.attentionOverlay())
+      .onVisibleAreaChange([0], (visible: boolean): void => {
+        this.attentionVisible = visible
+        if (visible) this.attentionChanged()
+      })
       .alignItems(HorizontalAlign.Start).margin({ bottom: this.expanded ? 8 : 0 })
       .onAreaChange((oldArea: Area, area: Area) => {
         this.rowWidth = parseFloat(area.width.toString())

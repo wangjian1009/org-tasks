@@ -37,6 +37,8 @@ export struct OrgFileDocumentView {
   }
 
   @Prop @Watch('updateDocument') sections: OrgFileReadingSection[] = []
+  @Prop @Watch('updateDocument') focusTask: CoreTaskPath | undefined = undefined
+  focusConsumed: () => void = () => {}
   @Prop @Watch('updateDocument') matchedIds: string[] = []
   @Prop @Watch('updateDocument') tagFiltered: boolean = false
   @State readingItems: OrgFileReadingItem[] = []
@@ -45,6 +47,9 @@ export struct OrgFileDocumentView {
   @State contextKeys: string[] = []
   @State parentKeys: string[] = []
   @State highlightedRow: string = ''
+  @State attentionRow: string = ''
+  private focusRow: string = ''
+  private focusScrolled: boolean = false
   @State dropRow: string = ''
   @State dropAfter: boolean = false
   private revealedParents: string[] = []
@@ -116,7 +121,8 @@ export struct OrgFileDocumentView {
   }
 
   private scheduleInitialOffset(): void {
-    if (this.initialOffsetApplied || (this.pendingOffset !== undefined && this.pendingOffset !== 0) || this.headerHeight <= 0 || this.viewportHeight <= 0 || this.contentHeight <= 0) return
+    if (this.focusRow || this.initialOffsetApplied || (this.pendingOffset !== undefined && this.pendingOffset !== 0) ||
+      this.headerHeight <= 0 || this.viewportHeight <= 0 || this.contentHeight <= 0) return
     const offset = Math.min(this.headerHeight, Math.max(0, this.contentHeight - this.viewportHeight))
     this.pendingOffset = offset
     if (this.showing && offset > 0) {
@@ -167,16 +173,19 @@ export struct OrgFileDocumentView {
   }
 
   visibilityChanged() {
-    if (!this.showing) { this.navigationRevision++; this.swipeMenus.close(); return }
+    if (!this.showing) { this.navigationRevision++; this.attentionRow = ''; this.swipeMenus.close(); return }
     this.pendingOffset = this.readOffset()
     this.initialOffsetApplied = this.pendingOffset !== undefined
+    this.focusWhenLaidOut()
   }
 
   snapshotChanged() {
     this.navigationRevision++
+    this.attentionRow = ''
     this.swipeMenus.close()
     this.offsets.clear()
     this.revealedParents = []
+    if (this.focusRow) this.revealAncestors(this.focusRow)
     this.outlineVisible = false
     const offset = this.readOffset()
     this.initialOffsetApplied = offset !== undefined
@@ -187,36 +196,61 @@ export struct OrgFileDocumentView {
   }
 
   private locateSection(path: CoreTaskPath): Promise<boolean> {
-    return this.scrollToSection((): OrgFileReadingSection | undefined => this.sections.find(section => {
+    return this.scrollToSection((): OrgFileReadingSection | undefined => this.sectionAt(path))
+  }
+
+  private sectionAt(path: CoreTaskPath): OrgFileReadingSection | undefined {
+    return this.sections.find(section => {
       const node = this.dataSet?.getTask(section.key) ?? section.node
       return node !== null && samePagePath(node.fullPath, path)
-    }))
+    })
+  }
+
+  private focusWhenLaidOut(): void {
+    if (!this.active || !this.showing || !this.focusRow || this.viewportHeight <= 0 || this.contentHeight <= 0) return
+    const row = this.focusRow
+    const offset = this.offsets.get(row)
+    if (offset === undefined || !this.visibleKeys.includes(row)) return
+    this.focusRow = ''
+    this.focusScrolled = true
+    this.scrollToOffset(offset)
+    this.attentionRow = row
+    this.focusConsumed()
   }
 
   private async locateCreated(row: string, reveal: boolean): Promise<boolean> {
+    if (!await this.locateRow(row, reveal)) return false
+    this.highlightedRow = row
+    clearTimeout(this.highlightTimer)
+    this.highlightTimer = setTimeout((): void => { this.highlightedRow = '' }, 2400)
+    return true
+  }
+
+  private async locateRow(row: string, reveal: boolean): Promise<boolean> {
+    const revision = this.navigationRevision
     if (reveal) {
-      const index = this.sections.findIndex(item => item.key === row)
-      let level = this.dataSet?.getTask(row)?.level ?? 0
-      for (let prior = index - 1; prior >= 0; prior--) {
-        const section = this.sections[prior]
-        const node = this.dataSet?.getTask(section.key)
-        if (node && node.level < level) {
-          this.revealedParents.push(section.key)
-          level = node.level
-        }
-      }
+      this.revealAncestors(row)
       this.updateDocument()
     }
-    for (let attempt = 0; attempt < 12 && this.active && this.showing; attempt++) {
-      if (await this.scrollToSection((): OrgFileReadingSection | undefined => this.sections.find(section => section.key === row))) {
-        this.highlightedRow = row
-        clearTimeout(this.highlightTimer)
-        this.highlightTimer = setTimeout((): void => { this.highlightedRow = '' }, 2400)
-        return true
-      }
+    for (let attempt = 0; attempt < 12 && this.active && this.showing && revision === this.navigationRevision; attempt++) {
+      if (await this.scrollToSection((): OrgFileReadingSection | undefined => this.sections.find(section => section.key === row))) return true
       await new Promise<void>(resolve => setTimeout(resolve, 50))
     }
     return false
+  }
+
+  private revealAncestors(row: string): void {
+    const index = this.sections.findIndex(item => item.key === row)
+    if (index < 0) return
+    let level = (this.dataSet?.getTask(row) ?? this.sections[index].node)?.level ?? 0
+    for (let prior = index - 1; prior >= 0; prior--) {
+      const section = this.sections[prior]
+      const node = this.dataSet?.getTask(section.key) ?? section.node
+      if (node && node.level < level) {
+        if (!this.revealedParents.includes(section.key)) this.revealedParents.push(section.key)
+        level = node.level
+      }
+    }
   }
 
   private async scrollToSection(resolve: () => OrgFileReadingSection | undefined): Promise<boolean> {
@@ -227,12 +261,16 @@ export struct OrgFileDocumentView {
     if (!section || !this.visibleKeys.includes(section.key)) return false
     const offset = this.offsets.get(section.key)
     if (offset === undefined) return false
+    this.scrollToOffset(offset)
+    return true
+  }
+
+  private scrollToOffset(offset: number): void {
     this.pendingOffset = undefined
     this.initialOffsetApplied = true
     this.swipeMenus.close()
     this.outlineVisible = false
     this.scroller.scrollTo({ xOffset: 0, yOffset: Math.max(0, offset - 12), animation: false })
-    return true
   }
 
   updateOutline(): void {
@@ -250,6 +288,14 @@ export struct OrgFileDocumentView {
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     }))
     const editing = this.edit.phase !== 'idle'
+    const focus = this.focusTask ? this.sectionAt(this.focusTask) : undefined
+    if (focus?.node?.state && !editing && !this.focusScrolled && this.focusRow !== focus.key) {
+      this.focusRow = focus.key
+      this.revealAncestors(focus.key)
+    } else if (!focus) {
+      this.focusRow = ''
+      this.focusScrolled = false
+    }
     const levels = new Map<string, number>()
     let displayed = current
     if (editing) {
@@ -389,6 +435,8 @@ export struct OrgFileDocumentView {
               }
             } else if (section.node) {
               OrgFileTaskSection({ dataSet: this.taskDataSet(), taskId: section.key, hasChildren: this.parentKeys.includes(section.key), contextOnly: this.contextKeys.includes(section.key),
+                attentionRequested: this.showing && this.attentionRow === section.key,
+                attentionStarted: (): void => { if (this.attentionRow === section.key) this.attentionRow = '' },
                 menuCoordinator: this.swipeMenus, interactionEnabled: this.showing && this.visibleKeys.includes(section.key),
                 canOrderChildren: this.structureOrderParents.includes(section.key),
                 structureActions: (canOrder: boolean): PopupMenuItem[] => this.structureActions(section.key, canOrder),
@@ -411,7 +459,11 @@ export struct OrgFileDocumentView {
             .backgroundColor(this.highlightedRow === section.key ? UiColor.field : section.node ? Color.Transparent : UiColor.projectBlock)
             .borderRadius(section.node ? 0 : 12)
             .visibility(this.visibleKeys.includes(section.key) ? Visibility.Visible : Visibility.None)
-            .onAreaChange((_old: Area, area: Area): void => { this.offsets.set(section.key, Number(area.position.y)) })
+            .onAreaChange((_old: Area, area: Area): void => {
+              if (Number(area.height) <= 0) { this.offsets.delete(section.key); return }
+              this.offsets.set(section.key, Number(area.position.y))
+              if (section.key === this.focusRow) this.focusWhenLaidOut()
+            })
         }, (section: OrgFileReadingSection) => `${this.revision}:${section.key}`)
         if (this.edit.phase === 'idle' && this.tagFiltered && !this.readingItems.some(item => item.visible && item.section.node?.state && !item.contextOnly)) {
           Text('没有匹配标签的任务').fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
@@ -423,6 +475,7 @@ export struct OrgFileDocumentView {
         .onAreaChange((_old: Area, area: Area): void => {
           this.contentHeight = Number(area.height)
           this.scheduleInitialOffset()
+          this.focusWhenLaidOut()
         })
     }.id('project_document_scroll').width('100%').height('100%').align(Alignment.Top)
       .scrollBar(BarState.Off)
@@ -438,6 +491,7 @@ export struct OrgFileDocumentView {
           this.pendingOffset = undefined
           this.initialOffsetApplied = true
         }
+        this.focusWhenLaidOut()
       })
       .bindSheet($$this.outlineVisible, this.outlineSheet(), {
         height: '70%', detents: ['70%', '95%'], preferType: SheetType.BOTTOM,

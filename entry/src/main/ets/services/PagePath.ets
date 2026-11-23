@@ -1,9 +1,10 @@
-import { CoreTask } from './NativeCoreService'
+import { CoreTask, CoreTaskPath } from './NativeCoreService'
 
 export interface PageParameters {
   readonly repoId?: string
   readonly coreRepoId?: string
   readonly path?: string
+  readonly focusTask?: CoreTaskPath
   readonly syncId?: string
   readonly repositoryName?: string
   readonly backupTime?: number | null

@@ -40,6 +40,8 @@ export struct TaskSwipeItem {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop contentHidden: boolean = false
   @Prop projectStructure: boolean = false
+  @Prop attentionRequested: boolean = false
+  attentionStarted: () => void = () => {}
   @Prop canOrderChildren: boolean = false
   structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
   placeNode: () => void = () => {}
@@ -306,7 +308,7 @@ export struct TaskSwipeItem {
       internalLinkProcessor: this.internalLinkProcessor,
       contentHidden: this.contentHidden, hiddenTags: this.hiddenTags, instanceKey: this.instanceKey,
       structureActions: this.structureActions, canOrderChildren: this.canOrderChildren, projectStructure: this.projectStructure,
-      readOnly: this.readOnly,
+      readOnly: this.readOnly, attentionRequested: this.attentionRequested, attentionStarted: this.attentionStarted,
       dateDisplay: this.dateDisplay, todayFlag: this.todayFlag, timeDisplay: this.timeDisplay, regionAreaPolicy: this.regionAreaPolicy,
       referenceTime: this.referenceTime, scrollHost: this.scrollHost, scrollHostId: this.scrollHostId })
   }

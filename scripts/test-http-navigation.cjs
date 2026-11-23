@@ -70,6 +70,18 @@ test('Org 文件入口保留统一路径，省略任务视图时规范化为今�
   assert.equal(result.status,200);assert.equal(result.body.pages[0].url,'pages/OrgFileDetail');
   assert.deepEqual((await f.call('PUT',{pages:[{url:'pages/Today'}]})).body,overview('today'));
 });
+
+test('任务定位参数只接受当前工作文件内的完整任务路径', async () => {
+  const f = fixture();
+  const focusTask = {repoId:'core', file:'project.org', titles:['章节', '任务'], occurrence:2};
+  const page = params => ({pages:[{url:'pages/OrgFileDetail', params:{repoId:'core', path:'project.org', ...params}}]});
+  const state = page({focusTask});
+  assert.deepEqual((await f.call('PUT',state)).body,state);
+  for (const params of [
+    {focusTask:{...focusTask, file:'other.org'}}, {focusTask:{...focusTask, occurrence:0}},
+    {focusTask:{...focusTask, titles:[]}}, {focusTask,syncId:'backup'}
+  ]) assert.equal((await f.call('PUT',page(params))).status,400);
+});
 test('备忘按稳定身份读取真实 native Task，JSON 不能伪造编辑快照',async()=>{
   const f=fixture();const result=await f.call('PUT',{pages:[{url:'pages/MemoEdit',params:{task:{repoId:'core',filePath:'memo.org',id:'memo',heading:'伪造旧标题'}}}]});
   assert.equal(result.status,200);assert.equal(f.applied[0].current.params.task,f.task);

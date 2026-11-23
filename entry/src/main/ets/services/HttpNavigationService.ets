@@ -74,7 +74,7 @@ export class HttpNavigationService {
       switch (page.url) {
         case 'pages/Settings': allowed = ['section']; break
         case 'pages/ConflictFile': allowed = ['repoId', 'path']; break
-        case 'pages/OrgFileDetail': allowed = ['repoId', 'path', 'syncId', 'repositoryName', 'backupTime', 'backupPath']; break
+        case 'pages/OrgFileDetail': allowed = ['repoId', 'path', 'syncId', 'repositoryName', 'backupTime', 'backupPath', 'focusTask']; break
         case 'pages/RepositorySettings': allowed = ['repoId']; break
         case 'pages/SyncLog': allowed = ['repoId', 'syncId']; break
         case 'pages/MemoEdit': allowed = ['task', 'create', 'memoId']; break
@@ -86,6 +86,16 @@ export class HttpNavigationService {
         (p.backupTime !== undefined && p.backupTime !== null && (typeof p.backupTime !== 'number' || !Number.isFinite(p.backupTime)))) throw new NavigationError(400, '页面参数类型无效')
       if (p.section !== undefined && !SECTIONS.includes(p.section)) throw new NavigationError(400, '设置分组无效')
       if (['pages/OrgFileDetail', 'pages/ConflictFile'].includes(page.url) && (!p.repoId || !p.path)) throw new NavigationError(400, '必须指定 repoId 和 path')
+      if (p.focusTask !== undefined) {
+        const target = p.focusTask
+        if (!target || typeof target !== 'object' || Array.isArray(target) || p.syncId !== undefined ||
+          Object.keys(target).some(key => !['repoId', 'file', 'titles', 'occurrence'].includes(key)) ||
+          target.repoId !== p.repoId || target.file !== p.path || !Array.isArray(target.titles) || !target.titles.length ||
+          target.titles.some(title => typeof title !== 'string') ||
+          (target.occurrence !== undefined && (!Number.isSafeInteger(target.occurrence) || target.occurrence < 1))) {
+          throw new NavigationError(400, 'focusTask 必须是当前文件中的任务路径')
+        }
+      }
       if (page.url === 'pages/SyncLog' && !p.repoId) throw new NavigationError(400, '必须指定 repoId')
       if (page.url === 'pages/MemoEdit' && ((p.create !== undefined && typeof p.create !== 'boolean') ||
         (p.memoId !== undefined && (typeof p.memoId !== 'string' || !p.memoId)) ||

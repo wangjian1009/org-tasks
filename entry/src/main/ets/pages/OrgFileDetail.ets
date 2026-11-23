@@ -3,7 +3,7 @@ import { DataManager, DataSet, DataSetEvent } from '../services/DataManager'
 import { util } from '@kit.ArkTS'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
-import { CoreBridgeError, CoreFileHeaderEntry, CoreFileHeaderValueChange, CoreOrgFile, CoreTask, CoreTaskStructureEdit, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreFileHeaderEntry, CoreFileHeaderValueChange, CoreOrgFile, CoreTask, CoreTaskPath, CoreTaskStructureEdit, CoreTitlePart, coreErrorMessage } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { OrgFileDocumentView, OrgFileDocumentNavigation } from '../components/OrgFileDocumentView'
 import { InternalLinkProcessor, CallbackInternalLinkProcessor } from '../ui/InternalLinkProcessor'
@@ -99,6 +99,8 @@ struct OrgFileDetail {
   private historyManager: HistoryFileDataManager | undefined = undefined
   private latestHistory: SnapshotState<HistoryFileReadingSnapshot> | undefined = undefined
   private appliedHistoryRevision: number = -1
+  private entryTaskRead: boolean = false
+  @State entryTask: CoreTaskPath | undefined = undefined
   private loadRevision: number = 0
   private needsReload: boolean = false
   private fileVersion: string = ''
@@ -163,6 +165,10 @@ struct OrgFileDetail {
   async loadFile(force: boolean = false) {
     if (!this.pageVisible) return
     const params = this.getUIContext().getRouter().getParams() as PageParameters
+    if (!this.entryTaskRead) {
+      this.entryTaskRead = true
+      this.entryTask = params.focusTask
+    }
     if (params.syncId) {
       await this.loadHistory(params, params.syncId, force)
       return
@@ -620,7 +626,7 @@ struct OrgFileDetail {
       this.projectFile = project !== null && !this.historyLabel
       this.title = this.projectFile ? projectHeaderTitle(file.category() || '', project!) : file.title() || path
       this.titleParts = this.projectFile ? [] : file.titleParts()
-      if (identity !== this.fileIdentity && !this.projectFile && !this.historyLabel) {
+      if (identity !== this.fileIdentity && !this.projectFile && !this.historyLabel && !this.entryTask) {
         const context = this.getUIContext().getHostContext()!
         this.sourceMode = AppDataManager.shared(context).configuration?.fileDisplayMode === 'source'
       }
@@ -704,6 +710,7 @@ struct OrgFileDetail {
             Stack() {
               ForEach([this.documentSession], (identity: string) => {
               OrgFileDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds,
+                focusTask: this.entryTask, focusConsumed: (): void => { this.entryTask = undefined },
                 readOnly: !!this.historyLabel, fileContext: this.historyLabel,
                 tagFiltered: this.selectedTags.length > 0 || this.selectedCategory.length > 0,
                 headerEntries: this.headerEntries, headerVersion: this.headerVersion, categoryOptions: this.categoryOptions, tagOptions: this.tagOptions,
