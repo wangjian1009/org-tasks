@@ -115,7 +115,7 @@ export struct RegionOrderSheet {
       Row() {
         Button('取消').id('region_order_cancel').fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .enabled(!this.busy).onClick((): void => { this.cancel() })
-        Text('调整分区顺序').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1).textAlign(TextAlign.Center)
+        Text('排序').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1).textAlign(TextAlign.Center)
         Button(this.busy ? '保存中' : '完成').id('region_order_done').fontColor(UiColor.primary).backgroundColor(Color.Transparent)
           .enabled(!this.busy && (!this.readError || this.readErrorCleared)).onClick((): void => { this.confirm() })
       }.height(56).width('100%')

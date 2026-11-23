@@ -192,7 +192,7 @@ export struct TaskPageContent {
   }
 
   todayActions(): PopupMenuItem[] {
-    return this.view === 'today' ? [{ title: '调整分区顺序', disabled: !this.pageReady,
+    return this.view === 'today' ? [{ title: '排序', icon: $r('app.media.ui_sort'), disabled: !this.pageReady,
       action: (): void => { this.openRegionOrder() } }] : []
   }
 
