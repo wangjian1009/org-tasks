@@ -596,7 +596,7 @@ Things 的时刻表示提醒，截止日期没有提醒时刻；本应用的“�
 
 ~LinkView.internalLinkProcessor~ 可注册 ~InternalLinkProcessor~ 对象，提供异步 ~isValid(target): Promise<boolean>~ 与 ~process(target): Promise<void>~ 。先验证，再执行；验证失败、未注册或目标不存在时提示且保持位置，不转交系统浏览器。等待验证期间离开页面后不执行旧跳转。 ~TitleText~ 和 ~OrgContentView~ 透传同一属性。
 
-内部链接语义依据 [[info:org#Internal Links][Org Info：Internal Links]] 。Core 提供内部 URI 和目标键，UI 不解析 Org； ~#custom-id~ 匹配 ~CUSTOM_ID~ ， ~*标题~ 匹配标题；普通目标依次匹配专用目标 ~<<目标>>~ 、 ~#+NAME~ 命名元素及同名标题，同级取文件中首次出现者。当前不跨文件搜索，也不按任意正文进行模糊搜索。无描述时保持链接目标文字，不按导出编号替换显示。
+内部链接语义依据 [[info:org#Internal Links][Org Info：Internal Links]] 。Core 提供内部 URI 和目标键，UI 不解析 Org； ~#custom-id~ 匹配 ~CUSTOM_ID~ ， ~*标题~ 匹配标题；普通目标依次匹配专用目标 ~<<目标>>~ 、 ~#+NAME~ 命名元素及同名标题，同级取文件中首次出现者。标题匹配忽略 ~[/]~ 、 ~[1/3]~ 等分数进度标记，例如 ~[[*方案说明]]~ 可定位到带分数进度的“方案说明”标题。当前不跨文件搜索，也不按任意正文进行模糊搜索。无描述时保持链接目标文字，不按导出编号替换显示。
 
 冲突页面的 HTML 阅读器读取 Core 的语义目的地，执行时展开折叠祖先并滚动到目标。 ~OrgFileDetail~ 为标题、正文和任务日志提供同一个 ~InternalLinkProcessor~ 。文件根据 ~DocumentSection.linkTargets~ 找到目标所在章节，并和目录一起调用 ~OrgFileDocumentNavigation.locateSection~ 。此入口接收 Core 的完整节点路径，包括仓库、相对文件路径、标题层级与同名节点出现次序。导言目标直接定位导言区。定位前保存当前编辑，保存失败时保留原位置和草稿。页面隐藏、查看原文或刷新期间暂停内部跳转。等待保存时隐藏文档或切换快照会取消旧定位。更新文件快照后使用同版本的目标索引。
 

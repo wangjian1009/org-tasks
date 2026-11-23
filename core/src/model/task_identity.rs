@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use orgize::{SyntaxKind, ast::Headline};
+use orgize::{SyntaxKind, SyntaxNode, ast::Headline};
 
 /// 任务身份独立于源位置；无状态祖先不参与路径，自身标题始终保留。
 pub(crate) struct TaskIdentity<'a> {
@@ -76,11 +76,20 @@ fn identity_title(headline: &Headline) -> String {
 
 /// 完整结构路径与同步匹配共用；只排除标题直属的进度节点，不改写源文本。
 pub(crate) fn path_title(headline: &Headline) -> String {
+    title_without_cookies(headline, |_| true)
+}
+
+pub(super) fn title_without_cookies(
+    headline: &Headline,
+    skip_cookie: impl Fn(&SyntaxNode) -> bool,
+) -> String {
     let mut output = String::new();
     let mut removed_cookie = false;
     let mut separator = false;
     for part in headline.title() {
-        if part.kind() == SyntaxKind::COOKIE {
+        if part.as_node().is_some_and(|node| {
+            node.kind() == SyntaxKind::COOKIE && skip_cookie(node)
+        }) {
             removed_cookie = true;
             let trimmed = output.trim_end_matches([' ', '\t']).len();
             separator |= trimmed < output.len();

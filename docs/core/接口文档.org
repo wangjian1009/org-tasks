@@ -1222,7 +1222,7 @@ impl OrgFileMetadata {
 
 * 文档内部链接投影
 
-~DocumentSection.link_targets: Vec<DocumentLinkTarget>~ 是同版本只读目标索引，JSON 字段为 ~linkTargets~ 。 ~DocumentLinkTarget { target: String, priority: u8 }~ 的优先级为专用目标 0、NAME 命名元素 1、标题 2；标题同时提供 ~*标题~ 、同名普通目标及可选的 ~#CUSTOM_ID~ 键。相同优先级按文件顺序匹配，索引不包含字面代码中的伪目标或受保护冲突子树，不新增持久化状态。
+~DocumentSection.link_targets: Vec<DocumentLinkTarget>~ 是同版本只读目标索引，JSON 字段为 ~linkTargets~ 。 ~DocumentLinkTarget { target: String, priority: u8 }~ 的优先级为专用目标 0、NAME 命名元素 1、标题 2；标题同时提供 ~*标题~ 、同名普通目标及可选的 ~#CUSTOM_ID~ 键。标题匹配键跳过标题直属的分数进度节点，如 ~[/]~ 和 ~[1/3]~ ，并合并进度节点两侧的空白。相同优先级按文件顺序匹配，索引不包含字面代码中的伪目标或受保护冲突子树，不新增持久化状态。
 
 ~TitlePart.href~ 与安全 HTML 中的内部链接使用 ~org-internal:~ URI，仅编码运行时跳转目标，不改写原文件。Core 在 HTML 中提供 ~data-org-link-targets~ JSON 目标键和 ~data-org-link-priority~ ，以及链接的 ~data-org-url~ 原始目标。宿主只读取这些语义元数据，负责验证当前视图是否可定位并执行滚动；不解析或重建 Org。外部链接仍只允许已有协议， ~file:~ 和可执行协议不进入系统打开链路。 ~[[#id]]~ 、 ~[[*标题]]~ 与普通目标的原始写入形式不变，修改继续使用现有链接局部编辑与版本校验。
 

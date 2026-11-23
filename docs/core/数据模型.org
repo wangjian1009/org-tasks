@@ -2053,7 +2053,7 @@ JSON 使用 ~type~ 标签和 camelCase 字段，如 ~taskStateChange~ 、 ~taskN
 
 * 文档内部链接目的地
 
-~DocumentLinkTarget~ 是运行时只读值，包含 ~target~ 与 ~priority~ ，通过 ~DocumentSection.link_targets~ 关联到当前文件的前言或标题直属区域。Core 从 orgize AST 提取专用目标、NAME 命名元素、标题与 CUSTOM_ID，保留文件顺序，按专用目标、命名元素、标题的顺序匹配普通目标。源码、示例中的伪目标不参与解析；索引不保存到 Org、同步记录或 Preferences。
+~DocumentLinkTarget~ 是运行时只读值，包含 ~target~ 与 ~priority~ ，通过 ~DocumentSection.link_targets~ 关联到当前文件的前言或标题直属区域。Core 从 orgize AST 提取专用目标、NAME 命名元素、标题与 CUSTOM_ID，保留文件顺序，按专用目标、命名元素、标题的顺序匹配普通目标。标题匹配键从 orgize 语法树跳过直属的分数进度节点并整理邻接空白，保留逐字文本等行内节点中的字面内容。源码、示例中的伪目标不参与解析；索引不保存到 Org、同步记录或 Preferences。
 
 完整 HTML 和分段阅读共用同一目标语义。内部链接的 ~org-internal:~ URI 只存在于展示投影，原始 ~TextLink.url~ 和编辑输入继续保留 ~#custom-id~ 、 ~*标题~ 或普通目标名。HTML 的目标键元数据使用 JSON 与 HTML 属性转义，宿主消费元数据而不解释 Org 源码；图标、菜单、焦点与滚动属于宿主交互。
 

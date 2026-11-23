@@ -858,8 +858,14 @@ impl Traverser for ReadingView {
 }
 
 fn headline_link_targets(headline: &orgize::ast::Headline) -> Vec<String> {
-    let title = headline.title_raw().trim().to_owned();
-    let mut targets = vec![format!("*{title}"), title];
+    let title = super::task_identity::title_without_cookies(headline, |cookie| {
+        cookie.children_with_tokens().any(|part| part.kind() == SyntaxKind::SLASH)
+    });
+    let title = title.trim();
+    let mut targets = Vec::new();
+    if !title.is_empty() {
+        targets.extend([format!("*{title}"), title.to_owned()]);
+    }
     if let Some(drawer) = headline.properties() {
         if let Some(id) = super::properties::Properties::from_drawer(&drawer).get("CUSTOM_ID").filter(|id| !id.is_empty()) {
             targets.push(format!("#{id}"));
@@ -1508,6 +1514,31 @@ mod tests {
         assert_eq!(document.source_bytes(), source.as_bytes());
         for href in ["javascript:alert(1)", "file:other.org", "../other.org", "/secret", "data:text/html,hello"] {
             assert!(rendered_link_href(href).is_none());
+        }
+    }
+
+    #[test]
+    fn internal_heading_links_ignore_fraction_cookies() {
+        for progress in ["[/]", "[1/3]", "[3/3]"] {
+            let source = format!(
+                "前言 [[*阶段 说明][标题跳转]] [[阶段 说明][普通跳转]]\n\
+                 * TODO 阶段 {progress}  说明\n\
+                 :PROPERTIES:\n:CUSTOM_ID: phase\n:END:\n\
+                 * 字面 ~[/]~ [50%]\n"
+            );
+            let document = file(&source);
+            let sections = document.document_sections();
+            let keys = |index: usize| {
+                sections[index].link_targets.iter().map(|target| target.target.as_str()).collect::<Vec<_>>()
+            };
+            assert_eq!(keys(1), ["*阶段 说明", "阶段 说明", "#phase"]);
+            assert_eq!(keys(2), ["*字面 ~[/]~ [50%]", "字面 ~[/]~ [50%]"]);
+            assert!(sections[0].html.contains(&rendered_link_href("*阶段 说明").unwrap()));
+            assert!(sections[0].html.contains(&rendered_link_href("阶段 说明").unwrap()));
+            let targets = keys(1).into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let html = document.render_document_html();
+            assert!(html.contains(&internal_target_attributes(&targets, 2)));
+            assert_eq!(document.source_bytes(), source.as_bytes());
         }
     }
 
