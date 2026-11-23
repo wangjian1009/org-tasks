@@ -74,11 +74,24 @@ export class RepositorySyncService {
   private static fileTotal: number = 0
   private static processedFiles: number = 0
   private static active: SyncRequest | undefined = undefined
+  private static changingConfiguration: boolean = false
   private static pending: SyncRequest[] = []
   private static nextId: number = 0
   private static observers: Set<(state: RepositorySyncState) => void> = new Set()
 
   static runningSync(): SyncHandle | undefined { return RepositorySyncService.active?.handle }
+
+  static async changeConfiguration(change: () => Promise<void>): Promise<void> {
+    if (RepositorySyncService.changingConfiguration) throw new Error('正在修改配置，请稍后重试')
+    RepositorySyncService.changingConfiguration = true
+    try {
+      await RepositorySyncService.active?.handle.completion
+      await change()
+    } finally {
+      RepositorySyncService.changingConfiguration = false
+      RepositorySyncService.startPending()
+    }
+  }
 
   static watch(observer: (state: RepositorySyncState) => void): void {
     RepositorySyncService.observers.add(observer)
@@ -115,7 +128,7 @@ export class RepositorySyncService {
     const completion = new Promise<SyncCompletion>((resolve): void => { complete = resolve })
     const handle: SyncHandle = { id: ++RepositorySyncService.nextId, source: options.source, completion }
     const request: SyncRequest = { context, handle, options, complete }
-    if (active) {
+    if (active || RepositorySyncService.changingConfiguration) {
       RepositorySyncService.pending.push(request)
       return { kind: 'queued', handle }
     }
@@ -144,6 +157,11 @@ export class RepositorySyncService {
     }
     RepositorySyncService.active = undefined
     request.complete(completion)
+    RepositorySyncService.startPending()
+  }
+
+  private static startPending(): void {
+    if (RepositorySyncService.active || RepositorySyncService.changingConfiguration) return
     const next = RepositorySyncService.pending.shift()
     if (next) RepositorySyncService.activate(next)
   }

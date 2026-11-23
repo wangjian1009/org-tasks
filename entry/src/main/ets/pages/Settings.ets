@@ -4,7 +4,7 @@ import { SettingsAutoSave } from '../services/SettingsAutoSave'
 import { ReminderManager, TaskReminderConfiguration, CalendarPermissionState } from '../services/ReminderManager'
 import { TaskReminderList } from '../components/TaskReminderList'
 import { TrashSettingsService } from '../services/TrashSettingsService'
-import { PageNavigator } from '../services/PageNavigator'
+import { PageNavigator, primaryPage } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
 import { validateConfiguration } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
@@ -474,7 +474,28 @@ struct Settings {
   }
 
   private settingsMenu(): PopupMenuItem[] {
-    return [{ title: '备份', action: (): void => { this.backupConfiguration() } }]
+    return [
+      { title: '备份', action: (): void => { this.backupConfiguration() } },
+      { title: '重置', dangerous: true, action: (): void => { this.confirmReset() } }
+    ]
+  }
+
+  private confirmReset(): void {
+    showDangerousConfirmation(this.getUIContext(), { title: '重置设置？',
+      message: '应用设置将恢复默认。保留存储库目录和任务文件，WebDAV 同步将暂时停用。可打开之前的备份恢复设置。',
+      confirmLabel: '重置', onConfirm: (): void => { this.resetConfiguration() } })
+  }
+
+  private async resetConfiguration(): Promise<void> {
+    if (this.saving) return
+    this.saving = true
+    this.message = ''
+    try {
+      await this.preferenceSave.flush()
+      await ConfigTransfer.reset(this.getUIContext().getHostContext()!)
+      if (!await PageNavigator.shared.openPrimary(this.getUIContext(), primaryPage('today'))) await this.load()
+    } catch (error) { this.message = `重置失败：${coreErrorMessage(error as CoreBridgeError)}` }
+    finally { this.saving = false }
   }
 
   private async backupConfiguration(): Promise<void> {

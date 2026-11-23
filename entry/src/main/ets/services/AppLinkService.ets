@@ -5,7 +5,7 @@ import { PreferencesStore } from './PreferencesStore'
 import { AppLinkAssociation, AppLinkCatalogEntry, AppLinkLaunch } from '../models/OrgTask'
 
 const PREFERENCES = 'org_tasks_config'
-const KEY = 'appLinkAssociations'
+export const APP_LINK_ASSOCIATIONS_KEY = 'appLinkAssociations'
 const CATALOG_FILE = 'app-links/apps.json'
 
 interface AppLinkCatalogDocument { apps: AppLinkCatalogEntry[] }
@@ -23,6 +23,7 @@ export class AppLinkManager {
   private associations: AppLinkAssociation[] | undefined = undefined
 
   start(context: Context): void { this.context = context }
+  invalidateAssociations(): void { this.associations = undefined }
   stop(): void {
     this.context = undefined
     this.associations = undefined
@@ -75,7 +76,7 @@ export class AppLinkManager {
     const current = this.use(context)
     if (this.associations && !reload) return this.associations.slice()
     const store = await PreferencesStore.open(current, PREFERENCES)
-    const encoded = await store.get(KEY, '') as string
+    const encoded = await store.get(APP_LINK_ASSOCIATIONS_KEY, '') as string
     if (!encoded) { this.associations = []; return [] }
     try {
       const values = JSON.parse(encoded) as AppLinkAssociation[]
@@ -114,12 +115,12 @@ export class AppLinkManager {
 
   private async write(context: Context, values: AppLinkAssociation[]): Promise<void> {
     const store = await PreferencesStore.open(this.use(context), PREFERENCES)
-    const previous = await store.get(KEY, '') as string
+    const previous = await store.get(APP_LINK_ASSOCIATIONS_KEY, '') as string
     try {
-      await store.put(KEY, JSON.stringify(normalize(values)))
+      await store.put(APP_LINK_ASSOCIATIONS_KEY, JSON.stringify(normalize(values)))
       await store.flush()
     } catch (error) {
-      try { await store.put(KEY, previous); await store.flush() }
+      try { await store.put(APP_LINK_ASSOCIATIONS_KEY, previous); await store.flush() }
       catch (_) { console.error('恢复应用关联失败') }
       throw error as Error
     }

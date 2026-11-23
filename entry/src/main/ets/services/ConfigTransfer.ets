@@ -2,12 +2,24 @@ import { Context, common } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { fileIo, fileUri } from '@kit.CoreFileKit'
 import { systemShare } from '@kit.ShareKit'
-import { decodeConfigurationYaml, encodeConfigurationYaml, validateConfiguration, normalizeSyncOptions,
+import { preferences } from '@kit.ArkData'
+import { decodeConfigurationYaml, encodeConfigurationYaml, defaultTodoSettings, defaultSyncOptions,
+  validateConfiguration, normalizeSyncOptions,
   CoreSettings } from 'liborg_tasks_harmony.so'
-import { AppConfig, RepoConfig } from '../models/OrgTask'
+import { AppConfig, AppLinkAssociation, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { isSystemRepository, SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
 import { AppConfigService, validateEntryFile } from './AppConfigService'
 import { localDate, repositoryLabel } from '../ui/Theme'
+import { RegionOrder } from '../ui/RegionOrderPresentation'
+import { REGION_ORDER_KEY, RegionOrderService, validRegionOrder } from './RegionOrderService'
+import { APP_LINK_ASSOCIATIONS_KEY, AppLinkManager } from './AppLinkService'
+import { DEFAULT_TRASH_RETENTION_DAYS, TRASH_RETENTION_KEY, TrashSettingsService } from './TrashSettingsService'
+import { TaskReminderConfiguration, TaskReminderSettings } from './TaskReminderSettings'
+import { DEFAULT_EVENT_DURATION_MINUTES } from './CalendarEventProjection'
+import { ReminderManager } from './ReminderManager'
+import { CredentialService } from './CredentialService'
+import { NativeCoreService } from './NativeCoreService'
+import { RepositorySyncService } from './RepositorySyncService'
 
 const FORMAT = 'org-tasks-config'
 const VERSION = 1
@@ -37,6 +49,14 @@ interface TransferSettings {
   todoDefaults: string
   coreSettings: CoreSettings
   fileDisplayMode: 'rendered' | 'source'
+  preferences?: BackupPreferences
+}
+
+interface BackupPreferences {
+  reminders: TaskReminderConfiguration
+  trashRetentionDays: number
+  appLinkAssociations: AppLinkAssociation[]
+  regionOrder: RegionOrder | null
 }
 
 export interface ConfigDocument {
@@ -107,6 +127,17 @@ async function decodeConfiguration(text: string): Promise<ConfigDocument> {
   validateTarget(settings.inboxFile, settings.inboxRepoId, '收件箱', ids)
   validateTarget(settings.somedayFile, settings.somedayRepoId, '某天', ids)
   validateTarget(settings.memoFile, settings.memoRepoId, '备忘', ids)
+  const prefs = settings.preferences
+  if (prefs !== undefined && (!prefs || typeof prefs.reminders?.enabled !== 'boolean' ||
+    !Number.isInteger(prefs.reminders.eventDurationMinutes) ||
+    prefs.reminders.eventDurationMinutes < 1 || prefs.reminders.eventDurationMinutes > 1440 ||
+    !Number.isInteger(prefs.trashRetentionDays) || prefs.trashRetentionDays < 1 || prefs.trashRetentionDays > 3650 ||
+    !Array.isArray(prefs.appLinkAssociations) || prefs.appLinkAssociations.some(item =>
+      !item || typeof item.name !== 'string' || !item.name.trim() ||
+      typeof item.bundleName !== 'string' || !item.bundleName.trim()) ||
+    (prefs.regionOrder !== null && !validRegionOrder(prefs.regionOrder)))) {
+    throw new Error('备份中的应用偏好设置无效')
+  }
   return doc
 }
 
@@ -141,11 +172,18 @@ export class ConfigTransfer {
   static async exportText(context: Context): Promise<string> {
     const config = await AppConfigService.load(context, false)
     const repos = config.repos.filter(repo => !isSystemRepository(repo)).map(exportRepository)
+    const prefs: BackupPreferences = {
+      reminders: await TaskReminderSettings.load(context),
+      trashRetentionDays: await TrashSettingsService.retentionDays(context),
+      appLinkAssociations: await AppLinkManager.shared.load(context, true),
+      regionOrder: await RegionOrderService.load(context)
+    }
     const document: ConfigDocument = { format: FORMAT, version: VERSION, settings: {
       repos, inboxFile: config.inboxFile, inboxRepoId: config.inboxRepoId,
       somedayFile: config.somedayFile, somedayRepoId: config.somedayRepoId,
       memoFile: config.memoFile, memoRepoId: config.memoRepoId, calendarName: config.calendarName,
-      todoDefaults: config.todoDefaults, coreSettings: config.coreSettings, fileDisplayMode: config.fileDisplayMode
+      todoDefaults: config.todoDefaults, coreSettings: config.coreSettings, fileDisplayMode: config.fileDisplayMode,
+      preferences: prefs
     } }
     const encoded = await encodeConfigurationYaml(document)
     checkSize(encoded)
@@ -160,12 +198,68 @@ export class ConfigTransfer {
   }
 
   static apply(context: Context, preview: ConfigImportPreview): Promise<void> {
-    return AppConfigService.restore(context, async (current: AppConfig): Promise<AppConfig> => {
+    return ConfigTransfer.writeConfiguration(context, preview.document.settings.preferences, async (current: AppConfig): Promise<AppConfig> => {
       const plan = await ConfigTransfer.plan(current, preview.document)
       if (JSON.stringify(plan.warnings) !== JSON.stringify(preview.warnings)) {
         throw new Error('本机配置或目录发生变化，请重新预览')
       }
       return plan.config
+    })
+  }
+
+  static reset(context: Context): Promise<void> {
+    const defaults: BackupPreferences = {
+      reminders: { enabled: false, eventDurationMinutes: DEFAULT_EVENT_DURATION_MINUTES },
+      trashRetentionDays: DEFAULT_TRASH_RETENTION_DAYS, appLinkAssociations: [], regionOrder: null
+    }
+    return ConfigTransfer.writeConfiguration(context, defaults, async (current: AppConfig): Promise<AppConfig> => {
+      const syncDefaults = await defaultSyncOptions()
+      const todoDefaults = await defaultTodoSettings()
+      const repos = current.repos.map((repo: RepoConfig): RepoConfig => {
+        if (isSystemRepository(repo)) return repo
+        return { id: repo.id, rootDirectory: repo.rootDirectory, name: '', webdavEnabled: false,
+          webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: syncDefaults.excludedDirectories.slice() }
+      })
+      // 释放进程中的远端凭据，保留用于恢复的同步记录和待上传数据。
+      if (current.repos.some(repo => repo.webdavEnabled || repo.webdavCleanupPending)) {
+        await NativeCoreService.workspaceFor(current.repos.filter(repo => !repo.webdavEnabled && !repo.webdavCleanupPending),
+          current.todoDefaults, current.coreSettings)
+      }
+      return { repos, todoDefaults, coreSettings: DEFAULT_CONFIG.coreSettings,
+        inboxFile: '', inboxRepoId: '', somedayFile: '', somedayRepoId: '', memoFile: '', memoRepoId: '',
+        calendarName: DEFAULT_CONFIG.calendarName, fileDisplayMode: DEFAULT_CONFIG.fileDisplayMode }
+    }, true)
+  }
+
+  private static writeConfiguration(context: Context, prefs: BackupPreferences | undefined,
+    configuration: (current: AppConfig) => Promise<AppConfig>, reset: boolean = false): Promise<void> {
+    return RepositorySyncService.changeConfiguration(async (): Promise<void> => {
+      const values = new Map<string, preferences.ValueType | undefined>()
+      let previousReminder: TaskReminderConfiguration | undefined
+      if (prefs) {
+        values.set(TRASH_RETENTION_KEY, reset ? undefined : prefs.trashRetentionDays)
+        values.set(APP_LINK_ASSOCIATIONS_KEY, prefs.appLinkAssociations.length ? JSON.stringify(prefs.appLinkAssociations) : undefined)
+        values.set(REGION_ORDER_KEY, prefs.regionOrder ? JSON.stringify(prefs.regionOrder) : undefined)
+        previousReminder = await TaskReminderSettings.load(context)
+        await TaskReminderSettings.save(context, { enabled: prefs.reminders.enabled,
+          eventDurationMinutes: prefs.reminders.eventDurationMinutes })
+      }
+      try {
+        await AppConfigService.restore(context, configuration, values, reset)
+      } catch (error) {
+        if (previousReminder) await TaskReminderSettings.save(context, { enabled: previousReminder.enabled,
+          eventDurationMinutes: previousReminder.eventDurationMinutes })
+        if (reset) {
+          const current = await AppConfigService.load(context, false)
+          await NativeCoreService.workspaceFor(current.repos, current.todoDefaults, current.coreSettings)
+        }
+        throw error as Error
+      }
+      if (prefs) {
+        AppLinkManager.shared.invalidateAssociations()
+        RegionOrderService.publish(prefs.regionOrder)
+        await ReminderManager.refresh('设置变更')
+      }
     })
   }
 
@@ -190,6 +284,10 @@ export class ConfigTransfer {
         id: repo.id, name: imported.name, rootDirectory: repo.rootDirectory,
         webdavEnabled: repo.webdavEnabled, webdavUrl: imported.webdavUrl, webdavUsername: imported.webdavUsername,
         webdavPassword: '', excludedDirectories: options.excludedDirectories
+      }
+      if (existing?.id === imported.id && !existing.webdavUrl && imported.webdavUrl) {
+        restored.webdavPassword = await CredentialService.passwordForRestore(restored)
+        restored.webdavEnabled = imported.webdavEnabled && !!restored.webdavPassword
       }
       repoIds.set(imported.id, repo.id)
       if (existing) repos[repos.indexOf(existing)] = restored

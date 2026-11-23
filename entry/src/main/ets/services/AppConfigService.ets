@@ -67,10 +67,14 @@ export class AppConfigService {
     return AppConfigService.enqueueSave(() => AppConfigService.persist(context, config, true))
   }
 
-  static restore(context: Context, merge: (current: AppConfig) => Promise<AppConfig>): Promise<void> {
+  static restore(context: Context, merge: (current: AppConfig) => Promise<AppConfig>,
+    preferencesToRestore?: Map<string, preferences.ValueType | undefined>, reset: boolean = false): Promise<void> {
     return AppConfigService.enqueueSave(async (): Promise<void> => {
       const current = await AppConfigService.load(context, false)
-      await AppConfigService.persist(context, await merge(current), false)
+      if (reset) {
+        for (const repo of current.repos) await CredentialService.preserveForReset(repo)
+      }
+      await AppConfigService.persist(context, await merge(current), false, preferencesToRestore, reset)
     })
   }
 
@@ -80,7 +84,8 @@ export class AppConfigService {
     return pending
   }
 
-  private static async persist(context: Context, config: AppConfig, writeCredentials: boolean): Promise<void> {
+  private static async persist(context: Context, config: AppConfig, writeCredentials: boolean,
+    additional?: Map<string, preferences.ValueType | undefined>, reset: boolean = false): Promise<void> {
     for (const file of [config.inboxFile, config.somedayFile, config.memoFile]) {
       validateEntryFile(file)
     }
@@ -106,7 +111,7 @@ export class AppConfigService {
         excludedDirectories: repository.excludedDirectories || []
       })
     }
-    const values = new Map<string, preferences.ValueType>([
+    const values = new Map<string, preferences.ValueType | undefined>([
       [REPOS_KEY, JSON.stringify(persisted)],
       ['inboxFile', config.inboxFile.trim()], ['inboxRepoId', config.inboxRepoId],
       ['somedayFile', config.somedayFile.trim()], ['somedayRepoId', config.somedayRepoId],
@@ -114,14 +119,26 @@ export class AppConfigService {
       ['calendarName', config.calendarName.trim()], ['todoDefaults', config.todoDefaults],
       ['coreSettings', JSON.stringify(coreSettings)], ['fileDisplayMode', config.fileDisplayMode]
     ])
+    additional?.forEach((value, key): void => { values.set(key, value) })
     const previous = new Map<string, preferences.ValueType | undefined>()
+    const previousPasswords = new Map<string, string>()
     if (!writeCredentials) {
       for (const key of values.keys()) {
         previous.set(key, await store.has(key) ? await store.get(key, '') : undefined)
       }
     }
     try {
-      for (const entry of values) await store.put(entry[0], entry[1])
+      if (!writeCredentials) {
+        for (const repo of config.repos) {
+          if (SystemRepositoryService.isSystem(repo) || (!reset && !repo.webdavPassword)) continue
+          previousPasswords.set(repo.id, await CredentialService.getWebDavPassword(repo.id))
+          await CredentialService.setWebDavPassword(repo.id, repo.webdavPassword)
+        }
+      }
+      for (const entry of values) {
+        if (entry[1] === undefined) await store.delete(entry[0])
+        else await store.put(entry[0], entry[1])
+      }
       await store.flush()
     } catch (error) {
       for (const entry of previous) {
@@ -130,6 +147,7 @@ export class AppConfigService {
         else await store.put(entry[0], value)
       }
       if (previous.size > 0) await store.flush()
+      for (const entry of previousPasswords) await CredentialService.setWebDavPassword(entry[0], entry[1])
       throw error as Error
     }
     AppConfigService.changeListeners.forEach((listener: () => void): void => { listener() })
