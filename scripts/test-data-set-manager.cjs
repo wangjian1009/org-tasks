@@ -944,3 +944,37 @@ test('应用链接穿过页面缓存，旧缓存缺失时按空数组恢复',asy
   delete record.value.appLinks;assert.deepEqual(new f.snapshots.PageTaskSnapshot(record).appLinks,[]);
  }finally{await f.cleanup()}
 });
+
+test('收件箱转换等待确认时保留源行，源版本过期时整组失败', async () => {
+  const f = await fixture();
+  try {
+    const manager = f.manager();
+    await manager.start();
+    const dataSet = manager.dataSet('tasks');
+    const source = dataSet.getTask('A');
+    await confirmedEdit(dataSet, 'updateTask', 'A', [{ field: 'NOTES', value: '最新正文' }]);
+    const confirmed = dataSet.getConfirmed();
+    const target = { repoId: source.repoId, file: 'project.org', titles: [] };
+    const hold = f.delay();
+    const pending = dataSet.submitOperationGroup({
+      fileVersions: [{ repoId: source.repoId, file: source.filePath, version: source.fileVersion }],
+      operations: [
+        { type: 'FileNew', data: { path: target, templateContent: '#+TITLE: 项目\n' } },
+        { type: 'Movement', data: { path: source.fullPath, position: { parent: target } } }
+      ]
+    }, () => true, true);
+    const rejected = assert.rejects(pending, /文件版本冲突/);
+    try {
+      await until(() => f.groups.length === 2);
+      assert.equal(f.groups[1].fileVersions[0].version, source.fileVersion);
+      assert.equal(dataSet.getTask('A').editContent.notes, '最新正文');
+    } finally {
+      hold.resolve();
+      await rejected;
+    }
+    assert.equal(dataSet.getConfirmed().version, confirmed.version);
+    assert.equal(dataSet.getTask('A').editContent.notes, '最新正文');
+  } finally {
+    await f.cleanup();
+  }
+});

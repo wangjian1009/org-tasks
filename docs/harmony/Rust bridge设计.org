@@ -794,7 +794,7 @@ Task.property(name) 是绑定到原快照的只读方法，ArkUI 深拷贝时继
 
 Rust 由 Core 反序列化并执行新增枚举；C++ 继续通过既有 ~Workspace.executeTaskOperations~ 的结构化编组与 worker，ArkTS wrapper 提供对应类型别名，不在 bridge 扫描模板、判断根标题或生成 Org 内容。HTTP 和 CLI 的既有操作组入口同步获得该类型，不增加另一个创建文件接口。
 
-Harmony 从应用资源读取 ~templates/project.org~ ，以 ~templateContent~ 传入并提供项目名与位置所选 Region 的分类参数；随包模板声明 ~FILETAGS: :project:todo:~ ，顶部空 ~ID~ 由 Core 自动生成 UUID v4，空 SETUPFILE 由 Core 按目标库共享设置是否存在补全或保留，不提供这两个字段的模板参数。 ~OrgFileCreateService~ 只组装同一操作组中的 ~FileNew~ 与 ~Movement~ ，携带原记录文件版本和 ~operationId~ ；不复制或重建正文、属性、日志与子条目。仓库候选使用 Core ID，通过真实目录关联宿主展示名称；用户默认选择转换收件箱所在仓库；按所选仓库的文件元信息汇总 Region 候选，新增 Region 以 CATEGORY 模板参数随新项目落地，不新增 Core 分类接口。
+Harmony 根据项目名称是否填写，从应用资源读取 ~templates/project.org~ 或 ~templates/tasks.org~ 。模板正文作为 ~templateContent~ 传入，标题、分类与项目名称通过模板参数提供。两种模板的空 ID 和 SETUPFILE 由 Core 处理。 ~OrgFileCreateService~ 为笔记本新增文件组装 ~FileNew~ ，为收件箱转换在同一操作组中追加 ~Movement~ 及原记录文件版本。数据集分配 ~operationId~ ，Core 移动原记录的完整子树。
 
 * 文件头顺序投影
 

@@ -1,3 +1,4 @@
+import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { TrashDataManager } from '../services/TrashDataManager'
 import { PageNavigator } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
@@ -7,14 +8,16 @@ import { NotificationManager } from '../services/NotificationManager'
 import { NotebookFileRow } from '../components/NotebookFileRow'
 import { AppConfig, DEFAULT_CONFIG } from '../models/OrgTask'
 import { AppShell } from '../components/AppShell'
-import { EmptyState } from '../components/controls/EmptyState'
 import { IconButton } from '../components/controls/IconButton'
 import { PopupMenuButton } from '../components/controls/PopupMenuButton'
 import { PopupMenuItem } from '../components/controls/PopupMenu'
+import { OrgFileCreateSheet } from '../components/editors/OrgFileCreateSheet'
+import { OrgFileCreateService } from '../services/OrgFileCreateService'
 import { NotebookDataManager, NotebookSnapshot } from '../services/ReadingDataManager'
 import { SnapshotState } from '../services/SnapshotDataManager'
 import { NotebookGroup } from '../services/NotebookService'
-import { CoreBridgeError, CoreOrgFileMetadata, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreBridgeError, CoreOrgFileMetadata, CoreTaskOperationGroup, coreErrorMessage } from '../services/NativeCoreService'
+import { OrgFileRepositoryOption } from '../ui/OrgFileCreatePresentation'
 import { UiColor } from '../ui/Theme'
 import { fileUsageKinds } from '../ui/NotebookPresentation'
 import { SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
@@ -30,24 +33,100 @@ struct Files {
   @State drawerOpen: boolean = false
   @State showIgnoredRepoIds: string[] = []
   @State config: AppConfig = DEFAULT_CONFIG
+  @State createOpen: boolean = false
+  @State createLoading: boolean = false
+  @State createGenerating: boolean = false
+  @State createSubmitting: boolean = false
+  @State createTyping: boolean = false
+  @State createMessage: string = ''
+  @State createRepositories: OrgFileRepositoryOption[] = []
+  @State createRepoId: string = ''
+  private keyboardAvoidMode: KeyboardAvoidMode | undefined = undefined
+  private active: boolean = false
   private trashMaintenance: Promise<void> | undefined = undefined
   private dataManager: NotebookDataManager | undefined = undefined
   private stopData: (() => void) | undefined = undefined
   aboutToAppear(): void {
+    this.active = true
     this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
   }
 
   onPageShow(): void { this.loadFiles() }
   aboutToDisappear(): void {
+    this.active = false
+    this.closeCreate()
     this.stopNotifications?.()
     this.stopNotifications = undefined
     this.stopData?.(); this.dataManager?.close()
   }
 
   onBackPress(): boolean {
+    if (this.createOpen) { this.dismissCreate(); return true }
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     PageNavigator.shared.back(this.getUIContext())
     return true
+  }
+
+  private async openCreate(repoId: string): Promise<void> {
+    if (!this.active || this.createOpen || this.createLoading) return
+    this.createLoading = true
+    try {
+      const ui = this.getUIContext()
+      const repositories = await OrgFileCreateService.repositories(ui.getHostContext()!)
+      if (!this.active) return
+      if (!repositories.some(repo => repo.repoId === repoId)) throw new Error('目标存储库已失效，请重新选择')
+      this.createRepoId = repoId
+      this.createRepositories = repositories
+      this.createMessage = ''
+      this.keyboardAvoidMode = ui.getKeyboardAvoidMode()
+      ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)
+      this.createOpen = true
+    } catch (error) {
+      if (this.active) {
+        try { this.getUIContext().getPromptAction().showToast({ message: coreErrorMessage(error as CoreBridgeError) }) }
+        catch (_) { /* 页面退出时提示可能不可用。 */ }
+      }
+    } finally { this.createLoading = false }
+  }
+
+  private dismissCreate(): void {
+    if (this.createGenerating || this.createSubmitting) return
+    if (this.createTyping) {
+      this.getUIContext().getFocusController().clearFocus()
+      this.createTyping = false
+      return
+    }
+    this.closeCreate()
+  }
+
+  private closeCreate(): void {
+    this.createOpen = false
+    this.createTyping = false
+    if (this.keyboardAvoidMode !== undefined) {
+      this.getUIContext().setKeyboardAvoidMode(this.keyboardAvoidMode)
+      this.keyboardAvoidMode = undefined
+    }
+  }
+
+  private async submitCreate(group: CoreTaskOperationGroup): Promise<void> {
+    if (!this.createOpen || this.createSubmitting || !this.dataManager) return
+    this.createSubmitting = true
+    this.createMessage = ''
+    try {
+      await this.dataManager.createFile(group)
+      if (this.active) this.closeCreate()
+    } catch (error) {
+      if (this.active) this.createMessage = coreErrorMessage(error as CoreBridgeError)
+    } finally { this.createSubmitting = false }
+  }
+
+  @Builder
+  createPanel() {
+    OrgFileCreateSheet({ repositories: this.createRepositories, initialRepoId: this.createRepoId, repositoryHidden: true,
+      busy: this.createSubmitting, generating: $createGenerating, message: this.createMessage,
+      typingChanged: (typing: boolean): void => { this.createTyping = typing },
+      cancel: (): void => { this.closeCreate() },
+      generated: (group: CoreTaskOperationGroup): void => { this.submitCreate(group) } })
   }
 
   toggleIgnored(group: NotebookGroup) {
@@ -62,6 +141,8 @@ struct Files {
 
   repositoryActions(group: NotebookGroup): PopupMenuItem[] {
     return [
+      { title: '新增文件', icon: $r('app.media.ui_add'), disabled: this.createLoading || this.createOpen,
+        action: (): void => { this.openCreate(group.repoId) } },
       { title: '设置', icon: $r('app.media.ui_settings'), action: (): void => {
         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: group.configId } })
       } },
@@ -132,7 +213,11 @@ struct Files {
           }
         }.width('100%').height('100%')
       }
-    }.width('100%').height('100%')
+    }.width('100%').height('100%').bindSheet($$this.createOpen, this.createPanel, {
+      height: SheetSize.FIT_CONTENT, preferType: SheetType.BOTTOM, backgroundColor: '#363A38', showClose: false,
+      onWillDismiss: (): void => { this.dismissCreate() },
+      onDisappear: (): void => { this.closeCreate() }
+    })
   }
 
   @Builder

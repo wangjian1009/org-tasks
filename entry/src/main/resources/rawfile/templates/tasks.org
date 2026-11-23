@@ -1,0 +1,7 @@
+:PROPERTIES:
+:ID:
+:END:
+#+TITLE: {{title}}
+#+FILETAGS: :todo:
+#+CATEGORY: {{category}}
+#+SETUPFILE:

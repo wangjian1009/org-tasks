@@ -1,7 +1,7 @@
 import { AppDataManager } from './AppDataManager'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
-import { CoreRepo, CoreOrgFile, CoreSyncRecord, CoreSyncRecordDetail, NativeCoreService } from './NativeCoreService'
+import { CoreRepo, CoreOrgFile, CoreSyncRecord, CoreSyncRecordDetail, CoreTaskOperationGroup, NativeCoreService } from './NativeCoreService'
 import { NotebookGroup } from './NotebookService'
 import { SnapshotState, SnapshotDataManager } from './SnapshotDataManager'
 import { repositoryLabel } from '../ui/Theme'
@@ -44,6 +44,9 @@ export class NotebookDataManager {
     this.publish()
   }
   async refresh(): Promise<void> { await this.app.dataSet('notebookFiles').refresh(); this.publish() }
+  async createFile(group: CoreTaskOperationGroup): Promise<void> {
+    await this.app.dataSet('notebookFiles').submitOperationGroup(group, () => !this.closed, true)
+  }
   close(): void { this.closed = true; this.stopData(); this.listeners.clear() }
 }
 export interface HistoryFileReadingTarget { repoId: string; path: string; syncId: string }

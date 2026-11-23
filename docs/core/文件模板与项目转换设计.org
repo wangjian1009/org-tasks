@@ -31,6 +31,6 @@
 
 * Harmony 项目入口
 
-项目模板位于 ~entry/src/main/resources/rawfile/templates/project.org~ ，随 HAP 打包；运行时由 ResourceManager 读取 UTF-8 原文，作为 ~FileNew.templateContent~ 传给 Core，生成文件头 ~TITLE~ 、 ~PROJECT_NAME~ 与 ~FILETAGS: :project:todo:~ 。创建表单提供位置、项目名与文件名；位置包含存储库与 Region，存储库默认采用转换记录所在的收件箱仓库。Region 候选从所选仓库的 Core 文件元信息 CATEGORY 汇总，排除被忽略文件并去重；优先默认选择源分类，否则选择本库首个有效候选；切换仓库后重新选本库有效默认值，无候选时不设置 Region，不把其他仓库的分类带入。支持通过 Region 下拉末项单独输入新 Region，并随项目创建写入新文件的 CATEGORY；取消创建不会额外生成分类文件或修改源文件。文件名输入默认收起，展开后才显示；默认跟随项目名，手工修改文件名后独立保留，折叠不丢失输入。未填写扩展名时追加 ~.org~ 。
+项目模板 ~templates/project.org~ 和任务文件模板 ~templates/tasks.org~ 随 HAP 打包。Harmony 通过 ResourceManager 读取 UTF-8 原文，以 ~FileNew.templateContent~ 传给 Core。标题、分类与项目名称独立传入。项目名称为空时采用任务文件模板，保留 ~todo~ 标签。笔记本新增文件固定使用菜单所属仓库，通过单个 ~FileNew~ 创建文件。收件箱转换隐藏标题输入，默认使用项目名称作为标题，项目名称留空时使用源记录标题。两种表单的文件名均可单独指定，留空时按标题生成 ~.org~ 文件。
 
 共享左滑按钮条增加独立的 ~enableConvertToProject~ ，默认关闭；只在收件箱主列表启用“项目”按钮，并保持“多选”为最后一项。点按后先保存当前草稿，再显示“转换为项目”表单。其他视图与最近新增不增加转换入口。创建失败保留表单和输入，成功后通过既有数据订阅刷新收件箱与侧边栏项目列表。

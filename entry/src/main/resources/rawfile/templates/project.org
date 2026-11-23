@@ -1,7 +1,7 @@
 :PROPERTIES:
 :ID:
 :END:
-#+TITLE: {{project_name}}
+#+TITLE: {{title}}
 #+PROJECT_NAME: {{project_name}}
 #+FILETAGS: :project:todo:
 #+CATEGORY: {{category}}

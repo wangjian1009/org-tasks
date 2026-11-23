@@ -209,7 +209,8 @@ export class DataSet {
     }, [JSON.stringify([request.file.repoId, file])], true)
     return Array.from(created)
   }
-  async submitOperationGroup(group: CoreTaskOperationGroup, allowed: () => boolean = () => true): Promise<void> {
+  async submitOperationGroup(group: CoreTaskOperationGroup, allowed: () => boolean = () => true,
+    waitForCompletion: boolean = false): Promise<void> {
     if (!group.operations.length) return
     const files = group.fileVersions?.map(version => JSON.stringify([version.repoId, version.file])) ?? this.scopeFiles()
     await this.start()
@@ -222,10 +223,11 @@ export class DataSet {
       changes: [], group: JSON.parse(JSON.stringify(group)) as CoreTaskOperationGroup, sourceVersion: '',
       observed: new Set(), identityFrames: new Set(), missingFrames: new Set()
     }
-    // 先把修改合并进数据集视图，再异步交给 Core；调用方不等待网络和磁盘完成。
+    // 先合并数据集视图，再交给 Core；需要确认结果的面板可等待完成。
     // 受理后与浮层生命周期解耦；页面关闭不会取消已经进入队列的修改。
     const work = this.submit(edit)
-    work.catch((): void => {})
+    if (waitForCompletion) await work
+    else work.catch((): void => {})
   }
   restore(data: CoreQueryResult): void { this.confirmed.set(this.name, data); this.versions.set(this.name, 0); this.rebuild(this.name, this.operationId(0, 'cache'), false) }
   async settle(): Promise<void> {
@@ -536,7 +538,8 @@ export class DataSet {
   private rebasedGroup(source: CoreTaskOperationGroup, operationId: string): CoreTaskOperationGroup {
     const group = JSON.parse(JSON.stringify(source)) as CoreTaskOperationGroup
     group.operationId = operationId
-    if (!group.fileVersions?.length) return group
+    // 转换项目使用打开表单时确认的源版本，源记录变化后需要重新确认。
+    if (!group.fileVersions?.length || group.operations.some(operation => operation.type === 'FileNew')) return group
     group.fileVersions = group.fileVersions.map(version => {
       const current = this.currentFileVersion(version.repoId, version.file)
       return current ? { repoId: version.repoId, file: version.file, version: current } : version
@@ -675,6 +678,8 @@ export class DataSet {
         if (edit.kind === 'remove') tasks = tasks.filter(task => taskKey(task) !== edit.key)
         if (edit.kind === 'update') tasks = tasks.map(task => taskKey(task) === edit.key ? projectTaskFields(task, edit.changes) : task)
         if (edit.kind === 'group' && edit.name === name && edit.group) {
+          // 项目转换的源行承载创建表单，提交确认前保留该行。
+          if (edit.group.operations.some(operation => operation.type === 'FileNew')) continue
           for (const operation of edit.group.operations) {
             if (operation.type === 'Modification') {
               const change = operation.data as CoreTaskModificationOperation

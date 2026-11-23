@@ -4,7 +4,7 @@ import { AppConfigService } from './AppConfigService'
 import { AppDataManager } from './AppDataManager'
 import { isSystemRepository } from '../models/SystemRepository'
 import { CoreRepo, CoreTask, CoreTaskFileNew, CoreTaskOperationGroup, NativeCoreService } from './NativeCoreService'
-import { OrgFileRepositoryOption, OrgFileLocation, projectFileName, projectInputError } from '../ui/OrgFileCreatePresentation'
+import { OrgFileRepositoryOption, OrgFileCreateInput, orgFileName, orgFileInputError } from '../ui/OrgFileCreatePresentation'
 
 // 模板替换、SETUPFILE、文件创建与原记录移动全部交给 Core 的同一个操作组。
 export class OrgFileCreateService {
@@ -23,28 +23,31 @@ export class OrgFileCreateService {
         .map(file => file.category!))).sort() }))
   }
 
-  static async operationGroup(context: Context, source: CoreTask, location: OrgFileLocation, name: string,
-    fileName: string): Promise<CoreTaskOperationGroup> {
-    const error = projectInputError(location.repoId, name, fileName, location.region)
+  static async operationGroup(context: Context, source: CoreTask | undefined, input: OrgFileCreateInput): Promise<CoreTaskOperationGroup> {
+    const error = orgFileInputError(input)
     if (error) throw new Error(error)
     const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const system = config.repos.find(item => isSystemRepository(item))
-    if ((await workspace.repos()).some(repo => repo.id === location.repoId && repo.rootDirectory === system?.rootDirectory)) throw new Error('系统仓库不能创建项目')
-    if (!(await workspace.repos()).some(repo => repo.id === location.repoId)) throw new Error('目标存储库已失效，请重新选择')
+    const target = (await workspace.repos()).find(repo => repo.id === input.repoId)
+    if (!target) throw new Error('目标存储库已失效，请重新选择')
+    if (target.rootDirectory === system?.rootDirectory) throw new Error('系统仓库不能新增文件')
+    const title = input.title.trim()
+    const projectName = input.projectName.trim()
     let template: Uint8Array
-    try { template = await context.resourceManager.getRawFileContent('templates/project.org') }
-    catch (_) { throw new Error('项目模板读取失败，请重试') }
+    try { template = await context.resourceManager.getRawFileContent(projectName ? 'templates/project.org' : 'templates/tasks.org') }
+    catch (_) { throw new Error('文件模板读取失败，请重试') }
     const file: CoreTaskFileNew = {
-      path: { repoId: location.repoId, file: projectFileName(fileName), titles: [] },
+      path: { repoId: input.repoId, file: orgFileName(input.fileName.trim() || title), titles: [] },
       templatePath: '', templateContent: util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(template),
-      arguments: { 'project_name': name.trim(), 'category': location.region.trim() }, initTasks: []
+      arguments: { 'title': title, 'project_name': projectName, 'category': input.region.trim() }, initTasks: []
     }
-    // 随包模板仅含文件头，已有记录以首层子树移入，保留原始正文、属性和日志。
-    return {
-      operations: [{ type: 'FileNew', data: file },
-        { type: 'Movement', data: { path: source.fullPath, position: { parent: file.path } } }],
-      fileVersions: [{ repoId: source.repoId, file: source.filePath, version: source.fileVersion }]
+    const group: CoreTaskOperationGroup = { operations: [{ type: 'FileNew', data: file }] }
+    if (source) {
+      // 转换时将已有记录以首层子树移入，保留原始正文、属性和日志。
+      group.operations.push({ type: 'Movement', data: { path: source.fullPath, position: { parent: file.path } } })
+      group.fileVersions = [{ repoId: source.repoId, file: source.filePath, version: source.fileVersion }]
     }
+    return group
   }
 }

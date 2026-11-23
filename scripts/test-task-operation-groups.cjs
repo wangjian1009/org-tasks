@@ -26,15 +26,25 @@ function method(name) {
   }
 }
 const { UserOperationQueue } = compile(source.slice(source.indexOf('export class UserOperationQueue'), source.indexOf('export class DataSet {')));
-const { Submitter } = compile('export class Submitter {' + ['operationId', 'submitOperationGroup', 'runOperation', 'emitError'].map(method).join('\n') + '}', { UserOperationQueue });
+const submitMethods = ['operationId', 'eventVersion', 'submitOperationGroup', 'submit', 'rebasedGroup',
+  'currentFileVersion', 'track', 'settle', 'finishEdit', 'emitError'];
+const { Submitter } = compile('export class Submitter {' + submitMethods.map(method).join('\n') + '}', { UserOperationQueue });
 function task(title = '任务', file = 'tasks.org', version = 'v1', repoId = 'repo') {
   return { repoId, filePath: file, fileVersion: version, fullPath: { repoId, file, titles: [title] } };
 }
 function fixture() {
   const writes = [], events = [], errors = []; let execute = async () => {};
-  const state = Object.assign(new Submitter(), { name: 'tasks', owner: 'audit', epoch: 1, sequence: 0, versions: new Map(), pending: [], loadError: '', eventVersion: () => undefined,
-    async start() {}, isReady: () => true, hasValidScope: () => true, scopeFiles: () => ['fallback'],
-    track() {}, rebuild() {}, getConfirmed: () => ({}), publish: event => { events.push(event); if (event.type === 'error') errors.push(event); }, workspace: { async executeTaskOperations(group) { writes.push(group); await execute(group); } } });
+  const state = Object.assign(new Submitter(), {
+    name: 'tasks', owner: 'audit', epoch: 1, sequence: 0, versions: new Map(), pending: [], loadError: '',
+    writes: new Set(), views: new Map(), confirmed: new Map(), taskSources: new Map(), rowIds: new Map(),
+    async start() {}, isReady: () => true, scopeFiles: () => ['fallback'],
+    rebuild() {}, getConfirmed: () => ({}),
+    publish(event) {
+      events.push(event);
+      if (event.type === 'error') errors.push(event);
+    },
+    workspace: { async executeTaskOperations(group) { writes.push(group); await execute(group); } }
+  });
   return { state, writes, events, errors, executeWith: fn => execute = fn };
 }
 function deferred() { let resolve; const promise = new Promise(done => resolve = done); return { promise, resolve }; }
@@ -58,29 +68,47 @@ test('同文件版本冲突整组拒绝，不把其他任务先提交；不同�
 });
 test('多条操作仅执行一次 Core 请求，并分配一次数据集 operationId 与版本', async () => {
   const f = fixture(); const inputs = [groups.taskDeletionGroup(task('甲')), groups.taskDeletionGroup(task('乙'))];
-  await TaskSwipeOperations.submit(f.state, inputs);
+  await TaskSwipeOperations.submit(f.state, inputs, undefined, true);
   assert.equal(f.writes.length, 1); assert.equal(f.writes[0].operations.length, 2);
-  assert.equal(f.writes[0].operationId, 'dataset/audit/1/operation/1'); assert.equal(f.state.sequence, 1);
+  assert.equal(f.writes[0].operationId, 'dataset/audit/1/group/1'); assert.equal(f.state.sequence, 1);
   assert.equal(f.events.filter(event => event.type === 'complete').length, 1); assert.equal(inputs[0].operationId, undefined);
 });
 test('合并组同时登记源与目标文件依赖，不能越过目标文件的在途修改', async () => {
   const f = fixture(); const held = deferred(), order = [];
   const previous = UserOperationQueue.submit(async () => { order.push('previous'); await held.promise; }, [JSON.stringify(['repo', 'target.org'])]);
   const move = groups.taskMovementGroup(task(), { repoId: 'repo', path: 'target.org', fileVersion: 'v2', fullPath: { repoId: 'repo', file: 'target.org', titles: [] } });
-  f.executeWith(async () => { order.push('batch'); }); const pending = TaskSwipeOperations.submit(f.state, [move]);
-  await new Promise(resolve => setImmediate(resolve)); assert.equal(f.writes.length, 0);
-  held.resolve(); await Promise.all([previous, pending]); assert.deepEqual(order, ['previous', 'batch']);
+  f.executeWith(async () => { order.push('batch'); });
+  try {
+    await TaskSwipeOperations.submit(f.state, [move]);
+    assert.equal(f.writes.length, 0);
+    assert.equal(f.state.pending.length, 1);
+  } finally {
+    held.resolve();
+    await Promise.all([previous, f.state.settle()]);
+  }
+  assert.deepEqual(order, ['previous', 'batch']);
 });
-test('排队期间撤销操作不执行 Core，请求失败不发布成功或推进确认版本', async () => {
+test('受理前撤销操作不会进入队列', async () => {
   const f = fixture(), held = deferred(); let allowed = true;
-  const previous = UserOperationQueue.submit(() => held.promise, [JSON.stringify(['repo', 'tasks.org'])]);
+  f.state.start = () => held.promise;
   const pending = TaskSwipeOperations.submit(f.state, [groups.taskDeletionGroup(task())], () => allowed);
-  const rejected = assert.rejects(pending, /取消/); await new Promise(resolve => setImmediate(resolve)); allowed = false;
-  held.resolve(); await Promise.all([previous, rejected]); assert.equal(f.writes.length, 0); assert.equal(f.events.filter(event => event.type === 'complete').length, 0); assert.equal(f.state.loadError, '');
-  const failed = fixture(); failed.executeWith(async () => { throw new Error('整组失败'); });
-  await assert.rejects(TaskSwipeOperations.submit(failed.state, [groups.taskDeletionGroup(task('甲')), groups.taskDeletionGroup(task('乙'))]), /整组失败/);
-  assert.equal(failed.writes.length, 1); assert.equal(failed.events.filter(event => event.type === 'complete').length, 0); assert.equal(failed.state.versions.size, 0);
-  assert.equal(failed.state.loadError, ''); assert.equal(failed.errors[0].targetKey, failed.writes[0].operationId);
+  allowed = false;
+  held.resolve();
+  await assert.rejects(pending, /取消/);
+  assert.equal(f.writes.length, 0);
+  assert.equal(f.events.length, 0);
+});
+test('等待确认的提交将失败反馈给表单，且不会推进确认版本', async () => {
+  const f = fixture();
+  f.executeWith(async () => { throw new Error('整组失败'); });
+  const inputs = [groups.taskDeletionGroup(task('甲')), groups.taskDeletionGroup(task('乙'))];
+  await assert.rejects(TaskSwipeOperations.submit(f.state, inputs, undefined, true), /整组失败/);
+  assert.equal(f.writes.length, 1);
+  assert.deepEqual(f.events.filter(event => event.type === 'complete').map(event => event.succeeded), [false]);
+  assert.equal(f.state.versions.size, 0);
+  assert.equal(f.state.pending.length, 0);
+  assert.equal(f.state.loadError, '');
+  assert.equal(f.errors[0].targetKey, f.writes[0].operationId);
 });
 test('空修改组不提交、不分配版本', async () => {
   const f = fixture(); await TaskSwipeOperations.submit(f.state, []);

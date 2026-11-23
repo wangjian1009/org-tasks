@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { test } = require('node:test');
+const { beforeEach, test } = require('node:test');
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
   console.log('用法: node scripts/test-task-swipe-item.cjs\n验证操作枚举到 TaskEditor 接口的完整映射、启用数组、状态按钮形态、回调失效与左右滑禁用边界。');
   process.exit(0);
@@ -28,13 +28,16 @@ const session = {
   async begin(owner, finish) { this.owner = owner; this.finish = finish; return true; },
   release(owner) { if (this.owner === owner) { this.owner = ''; this.finish = undefined; } }
 };
+beforeEach(() => Object.assign(session, { owner: '', finish: undefined, saves: 0, saveAllowed: true }));
 const { Item } = compile('export class Item {' + methods + '}', { ...actions, ...states, TaskSwipeOperations, TaskInlineSession: session, KeyboardAvoidMode: { RESIZE: 1 },
   OrgFileCreateService: { repositories: async context => context.repositories() }, setTimeout: callback => callback(), coreErrorMessage: error => error.message });
 function task(category = 'Todo', available = true) {
   return { state: category ? { category } : null, taskStateOf: category => available ? { name: category, category } : null };
 }
 function fixture() {
-  const calls = [], guards = [], submitted = [], messages = []; let editable = true, deletable = true, state, write = async () => {};
+  const calls = [], guards = [], submitted = [], messages = [];
+  let editable = true, deletable = true, state, write = async () => {};
+  let queue = Promise.resolve();
   const controller = new TaskEditorController(group => { state.receiveOperation(group).catch(error => messages.push(error.message)); });
   const editor = { actionsAvailable: () => editable, deletionAvailable: () => deletable };
   for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'wait', 'cancelTask', 'toggleWait', 'moveToSomeday', 'convertToMemo']) {
@@ -47,7 +50,17 @@ function fixture() {
   state = Object.assign(new Item(), { active: true, interactionEnabled: true, readOnly: false, busy: false,
     inlineTyping: false, checklistDragging: false, submitting: false, controller,
     getUIContext: () => ({ getPromptAction: () => ({ showToast: options => messages.push(options.message) }) }),
-    dataSet: { async submitOperationGroup(group, allowed) { assert.equal(allowed(), true); submitted.push(group); await write(); } }, singleOperations: [], recordActionPending: false, toggleStateCategory: null, rightSwipeAction: undefined });
+    dataSet: {
+      async submitOperationGroup(group, allowed, waitForCompletion) {
+        assert.equal(allowed(), true);
+        submitted.push(group);
+        const execute = write;
+        const completion = queue.then(execute);
+        queue = completion.catch(() => {});
+        if (waitForCompletion) await completion;
+      },
+      settle: () => queue
+    }, singleOperations: [], recordActionPending: false, toggleStateCategory: null, rightSwipeAction: undefined });
   return { state, calls, guards, submitted, messages, controller, writeWith: fn => write = fn, editable: value => editable = value, deletable: value => deletable = value };
 }
 test('状态、规划和整理操作全部调用编辑器接口，开始／暂停与等待／待办使用同一枚举的不同形态', async () => {
@@ -116,23 +129,40 @@ test('原生左滑仅与共享右滑并行，保留其他手势识别方式', ()
   assert.equal(choose(current, [scroll, right]), right); assert.equal(choose(current, [scroll]), current);
 });
 
-test('修改组由滑动组件统一提交，批量组只提交一次，提交中拒绝重复动作', async () => {
-  const f = fixture(); f.state.singleOperations = ['toggleState']; f.state.toggleStateCategory = 'Doing'; let finish;
-  f.writeWith(() => new Promise(resolve => { finish = resolve; }));
-  const pending = f.state.activateOperation('toggleState'); await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.state.submitting, true); await f.state.activateOperation('toggleState'); assert.equal(f.submitted.length, 1);
-  finish(); await pending; assert.equal(f.state.submitting, false);
-  const group = f.submitted[0]; f.writeWith(async () => {}); f.submitted.length = 0;
-  await f.state.submitOperationGroups([group, group]); assert.equal(f.submitted.length, 1); assert.equal(f.submitted[0].operations.length, 2);
+test('滑动操作受理后可继续排队，批量修改合并为一次提交', async () => {
+  const f = fixture();
+  f.state.singleOperations = ['toggleState'];
+  f.state.toggleStateCategory = 'Doing';
+  let finish;
+  const blocked = new Promise(resolve => { finish = resolve; });
+  const writes = [];
+  f.writeWith(async () => { writes.push('开始'); await blocked; });
+  try {
+    await f.state.activateOperation('toggleState');
+    assert.equal(f.state.submitting, false);
+    f.state.toggleStateCategory = 'Todo';
+    f.writeWith(async () => { writes.push('暂停'); });
+    await f.state.activateOperation('toggleState');
+    assert.deepEqual(writes, ['开始']);
+    assert.equal(f.submitted.length, 2);
+  } finally {
+    finish();
+    await f.state.dataSet.settle();
+  }
+  assert.deepEqual(writes, ['开始', '暂停']);
+  const groups = f.submitted.splice(0);
+  await f.state.submitOperationGroups(groups);
+  assert.equal(f.submitted.length, 1);
+  assert.equal(f.submitted[0].operations.length, 2);
 });
-test('提交失败由滑动宿主反馈错误并恢复可用状态', async () => {
+test('提交前的规划错误由滑动宿主反馈并恢复可用状态', async () => {
   const f = fixture(); f.state.singleOperations = ['toggleState']; f.state.toggleStateCategory = 'Doing';
-  f.writeWith(async () => { throw new Error('整组失败'); }); await f.state.activateOperation('toggleState');
-  assert.deepEqual(f.messages, ['整组失败']); assert.equal(f.state.submitting, false);
+  f.controller.bind({ actionsAvailable: () => true, start: async () => { throw new Error('规划失败'); } });
+  await f.state.activateOperation('toggleState');
+  assert.deepEqual(f.messages, ['规划失败']); assert.equal(f.state.submitting, false);
 });
 
 function projectFixture() {
-  Object.assign(session, { owner: '', finish: undefined, saves: 0, saveAllowed: true });
   const f = fixture(), modes = [], source = { id: 'task', repoId: 'repo', heading: '草稿', fileVersion: 'v1' };
   Object.assign(f.state, { taskId: 'task', singleOperations: [actions.TaskOperation.Project], projectOwner: '', projectScope: '',
     projectOpen: false, projectLoading: false, projectGenerating: false, projectTyping: false, getUniqueId: () => 1,
@@ -167,6 +197,7 @@ test('项目面板提交失败保留源快照与面板，重复确认阻止重�
 test('草稿保存失败或准备期间控件离开时不打开项目面板，数据集重绑后拒绝旧操作组', async () => {
   const failed = projectFixture(); session.saveAllowed = false;
   await failed.state.activateOperation(actions.TaskOperation.Project); assert.equal(failed.state.projectOpen, false);
+  session.saveAllowed = true;
   const left = projectFixture(); left.state.dataSet.settle = async () => { left.state.active = false; };
   await left.state.activateOperation(actions.TaskOperation.Project); assert.equal(left.state.projectOpen, false);
   const rebound = projectFixture(); await rebound.state.activateOperation(actions.TaskOperation.Project);
@@ -188,7 +219,6 @@ test('只读任务内容可执行配置的 Reopen、Restore、Clear，统一交�
   }
 });
 test('记录操作准备期间阻止重入，菜单撤销或数据集重绑会使执行条件失效', async () => {
-  Object.assign(session,{owner:'',finish:undefined,saveAllowed:true});
   const f=fixture();f.state.singleOperations=['restore'];let finish,allowed;
   Object.assign(f.state.dataSet,{identity:'scope',settle:async()=>{},getTask:()=>({id:'task'})});
   f.state.recordActions={execute:async(_context,_dataSet,_tasks,_action,guard)=>{

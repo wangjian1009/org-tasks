@@ -58,33 +58,59 @@ test('每次打开面板读取全局当前快照，分类变化不会保留上�
   assert.deepEqual(options[0].regions,['新分类']);assert.deepEqual(options[1].regions,[]);assert.equal(f.queries.length,0);
 });
 test('项目面板生成 FileNew 和 Movement，保留源版本与重名序号且不执行写入',async()=>{
-  const f=fixture();const group=await f.OrgFileCreateService.operationGroup(f.context,f.source,{repoId:'core-target',region:'新 Region'},' 新项目 ','自选文件');
+  const f=fixture();const group=await f.OrgFileCreateService.operationGroup(f.context,f.source,{repoId:'core-target',region:'新 Region',title:' 文件标题 ',projectName:' 新项目 ',fileName:'自选文件'});
   assert.equal(f.writes.length,0);assert.equal(group.operationId,undefined);
   assert.deepEqual(group.fileVersions,[{repoId:'core-source',file:'inbox.org',version:'source-version'}]);
   assert.deepEqual(group.operations.map(op=>op.type),['FileNew','Movement']);
   const file=group.operations[0].data;assert.deepEqual(file.path,{repoId:'core-target',file:'自选文件.org',titles:[]});
-  assert.deepEqual(file.arguments,{'project_name':'新项目','category':'新 Region'});assert.deepEqual(file.initTasks,[]);
+  assert.deepEqual(file.arguments,{title:'文件标题',project_name:'新项目',category:'新 Region'});assert.deepEqual(file.initTasks,[]);
   assert.equal(file.templatePath,'');assert.equal(file.templateContent,fs.readFileSync('entry/src/main/resources/rawfile/templates/project.org','utf8'));assert.match(file.templateContent,/\{\{project_name\}\}/);assert.deepEqual(f.reads,['templates/project.org']);
   assert.deepEqual(group.operations[1].data,{path:f.source.fullPath,position:{parent:file.path}});
 });
+test('笔记本新增项目只生成空项目的 FileNew 操作', async () => {
+  const f = fixture();
+  const group = await f.OrgFileCreateService.operationGroup(
+    f.context, undefined, { repoId: 'core-target', region: '研究', title: '文件标题', projectName: '新项目', fileName: '自定义文件' }
+  );
+  assert.deepEqual(group.operations.map(operation => operation.type), ['FileNew']);
+  const file = group.operations[0].data;
+  assert.deepEqual(file.path, { repoId: 'core-target', file: '自定义文件.org', titles: [] });
+  assert.deepEqual(file.arguments, { title: '文件标题', project_name: '新项目', category: '研究' });
+  assert.deepEqual(file.initTasks, []);
+  assert.equal(group.fileVersions, undefined);
+  assert.deepEqual(f.writes, []);
+});
+test('项目名称留空时使用 tasks 模板，文件名留空时使用标题', async () => {
+  const f = fixture();
+  const group = await f.OrgFileCreateService.operationGroup(f.context, undefined, {
+    repoId: 'core-target', region: '', title: '任务清单', projectName: ' ', fileName: ''
+  });
+  const file = group.operations[0].data;
+  assert.equal(file.path.file, '任务清单.org');
+  assert.deepEqual(f.reads, ['templates/tasks.org']);
+  assert.match(file.templateContent, /^#\+TITLE: \{\{title\}\}$/m);
+  assert.match(file.templateContent, /^#\+FILETAGS: :todo:$/m);
+  assert.equal(file.arguments.title, '任务清单');
+});
+
 test('模板不可读、目标仓库失效和无效文件名在提交前失败',async()=>{
-  const missing=fixture();missing.failRead();await assert.rejects(missing.OrgFileCreateService.operationGroup(missing.context,missing.source,{repoId:'core-target',region:'研究'},'项目','项目'),/模板读取失败/);assert.equal(missing.writes.length,0);
-  const removed=fixture();removed.removeRepos();await assert.rejects(removed.OrgFileCreateService.operationGroup(removed.context,removed.source,{repoId:'core-target',region:'研究'},'项目','项目'),/失效/);assert.equal(removed.writes.length,0);
-  const invalid=fixture();await assert.rejects(invalid.OrgFileCreateService.operationGroup(invalid.context,invalid.source,{repoId:'core-target',region:'研究'},'项目','../项目'),/文件名/);assert.equal(invalid.writes.length,0);
-  assert.equal(presentation.projectFileName(' 项目.ORG '),'项目.org');assert.equal(presentation.projectFileName('项目'),'项目.org');
+  const missing=fixture();missing.failRead();await assert.rejects(missing.OrgFileCreateService.operationGroup(missing.context,missing.source,{repoId:'core-target',region:'研究',title:'标题',projectName:'项目',fileName:''}),/模板读取失败/);assert.equal(missing.writes.length,0);
+  const removed=fixture();removed.removeRepos();await assert.rejects(removed.OrgFileCreateService.operationGroup(removed.context,removed.source,{repoId:'core-target',region:'研究',title:'标题',projectName:'项目',fileName:''}),/失效/);assert.equal(removed.writes.length,0);
+  const invalid=fixture();await assert.rejects(invalid.OrgFileCreateService.operationGroup(invalid.context,invalid.source,{repoId:'core-target',region:'研究',title:'标题',projectName:'项目',fileName:'../项目'}),/文件名/);assert.equal(invalid.writes.length,0);
+  assert.equal(presentation.orgFileName(' 项目.ORG '),'项目.org');assert.equal(presentation.orgFileName('项目'),'项目.org');
 });
 function locationForm() {
   const file='entry/src/main/ets/components/editors/OrgFileCreateSheet.ets';
   const source=fs.readFileSync(file,'utf8');
-  const methods=['initializeFields','defaultRegion','selectRepository','regionOptions','selectRegion','saveRegion','changeName','changeFileName','isBusy','submit'].map(name=>{
+  const methods=['initializeFields','defaultRegion','selectRepository','regionOptions','selectRegion','saveRegion','isBusy','submit'].map(name=>{
     const match=source.match(new RegExp('  (?:async )?'+name+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));assert.ok(match,name);return match[0];
   });
   const code=ts.transpileModule('exports.Form = class Form {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021}}).outputText;
   const exports={};
-  vm.runInThisContext('(function(exports,projectInputError,projectFileName,OrgFileCreateService,coreErrorMessage){'+code+'\n})')(exports,presentation.projectInputError,presentation.projectFileName,{operationGroup:async(_context,_source,...args)=>{if(_context.generate)return await _context.generate(...args);return {args}}},error=>error.message);
+  vm.runInThisContext('(function(exports,orgFileInputError,OrgFileCreateService,coreErrorMessage){'+code+'\n})')(exports,presentation.orgFileInputError,{operationGroup:async(_context,_source,...args)=>{if(_context.generate)return await _context.generate(...args);return {args}}},error=>error.message);
   const calls=[];
   const form=Object.assign(new exports.Form(),{repositories:[{repoId:'source',name:'源仓库',regions:['工作','生活']},{repoId:'target',name:'目标仓库',regions:['研究']}],
-    active:true,source:{id:'task'},getUIContext:()=>({getHostContext:()=>({})}),initialRepoId:'source',initialRegion:'工作',initialName:'项目',repoId:'source',region:'工作',newRegions:[],newRegionName:'',name:'项目',fileName:'项目',generated:group=>calls.push(group.args)});
+    active:true,source:{id:'task'},getUIContext:()=>({getHostContext:()=>({})}),initialRepoId:'source',initialRegion:'工作',initialName:'项目',repoId:'source',region:'工作',newRegions:[],newRegionName:'',title:'标题',projectName:'项目',fileName:'',generated:group=>calls.push(group.args)});
   return {form,calls};
 }
 
@@ -104,10 +130,10 @@ test('新建 Region 仅保存在当前仓库草稿，切换后不泄漏到其他
 
 test('提交可以同时确认新 Region，并把位置和项目字段完整生成操作组',async()=>{
   const {form,calls}=locationForm();form.addingRegion=true;form.newRegionName='新 Region';await form.submit();
-  assert.deepEqual(calls,[[{repoId:'source',region:'新 Region'},'项目','项目.org']]);
+  assert.deepEqual(calls,[[{repoId:'source',region:'新 Region',title:'标题',projectName:'项目',fileName:''}]]);
   form.addingRegion=true;form.newRegionName=' ';await form.submit();assert.equal(calls.length,1);assert.match(form.inputError,/分类/);
   form.newRegionName='工作\n#+TITLE: 覆盖';assert.equal(form.saveRegion(),false);
-  assert.match(presentation.projectInputError('source','项目','项目','工作\n其他'),/分类/);
+  assert.match(presentation.orgFileInputError({repoId:'source',title:'标题',projectName:'项目',fileName:'',region:'工作\n其他'}),/分类/);
   form.busy=true;form.newRegionName='提交中';const count=form.newRegions.length;assert.equal(form.saveRegion(),false);assert.equal(form.newRegions.length,count);
 });
 
@@ -128,12 +154,28 @@ test('没有分类的库可以不设置 Region，并从菜单独立新建',()=>{
   form.selectRegion(0);assert.equal(form.region,'');form.selectRegion(1);assert.equal(form.region,'新增');
 });
 
-test('文件名未编辑时跟随项目名，自定义后折叠不会重置提交值',async()=>{
-  const {form,calls}=locationForm();form.changeName('新项目');await form.submit();
-  assert.equal(calls[0][2],'新项目.org');
-  form.fileNameExpanded=true;form.changeFileName('自定义.ORG');form.fileNameExpanded=false;
-  form.changeName('再次改名');await form.submit();
-  assert.equal(calls[1][1],'再次改名');assert.equal(calls[1][2],'自定义.org');
+test('标题、项目名称与文件名分别保留，仓库入口固定目标', async () => {
+  const { form, calls } = locationForm();
+  form.repositoryHidden = true;
+  form.selectRepository(1);
+  form.fileName = '独立文件名.ORG';
+  form.title = '独立标题';
+  await form.submit();
+  assert.deepEqual(calls[0], [{ repoId: 'source', region: '工作', title: '独立标题', projectName: '项目', fileName: '独立文件名.ORG' }]);
+});
+
+test('转换表单用项目名称作为隐藏的标题，项目留空时回退到源记录标题', async () => {
+  const { form, calls } = locationForm();
+  form.converting = true;
+  form.titleHidden = true;
+  form.initialName = '源标题';
+  form.projectName = '改名后的项目';
+  await form.submit();
+  form.projectName = '';
+  await form.submit();
+  assert.equal(calls[0][0].title, '改名后的项目');
+  assert.equal(calls[1][0].title, '源标题');
+  assert.equal(calls[1][0].projectName, '');
 });
 
 test('操作组生成期间连续确认只生成一次，面板离开后丢弃迟到结果',async()=>{
@@ -143,10 +185,19 @@ test('操作组生成期间连续确认只生成一次，面板离开后丢弃�
   form.active=false;finish({operations:[{type:'FileNew'}]});await pending;
   assert.equal(calls.length,0);assert.equal(form.generating,false);
 });
+test('转换表单缺少源记录时拒绝生成独立项目', async () => {
+  const { form, calls } = locationForm();
+  form.converting = true;
+  form.source = undefined;
+  await form.submit();
+  assert.match(form.inputError, /原记录已失效/);
+  assert.deepEqual(calls, []);
+});
+
 test('操作组生成失败保留面板字段并恢复确认入口',async()=>{
   const {form,calls}=locationForm();
-  form.changeFileName('自定义文件');
+  form.fileName = '自定义文件';
   form.getUIContext=()=>({getHostContext:()=>({generate:async()=>{throw new Error('项目模板读取失败')}})});
   await form.submit();assert.equal(calls.length,0);assert.equal(form.inputError,'项目模板读取失败');
-  assert.equal(form.fileName,'自定义文件');assert.equal(form.name,'项目');assert.equal(form.isBusy(),false);
+  assert.equal(form.fileName,'自定义文件');assert.equal(form.projectName,'项目');assert.equal(form.isBusy(),false);
 });

@@ -180,18 +180,20 @@ export struct TaskSwipeItem {
   }
 
   private async openProject(allowed: () => boolean): Promise<void> {
+    const dataSet = this.taskDataSet()
     this.projectLoading = true
-    this.projectScope = this.taskDataSet().identity
-    const valid = (): boolean => allowed() && this.taskDataSet().identity === this.projectScope
+    this.projectScope = dataSet.identity
+    const valid = (): boolean => allowed() && this.dataSet === dataSet && dataSet.identity === this.projectScope
     try {
       if (this.listItem && this.scrollHost) {
         try { (this.scrollHost as ListScroller).closeAllSwipeActions() } catch (_) { /* 尚未绑定的列表无需收回菜单。 */ }
       }
       await new Promise<void>(resolve => setTimeout(resolve, 260))
       if (!valid() || !await TaskInlineSession.end(true)) return
+      await dataSet.settle()
       if (!valid()) return
-      if (this.taskDataSet().error) throw new Error(this.taskDataSet().error)
-      const source = this.taskDataSet().getTask(this.taskId)
+      if (dataSet.error) throw new Error(dataSet.error)
+      const source = dataSet.getTask(this.taskId)
       if (!source) return
       this.projectOwner = `project:${this.getUniqueId()}`
       if (!await TaskInlineSession.begin(this.projectOwner, async (): Promise<boolean> => {
@@ -243,8 +245,8 @@ export struct TaskSwipeItem {
     try {
       const allowed = (): boolean => this.active && this.projectOpen && !this.hostBlocked() &&
         this.operationEnabled(TaskOperation.Project) && this.taskDataSet().identity === this.projectScope
-      await this.submitOperationGroups([group], allowed)
-      this.closeProject(true)
+      await this.submitOperationGroups([group], allowed, true)
+      if (this.active) this.closeProject(true)
     } catch (error) { if (this.active) this.projectMessage = coreErrorMessage(error as CoreBridgeError) }
   }
 
@@ -259,11 +261,12 @@ export struct TaskSwipeItem {
     await this.submitOperationGroups([group], allowed)
   }
 
-  async submitOperationGroups(groups: CoreTaskOperationGroup[], allowed: () => boolean = () => true): Promise<void> {
+  async submitOperationGroups(groups: CoreTaskOperationGroup[], allowed: () => boolean = () => true,
+    waitForCompletion: boolean = false): Promise<void> {
     const canSubmit = (): boolean => !this.hostBlocked() && allowed()
     if (!canSubmit()) throw new Error('操作已取消')
     this.submitting = true
-    try { await TaskSwipeOperations.submit(this.taskDataSet(), groups, canSubmit) }
+    try { await TaskSwipeOperations.submit(this.taskDataSet(), groups, canSubmit, waitForCompletion) }
     finally { this.submitting = false }
   }
 
@@ -294,7 +297,7 @@ export struct TaskSwipeItem {
 
   @Builder
   projectPanel() {
-    OrgFileCreateSheet({ source: this.projectSource, repositories: this.projectRepositories,
+    OrgFileCreateSheet({ source: this.projectSource, converting: true, titleHidden: true, repositories: this.projectRepositories,
       initialRepoId: this.projectSource?.repoId || '', initialRegion: this.projectSource?.category || '',
       initialName: this.projectSource?.heading || '', busy: this.submitting, generating: $projectGenerating,
       message: this.projectMessage, typingChanged: (typing: boolean): void => { this.projectTyping = typing },
