@@ -30,8 +30,8 @@ export class CredentialService {
     await writeSecret(passwordAlias(repo.id, true), JSON.stringify(saved))
   }
 
-  static async passwordForRestore(repo: RepoConfig): Promise<string> {
-    const encoded = await readSecret(passwordAlias(repo.id, true))
+  static async passwordForRestore(configId: string, repo: RepoConfig): Promise<string> {
+    const encoded = await readSecret(passwordAlias(configId, true))
     if (!encoded) return ''
     const saved = JSON.parse(encoded) as ResetCredential
     return saved.directory === repo.rootDirectory && saved.url === repo.webdavUrl &&

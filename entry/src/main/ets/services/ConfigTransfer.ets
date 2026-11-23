@@ -3,7 +3,7 @@ import { util } from '@kit.ArkTS'
 import { fileIo, fileUri } from '@kit.CoreFileKit'
 import { systemShare } from '@kit.ShareKit'
 import { preferences } from '@kit.ArkData'
-import { decodeConfigurationYaml, encodeConfigurationYaml, defaultTodoSettings, defaultSyncOptions,
+import { decodeConfigurationYaml, encodeConfigurationYaml, defaultTodoSettings,
   validateConfiguration, normalizeSyncOptions,
   CoreSettings } from 'liborg_tasks_harmony.so'
 import { AppConfig, AppLinkAssociation, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
@@ -193,13 +193,13 @@ export class ConfigTransfer {
   static async preview(context: Context, text: string): Promise<ConfigImportPreview> {
     const document = await decodeConfiguration(text)
     const current = await AppConfigService.load(context, false)
-    const plan = await ConfigTransfer.plan(current, document)
+    const plan = await ConfigTransfer.plan(context, current, document)
     return { document, warnings: plan.warnings }
   }
 
   static apply(context: Context, preview: ConfigImportPreview): Promise<void> {
     return ConfigTransfer.writeConfiguration(context, preview.document.settings.preferences, async (current: AppConfig): Promise<AppConfig> => {
-      const plan = await ConfigTransfer.plan(current, preview.document)
+      const plan = await ConfigTransfer.plan(context, current, preview.document)
       if (JSON.stringify(plan.warnings) !== JSON.stringify(preview.warnings)) {
         throw new Error('本机配置或目录发生变化，请重新预览')
       }
@@ -213,18 +213,9 @@ export class ConfigTransfer {
       trashRetentionDays: DEFAULT_TRASH_RETENTION_DAYS, appLinkAssociations: [], regionOrder: null
     }
     return ConfigTransfer.writeConfiguration(context, defaults, async (current: AppConfig): Promise<AppConfig> => {
-      const syncDefaults = await defaultSyncOptions()
       const todoDefaults = await defaultTodoSettings()
-      const repos = current.repos.map((repo: RepoConfig): RepoConfig => {
-        if (isSystemRepository(repo)) return repo
-        return { id: repo.id, rootDirectory: repo.rootDirectory, name: '', webdavEnabled: false,
-          webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: syncDefaults.excludedDirectories.slice() }
-      })
-      // 释放进程中的远端凭据，保留用于恢复的同步记录和待上传数据。
-      if (current.repos.some(repo => repo.webdavEnabled || repo.webdavCleanupPending)) {
-        await NativeCoreService.workspaceFor(current.repos.filter(repo => !repo.webdavEnabled && !repo.webdavCleanupPending),
-          current.todoDefaults, current.coreSettings)
-      }
+      const repos = current.repos.filter(repo => isSystemRepository(repo))
+      await NativeCoreService.workspaceFor(repos, todoDefaults, DEFAULT_CONFIG.coreSettings)
       return { repos, todoDefaults, coreSettings: DEFAULT_CONFIG.coreSettings,
         inboxFile: '', inboxRepoId: '', somedayFile: '', somedayRepoId: '', memoFile: '', memoRepoId: '',
         calendarName: DEFAULT_CONFIG.calendarName, fileDisplayMode: DEFAULT_CONFIG.fileDisplayMode }
@@ -263,7 +254,7 @@ export class ConfigTransfer {
     })
   }
 
-  private static async plan(current: AppConfig, document: ConfigDocument): Promise<ImportPlan> {
+  private static async plan(context: Context, current: AppConfig, document: ConfigDocument): Promise<ImportPlan> {
     const settings = document.settings
     const coreSettings = await validateConfiguration({ todoDefaults: settings.todoDefaults, coreSettings: settings.coreSettings })
     const repoIds = new Map<string, string>()
@@ -285,11 +276,17 @@ export class ConfigTransfer {
         webdavEnabled: repo.webdavEnabled, webdavUrl: imported.webdavUrl, webdavUsername: imported.webdavUsername,
         webdavPassword: '', excludedDirectories: options.excludedDirectories
       }
-      if (existing?.id === imported.id && !existing.webdavUrl && imported.webdavUrl) {
-        restored.webdavPassword = await CredentialService.passwordForRestore(restored)
+      const availableId = /^[a-zA-Z0-9_-]{1,64}$/.test(imported.id) && !repos.some(item => item.id === imported.id)
+      if ((existing?.id === imported.id && !existing.webdavUrl) || (!existing && availableId)) {
+        if (imported.webdavUrl) {
+          restored.webdavPassword = await CredentialService.passwordForRestore(imported.id, restored)
+        }
+        if (!existing && (restored.webdavPassword || restored.rootDirectory === context.filesDir + '/repositories/' + imported.id)) {
+          restored.id = imported.id
+        }
         restored.webdavEnabled = imported.webdavEnabled && !!restored.webdavPassword
       }
-      repoIds.set(imported.id, repo.id)
+      repoIds.set(imported.id, restored.id)
       if (existing) repos[repos.indexOf(existing)] = restored
       else repos.push(restored)
       if (imported.webdavEnabled && !restored.webdavEnabled) {

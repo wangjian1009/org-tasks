@@ -482,7 +482,7 @@ struct Settings {
 
   private confirmReset(): void {
     showDangerousConfirmation(this.getUIContext(), { title: '重置设置？',
-      message: '应用设置将恢复默认。保留存储库目录和任务文件，WebDAV 同步将暂时停用。可打开之前的备份恢复设置。',
+      message: '应用设置和存储库配置将被清空。本地目录和文件将保留，可打开之前的备份重新加载存储库。',
       confirmLabel: '重置', onConfirm: (): void => { this.resetConfiguration() } })
   }
 

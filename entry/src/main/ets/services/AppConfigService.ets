@@ -71,10 +71,10 @@ export class AppConfigService {
     preferencesToRestore?: Map<string, preferences.ValueType | undefined>, reset: boolean = false): Promise<void> {
     return AppConfigService.enqueueSave(async (): Promise<void> => {
       const current = await AppConfigService.load(context, false)
-      if (reset) {
-        for (const repo of current.repos) await CredentialService.preserveForReset(repo)
-      }
-      await AppConfigService.persist(context, await merge(current), false, preferencesToRestore, reset)
+      const removedRepos = reset ? current.repos.filter(repo => !SystemRepositoryService.isSystem(repo)) : []
+      for (const repo of removedRepos) await CredentialService.preserveForReset(repo)
+      await AppConfigService.persist(context, await merge(current), false, preferencesToRestore,
+        removedRepos.map(repo => repo.id))
     })
   }
 
@@ -98,7 +98,7 @@ export class AppConfigService {
   }
 
   private static async persist(context: Context, config: AppConfig, writeCredentials: boolean,
-    additional?: Map<string, preferences.ValueType | undefined>, reset: boolean = false): Promise<void> {
+    additional?: Map<string, preferences.ValueType | undefined>, removedRepoIds: string[] = []): Promise<void> {
     for (const file of [config.inboxFile, config.somedayFile, config.memoFile]) {
       validateEntryFile(file)
     }
@@ -142,10 +142,16 @@ export class AppConfigService {
     }
     try {
       if (!writeCredentials) {
+        const credentials = new Map<string, string>()
+        for (const id of removedRepoIds) credentials.set(id, '')
         for (const repo of config.repos) {
-          if (SystemRepositoryService.isSystem(repo) || (!reset && !repo.webdavPassword)) continue
-          previousPasswords.set(repo.id, await CredentialService.getWebDavPassword(repo.id))
-          await CredentialService.setWebDavPassword(repo.id, repo.webdavPassword)
+          if (!SystemRepositoryService.isSystem(repo) && repo.webdavPassword) {
+            credentials.set(repo.id, repo.webdavPassword)
+          }
+        }
+        for (const entry of credentials) {
+          previousPasswords.set(entry[0], await CredentialService.getWebDavPassword(entry[0]))
+          await CredentialService.setWebDavPassword(entry[0], entry[1])
         }
       }
       for (const entry of values) {
