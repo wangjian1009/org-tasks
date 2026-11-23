@@ -82,6 +82,34 @@
         "excludeFromMissions": true
       },
       {
+        "name": "ConfigImportAbility",
+        "srcEntry": "./ets/entryability/ConfigImportAbility.ets",
+        "description": "预览并导入小清单配置",
+        "label": "$string:EntryAbility_label",
+        "icon": "$media:app_icon",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "launchType": "multiton",
+        "removeMissionAfterTerminate": true,
+        "excludeFromMissions": true,
+        "exported": true,
+        "skills": [
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              {
+                "scheme": "file",
+                "type": "com.example.orgtasks.config",
+                "utd": "com.example.orgtasks.config",
+                "linkFeature": "FileOpen"
+              }
+            ]
+          }
+        ]
+      },
+      {
         "name": "ShareLocationAbility",
         "srcEntry": "./ets/entryability/ShareLocationAbility.ets",
         "description": "从地图分享地点创建或更新任务",
@@ -143,6 +171,7 @@
                 "scheme": "file",
                 "utd": "general.hyperlink",
                 "maxFileSupported": 1
+
               }
             ]
           }

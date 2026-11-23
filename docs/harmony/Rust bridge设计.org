@@ -16,6 +16,8 @@ ArkTS CoreWorkspace / CoreRepo / OrgFile / CoreWebDavSyncPolicy
 
 拥有行为和资源的对象使用 class，Rust 的结构体数据投影使用 interface；Rust 字段在 TS 中保留为属性，行为保留为方法，使用 camelCase 命名。涉及 core 锁、文件或网络 I/O 的操作返回 Promise；文件对象中的只读值可同步访问。JSON 只在 bridge 内部编组，不作为 TS 调用参数或公开的仓库/文件快照接口。
 
+配置导入导出通过 ~encodeConfigurationYaml(document)~ 将结构化对象编码为 YAML 文本，通过 ~decodeConfigurationYaml(source)~ 将 YAML 文本解码为结构化对象。N-API 在工作线程调用 Harmony Rust 编解码，不创建 Workspace。配置字段和导入流程见 [[file:配置项设计.org::*配置备份与恢复][配置项设计]]。
+
 * Workspace 运行时与收尾
 
 ~NativeCoreService.start()~ 在 EntryAbility 启动时取得进程唯一 Workspace； ~workspaceFor~ 串行更新同一对象的默认设置、附加状态和仓库集合。目录集合变化不替换 native handle、NotificationCenter 或运行时。 ~validateConfiguration~ 在工作线程调用 Core 的配置默认值、校验和兼容反序列化，不创建 Workspace，也不修改活动配置。 ~validateRepository(rootDirectory)~ 在工作线程创建独立 OrgRepo 值并调用 Core 身份加载验证目录，不将临时目录加入活动仓库集合，也不创建另一个 Workspace。

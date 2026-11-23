@@ -408,6 +408,29 @@ pub extern "C" fn org_tasks_harmony_validate_configuration(request: *const c_cha
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_configuration_yaml(
+    input: *const c_char,
+    encode: bool,
+) -> *mut c_char {
+    string_result((|| {
+        let input = read_c_string(input)?;
+        if encode {
+            let document: yaml_serde::Value = serde_json::from_str(&input)
+                .map_err(|_| CoreError::InvalidInput("配置对象无效"))?;
+            let yaml = yaml_serde::to_string(&document)
+                .map_err(|_| CoreError::InvalidState("无法导出 YAML 配置"))?;
+            serde_json::to_string(&yaml)
+                .map_err(|_| CoreError::InvalidState("无法编码 YAML 文本"))
+        } else {
+            let document: yaml_serde::Value = yaml_serde::from_str(&input)
+                .map_err(|_| CoreError::InvalidInput("配置文本格式有误，请检查 YAML 语法"))?;
+            serde_json::to_string(&document)
+                .map_err(|_| CoreError::InvalidInput("YAML 配置结构无效"))
+        }
+    })())
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_default_todo_settings() -> *mut c_char {
     string_result(
         serde_json::to_string(&org_tasks_core::TodoConfig::default().to_settings())

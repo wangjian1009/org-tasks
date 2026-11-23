@@ -519,3 +519,5 @@ export interface ConfigurationValidation {
   coreSettings?: CoreSettings;
 }
 export function validateConfiguration(request: ConfigurationValidation): Promise<CoreSettings>;
+export function encodeConfigurationYaml(document: object): Promise<string>;
+export function decodeConfigurationYaml(source: string): Promise<object>;

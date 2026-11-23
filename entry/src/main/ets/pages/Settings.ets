@@ -8,8 +8,11 @@ import { addRepository } from '../services/RepositoryNavigation'
 import { validateConfiguration } from 'liborg_tasks_harmony.so'
 import { LengthMetrics } from '@kit.ArkUI'
 import { common } from '@kit.AbilityKit'
+import { pasteboard } from '@kit.BasicServicesKit'
+import { picker } from '@kit.CoreFileKit'
 import { AppConfig, AppLinkAssociation, AppLinkCatalogEntry, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
+import { CONFIG_FILE_EXTENSION, ConfigTransfer } from '../services/ConfigTransfer'
 import { AppDataManager } from '../services/AppDataManager'
 import { AppLinkManager, AppLinkTargetStatus, appLinkName } from '../services/AppLinkService'
 import { CoreBridgeError, coreErrorMessage, NativeCoreService, CoreTaskState, CoreSettingsObject } from '../services/NativeCoreService'
@@ -471,6 +474,48 @@ struct Settings {
     }
   }
 
+  private settingsMenu(): PopupMenuItem[] {
+    return [{ title: '备份', action: (): void => { this.backupConfiguration() } }]
+  }
+
+  private async backupConfiguration(): Promise<void> {
+    if (this.saving) return
+    this.saving = true
+    this.message = ''
+    try {
+      let destination: number
+      try {
+        const choice = await this.getUIContext().getPromptAction().showActionMenu({
+          title: '备份', buttons: [
+            { text: '存储为文件', color: UiColor.text },
+            { text: '备忘录', color: UiColor.text }
+          ]
+        })
+        destination = choice.index
+      } catch (_) { return }
+      const context = this.getUIContext().getHostContext()! as common.UIAbilityContext
+      const title = ConfigTransfer.backupTitle()
+      const text = await ConfigTransfer.exportText(context)
+      if (destination === 0) {
+        const options = new picker.DocumentSaveOptions()
+        options.newFileNames = [title + CONFIG_FILE_EXTENSION]
+        const result = await new picker.DocumentViewPicker(context).save(options)
+        if (result.length > 0) {
+          await ConfigTransfer.writeFile(result[0], text)
+          this.getUIContext().getPromptAction().showToast({ message: '配置文件已保存' })
+        }
+      } else if (destination === 1) {
+        try {
+          const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, title)
+          await pasteboard.getSystemPasteboard().setData(data)
+          this.getUIContext().getPromptAction().showToast({ message: '已复制备份名称，可在备忘录粘贴为标题' })
+        } catch (_) { /* 剪贴板不可用时仍可分享备份文件。 */ }
+        await ConfigTransfer.shareBackup(context, title, text)
+      }
+    } catch (_) { this.message = '备份配置失败，请重试' }
+    finally { this.saving = false }
+  }
+
   private changeReminder(enabled: boolean): void {
     this.reminderEnabled = enabled; this.message = ''
     const version = ++this.reminderEditVersion
@@ -683,6 +728,7 @@ struct Settings {
     Column() {
       AppShell({ title: this.section || '设置', activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
         back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy || this.appLinkBusy || this.appLinkPickerBusy,
+        actionLabel: this.loaded && !this.section ? '更多' : '', actionMenuItems: this.settingsMenu(),
         backAction: (): void => { this.onBackPress() }, titleIcon: $r('app.media.nav_settings') }) {
         Column() {
           MessageBar({ message: this.message, error: true })

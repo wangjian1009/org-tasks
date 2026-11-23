@@ -19,6 +19,7 @@
     "pages/ConflictFile",
     "pages/Capture",
     "pages/ShareCapture",
+    "pages/ConfigImport",
     "pages/ShareLocation"
   ]
 }

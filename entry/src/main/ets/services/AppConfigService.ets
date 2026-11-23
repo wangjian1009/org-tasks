@@ -2,6 +2,8 @@
 
 import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, SyncOptions as NativeSyncOptions, CoreSettings, validateConfiguration } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
+import { preferences } from '@kit.ArkData'
+import { util } from '@kit.ArkTS'
 import { PreferencesStore } from './PreferencesStore'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig, SyncOptions } from '../models/OrgTask'
 import { CredentialService } from './CredentialService'
@@ -10,8 +12,18 @@ import { SystemRepositoryService } from './SystemRepositoryService'
 export const APP_CONFIG_PREFERENCES = 'org_tasks_config'
 const REPOS_KEY = 'repos'
 
+export function validateEntryFile(path: string): void {
+  const file = path.trim()
+  if (file && (!file.endsWith('.org') || file.startsWith('/') || file.includes('\\') ||
+    file.split('/').some((part: string) => part === '..' || part === '.' || part.length === 0) ||
+    file.split('/')[0] === '.sync' || /[\x00-\x1f\x7f]/.test(file))) {
+    throw new Error('收件箱、某天和备忘文件必须是存储库中的安全相对 .org 路径，未配置时可留空')
+  }
+}
+
 export class AppConfigService {
   private static changeListeners: Set<() => void> = new Set()
+  private static pendingSave: Promise<void> = Promise.resolve()
 
   static watchChanges(listener: () => void): void { AppConfigService.changeListeners.add(listener) }
   static stopWatchingChanges(listener: () => void): void { AppConfigService.changeListeners.delete(listener) }
@@ -51,13 +63,26 @@ export class AppConfigService {
     }
   }
 
-  static async save(context: Context, config: AppConfig): Promise<void> {
-    for (const file of [config.inboxFile.trim(), config.somedayFile.trim(), config.memoFile.trim()]) {
-      if (file && (!file.endsWith('.org') || file.startsWith('/') || file.includes('\\') ||
-        file.split('/').some((part: string) => part === '..' || part === '.' || part.length === 0) ||
-        file.split('/')[0] === '.sync' || /[\x00-\x1f\x7f]/.test(file))) {
-        throw new Error('收件箱、某天和备忘文件必须是存储库中的安全相对 .org 路径，未配置时可留空')
-      }
+  static save(context: Context, config: AppConfig): Promise<void> {
+    return AppConfigService.enqueueSave(() => AppConfigService.persist(context, config, true))
+  }
+
+  static restore(context: Context, merge: (current: AppConfig) => Promise<AppConfig>): Promise<void> {
+    return AppConfigService.enqueueSave(async (): Promise<void> => {
+      const current = await AppConfigService.load(context, false)
+      await AppConfigService.persist(context, await merge(current), false)
+    })
+  }
+
+  private static enqueueSave(save: () => Promise<void>): Promise<void> {
+    const pending = AppConfigService.pendingSave.then(save)
+    AppConfigService.pendingSave = pending.catch((): void => {})
+    return pending
+  }
+
+  private static async persist(context: Context, config: AppConfig, writeCredentials: boolean): Promise<void> {
+    for (const file of [config.inboxFile, config.somedayFile, config.memoFile]) {
+      validateEntryFile(file)
     }
     const coreSettings = await validateConfiguration({ todoDefaults: config.todoDefaults, coreSettings: config.coreSettings })
     const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
@@ -68,7 +93,7 @@ export class AppConfigService {
     }
     for (const repository of config.repos) {
       if (SystemRepositoryService.isSystem(repository)) continue
-      await CredentialService.setWebDavPassword(repository.id, repository.webdavPassword)
+      if (writeCredentials) await CredentialService.setWebDavPassword(repository.id, repository.webdavPassword)
       persisted.push({
         id: repository.id,
         name: (repository.name || '').trim(),
@@ -81,18 +106,32 @@ export class AppConfigService {
         excludedDirectories: repository.excludedDirectories || []
       })
     }
-    await store.put(REPOS_KEY, JSON.stringify(persisted))
-    await store.put('inboxFile', config.inboxFile.trim())
-    await store.put('inboxRepoId', config.inboxRepoId)
-    await store.put('somedayFile', config.somedayFile.trim())
-    await store.put('somedayRepoId', config.somedayRepoId)
-    await store.put('memoFile', config.memoFile.trim())
-    await store.put('memoRepoId', config.memoRepoId)
-    await store.put('calendarName', config.calendarName.trim())
-    await store.put('todoDefaults', config.todoDefaults)
-    await store.put('coreSettings', JSON.stringify(coreSettings))
-    await store.put('fileDisplayMode', config.fileDisplayMode)
-    await store.flush()
+    const values = new Map<string, preferences.ValueType>([
+      [REPOS_KEY, JSON.stringify(persisted)],
+      ['inboxFile', config.inboxFile.trim()], ['inboxRepoId', config.inboxRepoId],
+      ['somedayFile', config.somedayFile.trim()], ['somedayRepoId', config.somedayRepoId],
+      ['memoFile', config.memoFile.trim()], ['memoRepoId', config.memoRepoId],
+      ['calendarName', config.calendarName.trim()], ['todoDefaults', config.todoDefaults],
+      ['coreSettings', JSON.stringify(coreSettings)], ['fileDisplayMode', config.fileDisplayMode]
+    ])
+    const previous = new Map<string, preferences.ValueType | undefined>()
+    if (!writeCredentials) {
+      for (const key of values.keys()) {
+        previous.set(key, await store.has(key) ? await store.get(key, '') : undefined)
+      }
+    }
+    try {
+      for (const entry of values) await store.put(entry[0], entry[1])
+      await store.flush()
+    } catch (error) {
+      for (const entry of previous) {
+        const value = entry[1]
+        if (value === undefined) await store.delete(entry[0])
+        else await store.put(entry[0], value)
+      }
+      if (previous.size > 0) await store.flush()
+      throw error as Error
+    }
     AppConfigService.changeListeners.forEach((listener: () => void): void => { listener() })
   }
 
@@ -109,7 +148,7 @@ export class AppConfigService {
 
   static newRepository(rootDirectory: string = ''): RepoConfig {
     return {
-      id: createRepoId(),
+      id: util.generateRandomUUID(),
       name: '',
       rootDirectory,
       webdavEnabled: false,
@@ -145,21 +184,4 @@ export class AppConfigService {
 
     return []
   }
-}
-
-function createRepoId(): string {
-  const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
-  let value = ''
-  let state = (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0
-  for (let index = 0; index < template.length; index++) {
-    const character = template.charAt(index)
-    if (character === 'x' || character === 'y') {
-      state = (state * 1664525 + 1013904223) >>> 0
-      const nibble = state & 0x0f
-      value += (character === 'x' ? nibble : (nibble & 0x03) | 0x08).toString(16)
-    } else {
-      value += character
-    }
-  }
-  return value
 }

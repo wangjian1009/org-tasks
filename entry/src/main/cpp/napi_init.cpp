@@ -14,6 +14,7 @@ extern "C" void org_tasks_harmony_free_string(char* value);
 extern "C" char* org_tasks_harmony_last_error();
 extern "C" uint64_t org_tasks_harmony_workspace_create();
 extern "C" char* org_tasks_harmony_validate_configuration(const char* request);
+extern "C" char* org_tasks_harmony_configuration_yaml(const char* input, bool encode);
 extern "C" int32_t org_tasks_harmony_workspace_validate_repository(uint64_t handle, const char* root_directory);
 extern "C" char* org_tasks_harmony_workspace_configure_repository_roots(uint64_t handle, const char* source);
 extern "C" char* org_tasks_harmony_default_todo_settings();
@@ -119,6 +120,8 @@ struct WebDavConnectionWork {
 
 struct WebDavSyncWatch { napi_threadsafe_function function = nullptr; };
 
+enum class ConfigurationYaml { None, Encode, Decode };
+
 struct WorkspaceStringWork {
     bool sync_operation = false;
     bool sync_returns_void = false;
@@ -149,6 +152,7 @@ struct WorkspaceStringWork {
         }
     }
     bool validate_configuration = false;
+    ConfigurationYaml configuration_yaml = ConfigurationYaml::None;
     bool validate_repository = false;
     bool configure_repository_roots = false;
     bool refile_targets = false;
@@ -1017,6 +1021,9 @@ void ExecuteWorkspaceString(napi_env, void* data)
 
     } else if (work->validate_configuration) {
         work->response = TakeRustString(org_tasks_harmony_validate_configuration(work->expression.c_str()));
+    } else if (work->configuration_yaml != ConfigurationYaml::None) {
+        work->response = TakeRustString(org_tasks_harmony_configuration_yaml(
+            work->expression.c_str(), work->configuration_yaml == ConfigurationYaml::Encode));
     } else if (work->validate_repository) {
         if (org_tasks_harmony_workspace_validate_repository(work->handle, work->expression.c_str()) == 0) work->response = "{}";
     } else if (work->configure_repository_roots) {
@@ -1131,7 +1138,8 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
         } else if (work->execute_operations) {
             napi_get_undefined(env, &result);
             napi_resolve_deferred(env, work->deferred, result);
-        } else if (work->merge_operations || work->structure_operations || work->configure_repository_roots) {
+        } else if (work->merge_operations || work->structure_operations || work->configure_repository_roots ||
+                   work->configuration_yaml != ConfigurationYaml::None) {
             napi_resolve_deferred(env, work->deferred, result);
         } else if (!work->preview_action.empty()) {
             napi_value projected = result;
@@ -1506,7 +1514,9 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
         return nullptr;
     }
     napi_value resource_name;
-    if ((!work->default_todo_settings && !work->default_task_states && !work->default_sync_options && !work->normalize_sync_options && !work->validate_configuration && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
+    const bool requires_owner = !work->default_todo_settings && !work->default_task_states && !work->default_sync_options &&
+        !work->normalize_sync_options && !work->validate_configuration && work->configuration_yaml == ConfigurationYaml::None;
+    if ((requires_owner && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
         napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
         napi_create_async_work(env, nullptr, resource_name, ExecuteWorkspaceString, CompleteWorkspaceString, work, &work->work) != napi_ok ||
         napi_queue_async_work(env, work->work) != napi_ok) {
@@ -1895,6 +1905,24 @@ napi_value ValidateConfiguration(napi_env env, napi_callback_info info)
         delete work; napi_throw_error(env, nullptr, "配置校验参数无效"); return nullptr;
     }
     return QueueWorkspaceString(env, work, "OrgTasksValidateConfiguration", self);
+}
+
+template <ConfigurationYaml operation>
+napi_value ConfigurationYamlRequest(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value argument, self;
+    std::string input;
+    if (napi_get_cb_info(env, info, &argc, &argument, &self, nullptr) != napi_ok || argc != 1 ||
+        !(operation == ConfigurationYaml::Encode ? EncodeJson(env, argument, &input) : ReadString(env, argument, &input)) ||
+        input.find('\0') != std::string::npos) {
+        napi_throw_error(env, nullptr, "YAML 配置参数无效");
+        return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    work->configuration_yaml = operation;
+    work->expression = std::move(input);
+    return QueueWorkspaceString(env, work, "OrgTasksConfigurationYaml", self);
 }
 
 napi_value WorkspaceValidateRepository(napi_env env, napi_callback_info info)
@@ -2479,6 +2507,13 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_value validate_configuration;
     napi_create_function(env, "validateConfiguration", NAPI_AUTO_LENGTH, ValidateConfiguration, nullptr, &validate_configuration);
     napi_set_named_property(env, exports, "validateConfiguration", validate_configuration);
+    napi_value encode_configuration_yaml, decode_configuration_yaml;
+    napi_create_function(env, "encodeConfigurationYaml", NAPI_AUTO_LENGTH,
+        ConfigurationYamlRequest<ConfigurationYaml::Encode>, nullptr, &encode_configuration_yaml);
+    napi_set_named_property(env, exports, "encodeConfigurationYaml", encode_configuration_yaml);
+    napi_create_function(env, "decodeConfigurationYaml", NAPI_AUTO_LENGTH,
+        ConfigurationYamlRequest<ConfigurationYaml::Decode>, nullptr, &decode_configuration_yaml);
+    napi_set_named_property(env, exports, "decodeConfigurationYaml", decode_configuration_yaml);
     napi_property_descriptor workspace_descriptors[] = {
         {"setSyncPolicy", nullptr, WorkspaceSyncOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("set")},
         {"removeSyncPolicy", nullptr, WorkspaceSyncOperation, nullptr, nullptr, nullptr, napi_default, const_cast<char*>("remove")},
