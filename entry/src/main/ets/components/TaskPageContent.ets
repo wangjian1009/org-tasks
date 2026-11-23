@@ -437,7 +437,7 @@ export struct TaskPageContent {
       }
       if (this.view === 'memo' && this.pageReady && !this.needsConfiguration && !this.drawerOpen) {
         Button({ type: ButtonType.Circle }) {
-          Image($r('app.media.ui_add_primary')).width(28).height(28)
+          Image($r('app.media.ui_add_memo')).width(28).height(28)
         }.id('memo_create').width(56).height(56).backgroundColor(UiColor.primary)
           .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
           .accessibilityText('新增备忘')

@@ -74,7 +74,7 @@ export class HttpNavigationService {
       switch (page.url) {
         case 'pages/Settings': allowed = ['section']; break
         case 'pages/ConflictFile': allowed = ['repoId', 'path']; break
-        case 'pages/OrgFileDetail': allowed = ['repoId', 'path', 'syncId', 'repositoryName', 'backupTime', 'backupPath', 'focusTask', 'editHeader']; break
+        case 'pages/OrgFileDetail': allowed = ['repoId', 'path', 'syncId', 'repositoryName', 'backupTime', 'backupPath', 'focusTask']; break
         case 'pages/RepositorySettings': allowed = ['repoId']; break
         case 'pages/SyncLog': allowed = ['repoId', 'syncId']; break
         case 'pages/MemoEdit': allowed = ['task', 'create', 'memoId']; break
@@ -83,7 +83,6 @@ export class HttpNavigationService {
       if ((p.repoId !== undefined && typeof p.repoId !== 'string') || (p.path !== undefined && typeof p.path !== 'string') ||
         (p.syncId !== undefined && typeof p.syncId !== 'string') || (p.repositoryName !== undefined && typeof p.repositoryName !== 'string') ||
         (p.backupPath !== undefined && typeof p.backupPath !== 'string') ||
-        (p.editHeader !== undefined && typeof p.editHeader !== 'boolean') ||
         (p.backupTime !== undefined && p.backupTime !== null && (typeof p.backupTime !== 'number' || !Number.isFinite(p.backupTime)))) throw new NavigationError(400, '页面参数类型无效')
       if (p.section !== undefined && !SECTIONS.includes(p.section)) throw new NavigationError(400, '设置分组无效')
       if (['pages/OrgFileDetail', 'pages/ConflictFile'].includes(page.url) && (!p.repoId || !p.path)) throw new NavigationError(400, '必须指定 repoId 和 path')

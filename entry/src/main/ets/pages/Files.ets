@@ -287,7 +287,7 @@ struct Files {
 
   repositoryActions(group: NotebookGroup): PopupMenuItem[] {
     return [
-      { title: '新增文件', icon: $r('app.media.ui_add'), disabled: this.createLoading || this.createOpen,
+      { title: '新增', icon: $r('app.media.ui_add_file'), disabled: this.createLoading || this.createOpen,
         action: (): void => { this.openCreate(group.repoId) } },
       { title: '设置', icon: $r('app.media.ui_settings'), action: (): void => {
         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: group.configId } })

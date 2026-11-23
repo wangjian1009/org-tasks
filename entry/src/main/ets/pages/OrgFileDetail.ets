@@ -58,7 +58,6 @@ struct OrgFileDetail {
   @State refreshing: boolean = false
   @State message: string = ''
   @State refreshMessage: string = ''
-  @State editHeaderOnAppear: boolean = false
   @State fileDeleted: boolean = false
   @State drawerOpen: boolean = false
   @State renderReady: boolean = false
@@ -173,7 +172,6 @@ struct OrgFileDetail {
       this.entryTaskRead = true
       this.entryTask = params.focusTask
     }
-    if (!this.fileIdentity && !params.syncId) this.editHeaderOnAppear = params.editHeader === true
     if (params.syncId) {
       await this.loadHistory(params, params.syncId, force)
       return
@@ -648,10 +646,6 @@ struct OrgFileDetail {
         const context = this.getUIContext().getHostContext()!
         this.sourceMode = AppDataManager.shared(context).configuration?.fileDisplayMode === 'source'
       }
-      if (this.editHeaderOnAppear) {
-        this.sourceMode = false
-        this.readingState = JSON.stringify({ scroll: 0 })
-      }
       this.sections = sections
       this.updateStructureOrderParents(snapshot.tasks)
       this.structurePending = false
@@ -737,7 +731,6 @@ struct OrgFileDetail {
                 focusTask: this.entryTask, focusConsumed: (): void => { this.entryTask = undefined },
                 readOnly: !!this.historyLabel, fileContext: this.historyLabel,
                 tagFiltered: this.selectedTags.length > 0 || this.selectedCategory.length > 0,
-                editHeaderOnAppear: this.editHeaderOnAppear,
                 headerEntries: this.headerEntries, headerVersion: this.headerVersion, categoryOptions: this.categoryOptions, tagOptions: this.tagOptions,
                 beforeHeaderEdit: async (): Promise<boolean> => TaskInlineSession.end(true),
                 saveHeader: (changes: CoreFileHeaderValueChange[], version: string): Promise<void> => this.saveHeader(changes, version),
@@ -759,7 +752,7 @@ struct OrgFileDetail {
                 },
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,
                 scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
-                ready: (): void => { this.renderReady = true; this.editHeaderOnAppear = false } })
+                ready: (): void => { this.renderReady = true } })
                 .width('100%').height('100%').visibility(this.sourceMode ? Visibility.None : Visibility.Visible)
               }, (identity: string) => identity)
               if (this.sourceMode) {

@@ -176,7 +176,7 @@ Harmony 注册 ~GET /api/v1/ui/navigation~ 与 ~PUT /api/v1/ui/navigation~ 。GE
 
 单节点路径可直接指定界面，例如任务页面分别使用 ~pages/Today~ 、 ~pages/Planned~ 、 ~pages/Waiting~ 、 ~pages/Anytime~ 、 ~pages/Someday~ 、 ~pages/Memo~ 和 ~pages/Logbook~ 。其余支持 ~pages/Inbox~ 、 ~pages/Files~ 、 ~pages/Settings~ 、 ~pages/OrgFileDetail~ 、 ~pages/RepositorySettings~ 、 ~pages/SyncLog~ 、 ~pages/ConflictFile~ 与 ~pages/MemoEdit~ 。独立捕捉与卡片配置窗口不属于主窗口路径。
 
-~pages~ 必须包含 1 至 32 项，各页面仅接受自身已定义参数；未知字段、页面或参数类型返回 400。文件与项目使用 Core 仓库 ID 和相对路径，工作区文档可用 ~editHeader=true~ 打开文件头编辑；仓库设置、同步日志、冲突处理使用配置仓库 ID。设置页可传 ~section~ ；备忘新建使用 ~create=true~ ，编辑可使用 ~memoId~ 指定当前配置备忘文件中的记录，或使用 ~task~ 中的 ~repoId~ 、 ~filePath~ 和 ~id~ ，三个目标指定方式互斥；宿主从当前 Workspace 恢复真实 Task，不采信请求中的其他任务快照字段。
+~pages~ 必须包含 1 至 32 项，各页面仅接受自身已定义参数；未知字段、页面或参数类型返回 400。文件与项目使用 Core 仓库 ID 和相对路径。仓库设置、同步日志和冲突处理使用配置仓库 ID。设置页可传 ~section~ ；备忘新建使用 ~create=true~ ，编辑可使用 ~memoId~ 指定当前配置备忘文件中的记录，或使用 ~task~ 中的 ~repoId~ 、 ~filePath~ 和 ~id~ ，三个目标指定方式互斥；宿主从当前 Workspace 恢复真实 Task，不采信请求中的其他任务快照字段。
 
 PUT 先校验全部节点和目标，再结束原位编辑并调用 ~PageNavigator.setPath~ ；目标不存在返回 404，编辑保存失败、编辑页面存在未提交草稿、并发跳转或当前路径已变化返回 409。这些检查失败时保留当前路径。完整路径只加载末级页面，祖先页面在返回时才加载；平台跳转失败时返回 409 并恢复原路径。普通文件、项目与历史备份均使用 ~pages/OrgFileDetail~ 。历史备份使用配置仓库 ID、相对路径及 ~syncId~ 。 工作区中的文件可附带 ~focusTask~ ，其仓库与文件必须和本页参数一致。页面载入后按任务完整路径定位，并在任务可见时短暂高亮。成功返回 200 和实际路径，表示路由操作完成；页面数据与绘制仍异步完成。
 

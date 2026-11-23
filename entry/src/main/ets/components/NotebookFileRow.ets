@@ -1,4 +1,3 @@
-import { LengthMetrics } from '@kit.ArkUI'
 import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 import { PageNavigator } from '../services/PageNavigator'
 import { CoreOrgFileMetadata, CoreTitlePart } from '../services/NativeCoreService'
@@ -35,20 +34,30 @@ export struct NotebookFileRow {
     return kind === 'inbox' ? '#355F5A' : kind === 'someday' ? '#594A73' : '#655837'
   }
 
-  private activateSummary(): void {
-    if (this.isTrashEntry()) this.openFile()
-    else this.toggleExpanded()
+  private summaryLabel(): string {
+    const labels = [this.title(), fileModifiedLabel(this.file.modifiedAt, true)]
+    if (!this.isTrashEntry()) {
+      for (const kind of this.usages) labels.push(fileTargetName(kind))
+      if (this.file.project() !== null) labels.push('项目')
+      if (this.file.hasConflict) labels.push('冲突')
+    }
+    return labels.join('，')
   }
 
-  openFile(editHeader: boolean = false) {
+  private activateSummary(): void {
+    if (this.isTrashEntry()) this.openFile()
+    else {
+      this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.toggleExpanded() })
+    }
+  }
+
+  private openFile(): void {
     try {
       if (this.isTrashEntry()) {
         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Trash' }); return
       }
-      const resolveConflict = !editHeader && this.file.project() === null && this.file.hasConflict
-      const params: PageParameters = editHeader
-        ? { repoId: this.file.repoId, path: this.file.path, editHeader: true }
-        : { repoId: resolveConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
+      const resolveConflict = this.file.project() === null && this.file.hasConflict
+      const params: PageParameters = { repoId: resolveConflict ? this.configRepoId : this.file.repoId, path: this.file.path }
       PageNavigator.shared.pushPage(this.getUIContext(), {
         url: resolveConflict ? 'pages/ConflictFile' : 'pages/OrgFileDetail', params
       })
@@ -60,7 +69,7 @@ export struct NotebookFileRow {
   private actions(): TaskActionItem[] {
     return [
       { id: 'edit', title: '编辑', label: '编辑文件', icon: $r('app.media.ui_link_edit'),
-        action: (): void => { this.closeSwipe(); this.openFile(true) } },
+        action: (): void => { this.closeSwipe(); this.openFile() } },
       { id: 'rename', title: '改名', label: '改文件名', icon: $r('app.media.ui_note_action'),
         action: (): void => { this.closeSwipe(); this.rename() } },
       { id: 'delete', title: '删除', label: '删除文件', icon: $r('app.media.ui_delete'), style: 'danger',
@@ -76,22 +85,37 @@ export struct NotebookFileRow {
   @Builder
   badge(label: string, background: string, foreground: string = '#E8E8E8') {
     Text(label).fontSize(11).fontColor(foreground).maxLines(1)
-      .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+      .padding({ left: 4, right: 4, top: 2, bottom: 2 })
       .backgroundColor(background).borderRadius(10)
   }
 
   @Builder
   summary() {
     Button({ type: ButtonType.Normal }) {
-      Row({ space: 12 }) {
+      Row({ space: 6 }) {
         Text(this.title()).fontSize(16).fontColor(UiColor.text).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).constraintSize({ minWidth: 0 })
+        if (!this.isTrashEntry() && (this.usages.length > 0 || this.file.project() !== null || this.file.hasConflict)) {
+          Row({ space: 4 }) {
+            ForEach(this.usages, (kind: FileTargetKind) => {
+              this.badge(fileTargetName(kind), this.usageColor(kind))
+            }, (kind: FileTargetKind) => kind)
+            if (this.file.project() !== null) this.badge('项目', '#3A536A')
+            if (this.file.hasConflict) this.badge('冲突', UiColor.conflictBadge, UiColor.error)
+          }.flexShrink(0)
+        }
         Text(fileModifiedLabel(this.file.modifiedAt, true)).fontSize(12).fontColor(UiColor.secondary)
           .maxLines(1).flexShrink(0)
-      }.width('100%').alignItems(VerticalAlign.Center)
+        if (!this.isTrashEntry()) {
+          Image($r('app.media.ui_down')).width(16).height(16).flexShrink(0)
+            .fillColor(this.expanded ? UiColor.text : UiColor.secondary)
+            .rotate({ angle: this.expanded ? 180 : 0 })
+            .accessibilityLevel('no')
+        }
+      }.width('100%').alignItems(VerticalAlign.Center).constraintSize({ minHeight: 32 })
     }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: 8, right: 8, top: 6, bottom: 6 })
       .backgroundColor(Color.Transparent).borderRadius(8)
-      .accessibilityText(`${this.title()}，${fileModifiedLabel(this.file.modifiedAt)}`)
+      .accessibilityText(this.summaryLabel())
       .accessibilityDescription(this.isTrashEntry() ? '打开废纸篓' : this.expanded ? '收起文件详情' : '展开文件详情')
       .onClick((): void => { this.activateSummary() })
   }
@@ -99,27 +123,12 @@ export struct NotebookFileRow {
   @Builder
   details() {
     Column({ space: 4 }) {
-      if (this.file.project() !== null || this.usages.length > 0 || this.file.hasConflict) {
-        Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(4), cross: LengthMetrics.vp(4) } }) {
-          ForEach(this.usages, (kind: FileTargetKind) => {
-            this.badge(fileTargetName(kind), this.usageColor(kind))
-          }, (kind: FileTargetKind) => kind)
-          if (this.file.project() !== null) this.badge('项目', '#3A536A')
-          if (this.file.hasConflict) this.badge('冲突', UiColor.conflictBadge, UiColor.error)
-        }.width('100%')
-      }
-      Row({ space: 8 }) {
-        Column({ space: 4 }) {
-          Text(filePathLabel(this.file.path)).fontSize(13).fontColor(UiColor.text)
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-          Text(`${fileTaskCount(this.file)} 个任务 · ${fileSizeLabel(this.file.byteLength)}`)
-            .fontSize(12).fontColor(UiColor.secondary)
-        }.layoutWeight(1).constraintSize({ minWidth: 0 }).alignItems(HorizontalAlign.Start)
-        Button('打开', { type: ButtonType.Normal }).fontSize(13).fontColor(UiColor.primary)
-          .height(44).padding({ left: 8, right: 0 }).flexShrink(0).backgroundColor(Color.Transparent)
-          .accessibilityText(`打开${this.title()}`).onClick((): void => { this.openFile() })
-      }.width('100%').alignItems(VerticalAlign.Center)
-    }.width('100%').padding({ left: 8, right: 8, bottom: 6 }).alignItems(HorizontalAlign.Start)
+      Text(filePathLabel(this.file.path)).fontSize(13).fontColor(UiColor.text)
+        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+      Text(`${fileTaskCount(this.file)} 个任务 · ${fileSizeLabel(this.file.byteLength)}`)
+        .fontSize(12).fontColor(UiColor.secondary)
+    }.width('100%').padding({ left: 8, right: 8, bottom: 12 }).alignItems(HorizontalAlign.Start)
+      .transition(TransitionEffect.translate({ y: -8 }).combine(TransitionEffect.OPACITY))
   }
 
   build() {
@@ -127,7 +136,8 @@ export struct NotebookFileRow {
       Column() {
         this.summary()
         if (this.expanded) this.details()
-      }.width('100%')
+      }.width('100%').backgroundColor(this.expanded ? UiColor.taskCard : Color.Transparent)
+        .borderRadius(12).clip(true)
     }.swipeAction(this.actionsEnabled ? {
       end: { builder: this.swipeMenu }, edgeEffect: SwipeEdgeEffect.None
     } : {})

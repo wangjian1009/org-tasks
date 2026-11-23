@@ -28,7 +28,6 @@ export struct OrgFileHeader {
   @Prop categoryOptions: string[] = []
   @Prop category: string = ''
   @Prop selectedCategory: string = ''
-  @Prop editOnAppear: boolean = false
   beforeEdit: () => Promise<boolean> = async () => true
   save: (changes: CoreFileHeaderValueChange[], version: string) => Promise<void> = async () => {}
   navigation: OrgFileHeaderNavigation = new OrgFileHeaderNavigation()
@@ -60,7 +59,6 @@ export struct OrgFileHeader {
       else this.closeEditor()
       return true
     }
-    if (this.editOnAppear) await this.openEditor()
     try {
       const current = await window.getLastWindow(this.getUIContext().getHostContext()!)
       if (!this.alive) return

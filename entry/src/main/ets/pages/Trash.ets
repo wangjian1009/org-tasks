@@ -19,9 +19,11 @@ struct Trash {
   @State message: string = ''
   private maintenanceError: string = ''
   @State drawerOpen: boolean = false
+  @State hasParent: boolean = PageNavigator.shared.path.depth > 1
   @State referenceTime: number = Date.now()
 
   aboutToAppear() { this.active = true; this.load() }
+  onPageShow(): void { this.hasParent = PageNavigator.shared.path.depth > 1 }
   aboutToDisappear() {
     this.active = false; this.stop?.()
     this.dataManager?.close().catch((): void => { console.error('保存废纸篓页面数据失败') })
@@ -52,7 +54,8 @@ struct Trash {
   }
   build() {
     Column() {
-    AppShell({ title: '废纸篓', titleIcon: $r('app.media.ui_delete'), activeRoute: 'pages/Trash', drawerOpen: $drawerOpen }) {
+    AppShell({ title: '废纸篓', titleIcon: $r('app.media.ui_delete'), activeRoute: 'pages/Trash', drawerOpen: $drawerOpen,
+      back: this.hasParent, backAction: (): void => { this.onBackPress() } }) {
       Column() {
         if (this.message) {
           Text(`${this.message} · 点击重试`).fontSize(14).fontColor('#FFB4AB').padding(16).width('100%')
