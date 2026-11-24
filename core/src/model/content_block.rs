@@ -24,6 +24,7 @@ pub struct ContentBlock {
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase", deny_unknown_fields)]
 pub enum ContentBlockChange {
     Replace { id: String, source: String },
+    Move { id: String, before_id: Option<String> },
     Link { id: String, link: super::TextLink, value: Option<super::LinkValue> },
     ReplaceText { id: String, source: String },
     TreeLink { id: String, link: super::TextLink, value: Option<super::LinkValue> },
@@ -83,8 +84,92 @@ fn locate(file: &OrgFile, headline: &Headline, id: &str) -> Result<(ContentBlock
     Ok((block, start..end))
 }
 
+fn without_trailing_blank_lines(mut source: &str) -> &str {
+    while let Some((prefix, line)) = source.rsplit_once('\n') {
+        if !line.bytes().all(|byte| byte.is_ascii_whitespace()) {
+            break;
+        }
+        source = prefix.trim_end_matches(['\r', '\n']);
+    }
+    source
+}
+
+fn move_block(
+    file: &mut OrgFile,
+    headline: &Headline,
+    id: &str,
+    before_id: Option<&str>,
+) -> Result<(), CoreError> {
+    let invalid = || CoreError::InvalidInput("正文区块已变化，请重新载入后移动");
+    let blocks = sources(file, headline.section(), Some(headline))
+        .map(|(node, start, source)| (node.kind(), start, without_trailing_blank_lines(source)))
+        .collect::<Vec<_>>();
+    let index = |id: &str| {
+        let at = id.parse::<usize>().map_err(|_| invalid())?;
+        blocks.iter().position(|block| block.1 == at).ok_or_else(invalid)
+    };
+    let from = index(id)?;
+    let before = before_id.map(index).transpose()?.unwrap_or(blocks.len());
+    if !matches!(blocks[from].0, SyntaxKind::PARAGRAPH | SyntaxKind::LIST) {
+        return Err(CoreError::InvalidInput("仅支持移动直属段落和列表"));
+    }
+    if before == from || before == from + 1 {
+        return Ok(());
+    }
+    let to = if before > from { before - 1 } else { before };
+    let first = from.min(to);
+    let last = from.max(to);
+    let mut order = (0..blocks.len()).collect::<Vec<_>>();
+    order.remove(from);
+    order.insert(to, from);
+
+    let end = |slot: usize| blocks[slot].1 + blocks[slot].2.len();
+    let left = if first == 0 { blocks[first].1 } else { end(first - 1) };
+    let right = blocks.get(last + 1).map_or_else(|| end(last), |block| block.1);
+    let original = std::str::from_utf8(file.source_bytes()).expect("UTF-8");
+    let eol = super::task_operation_executor::newline(file);
+    let mut replacement = String::new();
+    for slot in first..=last + 1 {
+        if slot > 0 && slot < blocks.len() {
+            let gap = &original[end(slot - 1)..blocks[slot].1];
+            let (left_kind, _, _) = blocks[order[slot - 1]];
+            let (right_kind, _, right_text) = blocks[order[slot]];
+            // 列表后相邻列表或缩进内容需要两条空白行，避免并入前一个列表。
+            let newlines: usize = match (left_kind, right_kind) {
+                (SyntaxKind::LIST, SyntaxKind::LIST) => 3,
+                (SyntaxKind::LIST, _) if right_text.starts_with([' ', '\t']) => 3,
+                (SyntaxKind::LIST | SyntaxKind::PARAGRAPH, SyntaxKind::PARAGRAPH)
+                | (SyntaxKind::ORG_TABLE, SyntaxKind::ORG_TABLE) => 2,
+                _ => 1,
+            };
+            if gap.bytes().all(|byte| byte.is_ascii_whitespace()) {
+                let existing = gap.bytes().filter(|byte| *byte == b'\n').count();
+                replacement.push_str(&eol.repeat(newlines.saturating_sub(existing)));
+            }
+            replacement.push_str(gap);
+        }
+        if slot <= last {
+            replacement.push_str(blocks[order[slot]].2);
+        }
+    }
+
+    // 检查新位置的语法归属，防止规划、附属关键字和缩进改变区块边界。
+    let mut candidate = file.clone();
+    super::task_operation_executor::replace(&mut candidate, left..right, replacement.as_bytes())?;
+    let updated = candidate.syntax().document().syntax().descendants().filter_map(Headline::cast)
+        .find(|entry| entry.start() == headline.start()).ok_or_else(invalid)?;
+    let actual = sources(&candidate, updated.section(), Some(&updated))
+        .map(|(node, _, source)| (node.kind(), without_trailing_blank_lines(source)));
+    let expected = order.iter().map(|&slot| (blocks[slot].0, blocks[slot].2));
+    if !actual.eq(expected) {
+        return Err(CoreError::InvalidInput("该位置会改变 Org 区块结构，请选择其他位置"));
+    }
+    super::task_operation_executor::replace(file, left..right, replacement.as_bytes())
+}
+
 pub(super) fn modify(file: &mut OrgFile, headline: &Headline, change: &ContentBlockChange) -> Result<(), CoreError> {
     let id = match change {
+        ContentBlockChange::Move { id, before_id } => return move_block(file, headline, id, before_id.as_deref()),
         ContentBlockChange::Replace { id, .. } | ContentBlockChange::Link { id, .. } => id,
         _ => return super::content_tree::modify(file, headline, change),
     };
@@ -214,6 +299,48 @@ mod tests {
         modify(&mut file, &headline, &ContentBlockChange::Replace { id: block.id, source: "Changed\ncontinued".into() }).unwrap();
         assert_eq!(file.source_bytes(), original.replace("Second", "Changed\r\ncontinued").as_bytes());
         assert_eq!(content(&file).iter().map(|block| block.blank_lines_before).collect::<Vec<_>>(), [0, 2, 1]);
+    }
+
+    #[test]
+    fn paragraph_moves_after_the_complete_list_without_merging_with_next_paragraph() {
+        for newline in ["\n", "\r\n"] {
+            let prefix = "* TODO Task\n:PROPERTIES:\n:ID: stable\n:END:\n";
+            let paragraph = "Before [[https://example.org][link]]  \ncontinued";
+            let list = "- [ ] First\n  - [X] Nested\n- plain";
+            let suffix = "After  \n:LOGBOOK:\nkeep\n:END:\n** Child\nchild body\n";
+            let source = format!("{prefix}{paragraph}\n \t\n{list}\n{suffix}").replace('\n', newline);
+            let mut file = file(&source);
+            let headline = file.path_headlines()[0].1.clone();
+            let blocks = content(&file);
+            modify(&mut file, &headline, &ContentBlockChange::Move {
+                id: blocks[0].id.clone(), before_id: Some(blocks[2].id.clone()),
+            }).unwrap();
+            let expected = format!("{prefix}{list}\n \t\n{paragraph}\n\n{suffix}").replace('\n', newline);
+            assert_eq!(file.source_bytes(), expected.as_bytes());
+            let moved = content(&file);
+            assert_eq!(moved[0].items[1].depth, 1);
+            assert!(moved[1].paragraph && moved[2].paragraph);
+        }
+    }
+
+    #[test]
+    fn whole_list_moves_keep_adjacent_lists_separate_and_support_noops_and_stale_targets() {
+        let source = "* Task\n- First\n  - child\n\nSeparator\n\n- Second";
+        let mut file = file(source);
+        let headline = file.path_headlines()[0].1.clone();
+        let blocks = content(&file);
+        let id = blocks[0].id.clone();
+        for target in [id.clone(), blocks[1].id.clone()] {
+            modify(&mut file, &headline, &ContentBlockChange::Move { id: id.clone(), before_id: Some(target) }).unwrap();
+            assert_eq!(file.source_bytes(), source.as_bytes());
+        }
+        assert!(modify(&mut file, &headline, &ContentBlockChange::Move {
+            id: id.clone(), before_id: Some(blocks[0].items[1].id.clone()),
+        }).is_err());
+        assert_eq!(file.source_bytes(), source.as_bytes());
+        modify(&mut file, &headline, &ContentBlockChange::Move { id, before_id: None }).unwrap();
+        assert_eq!(file.source_bytes(), b"* Task\nSeparator\n\n- Second\n\n\n- First\n  - child");
+        assert_eq!(content(&file).len(), 3);
     }
 
     #[test]

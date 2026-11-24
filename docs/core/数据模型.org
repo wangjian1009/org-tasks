@@ -1798,6 +1798,8 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 
 区块的 ~Replace~ 与 ~Link~ 通过 ~CONTENT_BLOCK~ 修改提交，旧版本和非本节点的 ID 拒绝。文本、普通列表、表格和纯 checkbox 清单均可编辑整块原文；空原文删除当前区块并保留外围字节。包含 checkbox 的区块被替换或删除时，Core 在同一事务内重算已有标题统计；单项操作仍通过结构化清单接口保留嵌套、状态与同级排序规则。
 
+区块 ~Move~ 引用同一标题直属区块的当前快照 ID。目标为另一直属区块前，或该标题的正文末尾；段落和列表可作为移动来源。移动保留正文区块的完整原字节和内部层级，区块间保留分隔槽位，必要时补齐文件原样式换行。Core 在写入前重解析并校验段落、列表和相邻区块的归属。
+
 ~paragraph: bool~ 标记直属节点是否为普通段落； ~blank_lines_before: usize~ 保留节点之前紧邻的完整空白行数，兼容 LF、CRLF 与空白字符行，不包含节点内部的空白。代码、示例、引用等虽属于 ~text~ 区块， ~paragraph~ 仍为 false，宿主可保持其内部排版。分隔空行不进入可编辑 ~source~ ，局部修改继续保留外围原字节；两个字段均为通用语义投影，不包含页面间距或控件状态。
 
 \begin{tikzpicture}

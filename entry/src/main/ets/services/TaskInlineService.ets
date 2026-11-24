@@ -28,4 +28,5 @@ export class TaskInlineSession {
   }
 
   static active(): boolean { return TaskInlineSession.owner.length > 0 }
+  static owns(key: string): boolean { return key.length > 0 && TaskInlineSession.owner === key }
 }

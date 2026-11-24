@@ -10,6 +10,7 @@ import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
 import { LinkEditController } from '../LinkView'
 import { UiColor } from '../../ui/Theme'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
+import { showDangerousConfirmation } from '../controls/DangerousConfirmation'
 
 // 项目文档的编辑会话适配；正文直接复用区块控件，任务状态和标题由 TaskEditor 负责。
 @Component
@@ -51,7 +52,7 @@ export struct TaskDocumentContent {
   snapshotChanged() {
     if ((this.blockEditing || this.linkEditing || this.editingId || this.addingAfter || this.newText.trim()) &&
       this.task?.fileVersion !== this.current?.fileVersion) {
-      this.blocked = true; this.message = '文件已变化，草稿已保留，请取消编辑后刷新'
+      this.blocked = true; this.message = '文件已变化，草稿已保留。'
     } else { this.current = undefined; this.blocked = false }
   }
 
@@ -76,9 +77,13 @@ export struct TaskDocumentContent {
     return this.content().some((current: CoreContentBlock): boolean => current.id === block.id && current.source === block.source)
   }
 
-  async commit(changes: CoreTaskModification[]): Promise<boolean> {
+  async commit(changes: CoreTaskModification[], sourceVersion?: string): Promise<boolean> {
     if (this.isReadonly() || this.blocked || !this.current || this.working) return false
     const task = this.current
+    if (sourceVersion !== undefined && task.fileVersion !== sourceVersion) {
+      this.message = '文件已变化，请重新选择移动位置'
+      return false
+    }
     this.working = true; this.message = ''
     let committed: boolean = false
     try {
@@ -89,8 +94,9 @@ export struct TaskDocumentContent {
     } catch (error) {
       committed = committed || (error as DataSetWriteError).committed === true
       if (this.active) {
-        this.blocked = committed
-        this.message = `${committed ? '修改已保存，重新读取失败，请刷新：' : ''}${coreErrorMessage(error as CoreBridgeError)}`
+        const message = coreErrorMessage(error as CoreBridgeError)
+        this.blocked = committed || message.includes('版本')
+        this.message = committed ? `修改已保存，重新读取失败。 ${message}` : message
       }
       return false
     } finally { this.working = false; this.releaseIdle() }
@@ -98,6 +104,23 @@ export struct TaskDocumentContent {
 
   async saveBlock(block: CoreContentBlock, source: string): Promise<boolean> {
     return this.commit([{ field: 'CONTENT_BLOCK', value: { type: 'replace', id: block.id, source } }])
+  }
+
+  reloadBlockDraft(): void {
+    showDangerousConfirmation(this.getUIContext(), {
+      title: '重新载入正文？', message: '将放弃未保存的输入，读取文件中的最新内容。', confirmLabel: '重新载入',
+      onConfirm: (): void => {
+        if (!this.active || this.working) return
+        const latest = this.readTask?.() ?? this.task ?? undefined
+        if (!latest) return
+        this.blockEditor.cancel()
+        this.checkFocus.cancel()
+        this.current = latest
+        this.blocked = false
+        this.message = ''
+        this.releaseIdle()
+      }
+    })
   }
 
   async changeBlockLink(block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
@@ -234,7 +257,10 @@ export struct TaskDocumentContent {
       TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), contentTree: this.tree(), writeNode: change => this.writeContentNode(change),
         toggle: change => { this.changeCheck(change) }, beginEmpty: (): Promise<boolean> => this.session(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
         projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
-        revision: this.contentRevision || this.current?.fileVersion || this.task?.fileVersion || '', contentBackground: this.contentBackground,
+        revision: this.current?.fileVersion ?? this.task?.fileVersion ?? this.contentRevision, contentBackground: this.contentBackground,
+        moveVersion: this.current?.fileVersion ?? this.task?.fileVersion ?? '',
+        moveContent: (id: string, beforeId: string | null, version: string): Promise<boolean> =>
+          this.commit([{ field: 'CONTENT_BLOCK', value: { type: 'move', id, beforeId } }], version),
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,
         checklist: (index: () => number): void => { this.checklist(index) },
         begin: (block: CoreContentBlock): Promise<boolean> => this.beginBlock(block),
@@ -243,6 +269,10 @@ export struct TaskDocumentContent {
         editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (!editing) this.releaseIdle() },
         linkEditingChanged: (editing: boolean): void => { this.linkEditing = editing; if (editing) this.session(); else this.releaseIdle() } }).width('100%')
       if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
+      if (this.blocked && this.blockEditing) {
+        Button('重新载入').height(36).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+          .enabled(!this.working).onClick((): void => { this.reloadBlockDraft() })
+      }
     }.width('100%')
   }
 }

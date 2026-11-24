@@ -1954,6 +1954,19 @@ mod tests {
         assert_eq!(std::fs::read_to_string(root.join("tasks.org")).unwrap(), expected);
         assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
         assert_eq!(std::fs::read_to_string(root.join("tasks.org")).unwrap(), expected);
+        let latest: serde_json::Value =
+            serde_json::from_str(&query_task_results_json(handle, "[{}]".into()).unwrap()).unwrap();
+        let task = &latest[0]["tasks"][0];
+        let request = serde_json::json!({
+            "operations":[{"type":"Modification","data":{"path":task["fullPath"],"modifications":[
+                {"field":"CONTENT_BLOCK","value":{"type":"move","id":task["editContent"]["blocks"][0]["id"],"beforeId":null}}
+            ]}}],
+            "fileVersions":[{"repoId":task["repoId"],"file":task["filePath"],"version":task["fileVersion"]}]
+        });
+        workspace_execute_task_operations(handle, request.to_string()).unwrap();
+        let expected = "* TODO Task\r\n| A | B |\r\n| 3 | 4 |\r\n\r\n- [ ] Item\r\n\r\nBefore\r\n:LOGBOOK:\r\nkeep\r\n:END:\r\n";
+        assert_eq!(std::fs::read_to_string(root.join("tasks.org")).unwrap(), expected);
+        assert!(workspace_execute_task_operations(handle, request.to_string()).is_err());
         release_workspace(handle);
         std::fs::remove_dir_all(root).unwrap();
     }

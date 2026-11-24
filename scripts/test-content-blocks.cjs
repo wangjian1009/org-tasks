@@ -99,6 +99,22 @@ test('在两个相邻列表之间插入独立列表时保留前后列表的分�
   assert.equal(f.writes[0].source, '- 原列表\n\n\n- [ ] 新条目\n');
 });
 
+test('回车提交有内容的段落，空白新增输入结束时不打开下一段', async () => {
+  const f = blockFixture();
+  let nextParagraphs = 0;
+  f.editor.followParagraph = async finish => { if (await finish()) nextParagraphs++; };
+  await f.editor.edit();
+  f.editor.draft = '更新后的段落';
+  await f.editor.submitParagraph();
+  assert.equal(nextParagraphs, 1);
+  assert.equal(f.writes[0].source, '更新后的段落');
+  await f.editor.edit(f.editor.block, f.editor.revision, 'paragraph');
+  await f.editor.submitParagraph();
+  assert.equal(nextParagraphs, 1);
+  assert.equal(f.writes.length, 1);
+  assert.equal(f.editor.editing, false);
+});
+
 test('删除只提交选中的原区块，结束其他草稿失败或快照变化时不删除', async () => {
   const f=blockFixture();f.editor.revision='v1';f.editor.openMenu(10,20);
   const block=f.editor.block;
@@ -171,6 +187,7 @@ function projectFixture() {
   const { TaskDocumentContent } = load('components/editors/TaskDocumentContent', {
     '../../services/NativeCoreService': { coreErrorMessage: e => e.message },
     '../../services/DataSetManager':{},
+    '../controls/DangerousConfirmation': {},
     '../../services/TaskInlineService': { TaskInlineSession: { async begin() { return true; }, release() { releases++; } } },
     '../../ui/TaskChecklistReorder': load('ui/TaskChecklistReorder'),
     '../../ui/TaskInlineFocus': load('ui/TaskInlineFocus'),
@@ -189,7 +206,7 @@ test('项目区块保留原版本提交，成功重读；只读前言不提交',
   f.editor.readonly = true;assert.equal(await f.editor.saveBlock({id:'42'}, 'Blocked'), false);assert.equal(f.writes.length, 1);
 });
 test('项目写入失败可重试，提交成功而重读失败时阻止再次写入', async () => {
-  const f = projectFixture();await f.editor.session();f.fail(new Error('版本变化'));
+  const f = projectFixture();await f.editor.session();f.fail(new Error('写入失败'));
   assert.equal(await f.editor.saveBlock({id:'42'}, 'Changed'), false);assert.equal(f.editor.current, f.task);assert.equal(f.editor.blocked, false);
   f.fail(undefined);f.reloadFail(new Error('读取失败'));
   assert.equal(await f.editor.saveBlock({id:'42'}, 'Changed'), false);assert.equal(f.editor.blocked, true);assert.match(f.editor.message, /修改已保存/);
@@ -291,9 +308,10 @@ function compiledBuilders(name, methods, directory = 'components/editors') {
   const rect = new Proxy({}, {get:(_,key)=>key==='height'?value=>guideHeights.push(value):()=>{}});
   const module = {exports:{}};
   const globals = {module,TaskContentEditor:component('blocks'),TaskChecklistBlock:component('checklist'),
+    TaskEditor:component('task'),
     TaskBlockView:component('block'),TaskDocumentContent:component('document'),ForEach:noop,Rect:rect,
     Alignment:{TopStart:'top'},HitTestMode:{None:'none'},projectContentGap:()=>0,
-    ViewPU:{create(){}},__Common__:common,Column:noop,Stack:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'}};
+    ViewPU:{create(){}},__Common__:common,Column:common,Stack:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'}};
   const code = ts.transpileModule('class Host {' + bodies.join('\n') + '}\nmodule.exports=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInNewContext(code, globals);
   const host = new module.exports();
@@ -303,7 +321,7 @@ function compiledBuilders(name, methods, directory = 'components/editors') {
 }
 
 test('编译后的清单区块在菜单外壳中仍调用原宿主的阅读槽', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskContentEditor',['initialRender','blockFor','indexFor']);
+  const f=compiledBuilders('TaskContentEditor',['initialRender','blockFor','indexFor','validMoveGap']);
   const block={id:'20',kind:'checklist',items:[{id:'42',text:'项目清单'}]};
   const rendered=[];
   Object.assign(f.host,{blocks:[block],slots:[{key:'one',block}],checklist(index){assert.equal(this,f.host);rendered.push(this.blocks[index()]);}});
@@ -327,10 +345,16 @@ test('编译后的项目竖线仅在二级及更深正文按实测高度收尾�
   f.host.task=null;f.host.bodyGuide();
   assert.deepEqual(f.overlays,[], '装饰线不能使用会拦截整块正文触摸的 overlay');
   assert.deepEqual(f.guideHeights,[46,20,124]);
+  f.host.task={state:{name:'TODO'},level:2};f.host.taskId='project-parent';f.host.dataSet={};
+  f.host.initialRender();
+  const body=f.children.at(-1);
+  assert.equal(body.kind,'task');
+  assert.equal(body.bodyOnly,true);
+  assert.equal(body.taskId,'project-parent');
 });
 
 test('编译后的任务区块回调在子组件中执行时仍使用任务宿主，清单与拖动手柄均能创建', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskEditor',['bodyBlocks','checklistBlock','checkBlock','tree','contentLinks','useNotesInput']);
+  const f=compiledBuilders('TaskEditor',['bodyBlocks','checklistBlock','checkBlock','tree','contentLinks']);
   const item={id:'42',text:'日志回归验证 20261112',checked:false,depth:0};
   const block={id:'20',kind:'checklist',items:[item]};
   const calls=[];

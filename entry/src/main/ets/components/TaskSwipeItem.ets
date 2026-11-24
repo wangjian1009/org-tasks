@@ -39,7 +39,8 @@ export struct TaskSwipeItem {
   @BuilderParam menuContent: (activate: (action: TaskOperation) => void) => void = this.swipeMenu
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop contentHidden: boolean = false
-  @Prop projectStructure: boolean = false
+  @Prop includeStructureActions: boolean = false
+  @Prop shortActionLabels: boolean = false
   @Prop attentionRequested: boolean = false
   attentionStarted: () => void = () => {}
   @Prop canOrderChildren: boolean = false
@@ -275,7 +276,7 @@ export struct TaskSwipeItem {
 
   swipeMenuItems(close?: () => void): TaskActionItem[] {
     const activate = (action: TaskOperation): void => { close?.(); this.activateOperation(action) }
-    if (this.projectStructure) {
+    if (this.includeStructureActions) {
       const items = taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory, this.toggleWaitCategory)
       const refactor = this.structureActions(this.canOrderChildren).find(item => item.title === '重构')
       if (refactor) items.unshift({ id: TaskOperation.Refactor, title: refactor.title, label: '重构任务', icon: refactor.icon!,
@@ -313,7 +314,8 @@ export struct TaskSwipeItem {
     TaskEditor({ dataSet: this.dataSet, taskId: this.taskId, controller,
       internalLinkProcessor: this.internalLinkProcessor,
       contentHidden: this.contentHidden, hiddenTags: this.hiddenTags, instanceKey: this.instanceKey,
-      structureActions: this.structureActions, canOrderChildren: this.canOrderChildren, projectStructure: this.projectStructure,
+      structureActions: this.structureActions, canOrderChildren: this.canOrderChildren,
+      includeStructureActions: this.includeStructureActions, shortActionLabels: this.shortActionLabels,
       readOnly: this.readOnly, attentionRequested: this.attentionRequested, attentionStarted: this.attentionStarted,
       dateDisplay: this.dateDisplay, todayFlag: this.todayFlag, timeDisplay: this.timeDisplay, regionAreaPolicy: this.regionAreaPolicy,
       referenceTime: this.referenceTime, scrollHost: this.scrollHost, scrollHostId: this.scrollHostId })

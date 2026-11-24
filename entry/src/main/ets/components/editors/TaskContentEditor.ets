@@ -1,10 +1,7 @@
 import { TaskContentSlot, reconcileTaskContent } from '../../ui/TaskContentPresentation'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTextLink, CoreLinkValue, CoreContentNode, CoreContentBlockChange, CoreTaskChecklistChange } from '../../services/NativeCoreService'
-import { TaskTextBlock } from './TaskTextBlock'
-import { TaskListBlock } from './TaskListBlock'
-import { TaskTableBlock } from './TaskTableBlock'
-import { TaskChecklistBlock } from './TaskChecklistBlock'
+import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskNativeContent } from './TaskNativeContent'
 import { TaskBlockView } from './TaskBlockView'
 import { TaskBlockController } from '../../ui/TaskBlockController'
@@ -17,16 +14,20 @@ export struct TaskContentEditor {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop @Watch('contentChanged') blocks: CoreContentBlock[] = []
   @State private slots: TaskContentSlot[] = []
+  @State private movingId: string = ''
+  @State private savingMove: boolean = false
+  @Prop @Watch('moveContextChanged') moveVersion: string = ''
   @Prop contentTree: CoreContentNode[] | undefined = undefined
-  @Prop useNotesInput: boolean = false
+  @State private followKey: string = ''
+  @State private followRequest: number = 0
   @Prop interactiveLists: boolean = false
   beginEmpty: () => Promise<boolean> = async () => false
   writeNode: (change: CoreContentBlockChange) => Promise<void> = async () => {}
   toggle: (change: CoreTaskChecklistChange) => void = () => {}
-  @Prop readonly: boolean = false
+  @Prop @Watch('moveContextChanged') readonly: boolean = false
   @Prop projectReading: boolean = false
   @Prop checklistEditing: boolean = false
-  @Prop disabled: boolean = false
+  @Prop @Watch('moveContextChanged') disabled: boolean = false
   @Prop revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
   @Prop ownerKey: string = ''
@@ -34,16 +35,117 @@ export struct TaskContentEditor {
   linkEditor: LinkEditController = new LinkEditController()
   begin: (block: CoreContentBlock) => Promise<boolean> = async () => true
   save: (block: CoreContentBlock, source: string) => Promise<boolean> = async () => false
+  moveContent: ((id: string, beforeId: string | null, version: string) => Promise<boolean>) | undefined = undefined
   changeLink: ((block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   editingChanged: (editing: boolean) => void = () => {}
   linkEditingChanged: (editing: boolean) => void = () => {}
   @BuilderParam checklist: (index: () => number) => void = this.readChecklist
 
-  aboutToAppear(): void { this.contentChanged() }
+  private moveOwner: string = ''
+  private selectedVersion: string = ''
+  private active: boolean = false
+  private emptyBlock: CoreContentBlock = { id: 'root', kind: 'text', paragraph: true, blankLinesBefore: 0, source: '', html: '', items: [] }
+
+  aboutToAppear(): void {
+    this.active = true
+    this.moveOwner = `content_move_${this.getUniqueId()}`
+    this.contentChanged()
+  }
+
+  aboutToDisappear(): void {
+    this.active = false
+    this.cancelMove()
+  }
 
   contentChanged(): void {
     const next = reconcileTaskContent(this.slots, this.blocks)
     if (next !== this.slots) this.slots = next
+    if (this.movingId && !this.savingMove && !this.blocks.some(block => block.id === this.movingId)) this.cancelMove()
+  }
+
+  moveContextChanged(): void {
+    if (!this.movingId || this.savingMove) return
+    if (this.selectedVersion !== this.moveVersion) {
+      this.cancelMove()
+      try { this.getUIContext().getPromptAction().showToast({ message: '正文已变化，请重新选择移动位置' }) }
+      catch (_) { /* 宿主离开时可能没有可用窗口。 */ }
+    } else if (this.readonly || this.disabled) {
+      this.cancelMove()
+    }
+  }
+
+  private async selectMove(block: CoreContentBlock): Promise<void> {
+    const version = this.moveVersion
+    if (!this.active || !version || this.readonly || this.disabled || this.movingId) return
+    if (!await this.editor.begin(this.moveOwner, async (): Promise<boolean> => {
+      if (this.savingMove) return false
+      this.cancelMove()
+      return true
+    }, (): void => { this.cancelMove() })) return
+    if (!this.active || version !== this.moveVersion || this.readonly || this.disabled) {
+      this.cancelMove()
+      return
+    }
+    this.selectedVersion = version
+    this.movingId = block.id
+  }
+
+  private cancelMove(): void {
+    this.movingId = ''
+    this.selectedVersion = ''
+    this.editor.release(this.moveOwner)
+  }
+
+  private async appendFollowingParagraph(key: string, finish: () => Promise<boolean>): Promise<void> {
+    const index = key ? this.indexFor(key) : -1
+    if (key && index < 0) return
+    const following = key ? this.slots[index + 1]?.key : undefined
+    if (!await finish() || !this.active) return
+    this.getUIContext().postFrameCallback(new ChecklistFocusFrame((): void => {
+      if (!this.active || this.readonly || this.disabled) return
+      const position = following ? this.indexFor(following) : this.slots.length
+      const anchor = this.slots[position - 1]
+      if (!anchor || (key && position <= index)) return
+      this.followKey = anchor.key
+      this.followRequest++
+    }))
+  }
+
+  private async saveFirstParagraph(source: string): Promise<boolean> {
+    if (!source.trim()) return true
+    try {
+      await this.writeNode({ type: 'insertParagraph', id: 'root', source })
+      return true
+    } catch (_) { return false }
+  }
+
+  private validMoveGap(index: number): boolean {
+    return !!this.movingId && this.blocks[index]?.id !== this.movingId && this.blocks[index - 1]?.id !== this.movingId
+  }
+
+  private async placeBlock(beforeId: string | null): Promise<void> {
+    if (!this.movingId || this.savingMove || this.disabled || this.selectedVersion !== this.moveVersion || !this.moveContent) return
+    this.savingMove = true
+    try {
+      await this.moveContent(this.movingId, beforeId, this.selectedVersion)
+    } finally {
+      this.savingMove = false
+      this.cancelMove()
+    }
+  }
+
+  @Builder
+  moveGap(beforeId: string | null) {
+    Button({ type: ButtonType.Normal }) {
+      Row({ space: 6 }) {
+        Circle({ width: 6, height: 6 }).fill(UiColor.primary)
+        Divider().strokeWidth(2).color(UiColor.primary).layoutWeight(1)
+      }.width('100%')
+    }.width('100%').height(44).padding(0).backgroundColor(Color.Transparent)
+      .enabled(!this.savingMove && !this.disabled)
+      .id(beforeId === null ? 'content_move_end' : `content_move_before_${beforeId}`)
+      .accessibilityText(beforeId === null ? '移到正文末尾' : `移到区块之前：${this.blocks.find(block => block.id === beforeId)?.source.split('\n', 1)[0] ?? ''}`)
+      .onClick((): void => { this.placeBlock(beforeId) })
   }
 
   blockFor(key: string): CoreContentBlock { return this.slots.find(slot => slot.key === key)!.block }
@@ -68,13 +170,23 @@ export struct TaskContentEditor {
 
   build() {
     Column({ space: this.projectReading ? 0 : 12 }) {
-      if (!this.readonly && !this.useNotesInput && this.contentTree?.length === 0) {
-        TaskNativeContent({ emptyBody: true, disabled: this.disabled, revision: this.revision,
-          processor: this.internalLinkProcessor, editor: this.editor, linkEditor: this.linkEditor,
-          begin: this.beginEmpty, write: this.writeNode, editingChanged: this.editingChanged,
-          linkEditingChanged: this.linkEditingChanged })
+      if (this.movingId) {
+        Row({ space: 8 }) {
+          Text(this.savingMove ? '正在移动…' : '点插入线选择位置').fontSize(14).fontColor(UiColor.text).layoutWeight(1)
+          Button('取消').height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+            .enabled(!this.savingMove).onClick((): void => { this.cancelMove() })
+        }.width('100%')
+      }
+      if (!this.readonly && this.blocks.length === 0) {
+        TaskBlockView({ block: this.emptyBlock, emptyBody: true, placeholder: '段落', disabled: this.disabled,
+          revision: this.revision, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
+          begin: (_block: CoreContentBlock): Promise<boolean> => this.beginEmpty(),
+          save: (_block: CoreContentBlock, source: string): Promise<boolean> => this.saveFirstParagraph(source),
+          followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph('', finish),
+          editingChanged: this.editingChanged }).width('100%')
       }
       ForEach(this.slots, (slot: TaskContentSlot) => {
+        if (this.validMoveGap(this.indexFor(slot.key))) { this.moveGap(this.blockFor(slot.key).id) }
         Column() {
           if (this.blockFor(slot.key).kind === 'checklist' ||
             (this.interactiveLists && this.blockFor(slot.key).kind === 'list' && this.blockFor(slot.key).items.length > 0 &&
@@ -83,34 +195,40 @@ export struct TaskContentEditor {
               revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
               insertBelow: true, nextBlock: this.blocks[this.indexFor(slot.key) + 1],
-              placeholder: '列表（Org 原文）', readContent: (): void => { this.checklist((): number => this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
+              allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1,
+              move: (block: CoreContentBlock): Promise<void> => this.selectMove(block),
+              followRequest: this.followKey === slot.key ? this.followRequest : 0,
+              followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
+              placeholder: '列表', readContent: (): void => { this.checklist((): number => this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
               editingChanged: this.editingChanged }).width('100%')
           } else if (this.treeFor(this.blockFor(slot.key).id)) {
             TaskBlockView({ block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled,
               revision: this.revision, nativeChecklist: true, contentBackground: this.contentBackground, ownerKey: this.ownerKey,
               insertBelow: this.blockFor(slot.key).paragraph || this.blockFor(slot.key).kind === 'list',
+              allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1 &&
+                (this.blockFor(slot.key).paragraph || this.blockFor(slot.key).kind === 'list'),
+              move: (block: CoreContentBlock): Promise<void> => this.selectMove(block),
               nextBlock: this.blocks[this.indexFor(slot.key) + 1],
-              placeholder: this.blockFor(slot.key).paragraph ? '段落（Org 原文）' : '文本（Org 原文）',
+              followRequest: this.followKey === slot.key ? this.followRequest : 0,
+              followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
+              placeholder: this.blockFor(slot.key).paragraph ? '段落' : '正文',
               editor: this.editor, linkEditor: this.linkEditor, nativeContent: (edit: () => void): void => { this.nativeBlock(slot.key, edit) },
               begin: this.begin, save: this.save, editingChanged: this.editingChanged }).width('100%')
-          } else if (this.blockFor(slot.key).kind === 'list') {
-            TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
-              contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
-              begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
-              linkEditingChanged: this.linkEditingChanged }).width('100%')
-          } else if (this.blockFor(slot.key).kind === 'table') {
-            TaskTableBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
-              contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
-              begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
-              linkEditingChanged: this.linkEditingChanged }).width('100%')
           } else {
-            TaskTextBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+            TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
+              followRequest: this.followKey === slot.key ? this.followRequest : 0,
+              followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
+              nextBlock: this.blocks[this.indexFor(slot.key) + 1],
+              placeholder: this.blockFor(slot.key).paragraph ? '段落' : '正文',
               begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
               linkEditingChanged: this.linkEditingChanged }).width('100%')
           }
-        }.width('100%').margin({ top: this.projectReading ? projectContentGap(this.blocks, this.indexFor(slot.key)) : 0 })
+        }.width('100%').enabled(!this.movingId)
+          .outline({ width: this.blockFor(slot.key).id === this.movingId ? 1 : 0, color: UiColor.primary, radius: 4 })
+          .margin({ top: this.projectReading && !this.movingId ? projectContentGap(this.blocks, this.indexFor(slot.key)) : 0 })
       }, (slot: TaskContentSlot): string => slot.key)
+      if (this.validMoveGap(this.blocks.length)) { this.moveGap(null) }
     }.width('100%')
   }
 }

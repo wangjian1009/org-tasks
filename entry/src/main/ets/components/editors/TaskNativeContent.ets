@@ -14,7 +14,6 @@ export struct TaskNativeContent {
   @Prop completed: boolean = false
   @Prop revision: string = ''
   @Prop itemId: string = ''
-  @Prop emptyBody: boolean = false
   processor: InternalLinkProcessor | undefined = undefined
   editor: TaskBlockController = new TaskBlockController()
   linkEditor: LinkEditController = new LinkEditController()
@@ -35,6 +34,7 @@ export struct TaskNativeContent {
   private editVersion: string = ''
   private selectionStart: number = 0
   private selectionEnd: number = 0
+  private pending: Promise<boolean> | undefined = undefined
 
   aboutToAppear(): void { this.editKey = `native_body_${this.getUniqueId()}` }
   aboutToDisappear(): void {
@@ -72,6 +72,7 @@ export struct TaskNativeContent {
   }
 
   private async finish(): Promise<boolean> {
+    if (this.pending) return this.pending
     const node = this.editNode
     if (!node) return true
     if (this.saving || this.inserting) return false
@@ -84,6 +85,13 @@ export struct TaskNativeContent {
       return true
     }
     this.saving = true
+    this.pending = this.saveDraft(node)
+    try {
+      return await this.pending
+    } finally { this.pending = undefined; this.saving = false }
+  }
+
+  private async saveDraft(node: CoreContentNode): Promise<boolean> {
     try {
       await this.write({ type: this.addingParagraph ? 'insertParagraph' : 'replaceText', id: this.containerId(node), source: this.draft })
       this.cancel()
@@ -91,7 +99,7 @@ export struct TaskNativeContent {
     } catch (error) {
       this.error = (error as Error).message || '保存失败，请重试'
       return false
-    } finally { this.saving = false }
+    }
   }
 
   private containerId(node: CoreContentNode): string { return this.addingParagraph && node.kind === 'list' ? `list:${node.id}` : node.id }
@@ -131,10 +139,11 @@ export struct TaskNativeContent {
   @Builder
   editorContent(node: CoreContentNode, itemId: string) {
     Column({ space: 4 }) {
-      TextArea({ text: this.draft, placeholder: '输入 Org 文本' }).id(this.editKey).defaultFocus(true)
+      TextArea({ text: this.draft, placeholder: node.kind === 'cell' ? '单元格' : '段落' }).id(this.editKey).defaultFocus(true)
         .width('100%').height('auto').fontSize(14).fontColor(UiColor.text).minLines(1)
         .backgroundColor(UiColor.field).enabled(!this.saving && !this.inserting)
         .onChange((value: string): void => { this.draft = value })
+        .onBlur((): void => { if (!this.insertion && !this.inserting) this.finish() })
         .enterKeyType(EnterKeyType.NEW_LINE)
         .onTextSelectionChange((start: number, end: number): void => {
           this.selectionStart = start
@@ -147,21 +156,17 @@ export struct TaskNativeContent {
             if (!editing) this.insertion = undefined
           } }).width('100%')
       Row({ space: 8 }) {
-        Button('链接').height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+        Button('链接').height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent).focusable(false)
           .enabled(!this.saving && !this.inserting && this.draft === node.source)
           .onClick((): void => { this.startInsert(node) })
         if (!this.addingParagraph && itemId) {
-            Button('添加说明').height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+            Button('添加说明').height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent).focusable(false)
               .enabled(!this.saving && !this.inserting && this.draft === node.source)
               .onClick((): void => {
                 this.cancel()
                 this.startEdit({ id: itemId, kind: 'item', source: '', blankLinesBefore: 0 }, true)
               })
         }
-        Button('取消').height(36).fontSize(13).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
-          .enabled(!this.saving && !this.inserting).onClick((): void => { this.cancel() })
-        Button('保存').height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
-          .enabled(!this.saving && !this.inserting).onClick((): void => { this.finish() })
       }.width('100%').justifyContent(FlexAlign.End)
       if (this.error) { Text(this.error).fontSize(12).fontColor(UiColor.error) }
     }.width('100%').alignItems(HorizontalAlign.Start)
@@ -176,7 +181,8 @@ export struct TaskNativeContent {
       LinkView({ text: node.kind === 'cell' ? ' ' : node.source, parts: this.parts(node), textSize: 14, cancelled: checked,
         revision: this.revision, editable: !this.readonly && !this.disabled, internalLinkProcessor: this.processor,
         editor: this.linkEditor, editingChanged: this.linkEditingChanged,
-        activate: !this.readonly && !this.disabled ? (): void => { this.activate(node) } : undefined,
+        activate: !this.readonly && (!this.disabled || (this.activateParagraph && node.id === this.nodes[0]?.id)) ?
+          (): void => { this.activate(node) } : undefined,
         change: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink(node, link, value) }).width('100%')
     }
   }
@@ -269,11 +275,7 @@ export struct TaskNativeContent {
 
   build() {
     Column() {
-      if (this.emptyBody) {
-        this.appendTo({ id: 'root', kind: 'literal', source: '', blankLinesBefore: 0 }, '添加正文')
-      } else {
-        this.blocks(this.nodes, this.completed, this.itemId)
-      }
+      this.blocks(this.nodes, this.completed, this.itemId)
       if (this.itemId && this.editNode?.id === this.itemId) { this.editorContent(this.editNode, this.itemId) }
     }.width('100%').alignItems(HorizontalAlign.Start)
   }

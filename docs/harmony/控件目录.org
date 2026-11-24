@@ -95,12 +95,9 @@
 
 ** 正文区块
 
-- ~TaskDocumentContent~ 用于在项目章节正文中组织文字、列表、表格和检查清单区块。 [[file:../../entry/src/main/ets/components/editors/TaskDocumentContent.ets][源码]]
+- ~TaskDocumentContent~ 为普通章节正文提供快照和写入会话，正文交互复用 ~TaskContentEditor~ 。 [[file:../../entry/src/main/ets/components/editors/TaskDocumentContent.ets][源码]]
 - ~TaskContentEditor~ 用于按 Org 区块组织任务或章节的正文交互，并分派到对应的区块控件。 [[file:../../entry/src/main/ets/components/editors/TaskContentEditor.ets][源码]]
-- ~TaskBlockView~ 用于展示单个正文区块，并提供区块长按菜单和编辑入口。 [[file:../../entry/src/main/ets/components/editors/TaskBlockView.ets][源码]]
-- ~TaskTextBlock~ 用于展示和编辑任务或章节正文中的文本段落。 [[file:../../entry/src/main/ets/components/editors/TaskTextBlock.ets][源码]]
-- ~TaskListBlock~ 用于展示和编辑任务或章节正文中的普通列表。 [[file:../../entry/src/main/ets/components/editors/TaskListBlock.ets][源码]]
-- ~TaskTableBlock~ 用于展示和编辑任务或章节正文中的表格。 [[file:../../entry/src/main/ets/components/editors/TaskTableBlock.ets][源码]]
+- ~TaskBlockView~ 用于展示单个正文区块，提供长按菜单、失焦提交和直属段落回车新增。 [[file:../../entry/src/main/ets/components/editors/TaskBlockView.ets][源码]]
 - ~TaskChecklistBlock~ 用于勾选、编辑、新增、删除和排序任务或章节中的复选清单条目。 [[file:../../entry/src/main/ets/components/editors/TaskChecklistBlock.ets][源码]]
 
 ** 项目文档和结构

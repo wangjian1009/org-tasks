@@ -33,7 +33,7 @@ test('任务链接仅在展开且可写时允许修改，收起后的旧编辑�
   }).outputText;
   vm.runInThisContext('(function(module,exports){' + code + '\n})')(module, module.exports);
   const writes = [];
-  const card = Object.assign(new module.exports.Card(), { expanded: false, readOnly: false, snapshotBlocked: false,
+  const card = Object.assign(new module.exports.Card(), { expanded: false, bodyOnly: false, readOnly: false, snapshotBlocked: false,
     persist: async value => { writes.push(value);return true; } });
   const link = { start: 0, end: 20, source: 'https://example.com/', title: '', url: 'https://example.com/' };
   assert.equal(card.linksEditable(), false);
@@ -46,6 +46,8 @@ test('任务链接仅在展开且可写时允许修改，收起后的旧编辑�
   }
   card.expanded = false;assert.equal(card.linksEditable(), false);
   await assert.rejects(card.changeLink('notes', link, null));assert.equal(writes.length, 1);
+  card.bodyOnly = true;assert.equal(card.linksEditable(), true);
+  card.bodyOnly = false;
   card.expanded = true;
   card.persist = async () => {
     card.removed = true;card.snapshotBlocked = true;card.expanded = false;
@@ -65,7 +67,7 @@ function cardRefreshFixture(emit = true) {
   const source = fs.readFileSync(filename, 'utf8');
   const appear = source.match(/  aboutToAppear\(\) \{[\s\S]*?\n  \}\n/)[0];
   const apply = source.match(/  applySnapshot\(current: CoreTask \| undefined, savedCheck: boolean = false\) \{[\s\S]*?\n  \}\n/)[0];
-  const persist = source.match(/  async persist\(modifications: CoreTaskModification\[\]\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
+  const persist = source.match(/  async persist\(modifications: CoreTaskModification\[\], sourceVersion\?: string\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const save = source.match(/  async saveText\(\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const remove = source.match(/  removeDeletedTask\(\) \{[\s\S]*?\n  \}\n/)[0];
   const disappear = source.match(/  aboutToDisappear\(\) \{[\s\S]*?\n  \}\n/)[0];
@@ -303,33 +305,6 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
   }
 });
 
-test('展开备注点击普通文字才进入原文，保存或刷新失败保留输入，成功恢复链接阅读', async () => {
-  const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8');
-  const methods = ['editNotes', 'finishNotes'].map(name => {
-    const match = source.match(new RegExp('  (?:async )?' + name + '\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}'));
-    assert.ok(match, name);return match[0];
-  }).join('\n');
-  const module = { exports: {} };
-  const code = ts.transpileModule('export class Notes {' + methods + '}', {
-    compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
-  }).outputText;
-  vm.runInThisContext('(function(module,exports){' + code + '\n})')(module, module.exports);
-  let saved = false;
-  const focus = [];
-  const notes = '地点 [[addr:北京][会议室]] 和 https://example.com/';
-  const card = Object.assign(new module.exports.Notes(), { value:()=>({editContent:{notes}}),notes, notesInput: false, ownerKey: 'task', linkEditor: {finish:async()=>true},
-    checkFocus: { request: key => focus.push(key) }, saveText: async () => saved });
-  await card.editNotes();assert.deepEqual(focus, ['inline_notes_task']);
-  await card.finishNotes();assert.equal(card.notesInput, true);assert.equal(card.notes, notes);
-  saved = true;card.snapshotBlocked = true;
-  await card.finishNotes();assert.equal(card.notesInput, true);
-  card.snapshotBlocked = false;
-  await card.finishNotes();assert.equal(card.notesInput, false);
-  for (const blocked of ['readOnly', 'working', 'draggingCheck', 'snapshotBlocked']) {
-    card[blocked] = true;await card.editNotes();assert.equal(card.notesInput, false, blocked);card[blocked] = false;
-  }
-});
-
 function finishFixture(textSaved = true, checkSaved = true) {
   const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
   const source = fs.readFileSync(filename, 'utf8');
@@ -343,7 +318,7 @@ function finishFixture(textSaved = true, checkSaved = true) {
   let checkCalls = 0;
   global.Curve = { EaseInOut: 0 };
   const state = Object.assign(new module.exports.InlineFinish(), { ownerKey: 'task', expanded: true, message: '标题不能为空', newCheck: '', checkId: '',
-    pending: Promise.resolve(), cancelCheckDrag() {}, checkFocus: { cancel() {} }, headingController: { stopEditing() {} }, notesController: { stopEditing() {} },
+    pending: Promise.resolve(), cancelCheckDrag() {}, checkFocus: { cancel() {} }, headingController: { stopEditing() {} },
     getUIContext: () => ({ getFocusController: () => ({ clearFocus() {} }), animateTo(_, change) { change(); } }),
     saveText: async () => textSaved, saveCheck: async () => { checkCalls++; return checkSaved; } });
   return { state, released, checkCalls: () => checkCalls, finish: () => module.exports.InlineFinish.prototype.finish.call(state, true) };

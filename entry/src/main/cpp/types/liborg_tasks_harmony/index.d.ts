@@ -77,6 +77,7 @@ export interface ContentNode {
   readonly parts?: ContentInline[]; readonly marker?: string; readonly checkbox?: 'unchecked' | 'checked' | 'partial';
 }
 export type ContentBlockChange = { type: 'replace' | 'replaceText'; id: string; source: string } | { type: 'link' | 'treeLink'; id: string; link: TextLink; value: LinkValue | null } |
+  { type: 'move'; id: string; beforeId: string | null } |
   { type: 'insertLink'; id: string; start: number; end: number; source: string; value: LinkValue } |
   { type: 'insertParagraph'; id: string; source: string } | { type: 'insertLinkedParagraph'; id: string; value: LinkValue };
 export interface TaskPropertyChange { name: string; value: string | null; }

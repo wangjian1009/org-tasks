@@ -78,7 +78,7 @@ export struct OrgFileTaskSection {
     const task = this.source?.task
     if (!task) throw new Error('当前章节已移除')
     const version = sourceVersion ?? task.fileVersion
-    if (changes.some(change => change.field === 'CHECKLIST')) {
+    if (sourceVersion !== undefined || changes.some(change => change.field === 'CHECKLIST')) {
       return await this.dataSet!.commitTaskFields(this.taskId, changes, version)
     }
     return await this.dataSet!.updateTask(this.taskId, changes, version)
@@ -165,7 +165,8 @@ export struct OrgFileTaskSection {
             singleOperations: this.actionPolicy.singleOperations, rightSwipeAction: this.actionPolicy.rightSwipeAction,
             menuIdPrefix: 'project_swipe', dataSet: this.dataSet!, taskId: this.taskId, internalLinkProcessor: this.internalLinkProcessor,
             contentHidden: this.hasChildren || this.contextOnly, hiddenTags: this.specialTags, instanceKey: `project:${this.taskId}`,
-            structureActions: this.structureActions, canOrderChildren: this.canOrderChildren, projectStructure: true,
+            structureActions: this.structureActions, canOrderChildren: this.canOrderChildren,
+            includeStructureActions: true, shortActionLabels: true,
             dateDisplay: TaskDateDisplay.Schedule, regionAreaPolicy: RegionAreaPolicy.None,
             scrollHost: this.scrollHost, scrollHostId: 'project_document_scroll' }).width('100%')
         } else {
@@ -178,7 +179,9 @@ export struct OrgFileTaskSection {
             } }).width('100%')
         }
         if (!this.editRow && (!this.node.state || this.hasChildren)) {
-          OrgFileSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
+          OrgFileSectionBody({ dataSet: this.node.state ? this.dataSet : undefined, taskId: this.taskId,
+            scrollHost: this.scrollHost, scrollHostId: 'project_document_scroll',
+            modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
             return await this.modify(changes, task.fileVersion)
           }, readTask: (): CoreTask | undefined => this.source?.task,
             internalLinkProcessor: this.internalLinkProcessor, task: this.node, blocks: this.node.editContent.blocks,

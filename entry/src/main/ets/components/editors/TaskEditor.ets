@@ -60,10 +60,12 @@ export struct TaskEditor {
   @Prop readOnly: boolean = false
   @Prop previewTask: CoreTask | undefined = undefined
   @Prop titleOnly: boolean = false
+  @Prop bodyOnly: boolean = false
   previewExpanded: () => void = () => {}
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
   @Prop contentHidden: boolean = false
-  @Prop projectStructure: boolean = false
+  @Prop includeStructureActions: boolean = false
+  @Prop shortActionLabels: boolean = false
   @Prop @Watch('attentionChanged') attentionRequested: boolean = false
   @State attentionOpacity: number = 0
   private attentionVisible: boolean = false
@@ -89,12 +91,10 @@ export struct TaskEditor {
   @State @Watch('reminderTaskChanged') editTask: CoreTask | undefined = undefined
   @State heading: string = ''
   @State headingInput: boolean = false
-  @State notesInput: boolean = false
   @State notes: string = ''
   private headingDirty: boolean = false
   private notesDirty: boolean = false
   private headingBaseline: string = ''
-  private notesBaseline: string = ''
   private headingEditing: boolean = false
   private notesEditing: boolean = false
   @State blockEditing: boolean = false
@@ -176,7 +176,6 @@ export struct TaskEditor {
   private gripX: number = 0
   private gripY: number = 0
   private headingController: TextAreaController = new TextAreaController()
-  private notesController: TextAreaController = new TextAreaController()
   private hostWindow: window.Window | undefined = undefined
   private checkFocus: TaskInlineFocus = new TaskInlineFocus(
     (callback: () => void) => { this.getUIContext().postFrameCallback(new ChecklistFocusFrame(callback)) },
@@ -184,7 +183,7 @@ export struct TaskEditor {
   private keyboardChanged = (height: number): void => {
     // 备注窗口独占输入；不能把其键盘视为卡片正文输入并阻止返回的操作组。
     if (this.noteInputOpen) return
-    if (!this.expanded) return
+    if (!this.expanded && (!this.bodyOnly || !TaskInlineSession.owns(this.ownerKey))) return
     this.typing = height > 0
     AppStorage.setOrCreate('taskInlineTyping', this.typing)
   }
@@ -523,7 +522,7 @@ export struct TaskEditor {
     if (!current) { this.removeDeletedTask(); return }
     if (this.draggingCheck && current.fileVersion !== this.value().fileVersion) this.cancelCheckDrag()
     if (this.blockEditing && !this.blockSaving && current.fileVersion !== this.value().fileVersion) {
-      this.snapshotBlocked = true; this.message = '文件已变化，区块草稿已保留，请取消编辑后重新载入'
+      this.snapshotBlocked = true; this.message = '文件已变化，区块草稿已保留。'
       return
     }
     if (this.linkEditing && !this.linkSaving && current.fileVersion !== this.value().fileVersion) {
@@ -550,7 +549,6 @@ export struct TaskEditor {
     this.expanded = false; this.typing = false; this.message = ''
     this.headingEditing = false; this.notesEditing = false
     this.headingInput = false
-    this.notesInput = false
     this.continueCheck = false
     this.checkFocus.cancel()
     this.cancelCheckDrag()
@@ -564,9 +562,11 @@ export struct TaskEditor {
     this.recordSource = this.localDataSet().taskSource(this.taskId)
     this.ownerKey = this.instanceKey || this.recordSource.rowId
     this.appeared = true
-    this.stopReminder = ReminderManager.subscribe((): void => {
-      if (this.reminderExpired() || !this.reminderChecking) this.checkReminder(true)
-    })
+    if (!this.bodyOnly) {
+      this.stopReminder = ReminderManager.subscribe((): void => {
+        if (this.reminderExpired() || !this.reminderChecking) this.checkReminder(true)
+      })
+    }
     this.controller?.bind(this)
     this.stopDataSet = this.recordSource.monitor((change: TaskDataChange): void => {
       if (!this.appeared) return
@@ -684,7 +684,7 @@ export struct TaskEditor {
     this.cancelCheckDrag()
     this.continueCheck = false
     this.checkFocus.cancel()
-    this.headingController.stopEditing(); this.notesController.stopEditing()
+    this.headingController.stopEditing()
     this.getUIContext().getFocusController().clearFocus()
     this.typing = false; AppStorage.setOrCreate('taskInlineTyping', false)
     if (!await this.saveText() || !await this.saveCheck(false)) return false
@@ -693,11 +693,10 @@ export struct TaskEditor {
     if (this.snapshotBlocked) return false
     if (!this.newCheck.trim() && !this.checkId) { this.addingCheck = false; this.checkAfter = '' }
     this.headingInput = false
-    this.notesInput = false
     if (!this.snapshotBlocked) this.message = ''
     if (collapse) {
       this.priorityOpen = false
-      this.collapseAnimated()
+      if (!this.bodyOnly) this.collapseAnimated()
       TaskInlineSession.release(this.ownerKey)
     }
     return true
@@ -719,18 +718,7 @@ export struct TaskEditor {
     if (await this.saveText()) this.headingInput = false
   }
 
-  async editNotes() {
-    if (this.readOnly || this.working || this.draggingCheck || this.snapshotBlocked) return
-    if (!await this.linkEditor.finish() || this.snapshotBlocked || this.removed) return
-    if (!this.notesEditing) this.notesBaseline = this.value().editContent.notes.trimEnd()
-    this.notesInput = true
-    this.checkFocus.request(`inline_notes_${this.ownerKey}`)
-  }
-
-  async finishNotes() {
-    if (await this.saveText() && !this.snapshotBlocked) this.notesInput = false
-  }
-  async persist(modifications: CoreTaskModification[]): Promise<boolean> {
+  async persist(modifications: CoreTaskModification[], sourceVersion?: string): Promise<boolean> {
     if (this.readOnly && !this.allowCompletion) return false
     if (this.snapshotBlocked) return false
     let success: boolean = false
@@ -739,9 +727,10 @@ export struct TaskEditor {
       this.working = true; this.message = ''
       try {
         const source = this.value()
-        const checklist = modifications.some(modification => modification.field === 'CHECKLIST')
-        const confirmed = checklist ? await this.localDataSet().commitTaskFields(this.recordSource?.rowId ?? this.taskId, modifications, source.fileVersion) : undefined
-        if (!checklist) await this.modifyTask(source, modifications)
+        if (sourceVersion !== undefined && sourceVersion !== source.fileVersion) throw new Error('文件已变化，请重新选择移动位置')
+        const waitForCommit = sourceVersion !== undefined || modifications.some(modification => modification.field === 'CHECKLIST')
+        const confirmed = waitForCommit ? await this.localDataSet().commitTaskFields(this.recordSource?.rowId ?? this.taskId, modifications, sourceVersion ?? source.fileVersion) : undefined
+        if (!waitForCommit) await this.modifyTask(source, modifications)
         for (const modification of modifications) {
           if (modification.field === 'TITLE' && this.heading === modification.value) { this.headingEditing = false; this.headingDirty = false }
           if (modification.field === 'NOTES' && this.notes === modification.value) { this.notesEditing = false; this.notesDirty = false }
@@ -794,7 +783,7 @@ export struct TaskEditor {
     if (editing) this.inputFocus()
   }
   linksEditable(): boolean {
-    return this.expanded && !this.readOnly && !this.snapshotBlocked
+    return (this.expanded || this.bodyOnly) && !this.readOnly && !this.snapshotBlocked
   }
   async changeLink(field: 'title' | 'notes', link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
     if (!this.linksEditable()) throw new Error('请展开可编辑任务后再修改链接')
@@ -1543,7 +1532,7 @@ export struct TaskEditor {
           .padding({ left: this.value().state === null ? (this.leadingTime() ? 0 : 8) : 6, right: 8 })
           .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
           .onClick((): void => { if (!LinkEditController.interactionProtected()) this.toggleFromCompact() })
-        if (this.projectStructure && this.canOrderChildren) {
+        if (this.includeStructureActions && this.canOrderChildren) {
           PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '节点操作', iconSize: 20,
             buttonWidth: 44, buttonHeight: 44, items: this.structureActions(this.canOrderChildren),
             disabled: this.working || this.snapshotBlocked })
@@ -1615,15 +1604,10 @@ export struct TaskEditor {
 
   private tree(): CoreContentNode[] | undefined { return this.value().editContent.contentTree }
 
-  private useNotesInput(): boolean {
-    const content = this.value().editContent
-    return this.notesInput || (content.blocks.length === 0 && !content.notes.trim())
-  }
-
   async writeContentNode(change: CoreContentBlockChange): Promise<void> {
     this.blockSaving = true; this.linkSaving = true
     try {
-      if (!await this.persist([{ field: 'CONTENT_BLOCK', value: change }]) || this.snapshotBlocked) {
+      if (!await this.persist([{ field: 'CONTENT_BLOCK', value: change }], this.value().fileVersion) || this.snapshotBlocked) {
         throw new Error(this.message || '修改正文失败，请重试')
       }
     } finally { this.blockSaving = false; this.linkSaving = false }
@@ -1677,7 +1661,7 @@ export struct TaskEditor {
   async saveBlock(block: CoreContentBlock, source: string): Promise<boolean> {
     if (this.readOnly || this.snapshotBlocked) return false
     this.blockSaving = true
-    try { return await this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'replace', id: block.id, source } }]) && !this.snapshotBlocked }
+    try { return await this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'replace', id: block.id, source } }], this.value().fileVersion) && !this.snapshotBlocked }
     finally { this.blockSaving = false }
   }
 
@@ -1695,10 +1679,14 @@ export struct TaskEditor {
   bodyBlocks() {
     TaskContentEditor({ internalLinkProcessor: this.contentLinks(), blocks: this.value().editContent.blocks, contentTree: this.tree(),
       writeNode: change => this.writeContentNode(change), toggle: change => { this.changeCheck(change) },
-      beginEmpty: (): Promise<boolean> => this.prepare(), readonly: this.readOnly, useNotesInput: this.useNotesInput(), interactiveLists: true,
+      beginEmpty: async (): Promise<boolean> => await this.prepare() && await this.saveText() && await this.saveCheck(false)
+        && this.value().editContent.blocks.length === 0, readonly: this.readOnly, interactiveLists: true,
+      projectReading: this.bodyOnly,
       checklistEditing: this.checkId !== '' || this.addingCheck,
       disabled: this.working || this.snapshotBlocked || this.draggingCheck,
-      revision: this.value().fileVersion, ownerKey: this.ownerKey,
+      revision: this.value().fileVersion, moveVersion: this.value().fileVersion, ownerKey: this.ownerKey,
+      moveContent: (id: string, beforeId: string | null, version: string): Promise<boolean> =>
+        this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'move', id, beforeId } }], version),
       contentBackground: '#00000000',
       editor: this.blockEditor, linkEditor: this.linkEditor,
       checklist: (index: () => number): void => { this.checklistBlock(index) },
@@ -1707,21 +1695,6 @@ export struct TaskEditor {
       changeLink: (block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeBlockLink(block, link, value),
       editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (editing) this.inputFocus() },
       linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) } }).width('100%')
-    if (!this.readOnly && this.useNotesInput()) {
-      if (this.notesInput) {
-        TextArea({ text: this.notes, controller: this.notesController, placeholder: '添加正文' }).id(`inline_notes_${this.ownerKey}`)
-          .enabled(!this.working && !this.snapshotBlocked).width('100%').height('auto').minLines(1).maxLines(1000)
-          .fontSize(14).fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0)
-          .onAppear((): void => { this.checkFocus.appeared(`inline_notes_${this.ownerKey}`) })
-          .onDisAppear((): void => { this.checkFocus.disappeared(`inline_notes_${this.ownerKey}`) })
-          .onFocus((): void => { this.inputFocus() })
-          .onChange((value: string): void => { this.notes = value; this.notesEditing = true; this.notesDirty = value !== this.notesBaseline })
-          .onBlur((): void => { this.finishNotes() })
-      } else {
-        Text('添加正文').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
-          .onClick((): void => { this.editNotes() })
-      }
-    }
     if (!this.readOnly && this.addingCheck && !this.checkAfter && this.value().editContent.checklist.length === 0) {
       this.checklistBlock((): number => -1)
     }
@@ -1786,6 +1759,15 @@ export struct TaskEditor {
   }
 
   @Builder
+  bodyError() {
+    if (this.message) {
+      Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%')
+      Button('重新载入').height(36).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+        .enabled(!this.working).onClick((): void => { this.reloadDraft() })
+    }
+  }
+
+  @Builder
   editorContent() {
     this.expandedHeader()
     Column({ space: 12 }) {
@@ -1801,11 +1783,7 @@ export struct TaskEditor {
         }.width('100%')
       }
       this.logbookNotes()
-      if (this.message) {
-        Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%')
-        Button('重新载入').height(36).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
-          .enabled(!this.working).onClick(() => { this.reloadDraft() })
-      }
+      this.bodyError()
     }.width('100%').padding({ left: 27 })
   }
 
@@ -1835,14 +1813,14 @@ export struct TaskEditor {
       items: this.moreItems() })
   }
   moreItems(): PopupMenuItem[] {
-    const items: PopupMenuItem[] = this.projectStructure ? this.structureActions(this.canOrderChildren) : []
+    const items: PopupMenuItem[] = this.includeStructureActions ? this.structureActions(this.canOrderChildren) : []
     if (!this.readOnly) {
-      items.push({ title: this.projectStructure ? '备注' : '备注…', icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
-        { title: this.projectStructure ? '优先' : '优先级…', icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })
+      items.push({ title: this.shortActionLabels ? '备注' : '备注…', icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
+        { title: this.shortActionLabels ? '优先' : '优先级…', icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })
       if (this.value().state !== null) {
-        items.push({ title: this.projectStructure ? '提醒' : '提醒…', icon: $r('app.media.ui_reminder'), action: () => { this.emitAction(this.startReminder()) } })
+        items.push({ title: this.shortActionLabels ? '提醒' : '提醒…', icon: $r('app.media.ui_reminder'), action: () => { this.emitAction(this.startReminder()) } })
       }
-      items.push({ title: this.projectStructure ? '重复' : '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
+      items.push({ title: this.shortActionLabels ? '重复' : '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
     if (this.logShowPolicy === LogShowPolicy.LogShowBySwitch && taskEventLogs(this.value().logs).length > 0) {
       items.push({ title: '日志',
@@ -1964,7 +1942,10 @@ export struct TaskEditor {
 
   build() {
     Column() {
-      if (this.titleOnly) {
+      if (this.bodyOnly) {
+        this.bodyBlocks()
+        this.bodyError()
+      } else if (this.titleOnly) {
         Row({ space: 6 }) {
           this.stateIndicator()
           this.compactTitle()
@@ -2000,7 +1981,7 @@ export struct TaskEditor {
         if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
       }
     }.width('100%').visibility(this.removed ? Visibility.None : Visibility.Visible)
-      .backgroundColor(this.value().state?.category === TaskStateCategory.Doing ? UiColor.taskDoingTint : Color.Transparent).borderRadius(12)
+      .backgroundColor(!this.bodyOnly && this.value().state?.category === TaskStateCategory.Doing ? UiColor.taskDoingTint : Color.Transparent).borderRadius(12)
       .overlay(this.attentionOverlay())
       .onVisibleAreaChange([0], (visible: boolean): void => {
         this.attentionVisible = visible
