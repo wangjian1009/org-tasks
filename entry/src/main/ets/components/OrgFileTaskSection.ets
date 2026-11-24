@@ -107,7 +107,7 @@ export struct OrgFileTaskSection {
   }
 
   private chapterActions(close: () => void): TaskActionItem[] {
-    return this.structureActions(this.canOrderChildren).filter(item => ['任务', '章节', '重构'].includes(item.title))
+    return this.structureActions(false)
       .map((item): TaskActionItem => ({
         id: item.title === '任务' ? TaskOperation.Project : item.title === '章节' ? TaskOperation.Memo : TaskOperation.Refactor,
         title: item.title, label: item.title === '任务' ? '添加任务' : item.title === '章节' ? '添加章节' : '重构章节',
@@ -171,7 +171,7 @@ export struct OrgFileTaskSection {
             scrollHost: this.scrollHost, scrollHostId: 'project_document_scroll' }).width('100%')
         } else {
           OrgHeadingView({ internalLinkProcessor: this.internalLinkProcessor, node: this.node, specialTags: this.specialTags,
-            structureActions: this.structureActions, canOrderChildren: this.canOrderChildren,
+            structureActions: (): PopupMenuItem[] => this.structureActions(false),
             menuCoordinator: this.menuCoordinator, swipeEnabled: this.interactionEnabled,
             swipeActions: (close: () => void): TaskActionItem[] => this.chapterActions(close),
             modify: async (changes: CoreTaskModification[]): Promise<void> => {

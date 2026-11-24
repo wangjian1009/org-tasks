@@ -1813,7 +1813,8 @@ export struct TaskEditor {
       items: this.moreItems() })
   }
   moreItems(): PopupMenuItem[] {
-    const items: PopupMenuItem[] = this.includeStructureActions ? this.structureActions(this.canOrderChildren) : []
+    const items: PopupMenuItem[] = this.includeStructureActions ?
+      this.structureActions(this.canOrderChildren).filter(item => item.title !== '重构') : []
     if (!this.readOnly) {
       items.push({ title: this.shortActionLabels ? '备注' : '备注…', icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
         { title: this.shortActionLabels ? '优先' : '优先级…', icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })

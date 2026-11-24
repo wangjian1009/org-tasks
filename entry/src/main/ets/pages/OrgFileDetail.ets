@@ -504,9 +504,11 @@ struct OrgFileDetail {
     const task = this.fileDataSet?.getTask(row)
     if (!task) return []
     const actions: PopupMenuItem[] = task.state ? [] : this.addStructureActions(row)
-    actions.push({ title: '移动', icon: $r('app.media.ui_move_to'), action: (): void => { this.openStructure('move', row) } })
+    if (task.state) {
+      actions.push({ title: '移动', icon: $r('app.media.ui_move_to'), action: (): void => { this.openStructure('move', row) } })
+    }
     actions.push({ title: '重构', icon: $r('app.media.ui_move_to'), action: (): void => { this.beginStructureEdit(row) } })
-    if (canOrder) {
+    if (task.state && canOrder) {
       actions.push({ title: '排序', icon: $r('app.media.ui_drag_handle'), action: (): void => { this.openStructure('order', row) } })
     }
     return actions
