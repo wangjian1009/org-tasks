@@ -124,6 +124,7 @@ function page(name, service, router, findMemo = async () => undefined) {
   }).outputText;
   vm.runInThisContext('(function(require,module,exports){' + compiled + '\n})', { filename })(dependency => {
     if (dependency.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
+    if (dependency.endsWith('/DangerousConfirmation')) return require('./helpers/dangerous-confirmation.cjs');
     if (dependency.endsWith('/MemoNavigation')) return { MemoNavigation: { find: findMemo } };
     if (dependency.endsWith('/NoteService')) return { NoteService: service };
     if (dependency.endsWith('/TaskRepeatDialog')) return { TaskRepeatDialog: class {} };

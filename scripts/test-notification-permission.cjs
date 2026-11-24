@@ -37,6 +37,7 @@ function load(name, mocks, globals = {}) {
     if (name.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{ensure:async()=>({id:'org-tasks-system',name:'系统仓库',rootDirectory:'/app/system-repository'})}};
     if (name.endsWith('/TrashService')) return {TrashService:{perform:async()=>{throw new Error('本用例不执行删除')}}};
     if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
+    if (name.endsWith('/DangerousConfirmation')) return require('./helpers/dangerous-confirmation.cjs');
     if (Object.hasOwn(mocks, name)) return mocks[name];
     throw new Error('缺少平台替身: ' + name);
   }, module, module.exports, globals.LocalStorage, globals.setTimeout ?? setTimeout, globals.clearTimeout ?? clearTimeout);

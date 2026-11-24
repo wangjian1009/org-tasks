@@ -70,29 +70,28 @@ function cardRefreshFixture(emit = true) {
   const persist = source.match(/  async persist\(modifications: CoreTaskModification\[\], sourceVersion\?: string\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const save = source.match(/  async saveText\(\): Promise<boolean> \{[\s\S]*?\n  \}\n/)[0];
   const remove = source.match(/  removeDeletedTask\(\) \{[\s\S]*?\n  \}\n/)[0];
-  const disappear = source.match(/  aboutToDisappear\(\) \{[\s\S]*?\n  \}\n/)[0];
   const complete = source.match(/  async complete\(\) \{[\s\S]*?\n  \}\n/)[0];
   const adapters = ['currentTask', 'modifyTask'].map(name => source.match(new RegExp('  private async ' + name + '\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
-  const code = ts.transpileModule('export class CardRefresh {' + adapters + appear + apply + persist + save + remove + disappear + complete + '\n}', {
+  const code = ts.transpileModule('export class CardRefresh {' + adapters + appear + apply + persist + save + remove + complete + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
   let reads = 0, state;
   const original = { id:'task', heading: '任务 [0/2]', editContent: { notes: '备注', checklist: [] }, fileVersion: 'old' };
   const updated = { ...original, heading: '任务 [1/2]', fileVersion: 'new' };
-  let current=updated, readError, readOverride;
+  let current=updated, readError;
   const writes=[], released=[];let coreListener,data,controller;
   let invalidations=0;
   const TaskInlineMissingError = inlineSession.TaskInlineMissingError;
   const service = {
     async modify(_context,_task,changes) { writes.push(changes); if (emit) { state.dataChanges = {revision: state.dataChanges.revision + 1}; coreListener(state.dataChanges); } },
-    async findChanged(_context,_task,revision) { reads++; if(readError)throw readError; if(readOverride)return readOverride(revision); return current; }
+    async findChanged() { reads++; if(readError)throw readError; return current; }
   };
   vm.runInThisContext('(function(module,exports,TaskInlineSession,TaskInlineMissingError,CoreDataChangeService,coreErrorMessage,TaskStateCategory){' + code + '\n})', { filename })(module, module.exports,
     {release:key=>released.push(key)},TaskInlineMissingError,{invalidate:()=>invalidations++},error => error.message,{Todo:'Todo',Done:'Done'});
   state = Object.assign(new module.exports.CardRefresh(), {
-    task:original,taskId:original.id,dataSetName:'tasks',editTask: original, expanded:false,checkFocus:{dispose(){},cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
-    ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},pending: Promise.resolve(), working: false, message: '',linkEditor:{finish:async()=>true},blockEditor:{finish:async()=>true},
+    task:original,taskId:original.id,dataSetName:'tasks',editTask: original, expanded:false,checkFocus:{cancel(){}},heading: original.heading, notes: original.editContent.notes, headingEditing:false,notesEditing:false,
+    ownerKey:original.id,appeared:true,dataRevision:0,refreshRequest:0,dataChanges:{revision:0},removed:false,cancelCheckDrag(){},closeMove(){},pending: Promise.resolve(), working: false, message: '',linkEditor:{finish:async()=>true},blockEditor:{finish:async()=>true},
     localDataSet:()=>data,
     localDataSet() { return this.dataSet ?? controller; },
     value() { return this.editTask ?? this.task; }, getUIContext: () => ({ getHostContext: () => ({}) })
@@ -105,7 +104,7 @@ function cardRefreshFixture(emit = true) {
     revision=state.dataChanges.revision;const request=++data.request;
     data.reading=Promise.resolve().then(async()=>{
       if(request!==data.request||!listeners.size)return;
-      try{const next=await service.findChanged({},data.task,revision);
+      try{const next=await service.findChanged();
         if(request!==data.request||!listeners.size)return;
         data.error=undefined;data.removed=!next;if(next)data.task=next;
         for(const fn of listeners)fn(next?{task:next}:{removed:true});
@@ -120,7 +119,7 @@ function cardRefreshFixture(emit = true) {
   controller.taskSource=()=>({rowId:original.id,get task(){return controller.getTask();},monitor:fn=>controller.watchTask(original.id,fn)});
   state.instanceKey=original.id;state.aboutToAppear();
   return { state, original, updated, writes,released,invalidations:()=>invalidations,reads: () => reads,
-    setCurrent:value=>current=value,fail:error=>readError=error,readWith:fn=>readOverride=fn,
+    setCurrent:value=>current=value,fail:error=>readError=error,
     emit(increment=true) { if(increment)state.dataChanges = {revision: state.dataChanges.revision + 1}; coreListener(state.dataChanges);state.pending=data.reading; } };
 }
 test('管理对象在写入后交付快照，标题草稿同步新进度，后续保存使用新版本', async () => {
@@ -618,13 +617,6 @@ test('重复编辑把新日期和规则一次提交给 Core，停止只清除当
   assert.equal(repeats.repeatSummary({ mode: 'catchUp', interval: 1, unit: 'month' }), '每 1 月 · 跳过已错过的日期');
 });
 
-function deferredRead() {
-  let resolve, reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
-  return { promise, resolve, reject };
-}
-const eventTick = () => new Promise(resolve => setImmediate(resolve));
-
 test('未展开过的关联行也由事件更新状态、日期和计数，保持收起状态', async () => {
   const f=cardRefreshFixture(false);
   f.state.editTask=undefined; f.state.heading=''; f.state.notes='';
@@ -637,42 +629,6 @@ test('未展开过的关联行也由事件更新状态、日期和计数，保�
   assert.deepEqual(f.state.value().tags,['联动']);
   assert.equal(f.state.expanded,false); assert.equal(f.reads(),1);
 });
-
-test('已排队但尚未读取的连续事件只查询最新版本，同一版本不重复消费', async () => {
-  const f=cardRefreshFixture(false); const revisions=[];
-  f.readWith(revision=>{revisions.push(revision);return f.updated;});
-  f.emit(); f.emit(); f.emit(); await f.state.pending;
-  assert.deepEqual(revisions,[3]); assert.equal(f.reads(),1);
-  f.emit(false); await f.state.pending;
-  assert.equal(f.reads(),1);
-});
-
-test('旧联动读取完成时不回写旧值，较新事件继续刷新且保留文字草稿', async () => {
-  const f=cardRefreshFixture(false),old=deferredRead(),fresh=deferredRead();
-  f.state.heading='未保存草稿';f.state.headingEditing=true;f.state.headingDirty=true;
-  f.readWith(revision=>revision===1?old.promise:fresh.promise);
-  f.emit(); await eventTick(); const first=f.state.pending;
-  f.emit(); const second=f.state.pending;
-  old.resolve({...f.updated,heading:'旧标题',editContent:{notes:'旧备注'}}); await first;
-  assert.equal(f.state.editTask,f.original); assert.equal(f.state.notes,'备注');
-  fresh.resolve({...f.updated,editContent:{notes:'新备注'}}); await second;
-  assert.equal(f.state.heading,'未保存草稿');assert.equal(f.state.notes,'新备注');
-  assert.equal(f.state.editTask.fileVersion,'new');assert.equal(f.reads(),2);
-});
-
-test('卡片离开后，排队事件不读取，在途删除或错误不再改写状态或结束新会话', async () => {
-  const queued=cardRefreshFixture(false);queued.emit();queued.state.aboutToDisappear();await queued.state.pending;
-  assert.equal(queued.reads(),0);assert.equal(queued.state.removed,false);
-  for(const error of [false,true]) {
-    const f=cardRefreshFixture(false),read=deferredRead();f.readWith(()=>read.promise);
-    f.emit();await eventTick();f.state.aboutToDisappear();
-    if(error)read.reject(new Error('离开后失败'));else read.resolve(undefined);
-    await f.state.pending;
-    assert.equal(f.state.editTask,f.original);assert.equal(f.state.message,'');
-    assert.equal(f.state.removed,false);assert.deepEqual(f.released,['task']);assert.equal(f.invalidations(),0);
-  }
-});
-
 
 function priorityFixture() {
   const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';

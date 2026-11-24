@@ -56,7 +56,9 @@ function fixture() {
         async flush() { if (failFlush) throw new Error('存储失败'); disk.set(name, local); } };
     } } },
     './TaskViewQueries': load('services/TaskViewQueries', {}),
-    '../ui/TaskTagFilterPresentation': load('ui/TaskTagFilterPresentation', {})
+    '../ui/TaskTagFilterPresentation': load('ui/TaskTagFilterPresentation', {
+      './TaskStatePresentation': load('ui/TaskStatePresentation', {})
+    })
   };
   return { ...load('services/MemoCardService', mocks), disk, invalidated, queries,
     tasks(value) { tasks = value; }, failFlush() { failFlush = true; }, invalidate() { available = false; } };

@@ -27,6 +27,7 @@ function etsLoader(mocks = {}, globals = {}) {
     });
     const localRequire = dependency => {
       if (Object.hasOwn(mocks, dependency)) return mocks[dependency];
+      if (dependency === '@kit.ArkTS') return { util: { generateRandomUUID: randomUUID } };
       if (dependency.endsWith('/PagePath')) return require('./helpers/page-navigator.cjs').pagePathModule;
       if (dependency.endsWith('/EntryNavigation')) return require('./helpers/page-navigator.cjs').entryNavigationModule;
       if (dependency.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;

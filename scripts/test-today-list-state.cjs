@@ -6,15 +6,15 @@ function run(source,bindings={}){const module={exports:{}};vm.runInNewContext(ts
 const position=run(fs.readFileSync('entry/src/main/ets/services/PageListPosition.ets','utf8')).PageListPosition;
 const source=fs.readFileSync('entry/src/main/ets/components/TodayTaskList.ets','utf8');
 const appear=source.match(/  aboutToAppear\(\): void \{[\s\S]*?\n  \}/)[0];
-const notice=source.match(/  notificationsChanged\(\): void \{[\s\S]*?\n  \}/)[0];
-const disappear=source.match(/  aboutToDisappear\(\): void \{[^\n]*\}/)[0];
+const notice=source.match(/  notificationsChanged\(next: boolean\): void \{[\s\S]*?\n  \}/)[0];
+const disappear=source.match(/  aboutToDisappear\(\): void \{[\s\S]*?\n  \}/)[0];
 const save=source.match(/  private savePosition\(\): void \{[\s\S]*?\n  \}/)[0];
 const index=source.match(/\.onScrollIndex\(([^\n]+)\)\n/)[1];
 const scroll=source.match(/\.onDidScroll\(([^\n]+)\)\n/)[1];
 const area=source.match(/\.onAreaChange\(([\s\S]*?\n\s+\})\)/)[1];
-const List=run('export class List {'+appear+save+notice+disappear+' handlers(){return {index:'+index+',scroll:'+scroll+',area:'+area+'}}}',{PageListPosition:position,ScrollState:{Idle:0,Scroll:1,Fling:2},NotificationLayoutFrame:class{constructor(callback){this.callback=callback;}}}).List;
+const List=run('export class List {'+appear+save+notice+disappear+' handlers(){return {index:'+index+',scroll:'+scroll+',area:'+area+'}}}',{PageListPosition:position,NotificationManager:{watch:()=>()=>{}},ScrollState:{Idle:0,Scroll:1,Fling:2},NotificationLayoutFrame:class{constructor(callback){this.callback=callback;}}}).List;
 function view(key,keys=Array.from({length:50},(_,index)=>'item-'+index),limit=0){
- const list=new List(),calls=[],frames=[];list.bulkOperations=[];list.selection={close(){}};let offset=0;list.regionPreviewLimit=limit;list.notificationState={notifications:[]};list.notificationLayout=0;list.getUIContext=()=>({postFrameCallback(frame){frames.push(frame);}});list.positionKey=key;list.positionKeys=()=>keys;
+ const list=new List(),calls=[],frames=[];list.bulkOperations=[];list.selection={close(){}};let offset=0;list.regionPreviewLimit=limit;list.notificationLayout=0;list.getUIContext=()=>({postFrameCallback(frame){frames.push(frame);}});list.positionKey=key;list.positionKeys=()=>keys;
  list.listScroller={currentOffset:()=>({yOffset:offset}),getVisibleListContentInfo:()=>({index:list.firstIndex}),getItemRect:index=>({y:index*100-offset}),
   scrollTo(options){calls.push(options);offset=options.yOffset;},scrollBy(_x,y){calls.push({relative:y});offset+=y;}};
  list.aboutToAppear();offset=list.initialIndex*100;
@@ -52,14 +52,14 @@ test('通知插入与移除保持同一可见任务及像素位置，离开后�
  const entries=['notifications',...Array.from({length:50},(_,i)=>'item-'+i)],f=view('notice-change',entries);
  f.list.listScroller.getItemRect=index=>({y:(index===0?0:(index-1)*100+(f.list.showNotifications?60:0))-f.current()});
  f.handlers.area({}, {height:600});f.offset(820);f.handlers.index(9);
- f.list.notificationState={notifications:[{type:'syncRequired'}]};f.list.notificationsChanged();f.frames.shift().callback();assert.equal(f.current(),880);
- f.handlers.index(9);f.list.notificationState={notifications:[]};f.list.notificationsChanged();f.frames.shift().callback();assert.equal(f.current(),820);
- f.handlers.index(9);f.list.notificationState={notifications:[{type:'syncRequired'}]};f.list.notificationsChanged();f.list.aboutToDisappear();f.frames.shift().callback();assert.equal(f.current(),820);
+ f.list.notificationsChanged(true);f.frames.shift().callback();assert.equal(f.current(),880);
+ f.handlers.index(9);f.list.notificationsChanged(false);f.frames.shift().callback();assert.equal(f.current(),820);
+ f.handlers.index(9);f.list.notificationsChanged(true);f.list.aboutToDisappear();f.frames.shift().callback();assert.equal(f.current(),820);
 });
 
 test('列表位于顶部时直接展示新通知，不滚动将提示藏到屏幕外',()=>{
  const f=view('notice-top');f.handlers.area({}, {height:600});
- f.list.notificationState={notifications:[{type:'syncRequired'}]};f.list.notificationsChanged();
+ f.list.notificationsChanged(true);
  assert.equal(f.list.showNotifications,true);assert.equal(f.frames.length,0);assert.equal(f.current(),0);
 });
 
