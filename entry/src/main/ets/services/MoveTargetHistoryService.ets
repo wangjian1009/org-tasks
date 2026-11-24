@@ -2,10 +2,10 @@ import { Context } from '@kit.AbilityKit'
 import { PreferencesStore } from './PreferencesStore'
 
 const HISTORY_STORE = 'org_tasks_move_targets'
-const HISTORY_KEY = 'recentTargets'
+const HISTORY_KEY = 'successfulTargets'
 const HISTORY_LIMIT = 100
 
-// 单条、批量和跨页面的点选共用顺序队列，只保存宿主展示偏好。
+// 单条与批量移动成功后共用顺序队列，只保存目标身份。
 export class MoveTargetHistoryService {
   private static pending: Promise<void> = Promise.resolve()
 

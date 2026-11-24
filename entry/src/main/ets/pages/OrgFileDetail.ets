@@ -1,4 +1,4 @@
-import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
+import { CenteredPanel } from '../components/controls/CenteredPanel'
 import { PageNavigator } from '../services/PageNavigator'
 import { DataManager, DataSet, DataSetEvent } from '../services/DataManager'
 import { util } from '@kit.ArkTS'
@@ -18,9 +18,7 @@ import { samePageValue } from '../services/PageDataEquality'
 import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { OrgFileStructureMode, OrgFileStructureNodeKind, OrgFileStructureSheet,
   OrgFileStructureSheetController } from '../components/editors/OrgFileStructureSheet'
-import { OrgFileEditSession, OrgFileEditView, OrgFilePlacement, OrgFileStructureSnapshot,
-  projectEditIdle, projectStructureNodes } from '../ui/OrgFileStructurePresentation'
-import { OrgFileEditBar } from '../components/OrgFileEditBar'
+import { OrgFileStructureSnapshot, projectStructureNodes } from '../ui/OrgFileStructurePresentation'
 import { PageParameters } from '../services/PagePath'
 import { HistoryFileDataManager, HistoryFileReadingSnapshot } from '../services/ReadingDataManager'
 import { SnapshotState } from '../services/SnapshotDataManager'
@@ -62,6 +60,7 @@ struct OrgFileDetail {
   @State drawerOpen: boolean = false
   @State renderReady: boolean = false
   @State structureOpen: boolean = false
+  private structureDialog?: CustomDialogController
   @State structureMode: OrgFileStructureMode = 'add'
   @State structureKind: OrgFileStructureNodeKind = 'task'
   @State structureSnapshot: OrgFileStructureSnapshot | undefined = undefined
@@ -69,14 +68,6 @@ struct OrgFileDetail {
   @State createdRow: string = ''
   @State structureMessage: string = ''
   private structureSheet: OrgFileStructureSheetController = new OrgFileStructureSheetController()
-  @State structureEdit: OrgFileEditView = projectEditIdle()
-  @State editBusy: boolean = false
-  @State editVersion: string = ''
-  @State editConflict: boolean = false
-  @State editMessage: string = ''
-  @State renameRow: string = ''
-  @State renameValue: string = ''
-  private editSession: OrgFileEditSession | undefined = undefined
   @State structureOrderParents: string[] = []
   private fileDataSet: DataSet | undefined = undefined
   private stopFile: (() => void) | undefined = undefined
@@ -90,7 +81,7 @@ struct OrgFileDetail {
   private navigation: OrgFileDocumentNavigation = new OrgFileDocumentNavigation()
   private internalLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
     async (target: string): Promise<boolean> =>
-      this.pageVisible && !this.sourceMode && !this.refreshing && this.structureEdit.phase === 'idle' &&
+      this.pageVisible && !this.sourceMode && !this.refreshing &&
         await this.ensureLinkSnapshot() && await this.navigation.isValidInternalLink(target),
     async (target: string): Promise<void> => {
       if (!this.pageVisible || this.sourceMode || this.refreshing) throw new Error('当前页面无法执行内部跳转')
@@ -114,6 +105,7 @@ struct OrgFileDetail {
   @State pageVisible: boolean = true
 
   aboutToDisappear(): void {
+    this.structureDialog?.close(); this.structureDialog = undefined
     this.stopFile?.(); this.stopFile = undefined
     this.dataManager?.close().catch((): void => { console.error('关闭项目数据集失败') })
     this.historyManager?.close()
@@ -128,8 +120,7 @@ struct OrgFileDetail {
   onPageHide() { this.needsReload = this.loading || this.refreshing; this.pageVisible = false; this.loadRevision++; this.filterRequest++; this.filtering = false }
   onBackPress(): boolean {
     if (this.fileDeleted) { this.leaveDeletedFile(); return true }
-    if (this.structureOpen) { this.structureSheet.back(); return true }
-    if (this.editSession || this.editBusy) { this.backStructureEdit(); return true }
+    if (this.structureOpen || this.structureDialog) { this.structureSheet.back(); return true }
     if (this.navigation.closePanel()) return true
     if (this.drawerOpen) { this.drawerOpen = false; return true }
     if (!this.hasParent && this.sourceMode) { this.toggleSource(); return true }
@@ -153,14 +144,14 @@ struct OrgFileDetail {
   }
 
   async toggleSource() {
-    if (this.refreshing || this.editSession || !await TaskInlineSession.end(false)) return
+    if (this.refreshing || !await TaskInlineSession.end(false)) return
     if (!this.sourceMode) await this.rememberReading()
     this.navigation.closePanel()
     this.sourceMode = !this.sourceMode
   }
 
   async refreshFile() {
-    if (this.refreshing || this.editSession || !await TaskInlineSession.end(true)) return
+    if (this.refreshing || !await TaskInlineSession.end(true)) return
     await this.rememberReading()
     await this.loadFile(true)
   }
@@ -361,11 +352,11 @@ struct OrgFileDetail {
   }
 
   private async openStructure(mode: OrgFileStructureMode, row: string = '', kind: OrgFileStructureNodeKind = 'task'): Promise<void> {
-    if (this.structureOpen || this.editSession || this.editBusy || this.refreshing || this.sourceMode || !await TaskInlineSession.end(true)) return
+    if (this.structureOpen || this.structureDialog || this.refreshing || this.sourceMode || !await TaskInlineSession.end(true)) return
     this.structureMessage = ''
     try {
       await this.fileDataSet?.settle()
-      if (this.structureOpen || this.refreshing || this.sourceMode || !this.pageVisible) return
+      if (this.structureOpen || this.structureDialog || this.refreshing || this.sourceMode || !this.pageVisible) return
       const snapshot = this.currentStructure()
       const parent = row ? snapshot.nodes.find(node => node.row === row) : undefined
       if (row && !parent) throw new Error('父节点已移除，请重新选择')
@@ -376,138 +367,23 @@ struct OrgFileDetail {
       this.structureMode = mode
       this.structureKind = kind
       this.structureSnapshot = snapshot
-      this.structureOpen = true
+      if (mode === 'add') this.structureOpen = true
+      else {
+        this.structureDialog = new CustomDialogController({
+          builder: CenteredPanel({ content: (): void => { this.structurePanel() } }),
+          customStyle: true, alignment: DialogAlignment.Center, autoCancel: false,
+          onWillDismiss: (): void => { this.structureSheet.back() }
+        })
+        this.structureDialog.open()
+      }
     } catch (error) { this.structureMessage = coreErrorMessage(error as CoreBridgeError) }
   }
 
   private async commitStructure(snapshot: OrgFileStructureSnapshot, edits: CoreTaskStructureEdit[]): Promise<string[]> {
     const dataSet = this.fileDataSet
-    if (!dataSet || !this.structureOpen || !this.pageVisible) throw new Error('项目页面已离开')
+    if (!dataSet || (!this.structureOpen && !this.structureDialog) || !this.pageVisible) throw new Error('项目页面已离开')
     const rows = await dataSet.commitStructure({ file: snapshot.file, fileVersion: snapshot.version, edits })
     return dataSet === this.fileDataSet && this.pageVisible ? rows : []
-  }
-
-  private async beginStructureEdit(row: string, direct: boolean, refactoring: boolean = false): Promise<void> {
-    if (this.editSession || this.editBusy || this.structureOpen || this.refreshing || this.sourceMode || !this.pageVisible) return
-    this.editBusy = true
-    this.structureMessage = ''
-    const dataSet = this.fileDataSet
-    const scope = dataSet?.identity
-    try {
-      if (!await TaskInlineSession.end(true)) return
-      await dataSet?.settle()
-      if (!this.pageVisible || dataSet !== this.fileDataSet || scope !== dataSet?.identity || this.structureOpen || this.sourceMode) return
-      const snapshot = this.currentStructure()
-      if (row && !snapshot.nodes.some(node => node.row === row)) throw new Error('节点已移除，请重新选择')
-      this.navigation.closePanel()
-      this.drawerOpen = false
-      this.editSession = new OrgFileEditSession(snapshot, refactoring, row, direct)
-      this.editVersion = snapshot.version
-      this.editConflict = false
-      this.editMessage = ''
-      this.publishStructureEdit()
-    } catch (error) { this.structureMessage = coreErrorMessage(error as CoreBridgeError) }
-    finally { this.editBusy = false }
-  }
-
-  private publishStructureEdit(): void {
-    this.structureEdit = this.editSession?.view() ?? projectEditIdle()
-  }
-
-  private staleStructureEdit(): boolean {
-    return this.editConflict || (!!this.headerVersion && !!this.editVersion && this.headerVersion !== this.editVersion)
-  }
-
-  private canEditStructure(): boolean {
-    return !!this.editSession && !this.editBusy && !this.renameRow && !this.staleStructureEdit() && this.pageVisible
-  }
-
-  private exitStructureEdit(): void {
-    this.editSession = undefined
-    this.editVersion = ''
-    this.editConflict = false
-    this.editMessage = ''
-    this.renameRow = ''
-    this.renameValue = ''
-    this.publishStructureEdit()
-  }
-
-  private backStructureEdit(): void {
-    const session = this.editSession
-    if (!session || this.editBusy) return
-    this.editMessage = ''
-    if (this.renameRow) { this.renameRow = ''; return }
-    if (session.phase !== 'select') {
-      session.backToSelection()
-      this.publishStructureEdit()
-      return
-    }
-    if (session.refactoring && this.structureEdit.changes.length) {
-      showDangerousConfirmation(this.getUIContext(), { title: '放弃变更？', message: '本次结构调整尚未保存。',
-        cancelLabel: '继续编辑',
-        confirmLabel: '放弃', onConfirm: (): void => { this.exitStructureEdit() } })
-    } else this.exitStructureEdit()
-  }
-
-  private chooseStructureRow(row: string): void {
-    const session = this.editSession
-    if (!session || !this.canEditStructure()) return
-    this.editMessage = ''
-    if (session.phase === 'select') session.selectRow(row)
-    if (session.phase === 'target' && !session.chooseTarget(row)) this.editMessage = '请选择未选中的节点'
-    this.publishStructureEdit()
-  }
-
-  private startPlacement(row: string = ''): void {
-    if (!this.editSession) { this.beginStructureEdit(row, true); return }
-    if (!this.canEditStructure() || this.editSession.phase !== 'select' || (!row && !this.structureEdit.count)) return
-    this.editMessage = ''
-    this.editSession.startPlacement(row)
-    this.publishStructureEdit()
-  }
-
-  private stagePlacement(placement: OrgFilePlacement): void {
-    if (!this.canEditStructure() || this.editSession?.phase !== 'target') return
-    this.editMessage = this.editSession.stagePlacement(placement) ? '' : '请选择其他放置位置'
-    this.publishStructureEdit()
-  }
-
-  private startStructureRename(row: string): void {
-    if (!this.canEditStructure() || !this.editSession?.refactoring) return
-    const node = this.editSession.node(row)
-    if (!node) return
-    this.renameValue = node.title
-    this.renameRow = row
-  }
-
-  private applyStructureRename(): void {
-    const session = this.editSession
-    if (!session || this.editBusy || this.staleStructureEdit() || !this.renameValue.trim()) return
-    const node = session.node(this.renameRow)
-    if (!node) return
-    session.draft.rename(node.id, this.renameValue.trim())
-    this.renameRow = ''
-    this.publishStructureEdit()
-  }
-
-  private async saveStructureEdit(): Promise<void> {
-    const session = this.editSession, dataSet = this.fileDataSet
-    if (!session || !dataSet || !this.canEditStructure() || session.phase !== 'review' || !this.structureEdit.changes.length) return
-    this.editBusy = true
-    this.editMessage = ''
-    try {
-      const snapshot = session.draft.initial
-      if (this.currentStructure().version !== snapshot.version) { this.editConflict = true; return }
-      const changedId = this.structureEdit.changes[0]?.id
-      const row = session.draft.nodes.find(node => node.id === changedId)?.row
-      await dataSet.commitStructure({ file: snapshot.file, fileVersion: snapshot.version, edits: session.draft.edits })
-      if (session !== this.editSession || !this.pageVisible || dataSet !== this.fileDataSet) return
-      this.exitStructureEdit()
-      if (row) await this.navigation.locateCreated(row, false)
-    } catch (error) {
-      this.editMessage = coreErrorMessage(error as CoreBridgeError)
-      this.editConflict = this.editMessage.includes('版本')
-    } finally { this.editBusy = false }
   }
 
   private async reloadStructure(force: boolean): Promise<OrgFileStructureSnapshot> {
@@ -529,9 +405,7 @@ struct OrgFileDetail {
     const task = this.fileDataSet?.getTask(row)
     if (!task) return []
     const actions: PopupMenuItem[] = task.state ? [] : this.addStructureActions(row)
-    actions.push({ title: '放置', icon: $r('app.media.ui_place'), action: (): void => { this.startPlacement(row) } })
-    if (!task.state) actions.push({ title: '多选', icon: $r('app.media.ui_select_records'),
-      action: (): void => { this.beginStructureEdit(row, false) } })
+    actions.push({ title: '移动', icon: $r('app.media.ui_move_to'), action: (): void => { this.openStructure('move', row) } })
     if (canOrder) {
       actions.push({ title: '排序', icon: $r('app.media.ui_drag_handle'), action: (): void => { this.openStructure('order', row) } })
     }
@@ -555,8 +429,7 @@ struct OrgFileDetail {
   private projectMenu(): PopupMenuItem[] {
     const actions: PopupMenuItem[] = []
     if (this.renderReady && !this.sourceMode && !this.historyLabel) {
-      actions.push(...this.addStructureActions(''),
-        { title: '重构', icon: $r('app.media.ui_move_to'), action: (): void => { this.beginStructureEdit('', false, true) } })
+      actions.push(...this.addStructureActions(''))
     }
     const refresh: PopupMenuItem = { title: '刷新', icon: $r('app.media.ui_sync'), action: (): void => { this.refreshFile() } }
     if (this.sourceMode) {
@@ -580,7 +453,7 @@ struct OrgFileDetail {
       OrgFileStructureSheet({ mode: this.structureMode, snapshot: this.structureSnapshot, initialParent: this.structureParent,
         initialKind: this.structureKind,
         liveVersion: this.headerVersion, controller: this.structureSheet,
-        close: (): void => { this.structureOpen = false },
+        close: (): void => { this.structureOpen = false; this.structureDialog?.close(); this.structureDialog = undefined },
         save: (snapshot: OrgFileStructureSnapshot, edits: CoreTaskStructureEdit[]): Promise<string[]> => this.commitStructure(snapshot, edits),
         reload: (force: boolean): Promise<OrgFileStructureSnapshot> => this.reloadStructure(force),
         created: (row: string): void => { this.locateNewRow(row, false) } })
@@ -680,14 +553,13 @@ struct OrgFileDetail {
       AppShell({ title: this.title || (this.hasParent ? '文件' : '项目'), titleParts: this.titleParts,
         titleIcon: this.projectFile ? '' : $r('app.media.ui_folder'), activeRoute: 'pages/OrgFileDetail',
         back: this.hasParent, drawerOpen: $drawerOpen,
-        pullToSync: !this.historyLabel, pullDisabled: this.refreshing || this.fileDeleted || this.structureOpen || this.structureEdit.phase !== 'idle',
-        busy: this.editBusy || this.structureEdit.phase !== 'idle',
+        pullToSync: !this.historyLabel, pullDisabled: this.refreshing || this.fileDeleted || this.structureOpen,
         backAction: (): void => { this.onBackPress() },
         secondaryActionIcon: $r('app.media.ui_document_outline'),
-        secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing && this.structureEdit.phase === 'idle' ? '文档目录' : '',
+        secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing ? '文档目录' : '',
         secondaryAction: (): void => { this.navigation.openOutline() },
         actionIcon: $r('app.media.ui_more'),
-        actionLabel: this.loading || this.message || this.refreshing || this.fileDeleted || this.structureEdit.phase !== 'idle' ? '' :
+        actionLabel: this.loading || this.message || this.refreshing || this.fileDeleted ? '' :
           this.projectFile ? '更多项目操作' : '更多文档操作',
         actionMenuItems: this.projectMenu() }) {
         Column() {
@@ -717,7 +589,7 @@ struct OrgFileDetail {
             if (this.structureMessage) {
               Text(this.structureMessage).fontSize(13).fontColor(UiColor.error).width('100%').padding(12)
             }
-            if (this.createdRow && !this.sourceMode && this.structureEdit.phase === 'idle') {
+            if (this.createdRow && !this.sourceMode) {
               Row() {
                 Text('已添加').fontSize(14).fontColor(UiColor.text).layoutWeight(1)
                 Button(this.selectedTags.length || this.selectedCategory ? '清除筛选并定位' : '展开父项并定位')
@@ -740,16 +612,6 @@ struct OrgFileDetail {
                 internalLinkProcessor: this.internalLinks,
                 structureOrderParents: this.structureOrderParents,
                 structureActions: (row: string, canOrder: boolean): PopupMenuItem[] => this.nodeStructureActions(row, canOrder),
-                edit: this.structureEdit, editBusy: this.editBusy || !!this.renameRow || this.staleStructureEdit(),
-                selectNode: (row: string): void => { this.beginStructureEdit(row, false) },
-                placeNode: (row: string): void => { this.startPlacement(row) },
-                chooseNode: (row: string): void => { this.chooseStructureRow(row) },
-                renameNode: (row: string): void => { this.startStructureRename(row) },
-                reorderNode: (row: string, sibling: string): void => {
-                  if (!this.canEditStructure()) return
-                  this.editSession?.reorder(row, sibling)
-                  this.publishStructureEdit()
-                },
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,
                 scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
                 ready: (): void => { this.renderReady = true } })
@@ -767,35 +629,15 @@ struct OrgFileDetail {
                 }.width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
               }
             }.width('100%').layoutWeight(1)
-            if (this.structureEdit.phase !== 'idle') {
-              OrgFileEditBar({ edit: this.structureEdit, busy: this.editBusy, stale: this.staleStructureEdit(),
-                message: this.editMessage, renaming: !!this.renameRow, renameValue: this.renameValue,
-                cancel: (): void => { this.backStructureEdit() },
-                place: (): void => { this.startPlacement() },
-                root: (): void => { this.chooseStructureRow('') },
-                choose: (placement: OrgFilePlacement): void => { this.stagePlacement(placement) },
-                undo: (): void => {
-                  if (!this.canEditStructure()) return
-                  this.editSession?.draft.undo()
-                  this.publishStructureEdit()
-                },
-                review: (): void => {
-                  if (!this.editSession) return
-                  this.editSession.phase = 'review'
-                  this.publishStructureEdit()
-                },
-                save: (): void => { this.saveStructureEdit() },
-                renameValueChanged: (value: string): void => { this.renameValue = value },
-                confirmRename: (): void => { this.applyStructureRename() } })
-            }
+
           }
         }.width('100%').height('100%')
       }
-    }.width('100%').height('100%').bindSheet($$this.structureOpen, this.structurePanel, {
-      height: this.structureMode === 'add' ? 244 : '58%',
-      preferType: SheetType.BOTTOM, backgroundColor: UiColor.container, showClose: false,
-      keyboardAvoidMode: SheetKeyboardAvoidMode.TRANSLATE_AND_RESIZE,
-      onWillDismiss: (): void => { this.structureSheet.back() }
-    })
+    }.width('100%').height('100%')
+      .bindSheet($$this.structureOpen, this.structurePanel, {
+        height: 244, preferType: SheetType.BOTTOM, backgroundColor: UiColor.container, showClose: false,
+        keyboardAvoidMode: SheetKeyboardAvoidMode.TRANSLATE_AND_RESIZE,
+        onWillDismiss: (): void => { this.structureSheet.back() }
+      })
   }
 }

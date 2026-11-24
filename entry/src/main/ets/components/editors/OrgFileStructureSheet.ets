@@ -1,6 +1,6 @@
 import { util } from '@kit.ArkTS'
 import { CoreBridgeError, CoreTaskStructureEdit, coreErrorMessage } from '../../services/NativeCoreService'
-import { ProjectStructureDraft, OrgFileStructureNode, OrgFileStructureSnapshot, projectOrderMove, projectSiblings } from '../../ui/OrgFileStructurePresentation'
+import { ProjectStructureDraft, OrgFileStructureNode, OrgFileStructureSnapshot, OrgFileStructureRow, OrgFilePlacement, projectOrderMove, projectSiblings } from '../../ui/OrgFileStructurePresentation'
 import { UiColor } from '../../ui/Theme'
 import { PopupMenu, PopupMenuItem } from '../controls/PopupMenu'
 
@@ -8,7 +8,7 @@ export class OrgFileStructureSheetController {
   back: () => void = () => {}
 }
 
-export type OrgFileStructureMode = 'add' | 'order'
+export type OrgFileStructureMode = 'add' | 'order' | 'move'
 export type OrgFileStructureNodeKind = 'task' | 'section'
 
 @Component
@@ -26,6 +26,11 @@ export struct OrgFileStructureSheet {
 
   @State parent: string | null = null
   @State titleInput: string = ''
+  @State moveQuery: string = ''
+  @State moveRows: OrgFileStructureRow[] = []
+  @State moveTarget: string | null = null
+  @State moveTargetChosen: boolean = false
+  private moveSourceRow: string = ''
   @State source: OrgFileStructureSnapshot = { file: { repoId: '', file: null, titles: [] },
     version: '', title: '', nodes: [], hasConflict: false }
   @State ordered: OrgFileStructureNode[] = []
@@ -39,6 +44,7 @@ export struct OrgFileStructureSheet {
   aboutToAppear(): void {
     this.source = this.snapshot
     this.parent = this.initialParent
+    if (this.mode === 'move') this.moveSourceRow = this.source.nodes.find(node => node.id === this.parent)?.row ?? ''
     this.resetDraft()
     this.controller.back = (): void => { this.back() }
   }
@@ -54,7 +60,10 @@ export struct OrgFileStructureSheet {
 
   private refresh(): void {
     if (!this.draft) return
-    this.ordered = projectSiblings(this.draft.nodes, this.parent)
+    if (this.mode === 'move') {
+      this.moveRows = this.draft.rows(this.source.nodes.map(node => node.id), this.moveQuery)
+        .filter(row => this.parent !== null && !this.draft!.covered(row.node.id, [this.parent]))
+    } else this.ordered = projectSiblings(this.draft.nodes, this.parent)
   }
 
   private stale(): boolean {
@@ -78,6 +87,8 @@ export struct OrgFileStructureSheet {
       }
       this.source = latest
       this.conflict = false
+      this.moveTarget = null
+      this.moveTargetChosen = false
       this.resetDraft()
     } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
     finally { this.busy = false }
@@ -122,6 +133,94 @@ export struct OrgFileStructureSheet {
     const title = this.titleInput.trim()
     if (!title || this.busy || this.stale()) return
     this.commit([{ type: 'add', id: util.generateRandomUUID(), title, parent: this.parent, task: this.initialKind === 'task' }], true)
+  }
+
+  private chooseMoveTarget(id: string | null): void {
+    this.moveTarget = id
+    this.moveTargetChosen = true
+    this.message = ''
+    this.getUIContext().getFocusController().clearFocus()
+  }
+
+  private move(placement: OrgFilePlacement): void {
+    const draft = this.draft
+    const id = this.parent
+    if (!draft || id === null || !this.moveTargetChosen || this.busy || this.stale()) return
+    const source = draft.nodes.find(node => node.id === id && node.row === this.moveSourceRow)
+    const destination = draft.destination(this.moveTarget, placement, [id])
+    if (!source || !destination) return
+    const siblings = projectSiblings(draft.nodes, source.parent)
+    const index = siblings.findIndex(node => node.id === id)
+    const previous = index > 0 ? siblings[index - 1].id : null
+    if (source.parent === destination.parent && previous === destination.after) {
+      this.message = '已在此位置，请选择其他位置'
+      return
+    }
+    this.commit([{ type: 'move', ids: [id], parent: destination.parent, after: destination.after }], true)
+  }
+
+  @Builder
+  movePosition(title: string, placement: OrgFilePlacement) {
+    OrgFileStructureAction({ title, available: !this.busy && !this.stale(), action: (): void => { this.move(placement) } })
+  }
+
+  @Builder
+  movePanel() {
+    Row() {
+      Text('调整位置').fontSize(19).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
+      OrgFileStructureAction({ title: '取消', available: !this.busy, action: (): void => { this.back() } })
+    }.width('100%')
+    Text(this.source.nodes.find(node => node.id === this.parent)?.title ?? '')
+      .fontSize(13).fontColor(UiColor.secondary).width('100%').maxLines(2)
+    TextInput({ text: this.moveQuery, placeholder: '搜索任务或章节' }).id('project_move_search')
+      .height(40).width('100%').fontSize(14).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
+      .backgroundColor(UiColor.field).enterKeyType(EnterKeyType.Search).enabled(!this.busy)
+      .onChange((value: string): void => { this.moveQuery = value; this.moveTarget = null; this.moveTargetChosen = false; this.refresh() })
+    this.status()
+    List() {
+      if (!this.moveQuery.trim()) {
+        ListItem() {
+          Text('文档顶层').id('project_move_root').fontSize(15).fontColor(UiColor.text).width('100%').height(44)
+            .padding({ left: 10 }).borderRadius(8)
+            .backgroundColor(this.moveTargetChosen && this.moveTarget === null ? '#3F514A' : Color.Transparent)
+            .onClick((): void => { this.chooseMoveTarget(null) })
+        }
+      }
+      ForEach(this.moveRows, (row: OrgFileStructureRow) => {
+        ListItem() {
+          Row({ space: 8 }) {
+            this.nodeIcon(row.node.task)
+            Column({ space: 2 }) {
+              Text(row.node.title).fontSize(15).fontColor(UiColor.text).width('100%').maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              if (row.depth > 0) {
+                Text(row.path).fontSize(11).fontColor(UiColor.secondary).width('100%').maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+            }.layoutWeight(1).constraintSize({ minWidth: 0 })
+          }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: 10, right: 8 }).borderRadius(8)
+            .backgroundColor(this.moveTargetChosen && this.moveTarget === row.node.id ? '#3F514A' : Color.Transparent)
+            .onClick((): void => { this.chooseMoveTarget(row.node.id) })
+        }
+      }, (row: OrgFileStructureRow): string => row.node.id)
+      if (this.moveQuery.trim() && !this.moveRows.length) {
+        ListItem() { Text('没有匹配的位置').fontSize(13).fontColor(UiColor.secondary).height(44) }
+      }
+    }.width('100%').layoutWeight(1).enabled(!this.busy && !this.stale())
+    if (this.moveTargetChosen) {
+      Text(this.draft?.path(this.moveTarget) ?? '').fontSize(12).fontColor(UiColor.secondary)
+        .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+      Row() {
+        if (this.moveTarget === null) {
+          this.movePosition('移到开头', 'first')
+          this.movePosition('移到末尾', 'last')
+        } else {
+          this.movePosition('移到前面', 'before')
+          this.movePosition('移到后面', 'after')
+          this.movePosition('移为子项', 'child')
+        }
+      }.width('100%').justifyContent(FlexAlign.SpaceEvenly)
+    }
   }
 
   private sort(id: string, to: number): void {
@@ -290,6 +389,8 @@ export struct OrgFileStructureSheet {
         if (this.mode === 'add') {
           this.inputActions()
           Scroll() { this.inputPanel() }.width('100%').layoutWeight(1).scrollBar(BarState.Auto).align(Alignment.Top)
+        } else if (this.mode === 'move') {
+          this.movePanel()
         } else {
           this.orderPanel()
         }

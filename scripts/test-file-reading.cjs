@@ -19,6 +19,7 @@ function load(filename, mocks = {}, transform = source => source) {
   vm.runInThisContext('(function(require,module,exports,Scroller){' + source + '\n})', { filename })(name => {
     if (name.endsWith('/PageDataEquality')) return { samePageValue: (a,b) => JSON.stringify(a) === JSON.stringify(b) };
     if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
+    if (name.endsWith('/CenteredPanel')) return {};
     if (name.endsWith('/DangerousConfirmation')) return require('./helpers/dangerous-confirmation.cjs');
     if (name.endsWith('/SystemRepository')) return { isSystemRepository: repo => repo.id === 'org-tasks-system' };
     assert.ok(name in mocks, `缺少替身：${name}`);

@@ -100,7 +100,7 @@ test('近期读取失败结束首屏等待，已有内容在编辑会话结束�
 });
 
 const target = (id, category) => ({ repoId: id, path: 'projects.org', fullPath: { repoId: id, file: 'projects.org', titles: ['Parent', 'Same'], occurrence: 1 }, headingPath: ['Parent', 'Same'],
-  position: { line: 1, column: 0, byte_offset: 0 }, category, projectName: null, fileVersion: 'target-version' });
+  position: { line: 1, column: 0, byte_offset: 0 }, category, projectName: null, titleParts: [{ text: 'Same' }], fileVersion: 'target-version' });
 test('按文件 CATEGORY 合并分组，同名目标保持独立，未分类置后', () => {
   const { refileSections } = load('ui/MoveToTargetPresentation', {});
   const targets = [target('a', null), target('b', 'Work'), target('c', 'Work'), target('d', '')];
@@ -306,8 +306,8 @@ test('通用目标查询仅排除配置的具体文件，不为某天快捷入�
       async refileTargets(query) { queries.push(query); return normal; }
     }; } } }
   });
-  assert.equal(await MoveToTargetService.targets({}), normal);
-  assert.deepEqual(queries, [{ includeProjectRoots: true, excludedFiles: [
+  assert.equal((await MoveToTargetService.targets({})).targets, normal);
+  assert.deepEqual(queries, [{ includeProjectRoots: true, fileRoots: [{ repoId: 'core-a', path: 'task.org' }], excludedFiles: [
     { repoId: 'core-a', path: 'inbox.org' }, { repoId: 'core-a', path: 'someday.org' }
   ] }]);
 });
@@ -393,47 +393,22 @@ test('将来目标未配置、已消失或被忽略时拒绝，保留源且不�
   }
 });
 
-test('移动分组与组内目标按最近选择排序，身份忽略版本与字节位置', () => {
-  const { refileSections, recentRefileSections, refileTargetKey, refileTargetTitle } = load('ui/MoveToTargetPresentation', {});
-  const a = target('a', 'Work'), b = target('b', 'Home'), c = target('c', 'Work');
-  const sections = refileSections([a, b, c]);
-  const recent = [refileTargetKey(c), refileTargetKey(b)];
-  const ordered = recentRefileSections(sections, recent);
-  assert.deepEqual(ordered.map(s => [s.name, s.targets.map(t => t.repoId)]), [['Work', ['c', 'a']], ['Home', ['b']]]);
-  assert.deepEqual(recentRefileSections(sections, ['missing']).map(s => s.name), sections.map(s => s.name));
-  assert.deepEqual(sections.flatMap(s => s.targets), [b, a, c]);
-  assert.equal(refileTargetKey(a), refileTargetKey({ ...a, fileVersion: 'new', position: { byte_offset: 999 } }));
-  assert.notEqual(refileTargetKey(a), refileTargetKey({ ...a, fullPath: { ...a.fullPath, occurrence: 2 } }));
-  assert.equal(refileTargetTitle({ ...a, titleParts: [{ text: '项目 ', count: null }] }), '项目');
-  assert.equal(refileTargetTitle({ ...a, titleParts: [] }), '未命名位置');
-  const root = { ...a, projectName: '项目', fullPath: { ...a.fullPath, titles: [] }, titleParts: [] };
-  assert.equal(refileTargetTitle(root), '项目开头');
-  assert.notEqual(refileTargetKey(root), refileTargetKey(a));
-  assert.equal(recentRefileSections(refileSections([a, root]), [refileTargetKey(root)])[0].targets[0], root);
-});
-
-test('移动面板自动选中有效的最近目标，刷新时使用新快照并跳过失效历史', () => {
-  const source = fs.readFileSync('entry/src/main/ets/components/editors/MoveToTarget.ets', 'utf8');
-  const methods = ['sectionsChanged', 'resetSelection'].map(name =>
-    source.match(new RegExp(`  ${name}\\([^\\n]*\\) (?:: boolean )?\\{[\\s\\S]*?\\n  \\}\\n`))?.[0] ||
-    source.match(new RegExp(`  ${name}\\([^\\n]*\\) \\{[^\\n]*\\}`))?.[0]).join('\n');
-  const output = ts.transpileModule('class Picker {' + methods + '} globalThis.Picker = Picker;', {
-    compilerOptions: { target: ts.ScriptTarget.ES2021 }
-  }).outputText;
-  const context = { ...load('ui/MoveToTargetPresentation', {}) };
-  vm.runInNewContext(output, context);
+test('移动位置支持多词查询、重名路径识别和最近四个有效位置', () => {
+  const { refileSections, refileRows, searchRefileRows, recentRefileRows, refileTargetKey } = load('ui/MoveToTargetPresentation', {});
   const a = target('a', 'Work'), b = target('b', 'Home');
-  const picker = Object.assign(new context.Picker(), { sections: context.refileSections([a, b]),
-    recent: ['missing', context.refileTargetKey(b), context.refileTargetKey(a)], historyReady: true });
-  picker.sectionsChanged();
-  assert.equal(picker.selectedTarget, b);
-  const fresh = { ...b, fileVersion: 'fresh' };
-  picker.sections = context.refileSections([a, fresh]);picker.sectionsChanged();
-  assert.equal(picker.selectedTarget, fresh);
-  picker.sections = context.refileSections([a]);picker.sectionsChanged();
-  assert.equal(picker.selectedTarget, a);
-  picker.sections = [];picker.sectionsChanged();
-  assert.equal(picker.selectedTarget, undefined);
+  const nested = { ...a, fullPath: { ...a.fullPath, occurrence: 2 } };
+  const root = { ...a, path: 'task.org', projectName: null,
+    fullPath: { ...a.fullPath, file: 'task.org', titles: [] }, headingPath: [], titleParts: [] };
+  const more = [target('c', 'Work'), target('d', 'Work'), target('e', 'Work')];
+  const rows = refileRows(refileSections([a, b, nested, root, ...more]), new Map([['a', '办公'], ['b', '归档']]));
+  assert.deepEqual(searchRefileRows(rows, '  SAME  归档 ').map(row => row.target), [b]);
+  assert.deepEqual(searchRefileRows(rows, '我的任务').map(row => row.target), [root]);
+  assert.deepEqual(searchRefileRows(rows, '办公 Parent Same').map(row => row.context),
+    ['办公 / projects.org / Parent / 位置 1', '办公 / projects.org / Parent / 位置 2']);
+  assert.deepEqual(recentRefileRows(rows, ['missing', ...[b, root, nested, a, ...more].map(refileTargetKey)]).map(row => row.target),
+    [b, root, nested, a]);
+  assert.equal(refileTargetKey(a), refileTargetKey({ ...a, fileVersion: 'new', position: { byte_offset: 999 } }));
+  assert.notEqual(refileTargetKey(a), refileTargetKey(nested));
 });
 
 test('最近移动选择串行持久化、去重并在重新加载后保留顺序', async () => {
@@ -443,7 +418,7 @@ test('最近移动选择串行持久化、去重并在重新加载后保留顺�
   const { MoveTargetHistoryService } = load('services/MoveTargetHistoryService', {
     './PreferencesStore': { PreferencesStore: { async open(_, name) {
       assert.equal(name, 'org_tasks_move_targets');
-      return { async get(key) { assert.equal(key, 'recentTargets'); return saved; },
+      return { async get(key) { assert.equal(key, 'successfulTargets'); return saved; },
         async put(_key, value) { if (fail) throw new Error('保存失败'); saved = value; writes.push(value); }, async flush() {} };
     } } }
   });

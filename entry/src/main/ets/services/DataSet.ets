@@ -7,7 +7,9 @@ import { AppConfig } from '../models/OrgTask'
 import { CoreDataChangeEvent, CoreQuerySubscriptionRequest, CoreQuerySubscriptionStart, CoreQuerySubscriptionStatus, CoreQuery, CoreQueryResult, CoreTask, CoreTaskPath, CoreTaskModificationOperation, CoreQueryRepositoryBinding, CoreOrgFileMetadata, CoreTaskOperationGroup, CoreTaskDataChange, CoreWorkspace, CoreRefileTarget, CoreSettingsObject } from './NativeCoreService'
 import { PageTaskSnapshot, PageMetadataSnapshot, cacheDataSet, restoreDataSet, taskRecord, metadataRecord } from './PageDataSnapshot'
 import { createPageTask, projectTaskFields } from './PageDataProjection'
-import { MoveToTargetService } from './MoveToTargetService'
+import { MoveTargetSnapshot, MoveToTargetService } from './MoveToTargetService'
+import { MoveTargetHistoryService } from './MoveTargetHistoryService'
+import { refilePathKey } from '../ui/MoveToTargetPresentation'
 import { TrashService } from './TrashService'
 import { TaskDataSource, TaskDataChange } from './TaskDataSource'
 import { CoreTaskStructureRequest } from './NativeCoreService'
@@ -211,7 +213,7 @@ export class DataSet {
     return Array.from(created)
   }
   async submitOperationGroup(group: CoreTaskOperationGroup, allowed: () => boolean = () => true,
-    waitForCompletion: boolean = false): Promise<void> {
+    waitForCompletion: boolean = false, moveDestination?: CoreTaskPath): Promise<void> {
     if (!group.operations.length) return
     const files = group.fileVersions?.map(version => JSON.stringify([version.repoId, version.file])) ?? this.scopeFiles()
     await this.start()
@@ -226,7 +228,7 @@ export class DataSet {
     }
     // 先合并数据集视图，再交给 Core；需要确认结果的面板可等待完成。
     // 受理后与浮层生命周期解耦；页面关闭不会取消已经进入队列的修改。
-    const work = this.submit(edit)
+    const work = this.submit(edit, moveDestination ? refilePathKey(moveDestination) : undefined)
     if (waitForCompletion) await work
     else work.catch((): void => {})
   }
@@ -449,7 +451,7 @@ export class DataSet {
     edit.creation = JSON.parse(JSON.stringify(value)) as TaskCreation; edit.draft = draft; edit.sourceVersion = version
     this.submit(edit).catch((): void => {})
   }
-  async moveTargets(): Promise<CoreRefileTarget[]> { return await MoveToTargetService.targets(this.context) }
+  async moveTargets(): Promise<MoveTargetSnapshot> { return await MoveToTargetService.targets(this.context) }
   async move(name: string, key: string, target: CoreRefileTarget): Promise<void> {
     if (!this.ready) await this.start()
     const task = this.findTask(name, key)
@@ -476,7 +478,7 @@ export class DataSet {
     for (const edit of this.pending) files.push(...edit.files)
     return Array.from(new Set(files))
   }
-  private submit(edit: PendingEdit): Promise<void> {
+  private submit(edit: PendingEdit, moveHistoryKey?: string): Promise<void> {
     for (const pending of this.pending) {
       if (pending.key === edit.key && pending.target) edit.files.push(JSON.stringify([pending.target.repoId, pending.target.path]))
     }
@@ -521,6 +523,7 @@ export class DataSet {
         }
         await workspace.executeTaskOperations(group)
         committed = true
+        if (moveHistoryKey) MoveTargetHistoryService.remember(this.context, moveHistoryKey).catch((): void => {})
         // Native 保证本次产生的数据事件先于 Promise 完成；没有命中变化的操作也在此结束阶段。
         this.finishEdit(edit, false)
       } catch (error) {

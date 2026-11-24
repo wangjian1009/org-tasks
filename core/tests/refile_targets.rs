@@ -319,9 +319,16 @@ async fn project_roots_are_opt_in_scoped_and_keep_file_identity_without_refile_h
     assert_eq!(root.project_name.as_deref(), Some("项目"));
     assert_eq!(root.file_version, targets[1].file_version);
     let all = workspace.query_refile_targets(&RefileTargetQuery {
-        include_project_roots: true, ..Default::default()
+        include_project_roots: true,
+        file_roots: ["project.org", "ordinary.org", "missing.org"].into_iter().map(|path| OrgFileRef {
+            repo_id: support::id("r"), path: path.into()
+        }).collect(),
+        ..Default::default()
     }).await.unwrap();
-    assert_eq!(all.len(), 3);
+    assert_eq!(all.len(), 4);
+    assert_eq!(all[1].path, "ordinary.org");
+    assert!(all[1].full_path.titles.is_empty());
+    assert!(all[1].project_name.is_none());
     assert_eq!(all[0].path, "empty.org");
     assert_eq!(all[0].project_name.as_deref(), Some(""));
     assert!(all[0].full_path.titles.is_empty());

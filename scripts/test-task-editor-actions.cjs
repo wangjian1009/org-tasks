@@ -61,7 +61,7 @@ function fixture(category = 'Todo', target = 'INPROGRESS') {
     getUIContext: () => ({ showAlertDialog: options => dialogs.push(options), getHostContext: () => ({}),
       getPromptAction: () => ({ showToast: options => messages.push(options.message) }) }) });
   state.dataSet = { name: 'tasks', getTask(key) { assert.equal(key, 'key'); return state.task; },
-    async settle() { assert.fail('生成操作不能等待后台确认'); }, async moveTargets() { return []; },
+    async settle() { assert.fail('生成操作不能等待后台确认'); }, async moveTargets() { return { targets: [], repositoryNames: new Map() }; },
     async update() { assert.fail('编辑器不能直接提交任务字段修改'); }, async removeTask() { assert.fail('编辑器不能直接提交删除'); },
     async moveTask() { assert.fail('编辑器不能直接提交移动'); }, async operate() { assert.fail('编辑器不能直接执行操作组'); } };
   state.dataSet.taskSource = () => ({ rowId:'key', get task() { return state.dataSet.getTask('key'); } });

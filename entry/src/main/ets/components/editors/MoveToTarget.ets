@@ -1,166 +1,315 @@
 import { CoreRefileTarget } from '../../services/NativeCoreService'
 import { MoveTargetHistoryService } from '../../services/MoveTargetHistoryService'
-import { RefileSection, recentRefileSections, refileTargetKey, refileTargetTitle } from '../../ui/MoveToTargetPresentation'
+import { RefileRow, RefileSection, recentRefileRows, refileRows, refileTargetKey, searchRefileRows } from '../../ui/MoveToTargetPresentation'
 import { UiColor, UiSize } from '../../ui/Theme'
-import { TitleText } from '../TitleText'
+
+@Builder
+function emptySourcePreview() {}
 
 @Component
 export struct MoveToTarget {
+  @BuilderParam sourcePreview: () => void = emptySourcePreview
   @Prop @Watch('sectionsChanged') sections: RefileSection[] = []
+  @Prop @Watch('sectionsChanged') repositoryNames: Map<string, string> = new Map()
   @Prop @Watch('resetSelection') selectionKey: string = ''
   @Prop loading: boolean = false
   @Prop busy: boolean = false
   @Prop message: string = ''
-  @State selectedTarget: CoreRefileTarget | undefined = undefined
-  @State orderedSections: RefileSection[] = []
+  @State selectedKey: string = ''
+  @State query: string = ''
+  @State searchFocused: boolean = false
+  @State expanded: string[] = []
+  @State collapsedSearch: string[] = []
+  @State previewMaxHeight: number = 200
+  @State rows: RefileRow[] = []
+  @State matching: RefileRow[] = []
+  @State recentRows: RefileRow[] = []
+  @State defaultRow: RefileRow | undefined = undefined
   @State historyMessage: string = ''
   private recent: string[] = []
-  private historyReady: boolean = false
   private disposed: boolean = false
-  private interactionStarted: boolean = false
+  private scroller: ListScroller = new ListScroller()
+  private rowsByKey: Map<string, RefileRow> = new Map()
   choose: (target: CoreRefileTarget) => void = () => {}
   retry: () => void = () => {}
+  close: () => void = () => {}
 
-  async aboutToAppear() {
+  aboutToAppear(): void {
     this.disposed = false
     this.sectionsChanged()
-    await this.loadHistory()
+    this.loadHistory()
   }
 
-  aboutToDisappear() { this.disposed = true }
+  aboutToDisappear(): void { this.disposed = true }
 
-  async loadHistory() {
+  async loadHistory(): Promise<void> {
     try {
       const recent = await MoveTargetHistoryService.load(this.getUIContext().getHostContext()!)
       if (this.disposed) return
-      if (!this.interactionStarted) this.recent = recent
-      this.historyReady = true
+      this.recent = recent
       this.historyMessage = ''
-      this.sectionsChanged()
+      this.recentRows = recentRefileRows(this.rows, recent)
     } catch (_) {
-      if (!this.disposed) this.historyMessage = '最近选择读取失败，点击重试'
+      if (!this.disposed) this.historyMessage = '最近位置读取失败，点击重试'
     }
   }
 
-  resetSelection() { this.selectedTarget = undefined; this.sectionsChanged() }
+  resetSelection(): void { this.selectedKey = '' }
 
-  sectionsChanged() {
-    this.orderedSections = recentRefileSections(this.sections, this.recent)
-    const targets = this.orderedSections.flatMap((section: RefileSection): CoreRefileTarget[] => section.targets)
-    if (this.selectedTarget) {
-      const key = refileTargetKey(this.selectedTarget)
-      this.selectedTarget = targets.find((target: CoreRefileTarget): boolean => refileTargetKey(target) === key)
+  sectionsChanged(): void {
+    this.rows = refileRows(this.sections, this.repositoryNames)
+    this.rowsByKey.clear()
+    this.rows.forEach((row: RefileRow): void => { this.rowsByKey.set(row.key, row) })
+    if (this.rows.length && !this.rowsByKey.has(this.selectedKey)) this.resetSelection()
+    this.defaultRow = this.rows.find(row => !row.target.fullPath.titles.length && row.target.projectName === null)
+    this.recentRows = recentRefileRows(this.rows, this.recent)
+    this.matching = this.query.trim() ? searchRefileRows(this.rows, this.query) : []
+  }
+
+  changeQuery(value: string): void {
+    this.query = value
+    this.matching = value.trim() ? searchRefileRows(this.rows, value) : []
+    this.collapsedSearch = []
+    if (value.trim() && !this.matching.some(row => row.key === this.selectedKey)) this.resetSelection()
+    try { this.scroller.scrollToIndex(0) } catch (_) { /* 列表尚未布局。 */ }
+  }
+
+  sectionExpanded(section: RefileSection, search: boolean): boolean {
+    return search ? !this.collapsedSearch.includes(section.key) : this.expanded.includes(section.key)
+  }
+
+  toggle(section: RefileSection, search: boolean): void {
+    if (search) {
+      this.collapsedSearch = this.collapsedSearch.includes(section.key) ?
+        this.collapsedSearch.filter(key => key !== section.key) : this.collapsedSearch.concat(section.key)
+      return
     }
-    if (!this.selectedTarget && this.historyReady) {
-      this.selectedTarget = targets.find((target: CoreRefileTarget): boolean => this.recent.includes(refileTargetKey(target)))
-    }
+    this.expanded = this.expanded.includes(section.key) ?
+      this.expanded.filter(key => key !== section.key) : this.expanded.concat(section.key)
   }
 
-  isSelected(target: CoreRefileTarget | undefined): boolean {
-    return target !== undefined && this.selectedTarget !== undefined && JSON.stringify(this.selectedTarget) === JSON.stringify(target)
-  }
-
-  projectTarget(section: RefileSection): CoreRefileTarget | undefined {
-    return section.kind === 'project' ? section.targets.find((target: CoreRefileTarget): boolean => target.fullPath.titles.length === 0) : undefined
-  }
-
-  select(target: CoreRefileTarget) {
+  select(row: RefileRow): void {
     if (this.busy || this.loading) return
-    this.interactionStarted = true
-    this.selectedTarget = target
-    // 当前面板不因点击重排；下一次打开时再按已保存的选择顺序排序。
-    MoveTargetHistoryService.remember(this.getUIContext().getHostContext()!, refileTargetKey(target))
-      .then((): void => { if (!this.disposed) this.historyMessage = '' })
-      .catch((): void => { if (!this.disposed) this.historyMessage = '最近选择保存失败，请重新选择' })
+    this.selectedKey = row.key
+    if (this.query.trim()) this.getUIContext().getFocusController().clearFocus()
   }
 
-  move(target: CoreRefileTarget) {
-    if (this.busy || this.loading || !this.isSelected(target)) return
-    this.choose(target)
+  move(row: RefileRow): void {
+    if (this.busy || this.loading || this.selectedKey !== row.key) return
+    const current = this.rowsByKey.get(row.key)
+    if (current) this.choose(current.target)
+  }
+
+  projectRow(section: RefileSection): RefileRow | undefined {
+    if (section.kind !== 'project') return undefined
+    const root = section.targets.find(target => !target.fullPath.titles.length)
+    return root ? this.rowsByKey.get(refileTargetKey(root)) : undefined
+  }
+
+  sectionRows(section: RefileSection): RefileRow[] {
+    const rows: RefileRow[] = []
+    for (const target of section.targets) {
+      if (!target.fullPath.titles.length) continue
+      const row = this.rowsByKey.get(refileTargetKey(target))
+      if (row) rows.push(row)
+    }
+    return rows
+  }
+
+  searchSections(): RefileSection[] {
+    const matched = new Set(this.matching.map(row => row.key))
+    return this.sections.filter(section => {
+      const root = this.projectRow(section)
+      return root !== undefined && matched.has(root.key)
+    })
+  }
+
+  searchSectionRows(section: RefileSection): RefileRow[] {
+    const matched = new Set(this.matching.map(row => row.key))
+    return this.sectionRows(section).filter(row => matched.has(row.key))
+  }
+
+  ungroupedMatches(): RefileRow[] {
+    const grouped = new Set<string>()
+    for (const section of this.searchSections()) {
+      for (const target of section.targets) grouped.add(refileTargetKey(target))
+    }
+    return this.matching.filter(row => !grouped.has(row.key))
   }
 
   @Builder
-  sectionHeading(section: RefileSection, target: CoreRefileTarget | undefined) {
-    Row({ space: 8 }) {
-      Image(section.kind === 'project' ? $r('app.media.ui_folder') : $r('app.media.ui_category_muted'))
-        .width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
-      Text(section.name || '未分类').fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
-        .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-      if (target && this.isSelected(target)) {
-        Button('移动').id('move_to_project').width(58).height(32).padding(0).borderRadius(10)
-          .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).fontSize(UiSize.taskFont).enabled(!this.busy && !this.loading)
-          .accessibilityText(`移动到项目${section.name}`)
-          .onClick((): void => { if (target) this.move(target) })
-      }
-    }.width('100%').constraintSize({ minHeight: 36 }).padding({ left: 12, right: 10, top: 2, bottom: 2 })
-      .margin({ top: 28, bottom: 8 })
-      .backgroundColor(this.isSelected(target) ? '#3F514A' : Color.Transparent)
-      .border({ width: this.isSelected(target) ? 1 : 0, color: UiColor.primary }).borderRadius(10)
-      .accessibilityText(`${section.kind === 'project' ? '项目' : '分类'}，${section.name || '未分类'}${target ? this.isSelected(target) ? '，已选中' : '，点击选择' : ''}`)
-      .enabled(!this.busy && !this.loading).onClick((): void => { if (target) this.select(target) })
+  moveButton(row: RefileRow) {
+    Button('移动').id('move_to_target').width(58).height(32).padding(0).borderRadius(8)
+      .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).fontSize(14)
+      .accessibilityText(`移动到${row.title}，${row.context}`)
+      .enabled(!this.busy && !this.loading).onClick((): void => { this.move(row) })
   }
 
   @Builder
-  targetRow(target: CoreRefileTarget) {
-    Row({ space: 8 }) {
-      TitleText({ text: refileTargetTitle(target), parts: target.titleParts, showCounts: false, openLinks: false,
-        textSize: UiSize.taskFont, lineLimit: 1, weight: this.isSelected(target) ? FontWeight.Medium : FontWeight.Normal,
-        activate: (): void => this.select(target) }).layoutWeight(1).constraintSize({ minWidth: 0 })
-      if (this.isSelected(target)) {
-        Button('移动').id('move_to_target').width(58).height(32).padding(0).borderRadius(10)
-          .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).fontSize(UiSize.taskFont).enabled(!this.busy && !this.loading)
-          .accessibilityText(`移动到${refileTargetTitle(target)}`)
-          .onClick((): void => this.move(target))
+  searchBar() {
+    Row({ space: 9 }) {
+      Image($r('app.media.ui_search')).width(18).height(18).fillColor(UiColor.secondary).accessibilityLevel('no')
+      TextInput({ text: this.query, placeholder: '搜索位置、项目或分类' }).id('move_target_search')
+        .layoutWeight(1).height('100%').padding(0).backgroundColor(Color.Transparent)
+        .fontColor(UiColor.text).placeholderColor(UiColor.secondary).fontSize(14)
+        .accessibilityText('搜索移动位置').enterKeyType(EnterKeyType.Search)
+        .onFocus((): void => { this.searchFocused = true })
+        .onBlur((): void => { this.searchFocused = false })
+        .onChange((value: string): void => { this.changeQuery(value) })
+      if (this.query) {
+        Image($r('app.media.ui_close')).width(32).height(36).padding(7).fillColor(UiColor.secondary)
+          .accessibilityText('清除搜索').onClick((): void => { this.changeQuery('') })
       }
-    }.width('100%').height(UiSize.taskRow).padding({ left: 36, right: 10, top: 4, bottom: 4 })
-      .backgroundColor(this.isSelected(target) ? '#3F514A' : Color.Transparent)
-      .border({ width: this.isSelected(target) ? 1 : 0, color: UiColor.primary }).borderRadius(10)
-      .accessibilityText(`${refileTargetTitle(target)}${this.isSelected(target) ? '，已选中' : '，点击选择'}`)
-      .enabled(!this.busy && !this.loading).onClick((): void => this.select(target))
+    }.width('100%').height(40).padding({ left: 12, right: 4 }).borderRadius(9)
+      .backgroundColor('#2D312F').border({ width: 1, color: UiColor.outline })
+      .enabled(!this.busy)
+  }
+
+  @Builder
+  caption(label: string) {
+    Text(label).width('100%').height(32).padding({ left: 10 })
+      .fontSize(13).fontColor(UiColor.secondary).fontWeight(FontWeight.Medium)
+  }
+
+  @Builder
+  targetRow(row: RefileRow, indent: number = 0) {
+    Row({ space: 10 }) {
+      Image(row.target.fullPath.titles.length ? $r('app.media.ui_body') :
+        row.target.projectName === null ? $r('app.media.ui_document_outline') : $r('app.media.ui_folder'))
+        .width(16).height(16).fillColor(this.selectedKey === row.key ? UiColor.primary : UiColor.secondary)
+        .accessibilityLevel('no')
+      Column({ space: 1 }) {
+        Text(row.title).fontSize(15).fontColor(UiColor.text)
+          .fontWeight(this.selectedKey === row.key ? FontWeight.Medium : FontWeight.Normal)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+        Text(row.context).fontSize(11).fontColor(UiColor.secondary)
+          .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+      }.alignItems(HorizontalAlign.Start).layoutWeight(1).constraintSize({ minWidth: 0 })
+        .accessibilityText(`${row.title}，${row.context}${this.selectedKey === row.key ? '，已选中' : ''}`)
+        .onClick((): void => { this.select(row) })
+      if (this.selectedKey === row.key) this.moveButton(row)
+    }.width('100%').constraintSize({ minHeight: 46 }).padding({ left: 10 + indent, right: 8, top: 4, bottom: 4 })
+      .backgroundColor(this.selectedKey === row.key ? '#3F514A' : Color.Transparent)
+      .border({ width: this.selectedKey === row.key ? 1 : 0, color: UiColor.primary }).borderRadius(9)
+      .enabled(!this.busy && !this.loading).onClick((): void => { this.select(row) })
+  }
+
+  @Builder
+  sectionHeader(section: RefileSection, root: RefileRow | undefined, children: RefileRow[], search: boolean = false) {
+    Row({ space: 6 }) {
+      Row({ space: 10 }) {
+        Image(section.kind === 'project' ? $r('app.media.ui_folder') : $r('app.media.ui_category_muted'))
+          .width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
+        Column({ space: 1 }) {
+          Text(section.name || '未分类').fontSize(15).fontColor(UiColor.text).fontWeight(FontWeight.Medium)
+            .width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (root && (root.context !== root.target.path || this.selectedKey === root.key)) {
+            Text(root.context).fontSize(11).fontColor(UiColor.secondary)
+              .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+        }.alignItems(HorizontalAlign.Start).layoutWeight(1).constraintSize({ minWidth: 0 })
+      }.layoutWeight(1).constraintSize({ minHeight: 44 }).padding({ left: 10 })
+        .accessibilityText(root ? `选择项目${section.name}根位置` : section.name || '未分类')
+        .onClick((): void => { if (root) this.select(root); else this.toggle(section, search) })
+      if (children.length) {
+        if (root) Divider().vertical(true).height(22).color(UiColor.outline)
+        Row() {
+          Image($r('app.media.ui_next')).width(14).height(14)
+            .rotate({ angle: this.sectionExpanded(section, search) ? 90 : 0 }).fillColor(UiColor.secondary)
+        }.width(42).height(44).justifyContent(FlexAlign.Center)
+          .id(`move_expand:${section.name || '未分类'}`)
+          .accessibilityText(`${this.sectionExpanded(section, search) ? '收起' : '展开'}${section.name || '未分类'}`)
+          .onClick((): void => { this.toggle(section, search) })
+      }
+      if (root && this.selectedKey === root.key) this.moveButton(root)
+    }.width('100%').padding({ right: 8 }).borderRadius(9)
+      .backgroundColor(root && this.selectedKey === root.key ? '#3F514A' :
+        children.length && this.sectionExpanded(section, search) ? '#2D312F' : Color.Transparent)
+      .border({ width: root && this.selectedKey === root.key ? 1 : 0, color: UiColor.primary })
+      .enabled(!this.busy && !this.loading)
+  }
+
+  @Builder
+  status(text: string) {
+    Text(text).width('100%').height(60).padding({ left: 12 }).fontSize(14).fontColor(UiColor.secondary)
   }
 
   build() {
     Column() {
       Row({ space: 8 }) {
         Image($r('app.media.ui_move_to')).width(24).height(24).accessibilityLevel('no')
-        Text('移动到').fontSize(20).fontColor(UiColor.text).fontWeight(FontWeight.Medium)
-      }.width('100%').height(48).padding({ left: 16, right: 16 })
-      Divider().color(UiColor.outline).margin({ left: 12, right: 12 })
+        Text('移动到').fontSize(20).fontColor(UiColor.text).fontWeight(FontWeight.Medium).layoutWeight(1)
+        Image($r('app.media.ui_close')).width(40).height(40).padding(11).fillColor(UiColor.secondary)
+          .accessibilityText('关闭移动窗口').enabled(!this.busy).onClick(this.close)
+      }.width('100%').height(48).padding({ left: 20, right: 20 })
+      Scroll() {
+        this.sourcePreview()
+      }.width('100%').constraintSize({ maxHeight: this.searchFocused ? 72 : this.previewMaxHeight })
+        .padding({ left: 16, right: 16 }).margin({ bottom: 10 })
+        .nestedScroll({ scrollForward: NestedScrollMode.SELF_ONLY, scrollBackward: NestedScrollMode.SELF_ONLY })
+      Row() { this.searchBar() }.width('100%').padding({ left: 20, right: 20, bottom: 8 })
       if (this.historyMessage) {
         Text(this.historyMessage).fontSize(13).fontColor(UiColor.error).padding(12).width('100%')
           .onClick((): void => { this.loadHistory() })
       }
-      if (this.busy) {
-        Text('正在保存…').fontSize(14).fontColor(UiColor.secondary).padding({ left: 12, right: 12 }).height(40).width('100%')
-      }
+      if (this.busy) this.status('正在移动…')
       if (this.message) {
-        Text(this.message).fontSize(14).fontColor(UiColor.error).lineHeight(20).maxLines(3).padding(12).height(84).width('100%')
-        Button('刷新后重试').height(40).onClick((): void => this.retry()).enabled(!this.busy)
+        Text(this.message).fontSize(14).fontColor(UiColor.error).maxLines(3).padding(12).width('100%')
+        Button('刷新后重试').height(40).onClick((): void => { this.retry() }).enabled(!this.busy)
       }
       if (this.loading) {
-        Row({ space: 8 }) {
-          LoadingProgress().width(24).height(24)
-          Text('正在读取任务目标').fontSize(14).fontColor(UiColor.secondary)
-        }.width('100%').height(64).justifyContent(FlexAlign.Center)
-      } else if (this.sections.length === 0) {
-        Column({ space: 8 }) {
-          Text('暂无任务目标').fontSize(16).fontColor(UiColor.text)
-          Text('创建项目，或在目标标题上添加 REFILE 标签后重试。').fontSize(13).fontColor(UiColor.secondary)
-        }.width('100%').height(80).justifyContent(FlexAlign.Center)
+        this.status('正在读取任务目标…')
+      } else if (!this.rows.length) {
+        this.status('暂无任务目标')
       } else {
-        List({ space: 0 }) {
-          ForEach(this.orderedSections, (section: RefileSection) => {
-            ListItemGroup({ header: this.sectionHeading(section, this.projectTarget(section)) }) {
-              ForEach(section.targets.filter((target: CoreRefileTarget): boolean => target.fullPath.titles.length > 0), (target: CoreRefileTarget) => {
-                ListItem() { this.targetRow(target) }
-              }, (target: CoreRefileTarget) => JSON.stringify(target))
+        List({ scroller: this.scroller }) {
+          if (this.query.trim()) {
+            ListItem() { this.caption(`搜索结果 · ${this.matching.length} 个位置`) }
+            if (!this.matching.length) {
+              ListItem() { this.status('没有匹配的位置') }
             }
-          }, (section: RefileSection) => section.key)
-        }.width('100%').layoutWeight(1).padding({ left: 12, right: 12, bottom: 16 })
+            ForEach(this.searchSections(), (section: RefileSection) => {
+              ListItemGroup({ header: this.sectionHeader(section, this.projectRow(section), this.searchSectionRows(section), true) }) {
+                if (this.sectionExpanded(section, true)) {
+                  ForEach(this.searchSectionRows(section), (row: RefileRow) => {
+                    ListItem() { this.targetRow(row, 24) }
+                  }, (row: RefileRow): string => row.key)
+                }
+              }
+            }, (section: RefileSection): string => section.key)
+            ForEach(this.ungroupedMatches(), (row: RefileRow) => { ListItem() { this.targetRow(row) } },
+              (row: RefileRow): string => row.key)
+          } else {
+            if (this.recentRows.length) {
+              ListItem() { this.caption('最近使用') }
+              ForEach(this.recentRows, (row: RefileRow) => { ListItem() { this.targetRow(row) } },
+                (row: RefileRow): string => row.key)
+              ListItem() { Divider().color(UiColor.divider).margin({ left: 10, right: 10, top: 10 }) }
+            }
+            ListItem() { this.caption('全部位置') }
+            if (this.defaultRow && !this.recentRows.some((row: RefileRow): boolean => row.key === this.defaultRow?.key)) {
+              ListItem() { this.targetRow(this.defaultRow!) }
+            }
+            ForEach(this.sections.filter((section: RefileSection): boolean =>
+              section.kind === 'project' || section.targets.some(target => target.fullPath.titles.length > 0)),
+              (section: RefileSection) => {
+                ListItemGroup({ header: this.sectionHeader(section, this.projectRow(section), this.sectionRows(section)) }) {
+                  if (this.expanded.includes(section.key)) {
+                    ForEach(this.sectionRows(section), (row: RefileRow) => {
+                      ListItem() { this.targetRow(row, 24) }
+                    }, (row: RefileRow): string => row.key)
+                  }
+                }
+              }, (section: RefileSection): string => section.key)
+          }
+        }.width('100%').layoutWeight(1).padding({ left: 14, right: 14, bottom: 12 })
           .edgeEffect(EdgeEffect.None)
           .nestedScroll({ scrollForward: NestedScrollMode.SELF_ONLY, scrollBackward: NestedScrollMode.SELF_ONLY })
       }
-    }.width('100%').height('100%').backgroundColor('#363A38')
-      .padding({ bottom: 8 })
+    }.width('100%').height('100%').backgroundColor('#363A38').padding({ bottom: 8 })
+      .onAreaChange((_old: Area, area: Area): void => {
+        const height = parseFloat(area.height.toString())
+        if (height > 0) this.previewMaxHeight = Math.max(56, Math.min(200, Math.floor(height * 0.36)))
+      })
   }
 }

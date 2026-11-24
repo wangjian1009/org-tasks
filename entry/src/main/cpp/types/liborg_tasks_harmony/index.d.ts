@@ -132,7 +132,7 @@ export type QuerySubscriptionStatus = 'current' | 'awaitingEvents' | 'invalidate
 export interface QuerySubscriptionRequest { query: CoreQuery; callback: DataChangeMonitor; operationId?: string | null; repositoryBindings?: QueryRepositoryBinding[]; }
 export interface QuerySubscriptionStart { subscriptionId: number; data: CoreQueryResult; operationId: string | null; }
 export type DataChangeMonitor = (event: DataChangeEvent) => void;
-export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; includeProjectRoots?: boolean; }
+export interface RefileTargetQuery { files?: OrgFileRef[]; excludedFiles?: OrgFileRef[]; includeProjectRoots?: boolean; fileRoots?: OrgFileRef[]; }
 export interface RefileTarget {
   repoId: string; path: string; fullPath: TaskPath; headingPath: string[]; position: SourcePosition;
   category: string | null; projectName: string | null; fileVersion: string; titleParts: TitlePart[];

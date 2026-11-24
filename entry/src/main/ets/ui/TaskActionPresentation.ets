@@ -8,7 +8,6 @@ export enum TaskOperation {
   Wait = 'wait',
   Cancel = 'cancel',
   Move = 'move',
-  Place = 'place',
   Project = 'project',
   Schedule = 'schedule',
   Deadline = 'deadline',

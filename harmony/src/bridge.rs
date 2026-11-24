@@ -2418,7 +2418,7 @@ pub fn workspace_refile_targets_json(handle: u64, query_json: String) -> Result<
     let session = workspace_for_handle(handle)?;
     let workspace = session;
     let runtime = runtime(handle)?;
-    // 包括 titleParts 的完整 Core 投影，保持标题原文与展示分段各自的边界。
+    // fileRoots 的范围与目标投影一并交由 Core 求值。
     encode(&runtime.block_on(workspace.query_refile_targets(&query))?)
 }
 

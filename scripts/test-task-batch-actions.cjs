@@ -81,6 +81,7 @@ function popup(name,selection){
     require:dependency=>{
       if(dependency.endsWith('/TaskActionPresentation'))return require('./helpers/task-selection.cjs').actions;
       if(dependency.endsWith('/NativeCoreService'))return {coreErrorMessage:error=>error.message};
+      if(dependency==='./TaskEditor')return {TaskMovePreview:()=>{}};
       if(dependency.endsWith('/MoveToTargetPresentation'))return {refileSections:targets=>targets};
       if(dependency==='./TaskDateDialog')return {TaskDateDialog:options=>options};
       if(dependency==='./MoveToTarget')return {MoveToTarget:()=>{}};
@@ -108,11 +109,11 @@ test('专用移动面板的目标加载失败可重读，关闭或重新打开�
   f.dataSet.moveTargets=()=>new Promise(resolve=>finish=resolve);f.selection.request(f.context,'move');
   const old=popup('TaskBatchMoveSheet',f.selection);old.state.aboutToAppear();
   old.state.dismiss();old.state.aboutToDisappear();f.selection.request(f.context,'move');
-  finish([{fileVersion:'old'}]);await tick();assert.equal(old.state.sections.length,0);
+  finish({targets:[{fileVersion:'old'}], repositoryNames:new Map()});await tick();assert.equal(old.state.sections.length,0);
   f.dataSet.moveTargets=async()=>{throw new Error('目标读取失败');};
   const current=popup('TaskBatchMoveSheet',f.selection);current.state.aboutToAppear();await tick();
   assert.equal(current.state.message,'目标读取失败');assert.equal(current.state.loading,false);
-  f.dataSet.moveTargets=async()=>[{fileVersion:'new'}];await current.state.load();
+  f.dataSet.moveTargets=async()=>({targets:[{fileVersion:'new'}], repositoryNames:new Map()});await current.state.load();
   assert.equal(current.state.sections[0].fileVersion,'new');assert.equal(current.state.message,'');
   assert.equal(f.writes.length,0);current.state.dismiss();assert.equal(f.selection.pendingAction,'');
 });

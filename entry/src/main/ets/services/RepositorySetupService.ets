@@ -1,6 +1,7 @@
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
+import { DEFAULT_TASK_CATEGORY, DEFAULT_TASK_FILE } from '../models/RepositoryDefaults'
 import { configuredFileTarget, FileTargetKind, fileTargetName } from './FileTargetService'
 import { CoreOrgFileMetadata, CoreTaskFileNew, CoreTaskOperation, CoreWorkspace, NativeCoreService, fileResult } from './NativeCoreService'
 
@@ -20,7 +21,6 @@ interface EntryFile {
 
 const ENTRY_KINDS: FileTargetKind[] = ['inbox', 'someday', 'memo']
 const TEMPLATE_KINDS: RepositoryTemplateKind[] = [...ENTRY_KINDS, 'task']
-const DEFAULT_TASK_CATEGORY = '我的任务'
 
 function templateName(kind: RepositoryTemplateKind): string {
   return kind === 'memo' ? 'note' : kind
@@ -54,7 +54,7 @@ export class RepositorySetupService {
     const files = reset ? [] : await RepositorySetupService.files(workspace, repo.id)
     const operations: CoreTaskOperation[] = []
     for (const template of templates) {
-      const file = `${template.name}.org`
+      const file = template.kind === 'task' ? DEFAULT_TASK_FILE : `${template.name}.org`
       if (files.some(item => item.path === file) || (template.kind !== 'task' && entryFile(files, template.kind))) continue
       const argumentsByName: Record<string, string> = {}
       if (template.kind === 'task') {

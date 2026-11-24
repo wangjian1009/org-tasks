@@ -263,7 +263,7 @@ Core 固定默认值、跨配置来源合并顺序与分隔规则见 [[file:../c
 
 * 收件箱整理目标
 
-底部移动面板的普通目标来自 Core REFILE 快照，分类来自所在文件 CATEGORY，不把目标快照保存到 Preferences。左滑的“备忘”快捷操作直接使用已配置的 ~memoRepoId~ 与 ~memoFile~ ，提交前检查仓库、路径和忽略状态；失效时提示重新选择，不回退到其他文件。成功移动到备忘文件顶部，并清除根条目的任务状态、优先级及 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 规划信息，保留正文、标签、 ~CREATED~ 等属性和子条目。移动面板当前快照、高度与选择保留在页面内存，最近点选按 [[*移动位置最近选择][移动位置最近选择]] 单独保存。
+移动弹窗的普通目标来自 Core REFILE 快照，分类来自所在文件 CATEGORY，不把目标快照保存到 Preferences。左滑的“备忘”快捷操作直接使用已配置的 ~memoRepoId~ 与 ~memoFile~ ，提交前检查仓库、路径和忽略状态；失效时提示重新选择，不回退到其他文件。成功移动到备忘文件顶部，并清除根条目的任务状态、优先级及 ~SCHEDULED~ 、 ~DEADLINE~ 、 ~CLOSED~ 规划信息，保留正文、标签、 ~CREATED~ 等属性和子条目。移动面板当前快照、高度与选择保留在页面内存，最近成功移动位置按 [[*移动位置最近选择][移动位置最近选择]] 单独保存。
 
 * 某天快捷入口
 
@@ -279,9 +279,9 @@ ConflictFile 进入时把 ~<cacheDir>/org-conflict-previews~ 作为 setPreviewRo
 
 * 移动位置最近选择
 
-~MoveTargetHistoryService~ 使用独立 Preferences ~org_tasks_move_targets~ 的 ~recentTargets~ 字符串键保存 JSON 数组，最多保留 100 个去重后的目标键，最新点选位于数组头部。各入口共用串行写入队列，点选即记录，不要求已执行移动；打开时自动恢复选择不另记一次点选。存储失败沿用 ~PreferencesStore~ 的拒绝语义，面板显示读取重试或重新选择提示，不把存储成功作为移动提交结果。
+~MoveTargetHistoryService~ 使用独立 Preferences ~org_tasks_move_targets~ 的 ~successfulTargets~ 字符串键保存 JSON 数组，最多保留 100 个去重后的目标键。单条与批量共用串行队列，Core 确认提交后才记入最近位置。旧 ~recentTargets~ 键记录的是点选历史，升级后从首次成功移动重新积累。最近位置保存失败可继续移动。
 
-目标键是 Core 仓库 ID、相对文件路径、 ~fullPath.titles~ 与 ~occurrence~ 的结构化 JSON，不包含文件版本、字节位置、密码或绝对目录。标题定位沿用 Core 的规范路径，因此统计进度变化不改变位置键；同名位置按出现次序区分。每次打开用本次 Core 目标快照匹配历史，失效键不形成候选或提交目标；不依据名称跨仓库、文件或同名次序回退。分组顺序取组内最靠前的历史位置，组内按历史顺序排列，未选择位置沿用初始顺序。重启和升级保留此偏好，清除应用数据后恢复默认；不属于 ~AppConfig~ 、Core 仓库元数据或同步内容。
+目标键由 Core 仓库 ID、相对文件路径、 ~fullPath.titles~ 和 ~occurrence~ 组成。打开面板时用当前 Core 快照匹配最近四个仍可用的位置。该偏好保存在本机，重启后可继续使用。
 
 * 本地目录浏览与新建
 

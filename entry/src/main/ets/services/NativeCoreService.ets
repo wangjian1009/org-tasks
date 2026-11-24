@@ -15,6 +15,7 @@ import {
   TaskFileRename as NativeTaskFileRename,
   TaskFileInitialTask as NativeTaskFileInitialTask,
   TaskOperation as NativeTaskOperation,
+  TaskMovement as NativeTaskMovement,
   TaskTrash as NativeTaskTrash,
   TaskRestore as NativeTaskRestore,
   TaskOperationGroup as NativeTaskOperationGroup,
@@ -191,6 +192,7 @@ export type CoreTaskFileInitialTask = NativeTaskFileInitialTask
 export type CoreTaskTrash = NativeTaskTrash
 export type CoreTaskRestore = NativeTaskRestore
 export type CoreTaskOperation = NativeTaskOperation
+export type CoreTaskMovement = NativeTaskMovement
 export type CoreTaskOperationGroup = NativeTaskOperationGroup
 export type CoreTaskMergeRequest = NativeTaskMergeRequest
 export type CoreTaskMergePlan = NativeTaskMergePlan
@@ -327,6 +329,7 @@ export class CoreWorkspace {
   async setPreviewRoot(root: string): Promise<void> { await this.native.setPreviewRoot(root) }
   async createConflictPreview(request: CoreConflictPreviewRequest): Promise<CoreConflictPreview> { return await this.native.createConflictPreview(request) }
   async fileAt(path: CoreTaskPath): Promise<CoreOrgFile> { return await this.native.fileAt(path) }
+  // 具名文件根节点与项目根节点使用同一个 Core 查询快照。
   async refileTargets(query: CoreRefileTargetQuery = {}): Promise<CoreRefileTarget[]> { return await this.native.refileTargets(query) }
   // 命令由 Core 统一调度；不同文件可并发，同文件在事件确认后衔接。
   async executeTaskOperations(group: CoreTaskOperationGroup): Promise<void> { await this.native.executeTaskOperations(group) }

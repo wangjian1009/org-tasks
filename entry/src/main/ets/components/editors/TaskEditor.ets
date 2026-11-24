@@ -58,6 +58,8 @@ export struct TaskEditor {
   private recordSource: TaskDataSource | undefined = undefined
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
+  @Prop previewTask: CoreTask | undefined = undefined
+  previewExpanded: () => void = () => {}
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
   @Prop contentHidden: boolean = false
   @Prop projectStructure: boolean = false
@@ -109,7 +111,9 @@ export struct TaskEditor {
   @State priorityBusy: boolean = false
   @State moveOpen: boolean = false
   @State moveSource: CoreTask | undefined = undefined
+  @State moveDetent: string = '70%'
   @State moveSections: RefileSection[] = []
+  @State moveRepositoryNames: Map<string, string> = new Map()
   @State moveLoading: boolean = false
   @State moveBusy: boolean = false
   @State moveMessage: string = ''
@@ -188,7 +192,7 @@ export struct TaskEditor {
     return this.appeared && !this.readOnly && !this.completing && !this.working && !this.moveBusy && !this.moveOpen &&
       !this.snapshotBlocked && !this.removed && !this.typing && !this.checklistTouch && !this.draggingCheck && !this.deleteConfirming && !this.pendingAction
   }
-  value(): CoreTask { return this.editTask ?? this.recordSource?.task! }
+  value(): CoreTask { return this.previewTask ?? this.editTask ?? this.recordSource?.task! }
   private localDataSet(): DataSet {
     if (!this.dataSet) throw new Error('未提供任务数据管理对象')
     return this.dataSet
@@ -402,6 +406,7 @@ export struct TaskEditor {
       const result = new TaskEditorActionResult()
       action = result; this.pendingAction = result
       this.applySnapshot(current)
+      this.moveDetent = '70%'
       this.moveAllowed = allowed; this.moveSource = current; this.moveOpen = true
       this.completing = false
       this.loadMoveTargets()
@@ -431,8 +436,11 @@ export struct TaskEditor {
     this.moveMessage = ''
     this.moveSections = []
     try {
-      const targets = await this.localDataSet().moveTargets()
-      if (request === this.moveRequest && this.moveOpen) this.moveSections = refileSections(targets)
+      const snapshot = await this.localDataSet().moveTargets()
+      if (request === this.moveRequest && this.moveOpen) {
+        this.moveRepositoryNames = snapshot.repositoryNames
+        this.moveSections = refileSections(snapshot.targets)
+      }
     } catch (error) {
       if (request === this.moveRequest && this.moveOpen) this.moveMessage = coreErrorMessage(error as CoreBridgeError)
     } finally {
@@ -440,11 +448,12 @@ export struct TaskEditor {
     }
   }
 
-  closeMove() {
-    if (this.moveBusy) return
+  closeMove(dismiss?: () => void): void {
+    if (!this.moveOpen || this.moveBusy) return
     ++this.moveRequest
-    if (this.moveOpen) this.pendingAction?.finish()
+    this.pendingAction?.finish()
     this.moveOpen = false
+    dismiss?.()
     this.moveSource = undefined
     this.moveSections = []
     this.moveLoading = false
@@ -470,9 +479,18 @@ export struct TaskEditor {
   }
 
   @Builder
+  moveSourcePreview() {
+    if (this.moveSource) {
+      TaskMovePreview({ tasks: [this.moveSource], hiddenTags: this.hiddenTags, expandPanel: (): void => { this.moveDetent = '90%' } })
+    }
+  }
+
+  @Builder
   movePanel() {
-    MoveToTarget({ sections: this.moveSections, selectionKey: this.moveSource ? JSON.stringify([this.moveSource.fullPath, this.moveSource.fileVersion]) : '',
-      loading: this.moveLoading, busy: this.moveBusy, message: this.moveMessage,
+    MoveToTarget({ sections: this.moveSections, repositoryNames: this.moveRepositoryNames,
+      selectionKey: this.moveSource ? JSON.stringify([this.moveSource.fullPath, this.moveSource.fileVersion]) : '',
+      loading: this.moveLoading, busy: this.moveBusy, message: this.moveMessage, close: (): void => { this.closeMove() },
+      sourcePreview: (): void => { this.moveSourcePreview() },
       choose: (target: CoreRefileTarget): void => { this.confirmMove(target) }, retry: (): void => { this.refreshMove() } })
   }
 
@@ -524,8 +542,7 @@ export struct TaskEditor {
   removeDeletedTask() {
     if (this.removed) return
     this.priorityOpen = false
-    ++this.moveRequest
-    this.moveOpen = false; this.moveSource = undefined
+    this.closeMove()
     this.pendingAction?.finish()
     this.removed = true; this.snapshotBlocked = true
     this.expanded = false; this.typing = false; this.message = ''
@@ -540,6 +557,7 @@ export struct TaskEditor {
     TaskInlineSession.release(this.ownerKey)
   }
   aboutToAppear() {
+    if (this.previewTask) { this.ownerKey = this.instanceKey; return }
     this.stopDataSet?.()
     this.recordSource = this.localDataSet().taskSource(this.taskId)
     this.ownerKey = this.instanceKey || this.recordSource.rowId
@@ -566,6 +584,7 @@ export struct TaskEditor {
     })
   }
   aboutToDisappear() {
+    if (this.previewTask) return
     this.stopReminder?.(); this.stopReminder = undefined
     ++this.reminderCheckRequest
     this.stopDataSet?.(); this.stopDataSet = undefined; this.recordSource = undefined
@@ -577,8 +596,7 @@ export struct TaskEditor {
     this.pendingAction?.finish()
     this.pendingAction = undefined
     this.controller?.release()
-    ++this.moveRequest
-    this.moveOpen = false; this.moveSource = undefined
+    this.closeMove()
     ++this.refreshRequest
     this.cancelCheckDrag()
     this.checkFocus.dispose()
@@ -625,9 +643,10 @@ export struct TaskEditor {
   }
   async toggle() {
     if (this.expanded) { await this.finish(true); return }
-    if (!await this.prepare()) return
+    if (!this.previewTask && !await this.prepare()) return
     this.logbookExpanded = false
     this.referenceTime = Date.now()
+    if (this.previewTask) this.previewExpanded()
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
   }
   private collapseAnimated(): void {
@@ -652,7 +671,10 @@ export struct TaskEditor {
   }
   async finish(collapse: boolean): Promise<boolean> {
     if (this.readOnly) {
-      if (collapse) { this.collapseAnimated(); TaskInlineSession.release(this.ownerKey) }
+      if (collapse) {
+        this.collapseAnimated()
+        if (!this.previewTask) TaskInlineSession.release(this.ownerKey)
+      }
       return true
     }
     if (this.moveBusy) return false
@@ -1411,7 +1433,8 @@ export struct TaskEditor {
       Row({ space: 4 }) {
         this.priorityBadge()
         Column({ space: 2 }) {
-          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, editable: false,
+          TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts,
+            editable: false, openLinks: !this.previewTask,
             lineLimit: 1, lineHeight: UiSize.taskTitleLineHeight, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
             activate: (): void => { this.toggleFromCompact() } })
             .width('100%').constraintSize({ minWidth: 0 })
@@ -1676,7 +1699,8 @@ export struct TaskEditor {
               .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
               .onAreaChange((_old: Area, area: Area): void => { this.locateCancelTitle(area) })
           } else {
-            TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts, lineLimit: 1000,
+            TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts,
+              lineLimit: 1000, openLinks: !this.previewTask,
               weight: FontWeight.Medium, cancelled: this.value().state?.category === TaskStateCategory.Cancel,
               editable: this.linksEditable(), revision: this.value().fileVersion, linkEditor: this.linkEditor, showCounts: true, lineHeight: UiSize.taskTitleLineHeight,
               changeLink: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink('title', link, value),
@@ -1928,13 +1952,44 @@ export struct TaskEditor {
       })
       .onClick(() => {})
       .bindSheet($$this.moveOpen, this.movePanel, {
-        height: '70%', detents: ['70%', '90%'], preferType: SheetType.BOTTOM,
-        backgroundColor: '#363A38', showClose: true,
-        onWillDismiss: (action): void => {
-          if (!this.moveBusy) { action.dismiss(); this.closeMove() }
-        },
-        onDisappear: (): void => { this.closeMove() }
+        height: '70%', detents: ['70%', '90%'], detentSelection: this.moveDetent,
+        preferType: SheetType.BOTTOM, dragBar: true, showClose: false, backgroundColor: '#363A38',
+        keyboardAvoidMode: SheetKeyboardAvoidMode.TRANSLATE_AND_RESIZE,
+        onWillDismiss: (action): void => { this.closeMove((): void => { action.dismiss() }) }
       })
   }
 
+}
+
+@Component
+export struct TaskMovePreview {
+  @Prop tasks: CoreTask[] = []
+  @Prop hiddenTags: string[] = []
+  @State showAll: boolean = false
+  expandPanel: () => void = () => {}
+
+  build() {
+    Column({ space: 5 }) {
+      Text(this.tasks.length > 1 ? `待移动任务 · ${this.tasks.length} 条` : '待移动任务')
+        .width('100%').padding({ left: 3 }).fontSize(13).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
+      Column() {
+        ForEach(this.showAll ? this.tasks : this.tasks.slice(0, 2), (task: CoreTask) => {
+          TaskEditor({ readOnly: true, previewTask: task, previewExpanded: this.expandPanel, hiddenTags: this.hiddenTags,
+            regionAreaPolicy: RegionAreaPolicy.None, instanceKey: `move-preview:${task.id}` })
+        }, (task: CoreTask): string => task.id)
+      }.width('100%').backgroundColor(UiColor.surface).borderRadius(9).clip(true)
+      if (this.tasks.length > 2) {
+        Row({ space: 5 }) {
+          Text(this.showAll ? '收起其余任务' : `查看其余 ${this.tasks.length - 2} 条`)
+            .fontSize(13).fontColor(UiColor.primary).fontWeight(FontWeight.Medium)
+          Image($r('app.media.ui_next')).width(14).height(14).fillColor(UiColor.primary)
+            .rotate({ angle: this.showAll ? -90 : 0 }).accessibilityLevel('no')
+        }.width('100%').height(32).padding({ left: 3 }).id('move_source_show_all')
+          .onClick((): void => {
+            this.showAll = !this.showAll
+            if (this.showAll) this.expandPanel()
+          })
+      }
+    }.width('100%')
+  }
 }

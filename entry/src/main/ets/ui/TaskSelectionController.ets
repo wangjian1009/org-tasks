@@ -1,5 +1,6 @@
 import { UIContext } from '@kit.ArkUI'
 import { DataSet } from '../services/DataSet'
+import { MoveTargetSnapshot } from '../services/MoveToTargetService'
 import { CoreTask, CoreTaskPath, CoreRefileTarget, CoreTaskPlanningEdit, coreErrorMessage, CoreBridgeError } from '../services/NativeCoreService'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { TaskRecordOperations } from '../services/TaskRecordOperations'
@@ -61,7 +62,7 @@ export class TaskSelectionController {
   popupAvailable(action: TaskBatchAction, token: number): boolean {
     return token === this.generation && this.pendingAction === action && this.available(action)
   }
-  async moveTargets(): Promise<CoreRefileTarget[]> { return await this.dataSet!.moveTargets() }
+  async moveTargets(): Promise<MoveTargetSnapshot> { return await this.dataSet!.moveTargets() }
 
   async start(taskId: string): Promise<void> {
     if (!this.active || !this.ready() || this.selecting || this.blocked() || !this.dataSet) return
@@ -129,7 +130,7 @@ export class TaskSelectionController {
         default: {
           const plan = await TaskBatchOperations.plan(context.getHostContext()!, tasks, this.entries.map(entry => entry.task), action, target, date)
           if (!allowed()) return
-          await dataSet.submitOperationGroup(plan.group, allowed)
+          await dataSet.submitOperationGroup(plan.group, allowed, action === TaskOperation.Move, target?.fullPath)
           mainPath = plan.mainPath
         }
       }

@@ -7,9 +7,9 @@ import { OrgFileRepositoryOption } from '../ui/OrgFileCreatePresentation'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { OrgFileCreateSheet } from './editors/OrgFileCreateSheet'
 import { DataSet } from '../services/DataSet'
-import { CoreTask, CoreTaskOperationGroup, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskOperationGroup, CoreTaskPath, CoreTaskMovement, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskSwipeOperations } from './TaskSwipeOperations'
-import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy, taskSwipeMenuWidth, taskSelectItem } from '../ui/TaskActionPresentation'
+import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy, taskSwipeMenuWidth } from '../ui/TaskActionPresentation'
 import { TaskStateCategory, taskStateToggleCategory, taskStateToggleWaitCategory } from '../ui/TaskStatePresentation'
 import { TaskEditorController } from '../ui/TaskEditorController'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
@@ -44,8 +44,6 @@ export struct TaskSwipeItem {
   attentionStarted: () => void = () => {}
   @Prop canOrderChildren: boolean = false
   structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
-  placeNode: () => void = () => {}
-  selectNode: () => void = () => {}
   @Prop hiddenTags: string[] = []
   @Prop instanceKey: string = ''
   @Prop selecting: boolean = false
@@ -157,7 +155,12 @@ export struct TaskSwipeItem {
         case TaskOperation.Someday: group = await this.controller.moveToSomeday(allowed); break
         case TaskOperation.Memo: group = await this.controller.convertToMemo(allowed); break
       }
-      if (group) await this.receiveOperation(group, allowed)
+      if (group && action === TaskOperation.Move) {
+        const operation = group.operations[0]
+        if (operation?.type === 'Movement') {
+          await this.submitOperationGroups([group], allowed, false, (operation.data as CoreTaskMovement).position.parent)
+        }
+      } else if (group) await this.receiveOperation(group, allowed)
     } catch (error) { this.reportOperationError(error as Error) }
   }
 
@@ -262,11 +265,11 @@ export struct TaskSwipeItem {
   }
 
   async submitOperationGroups(groups: CoreTaskOperationGroup[], allowed: () => boolean = () => true,
-    waitForCompletion: boolean = false): Promise<void> {
+    waitForCompletion: boolean = false, moveDestination?: CoreTaskPath): Promise<void> {
     const canSubmit = (): boolean => !this.hostBlocked() && allowed()
     if (!canSubmit()) throw new Error('操作已取消')
     this.submitting = true
-    try { await TaskSwipeOperations.submit(this.taskDataSet(), groups, canSubmit, waitForCompletion) }
+    try { await TaskSwipeOperations.submit(this.taskDataSet(), groups, canSubmit, waitForCompletion, moveDestination) }
     finally { this.submitting = false }
   }
 
@@ -274,9 +277,9 @@ export struct TaskSwipeItem {
     const activate = (action: TaskOperation): void => { close?.(); this.activateOperation(action) }
     if (this.projectStructure) {
       const items = taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory, this.toggleWaitCategory)
-      items.unshift({ id: TaskOperation.Place, title: '放置', label: '在项目内放置任务', icon: $r('app.media.ui_place'),
-        action: (): void => { close?.(); this.placeNode() } })
-      items.push(taskSelectItem((): void => { close?.(); this.selectNode() }))
+      const move = this.structureActions(this.canOrderChildren).find(item => item.title === '移动')
+      if (move) items.unshift({ id: TaskOperation.Move, title: move.title, label: '调整任务位置', icon: move.icon!,
+        action: (): void => { close?.(); move.action() } })
       return items
     }
     return this.selection ? taskSwipeMenu(taskActionPolicy({ singleOperations: this.singleOperations }), activate, this.toggleStateCategory, this.toggleWaitCategory) :

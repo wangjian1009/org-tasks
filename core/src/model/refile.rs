@@ -18,6 +18,8 @@ pub struct RefileTargetQuery {
     pub excluded_files: Vec<OrgFileRef>,
     /// 同时枚举项目文件根节点；默认只返回显式 REFILE 标题。
     pub include_project_roots: bool,
+    /// 额外枚举这些文件的根节点，仍受查询范围与排除规则约束。
+    pub file_roots: Vec<OrgFileRef>,
 }
 
 impl RefileTargetQuery {
@@ -34,7 +36,7 @@ impl RefileTargetQuery {
     }
 }
 
-/// 当前文件快照中的放置位置：显式 REFILE 标题或项目文件根节点。
+/// 当前文件快照中的放置位置：显式 REFILE 标题或文件根节点。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefileTarget {
@@ -81,7 +83,9 @@ impl OrgRepo {
             let category = file.category();
             let project_name = file.project_name();
             let file_version = LocalFileVersion::from_bytes(file.source_bytes()).content_hash;
-            if query.include_project_roots && project_name.is_some() {
+            if (query.include_project_roots && project_name.is_some())
+                || query.file_roots.iter().any(|root| root.repo_id == self.id && root.path == file.path)
+            {
                 targets.push(RefileTarget {
                     repo_id: self.id.clone(),
                     full_path: file.full_path(),
@@ -132,7 +136,7 @@ impl WorkspaceState {
         query: &RefileTargetQuery,
     ) -> Result<Vec<RefileTarget>, crate::CoreError> {
         let _activity = self.tasks.enter()?;
-        for file in query.files.iter().chain(&query.excluded_files) {
+        for file in query.files.iter().chain(&query.excluded_files).chain(&query.file_roots) {
             super::validate_relative_path(&file.path)?;
             if file.repo_id.is_empty() {
                 return Err(crate::CoreError::InvalidInput("目标文件的仓库 ID 不能为空"));

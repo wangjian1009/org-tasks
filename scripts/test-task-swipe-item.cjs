@@ -43,7 +43,11 @@ function fixture() {
   for (const method of ['startMove', 'startSchedule', 'startDeadline', 'startDelete', 'start', 'stop', 'wait', 'cancelTask', 'toggleWait', 'moveToSomeday', 'convertToMemo']) {
     editor[method] = async allowed => {
       guards.push(allowed); if (allowed()) calls.push(method);
-      if (allowed()) return groupBuilders.taskModificationGroup({ repoId: 'repo', filePath: 'tasks.org', fileVersion: 'v1', fullPath: { repoId: 'repo', file: 'tasks.org', titles: ['任务'] } }, [{ field: 'TODO', value: method }]);
+      if (!allowed()) return;
+      const source = { repoId: 'repo', filePath: 'tasks.org', fileVersion: 'v1', fullPath: { repoId: 'repo', file: 'tasks.org', titles: ['任务'] } };
+      if (method === 'startMove') return groupBuilders.taskMovementGroup(source,
+        { repoId: 'repo', path: 'other.org', fileVersion: 'v2', fullPath: { repoId: 'repo', file: 'other.org', titles: [] } });
+      return groupBuilders.taskModificationGroup(source, [{ field: 'TODO', value: method }]);
     };
   }
   controller.bind(editor);
