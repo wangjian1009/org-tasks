@@ -224,8 +224,7 @@ export struct TaskContentEditor {
               editingChanged: this.editingChanged }).width('100%')
           } else if (this.treeFor(this.blockFor(slot).id)) {
             TaskBlockView({ block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled,
-              revision: this.revision, nativeChecklist: true, checklistEditing: this.checklistEditing,
-              contentBackground: this.contentBackground, ownerKey: this.ownerKey,
+              revision: this.revision, nativeChecklist: true, contentBackground: this.contentBackground, ownerKey: this.ownerKey,
               insertBelow: this.blockFor(slot).paragraph || this.blockFor(slot).kind === 'list',
               allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1 &&
                 (this.blockFor(slot).paragraph || this.blockFor(slot).kind === 'list'),
@@ -239,7 +238,7 @@ export struct TaskContentEditor {
               begin: this.begin, save: this.save, editingChanged: this.editingChanged }).width('100%')
           } else {
             TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
-              checklistEditing: this.checklistEditing, contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
+              contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
               followRequest: this.followKey === slot.key ? this.followRequest : 0,
               followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
               nextBlock: this.blocks[this.indexFor(slot.key) + 1],

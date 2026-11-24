@@ -63,7 +63,7 @@ function blockFixture() {
     '@kit.ArkUI': { display: { getDefaultDisplaySync: () => ({width:390}) } },
     '@kit.BasicServicesKit': { pasteboard: { MIMETYPE_TEXT_PLAIN:'text/plain', createData: (type,value) => ({type,value}),
       getSystemPasteboard: () => ({async setData(data) { copies.push(data); }}) } }
-  }, source => 'const $r = name => name; class TextAreaController {} class ListScroller {}\n' + prefix('TaskBlockView')(source.split('  @Builder\n')[0].replace(/@BuilderParam /g,'')));
+  }, source => 'const $r = name => name; class TextAreaController {}\n' + prefix('TaskBlockView')(source.split('  @Builder\n')[0].replace(/@BuilderParam /g,'')));
   const editor = new TaskBlockView();
   const writes = [], events = [];
   editor.getUIContext = () => ({px2vp:value=>value,postFrameCallback(){},getPromptAction:()=>({showToast:({message})=>messages.push(message)})});
@@ -136,25 +136,6 @@ test('删除只提交选中的原区块，结束其他草稿失败或快照变�
     if(failure==='同位置区块变化')g.editor.block={...g.editor.block,source:'其他内容'};
     assert.equal(await g.editor.deleteSelected(),false);assert.deepEqual(g.writes,[]);assert.deepEqual(g.events,[]);
   }
-});
-
-test('左滑删除保留露出按钮时的段落和版本', async () => {
-  const f = blockFixture();
-  f.editor.revision = 'v1';
-  f.editor.paragraphScroller = {closeAllSwipeActions() {}};
-  f.editor.paragraphOffsetChanged(-44);
-  assert.deepEqual(f.writes, []);
-  const original = f.editor.block;
-  f.editor.revision = 'v2';
-  f.editor.block = {...original, source:'外部更新'};
-  f.editor.closeParagraphSwipe();
-  f.editor.paragraphOffsetChanged(-22);
-  assert.equal(await f.editor.deleteSwipedParagraph(), false);
-  assert.deepEqual(f.writes, []);
-  f.editor.paragraphOffsetChanged(0);
-  f.editor.paragraphOffsetChanged(-44);
-  assert.equal(await f.editor.deleteSwipedParagraph(), true);
-  assert.deepEqual(f.writes, [{block:f.editor.block, source:''}]);
 });
 
 test('菜单自动关闭后编辑仍使用点选时的快照；清单输入期间不弹出区块菜单', async () => {

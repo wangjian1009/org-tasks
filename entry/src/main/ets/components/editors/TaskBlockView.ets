@@ -18,7 +18,7 @@ export struct TaskBlockView {
   @Prop @Watch('readonlyChanged') readonly: boolean = false
   @Prop projectReading: boolean = false
   @Prop disabled: boolean = false
-  @Prop @Watch('closeParagraphSwipe') revision: string = ''
+  @Prop revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
   @Prop ownerKey: string = ''
   @Prop placeholder: string = '文本'
@@ -50,12 +50,8 @@ export struct TaskBlockView {
   @State menuX: number = 0
   @State menuY: number = 0
   @State menuWidth: number = 320
-  @State private paragraphHeight: number = 20
   private menuBlock: CoreContentBlock | undefined = undefined
   private menuRevision: string = ''
-  private swipedBlock: CoreContentBlock | undefined = undefined
-  private swipeRevision: string = ''
-  private paragraphScroller: ListScroller = new ListScroller()
   private preparing: boolean = false
   private original: CoreContentBlock | undefined = undefined
   private editRevision: string = ''
@@ -149,11 +145,7 @@ export struct TaskBlockView {
     const block = this.menuBlock
     const revision = this.menuRevision
     this.menuVisible = false
-    return block ? this.deleteBlock(block, revision) : false
-  }
-
-  private async deleteBlock(block: CoreContentBlock, revision: string): Promise<boolean> {
-    if (this.preparing) return false
+    if (!block || this.preparing) return false
     this.preparing = true
     let started: boolean = false
     try {
@@ -166,27 +158,6 @@ export struct TaskBlockView {
       this.preparing = false; this.saving = false
       if (started) this.editingChanged(false)
     }
-  }
-
-  closeParagraphSwipe(): void {
-    if (!this.swipedBlock) return
-    try { this.paragraphScroller.closeAllSwipeActions() }
-    catch (_) { this.swipedBlock = undefined }
-  }
-
-  private paragraphOffsetChanged(offset: number): void {
-    if (offset < 0 && !this.swipedBlock) {
-      this.swipedBlock = this.block
-      this.swipeRevision = this.revision
-    } else if (offset === 0) this.swipedBlock = undefined
-  }
-
-  private async deleteSwipedParagraph(): Promise<boolean> {
-    const block = this.swipedBlock
-    const revision = this.swipeRevision
-    LinkEditController.protectInteraction()
-    this.closeParagraphSwipe()
-    return block ? this.deleteBlock(block, revision) : false
   }
 
   async moveSelected(): Promise<void> {
@@ -331,30 +302,6 @@ export struct TaskBlockView {
   }
 
   @Builder
-  paragraphDeleteButton() {
-    Button({ type: ButtonType.Normal }) {
-      Image($r('app.media.ui_delete')).width(18).height(18)
-    }.width(44).height(Math.min(44, this.paragraphHeight)).padding(0).borderRadius(6)
-      .backgroundColor('#513A40').accessibilityText('删除段落')
-      .enabled(!this.disabled && !this.saving).onClick((): void => { this.deleteSwipedParagraph() })
-  }
-
-  @Builder
-  swipeParagraph() {
-    List({ scroller: this.paragraphScroller }) {
-      ListItem() {
-        Column() { this.reading() }.width('100%').onAreaChange((_old: Area, area: Area): void => {
-          const height = Math.ceil(Number(area.height))
-          if (height > 0 && height !== this.paragraphHeight) this.paragraphHeight = height
-        })
-      }.swipeAction(this.disabled || this.editing || this.checklistEditing || this.saving ? {} : {
-        end: this.paragraphDeleteButton(), edgeEffect: SwipeEdgeEffect.None,
-        onOffsetChange: (offset: number): void => { this.paragraphOffsetChanged(offset) }
-      })
-    }.width('100%').height(this.paragraphHeight).scrollBar(BarState.Off).enableScrollInteraction(false)
-  }
-
-  @Builder
   input() {
     Column({ space: 4 }) {
       TextArea({ text: this.draft, controller: this.inputController,
@@ -391,8 +338,6 @@ export struct TaskBlockView {
         Text('添加正文').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
           .enabled(!this.readonly && !this.disabled)
           .onClick((): void => { this.editCurrent() })
-      } else if (this.block.paragraph && !this.readonly) {
-        this.swipeParagraph()
       } else {
         this.reading()
       }
