@@ -80,7 +80,7 @@ test('所有区块拷贝整段 Org 原文；只读菜单仅拷贝且不能修改
     const f=blockFixture();f.editor.block={...f.editor.block,kind,source:'- [ ] 一\n  - [X] 二'};
     f.editor.openMenu(10,20);
     assert.deepEqual(f.editor.menuItems().map(item=>item.title),['拷贝','编辑','删除']);
-    assert.equal(f.editor.menuItems()[2].dangerous,true);
+    assert.equal(f.editor.menuItems()[2].style,'danger');
     f.editor.readonly=true;
     assert.deepEqual(f.editor.menuItems().map(item=>item.title),['拷贝']);
     await f.editor.copySelected();assert.equal(f.copies[0].value,f.editor.block.source);
@@ -95,8 +95,14 @@ test('在两个相邻列表之间插入独立列表时保留前后列表的分�
   f.editor.insertBelow = true;
   f.editor.openMenu(10,20);
   f.editor.allowMove = true;
-  assert.deepEqual(f.editor.menuItems().map(item=>item.title),['拷贝','编辑','移动…','段落','列表','删除']);
-  await f.editor.edit(f.editor.block, f.editor.revision, 'list');
+  const actions = f.editor.menuItems();
+  assert.deepEqual(actions.map(item => item.title), ['拷贝', '编辑', '移动', '段落', '列表', '删除']);
+  const list = actions.find(item => item.id === 'add_list');
+  assert.equal(list.label, '在下方添加列表');
+  assert.notEqual(actions.find(item => item.id === 'add_paragraph').icon, list.icon);
+  list.action();
+  await new Promise(setImmediate);
+  assert.equal(f.editor.addingList, true);
   assert.equal(f.editor.draft, '');
   assert.equal(await f.editor.finish(), true);
   assert.deepEqual(f.writes, []);
