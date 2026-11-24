@@ -817,6 +817,7 @@ test('项目属性变化保留文档结构，新增删除与移动仅更新成�
 test('项目章节按稳定任务身份订阅，属性修改保留正文修订，正文变化仅更新当前章节', () => {
  const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);let active=false,listener,stopped=false;
  const {Section}=load(base+'components/OrgFileTaskSection.ets',{
+  './TitleText': {},
   './controls/PopupMenuButton': {},
   './TaskSelectionRow': {},
   '../services/PageDataEquality':{samePageValue:equal},'../services/TaskInlineService':{TaskInlineSession:{active:()=>active}},
@@ -1014,6 +1015,7 @@ test('项目属性编辑期间父级分类候选继续更新，不覆盖本地�
 test('项目单章节保存直接读取来源最新版本，删除通知清除节点且退出取消 Monitor', async()=>{
  let callback,cancelled=false;const source={task:{fileVersion:'v1',editContent:{blocks:[]}},monitor(fn){callback=fn;fn({task:this.task});return()=>cancelled=true}};
  const {Section}=load(base+'components/OrgFileTaskSection.ets',{
+  './TitleText': {},
   './controls/PopupMenuButton': {}, './TaskSelectionRow': {},
   '../ui/TaskActionPresentation':taskActions,
   '../services/TaskInlineService':{TaskInlineSession:{active:()=>false}},'../ui/Theme':theme

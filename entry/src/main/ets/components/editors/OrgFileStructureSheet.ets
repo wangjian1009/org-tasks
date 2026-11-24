@@ -2,7 +2,8 @@ import { util } from '@kit.ArkTS'
 import { CoreBridgeError, CoreTaskStructureEdit, coreErrorMessage } from '../../services/NativeCoreService'
 import { ProjectStructureDraft, OrgFileStructureNode, OrgFileStructureSnapshot, OrgFileStructureRow, OrgFilePlacement, projectOrderMove, projectSiblings } from '../../ui/OrgFileStructurePresentation'
 import { UiColor } from '../../ui/Theme'
-import { PopupMenu, PopupMenuItem } from '../controls/PopupMenu'
+import { checklistEdgeScroll } from '../../ui/TaskChecklistReorder'
+import { TitleText } from '../TitleText'
 
 export class OrgFileStructureSheetController {
   back: () => void = () => {}
@@ -10,6 +11,8 @@ export class OrgFileStructureSheetController {
 
 export type OrgFileStructureMode = 'add' | 'order' | 'move'
 export type OrgFileStructureNodeKind = 'task' | 'section'
+
+const orderRowHeight = 48
 
 @Component
 export struct OrgFileStructureSheet {
@@ -39,7 +42,11 @@ export struct OrgFileStructureSheet {
   @State conflict: boolean = false
   @State dropBefore: string = ''
   @State dropAfter: string = ''
-  @State gripMenu: string = ''
+  @State dragId: string = ''
+  private orderScroller: Scroller = new Scroller()
+  private dragPoint: FingerInfo | undefined = undefined
+  private dragIndex: number = -1
+  private scrollTimer: number = -1
   private draft: ProjectStructureDraft | undefined = undefined
   aboutToAppear(): void {
     this.source = this.snapshot
@@ -50,6 +57,7 @@ export struct OrgFileStructureSheet {
   }
 
   aboutToDisappear(): void {
+    this.clearDrop()
     this.controller.back = (): void => {}
   }
 
@@ -230,41 +238,62 @@ export struct OrgFileStructureSheet {
     this.commit([{ type: 'move', ids: [id], parent: position.parent, after: position.after }], false)
   }
 
-  private sortItems(node: OrgFileStructureNode): PopupMenuItem[] {
-    const siblings = projectSiblings(this.draft?.nodes ?? [], node.parent)
-    const index = siblings.findIndex(item => item.id === node.id)
-    const actions: PopupMenuItem[] = []
-    if (index > 0) actions.push({ title: '上移', icon: $r('app.media.ui_up'), action: (): void => { this.sort(node.id, index - 1) } })
-    if (index + 1 < siblings.length) {
-      actions.push({ title: '下移', icon: $r('app.media.ui_down'), action: (): void => { this.sort(node.id, index + 1) } })
-    }
-    if (index > 1) actions.push({ title: '置顶', icon: $r('app.media.ui_up'), action: (): void => { this.sort(node.id, 0) } })
-    if (index + 2 < siblings.length) {
-      actions.push({ title: '置底', icon: $r('app.media.ui_down'), action: (): void => { this.sort(node.id, siblings.length - 1) } })
-    }
-    return actions
-  }
-
-  private sortFromDrag(from: number, to: number): void {
-    this.clearDrop()
-    const node = this.ordered[from]
-    if (node) this.sort(node.id, to)
-  }
-
   private clearDrop(): void {
+    clearInterval(this.scrollTimer)
+    this.scrollTimer = -1
+    this.dragPoint = undefined
+    this.dragIndex = -1
+    this.dragId = ''
     this.dropBefore = ''
     this.dropAfter = ''
   }
 
-  private showDrop(from: number, to: number): void {
-    const nodes = this.ordered
-    const target = nodes[to]
-    if (from === to || !target || nodes[from]?.parent !== target.parent) {
+  private startOrderDrag(id: string, event: GestureEvent): void {
+    if (this.busy || this.stale()) return
+    this.clearDrop()
+    this.dragId = id
+    this.updateOrderDrag(event)
+    this.scrollTimer = setInterval((): void => { this.updateDrop(true) }, 24)
+  }
+
+  private updateOrderDrag(event: GestureEvent): void {
+    this.dragPoint = event.fingerList[0] ?? this.dragPoint
+    this.updateDrop(false)
+  }
+
+  private updateDrop(scroll: boolean): void {
+    const point = this.dragPoint
+    const list = this.getUIContext().getFrameNodeById('project_child_order_list')
+    const from = this.ordered.findIndex(node => node.id === this.dragId)
+    if (!point || !list || from < 0 || this.busy || this.stale()) {
       this.clearDrop()
       return
     }
-    this.dropBefore = from > to ? target.id : ''
-    this.dropAfter = from < to ? target.id : ''
+    const origin = list.getPositionToWindow()
+    const size = list.getMeasuredSize()
+    const bottom = origin.y + this.getUIContext().px2vp(size.height)
+    const right = origin.x + this.getUIContext().px2vp(size.width)
+    const top = origin.y
+    const inside = point.globalY >= top && point.globalY <= bottom &&
+      point.globalX >= origin.x && point.globalX <= right
+    const offset = this.orderScroller.currentOffset().yOffset
+    const position = point.globalY - top + offset
+    const to = Math.max(0, Math.min(this.ordered.length - 1, Math.floor(position / orderRowHeight)))
+    this.dragIndex = inside ? to : -1
+    this.dropBefore = inside && to < from ? this.ordered[to].id : ''
+    this.dropAfter = inside && to > from ? this.ordered[to].id : ''
+    if (inside && scroll) {
+      const speed = checklistEdgeScroll(point.globalY, top, bottom)
+      if (speed !== 0) this.orderScroller.scrollBy(0, speed * 0.024)
+    }
+  }
+
+  private finishOrderDrag(event: GestureEvent): void {
+    this.updateOrderDrag(event)
+    const id = this.dragId
+    const to = this.dragIndex
+    this.clearDrop()
+    if (id && to >= 0) this.sort(id, to)
   }
 
   @Builder
@@ -290,24 +319,20 @@ export struct OrgFileStructureSheet {
 
   @Builder
   grip(node: OrgFileStructureNode) {
-    if (this.sortItems(node).length) {
+    if (this.ordered.length > 1) {
       Row() {
         Image($r('app.media.ui_drag_handle')).width(24).height(24).draggable(false).accessibilityLevel('no')
-      }.width(44).height(44).justifyContent(FlexAlign.Center).focusable(true)
-        .accessibilityText(`调整顺序，${node.title}`).enabled(!this.busy && !this.stale())
-        .onClick((): void => { this.gripMenu = this.gripMenu === node.id ? '' : node.id })
-        .bindPopup(this.gripMenu === node.id, { builder: (): void => this.gripActions(node), placement: Placement.BottomRight,
-          popupColor: UiColor.menu, enableArrow: false, targetSpace: 6,
-          onStateChange: (event): void => { if (!event.isVisible && this.gripMenu === node.id) this.gripMenu = '' } })
+      }.width(44).height(44).justifyContent(FlexAlign.Center)
+        .accessibilityText(`长按拖动，${node.title}`)
+        .gesture(GestureGroup(GestureMode.Sequence, LongPressGesture({ repeat: false, duration: 300 }),
+          PanGesture({ direction: PanDirection.Vertical, distance: 4 })
+            .onActionStart((event: GestureEvent): void => { this.startOrderDrag(node.id, event) })
+            .onActionUpdate((event: GestureEvent): void => { this.updateOrderDrag(event) })
+            .onActionEnd((event: GestureEvent): void => { this.finishOrderDrag(event) })
+            .onActionCancel((): void => { this.clearDrop() })).onCancel((): void => { this.clearDrop() }))
     } else {
       Blank().width(44)
     }
-  }
-
-  @Builder
-  gripActions(node: OrgFileStructureNode) {
-    PopupMenu({ items: this.sortItems(node), maximumWidth: 180, disabled: this.busy || this.stale(),
-      activate: (item: PopupMenuItem): void => { this.gripMenu = ''; item.action() } })
   }
 
   @Builder
@@ -360,27 +385,23 @@ export struct OrgFileStructureSheet {
     if (this.source.hasConflict) {
       Text('文件包含受保护的同步冲突').fontSize(13).fontColor(UiColor.secondary).width('100%').padding({top: 6, bottom: 6})
     }
-    List() {
+    List({ scroller: this.orderScroller }) {
       ForEach(this.ordered, (node: OrgFileStructureNode) => {
         ListItem() {
           Stack({ alignContent: Alignment.Center }) {
             Row({ space: 10 }) {
               this.nodeIcon(node.task)
-              Text(node.title).layoutWeight(1).fontSize(16).fontColor(UiColor.text).maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              TitleText({ text: node.title, parts: node.titleParts, textSize: 16, lineLimit: 1, openLinks: false }).layoutWeight(1)
               if (node.hidden) { Text('筛选隐藏').fontSize(12).fontColor(UiColor.secondary) }
               this.grip(node)
-            }.width('100%').constraintSize({ minHeight: 48 })
+            }.width('100%').height(orderRowHeight)
+              .backgroundColor(this.dragId === node.id ? UiColor.selectionTint : Color.Transparent)
             this.dropLine(node.id)
           }.width('100%').alignContent(this.dropBefore === node.id ? Alignment.Top : Alignment.Bottom)
         }
       }, (node: OrgFileStructureNode) => node.id)
-        .onMove((from: number, to: number): void => { this.sortFromDrag(from, to) }, {
-          onMoveThrough: (from: number, to: number): void => { this.showDrop(from, to) },
-          onDrop: (): void => { this.clearDrop() }
-        })
-    }.layoutWeight(1).width('100%').divider({ strokeWidth: 0.5, color: UiColor.outline })
-      .enabled(!this.busy && !this.stale())
+    }.id('project_child_order_list').layoutWeight(1).width('100%').divider({ strokeWidth: 0.5, color: UiColor.outline })
+      .enableScrollInteraction(this.dragId === '').enabled(!this.busy && !this.stale())
   }
 
   build() {

@@ -525,6 +525,7 @@ export struct LinkView {
   }
 
   partAt(x: number, y: number): CoreTitlePart | undefined {
+    if (!this.openLinks && !this.editable) return undefined
     try {
       const layout = this.textController.getLayoutManager()
       const position = layout.getGlyphPositionAtCoordinate(this.getUIContext().vp2px(x), this.getUIContext().vp2px(y)).position

@@ -9,9 +9,10 @@ import { UiColor } from '../ui/Theme'
 import { TaskSwipeItem } from './TaskSwipeItem'
 import { OrgHeadingView } from './OrgHeadingView'
 import { OrgFileSectionBody } from './OrgFileSectionBody'
+import { TitleText } from './TitleText'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 import { PopupMenuItem } from './controls/PopupMenu'
-import { OrgFileEditPhase, OrgFileEditRow } from '../ui/OrgFileStructurePresentation'
+import { OrgFileEditRow } from '../ui/OrgFileStructurePresentation'
 
 interface ProjectBlockItemValue { text: string; checked: boolean; partial: boolean; depth: number }
 interface ProjectBlockValue { kind: string; source: string; html: string; paragraph: boolean; blankLinesBefore: number; items: ProjectBlockItemValue[] }
@@ -32,14 +33,10 @@ export struct OrgFileTaskSection {
   menuCoordinator: SwipeMenuCoordinator | undefined = undefined
   @Prop canOrderChildren: boolean = false
   structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
-  @Prop editPhase: OrgFileEditPhase = 'idle'
   @Prop editRow: OrgFileEditRow | undefined = undefined
   @Prop editBusy: boolean = false
-  @Prop @Watch('sourceSelectionChanged') sourceSelected: boolean = false
-  @Prop targetSelected: boolean = false
+  @Prop @Watch('highlightChanged') highlighted: boolean = false
   @State sourceGlow: number = 0
-  placeNode: () => void = () => {}
-  chooseNode: () => void = () => {}
   dragNode: (offsetY: number, dropped: boolean) => void = () => {}
   cancelDrag: () => void = () => {}
   private actionPolicy = taskPageActionPolicy('today')
@@ -51,7 +48,7 @@ export struct OrgFileTaskSection {
   private stop: (() => void) | undefined = undefined
 
   aboutToAppear(): void {
-    this.sourceSelectionChanged()
+    this.highlightChanged()
     this.source = this.dataSet!.taskSource(this.taskId)
     this.stop = this.source.monitor((): void => {
       this.pending = true
@@ -89,8 +86,8 @@ export struct OrgFileTaskSection {
     }))
   }
 
-  private sourceSelectionChanged(): void {
-    if (!this.sourceSelected) {
+  private highlightChanged(): void {
+    if (!this.highlighted) {
       this.sourceGlow = 0
       return
     }
@@ -111,48 +108,29 @@ export struct OrgFileTaskSection {
   }
 
   @Builder
-  editingHeading() {
+  orderHeading() {
     Row({ space: 8 }) {
       Image(this.node?.state ? $r('app.media.ui_task_list') : $r('app.media.ui_document_outline'))
         .width(18).height(18).accessibilityLevel('no')
-      Text(this.editRow?.title ?? this.node?.heading ?? '').fontSize(this.node?.state ? 16 : 18).fontColor(UiColor.text)
-        .layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-    }.width('100%').constraintSize({ minHeight: 44 })
-  }
-
-  @Builder
-  editControls() {
-    Row() {
-      Button({ type: ButtonType.Normal }) {
-        this.editingHeading()
-      }.layoutWeight(1).constraintSize({ minWidth: 0 }).padding(0)
-        .borderRadius(8)
-        .backgroundColor(this.sourceSelected ? UiColor.selectionTint : this.targetSelected ? UiColor.field : Color.Transparent)
-        .enabled(!this.editBusy && (this.sourceSelected || !this.editRow?.blocked))
-        .accessibilityText(`${this.sourceSelected ? '已选中' : this.editPhase === 'move' ? '移动' : '放置目标'}，${this.editRow?.title ?? ''}`)
-        .onClick((): void => {
-          if (this.editRow?.blocked) return
-          if (this.editPhase === 'move') this.placeNode()
-          else this.chooseNode()
-        })
-        .overlay(this.selectedEffect())
-      if (this.editPhase === 'move') {
+      TitleText({ text: this.node?.heading ?? '', parts: this.node?.headingParts ?? [],
+        textSize: this.node?.state ? 16 : 18, lineLimit: 2, openLinks: false }).layoutWeight(1)
+      if (this.editRow?.canReorder) {
         Row() {
           Image($r('app.media.ui_drag_handle')).width(22).height(22).draggable(false)
         }.width(44).height(44).justifyContent(FlexAlign.Center).enabled(!this.editBusy)
-          .accessibilityText(`长按拖动，${this.editRow?.title ?? ''}`)
+          .accessibilityText(`长按拖动，${this.node?.heading ?? ''}`)
           .gesture(GestureGroup(GestureMode.Sequence, LongPressGesture({ repeat: false, duration: 300 }),
             PanGesture({ direction: PanDirection.Vertical, distance: 4 })
               .onActionUpdate((event: GestureEvent): void => { this.dragNode(event.offsetY, false) })
               .onActionEnd((event: GestureEvent): void => { this.dragNode(event.offsetY, true) })
               .onActionCancel(this.cancelDrag)).onCancel(this.cancelDrag))
-      }
-    }.width('100%')
+      } else { Blank().width(44) }
+    }.width('100%').constraintSize({ minHeight: 44 }).overlay(this.selectedEffect())
   }
 
   @Builder
   selectedEffect() {
-    if (this.sourceSelected) {
+    if (this.highlighted) {
       Row().width('100%').height('100%').borderRadius(8)
         .backgroundColor(UiColor.primary).opacity(this.sourceGlow)
         .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
@@ -162,8 +140,8 @@ export struct OrgFileTaskSection {
   build() {
     Column() {
       if (this.node) {
-        if (this.editPhase !== 'idle') {
-          this.editControls()
+        if (this.editRow) {
+          this.orderHeading()
         } else if (this.node.state) {
           TaskSwipeItem({ listItem: false, menuCoordinator: this.menuCoordinator, interactionEnabled: this.interactionEnabled,
             attentionRequested: this.attentionRequested, attentionStarted: this.attentionStarted,
@@ -182,12 +160,12 @@ export struct OrgFileTaskSection {
               await this.modify(changes)
             } }).width('100%')
         }
-        if (!this.node.state || this.hasChildren) {
+        if (!this.editRow && (!this.node.state || this.hasChildren)) {
           OrgFileSectionBody({ modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
             return await this.modify(changes, task.fileVersion)
           }, readTask: (): CoreTask | undefined => this.source?.task,
             internalLinkProcessor: this.internalLinkProcessor, task: this.node, blocks: this.node.editContent.blocks,
-            contentRevision: `${this.bodyRevision}`, contentBackground: UiColor.surface }).width('100%').enabled(this.editPhase === 'idle')
+            contentRevision: `${this.bodyRevision}`, contentBackground: UiColor.surface }).width('100%')
             .margin({ bottom: this.hasChildren && this.node.editContent.blocks.length > 0 ? 24 : 8 })
             .visibility(this.contextOnly || this.node.property('VISIBILITY') === 'folded' || this.node.editContent.ownTags.includes('ARCHIVE') ? Visibility.None : Visibility.Visible)
         }

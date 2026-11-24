@@ -79,8 +79,6 @@ export struct OrgFileDocumentView {
   structureActions: (row: string, canOrder: boolean) => PopupMenuItem[] = () => []
   @Prop @Watch('editingChanged') edit: OrgFileEditView = projectEditIdle()
   @Prop editBusy: boolean = false
-  placeNode: (row: string) => void = () => {}
-  chooseNode: (row: string) => void = () => {}
   reorderNode: (row: string, sibling: string) => void = () => {}
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
@@ -287,7 +285,7 @@ export struct OrgFileDocumentView {
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     }))
-    const editing = this.edit.phase !== 'idle'
+    const editing = this.edit.active
     const focus = this.focusTask ? this.sectionAt(this.focusTask) : undefined
     if (focus?.node?.state && !editing && !this.focusScrolled && this.focusRow !== focus.key) {
       this.focusRow = focus.key
@@ -301,7 +299,7 @@ export struct OrgFileDocumentView {
     if (editing) {
       const byRow = new Map<string, OrgFileReadingSection>()
       current.forEach(section => byRow.set(section.key, section))
-      displayed = current.filter(section => section.node === null)
+      displayed = []
       for (const row of this.edit.rows) {
         const section = byRow.get(row.row)
         if (section) { displayed.push(section); levels.set(row.row, row.level) }
@@ -328,7 +326,7 @@ export struct OrgFileDocumentView {
   private editRow(row: string): OrgFileEditRow | undefined { return this.edit.rows.find(item => item.row === row) }
 
   private dragRow(row: string, offset: number, dropped: boolean): void {
-    if (this.editBusy || this.edit.phase !== 'move') return
+    if (this.editBusy || !this.edit.active) return
     const source = this.edit.rows.findIndex(item => item.row === row)
     const origin = this.offsets.get(row)
     if (source < 0 || origin === undefined) return
@@ -406,15 +404,15 @@ export struct OrgFileDocumentView {
   build() {
     Scroll(this.scroller) {
       Column() {
-        if (this.fileContext) {
+        if (!this.edit.active && this.fileContext) {
           Text(this.fileContext).fontSize(12).fontColor(UiColor.secondary).width('100%').padding(8)
         }
-        if (!this.readOnly && (this.headerEntries.length > 0 || this.tagOptions.length > 0 || this.category)) {
+        if (!this.edit.active && !this.readOnly && (this.headerEntries.length > 0 || this.tagOptions.length > 0 || this.category)) {
           OrgFileHeader({ headerEntries: this.headerEntries, fileVersion: this.headerVersion, categoryOptions: this.categoryOptions,
             beforeEdit: this.beforeHeaderEdit, save: this.saveHeader, navigation: this.headerNavigation,
             tags: this.tagOptions, selectedTags: this.selectedTags,
             category: this.category, selectedCategory: this.selectedCategory,
-            toggle: this.toggleTag, toggleCategory: this.toggleCategory }).width('100%').enabled(this.edit.phase === 'idle')
+            toggle: this.toggleTag, toggleCategory: this.toggleCategory }).width('100%')
             .onAreaChange((_old: Area, area: Area): void => {
               this.headerHeight = Number(area.height)
               this.scheduleInitialOffset()
@@ -440,10 +438,7 @@ export struct OrgFileDocumentView {
                 menuCoordinator: this.swipeMenus, interactionEnabled: this.showing && this.visibleKeys.includes(section.key),
                 canOrderChildren: this.structureOrderParents.includes(section.key),
                 structureActions: (canOrder: boolean): PopupMenuItem[] => this.structureActions(section.key, canOrder),
-                editPhase: this.edit.phase, editRow: this.editRow(section.key), editBusy: this.editBusy,
-                sourceSelected: this.edit.source === section.key, targetSelected: this.edit.target === section.key,
-                placeNode: (): void => { this.placeNode(section.key) },
-                chooseNode: (): void => { this.chooseNode(section.key) },
+                editRow: this.editRow(section.key), editBusy: this.editBusy, highlighted: this.edit.highlighted === section.key,
                 dragNode: (offset: number, dropped: boolean): void => { this.dragRow(section.key, offset, dropped) },
                 cancelDrag: (): void => { this.dropRow = '' },
                 internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
@@ -465,7 +460,7 @@ export struct OrgFileDocumentView {
               if (section.key === this.focusRow) this.focusWhenLaidOut()
             })
         }, (section: OrgFileReadingSection) => `${this.revision}:${section.key}`)
-        if (this.edit.phase === 'idle' && this.tagFiltered && !this.readingItems.some(item => item.visible && item.section.node?.state && !item.contextOnly)) {
+        if (!this.edit.active && this.tagFiltered && !this.readingItems.some(item => item.visible && item.section.node?.state && !item.contextOnly)) {
           Text('没有匹配标签的任务').fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
         }
         if (this.sections.every((section: OrgFileReadingSection) => section.node === null && section.blocks.length === 0)) {

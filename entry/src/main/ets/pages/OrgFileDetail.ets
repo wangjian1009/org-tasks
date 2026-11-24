@@ -18,7 +18,7 @@ import { samePageValue } from '../services/PageDataEquality'
 import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { OrgFileStructureMode, OrgFileStructureNodeKind, OrgFileStructureSheet,
   OrgFileStructureSheetController } from '../components/editors/OrgFileStructureSheet'
-import { OrgFileEditSession, OrgFileEditView, OrgFilePlacement, OrgFileStructureSnapshot,
+import { OrgFileEditSession, OrgFileEditView, OrgFileStructureSnapshot,
   projectEditIdle, projectStructureNodes } from '../ui/OrgFileStructurePresentation'
 import { OrgFileEditBar } from '../components/OrgFileEditBar'
 import { PageParameters } from '../services/PagePath'
@@ -71,7 +71,6 @@ struct OrgFileDetail {
   @State structureMessage: string = ''
   private structureSheet: OrgFileStructureSheetController = new OrgFileStructureSheetController()
   @State structureEdit: OrgFileEditView = projectEditIdle()
-  @State placementOpen: boolean = false
   @State editBusy: boolean = false
   @State editVersion: string = ''
   @State editConflict: boolean = false
@@ -90,7 +89,7 @@ struct OrgFileDetail {
   private navigation: OrgFileDocumentNavigation = new OrgFileDocumentNavigation()
   private internalLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
     async (target: string): Promise<boolean> =>
-      this.pageVisible && !this.sourceMode && !this.refreshing && this.structureEdit.phase === 'idle' &&
+      this.pageVisible && !this.sourceMode && !this.refreshing && !this.structureEdit.active &&
         await this.ensureLinkSnapshot() && await this.navigation.isValidInternalLink(target),
     async (target: string): Promise<void> => {
       if (!this.pageVisible || this.sourceMode || this.refreshing || this.editSession) throw new Error('当前页面无法执行内部跳转')
@@ -132,7 +131,6 @@ struct OrgFileDetail {
     this.loadRevision++
     this.filterRequest++
     this.filtering = false
-    this.placementOpen = false
   }
   onBackPress(): boolean {
     if (this.fileDeleted) { this.leaveDeletedFile(); return true }
@@ -441,7 +439,6 @@ struct OrgFileDetail {
 
   private exitStructureEdit(): void {
     this.editSession = undefined
-    this.placementOpen = false
     this.editVersion = ''
     this.editConflict = false
     this.editMessage = ''
@@ -449,40 +446,7 @@ struct OrgFileDetail {
   }
 
   private backStructureEdit(): void {
-    const session = this.editSession
-    if (!session || this.editBusy) return
-    if (this.placementOpen) { this.placementOpen = false; return }
-    this.editMessage = ''
-    if (this.structureEdit.phase === 'target') {
-      session.cancelPlacement()
-      this.publishStructureEdit()
-      return
-    }
-    this.exitStructureEdit()
-  }
-
-  private chooseStructureRow(row: string): void {
-    const session = this.editSession
-    if (!session || !this.canEditStructure()) return
-    this.placementOpen = session.chooseTarget(row)
-    this.editMessage = this.placementOpen ? '' : '请选择其他放置目标'
-    this.publishStructureEdit()
-  }
-
-  private startPlacement(row: string): void {
-    const session = this.editSession
-    if (!session || !this.canEditStructure()) return
-    this.editMessage = ''
-    session.startPlacement(row)
-    this.publishStructureEdit()
-  }
-
-  private placeStructureRow(placement: OrgFilePlacement): void {
-    if (!this.canEditStructure()) return
-    this.placementOpen = false
-    const edit = this.editSession?.placement(placement)
-    if (edit) void this.commitStructureMove(edit)
-    else this.editMessage = '请选择其他放置位置'
+    if (this.editSession && !this.editBusy) this.exitStructureEdit()
   }
 
   private reorderStructureRow(row: string, sibling: string): void {
@@ -680,14 +644,14 @@ struct OrgFileDetail {
       AppShell({ title: this.title || (this.hasParent ? '文件' : '项目'), titleParts: this.titleParts,
         titleIcon: this.projectFile ? '' : $r('app.media.ui_folder'), activeRoute: 'pages/OrgFileDetail',
         back: this.hasParent, drawerOpen: $drawerOpen,
-        pullToSync: !this.historyLabel, pullDisabled: this.refreshing || this.fileDeleted || this.structureOpen || this.structureEdit.phase !== 'idle',
-        busy: this.editBusy || this.structureEdit.phase !== 'idle',
+        pullToSync: !this.historyLabel, pullDisabled: this.refreshing || this.fileDeleted || this.structureOpen || this.structureEdit.active,
+        busy: this.editBusy || this.structureEdit.active,
         backAction: (): void => { this.onBackPress() },
         secondaryActionIcon: $r('app.media.ui_document_outline'),
-        secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing && this.structureEdit.phase === 'idle' ? '文档目录' : '',
+        secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing && !this.structureEdit.active ? '文档目录' : '',
         secondaryAction: (): void => { this.navigation.openOutline() },
         actionIcon: $r('app.media.ui_more'),
-        actionLabel: this.loading || this.message || this.refreshing || this.fileDeleted || this.structureEdit.phase !== 'idle' ? '' :
+        actionLabel: this.loading || this.message || this.refreshing || this.fileDeleted || this.structureEdit.active ? '' :
           this.projectFile ? '更多项目操作' : '更多文档操作',
         actionMenuItems: this.projectMenu() }) {
         Column() {
@@ -717,7 +681,7 @@ struct OrgFileDetail {
             if (this.structureMessage) {
               Text(this.structureMessage).fontSize(13).fontColor(UiColor.error).width('100%').padding(12)
             }
-            if (this.createdRow && !this.sourceMode && this.structureEdit.phase === 'idle') {
+            if (this.createdRow && !this.sourceMode && !this.structureEdit.active) {
               Row() {
                 Text('已添加').fontSize(14).fontColor(UiColor.text).layoutWeight(1)
                 Button(this.selectedTags.length || this.selectedCategory ? '清除筛选并定位' : '展开父项并定位')
@@ -741,8 +705,6 @@ struct OrgFileDetail {
                 structureOrderParents: this.structureOrderParents,
                 structureActions: (row: string, canOrder: boolean): PopupMenuItem[] => this.nodeStructureActions(row, canOrder),
                 edit: this.structureEdit, editBusy: this.editBusy || this.staleStructureEdit(),
-                placeNode: (row: string): void => { this.startPlacement(row) },
-                chooseNode: (row: string): void => { this.chooseStructureRow(row) },
                 reorderNode: (row: string, sibling: string): void => { this.reorderStructureRow(row, sibling) },
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,
                 scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
@@ -761,13 +723,10 @@ struct OrgFileDetail {
                 }.width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
               }
             }.width('100%').layoutWeight(1)
-            if (this.structureEdit.phase !== 'idle') {
-              OrgFileEditBar({ edit: this.structureEdit, placementOpen: this.placementOpen,
-                busy: this.editBusy, stale: this.staleStructureEdit(),
+            if (this.structureEdit.active) {
+              OrgFileEditBar({ busy: this.editBusy, stale: this.staleStructureEdit(),
                 message: this.editMessage,
-                cancel: (): void => { this.backStructureEdit() },
-                root: (): void => { this.chooseStructureRow('') },
-                choose: (placement: OrgFilePlacement): void => { this.placeStructureRow(placement) } })
+                cancel: (): void => { this.backStructureEdit() } })
             }
           }
         }.width('100%').height('100%')
