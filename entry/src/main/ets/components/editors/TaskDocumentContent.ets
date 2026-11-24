@@ -1,5 +1,5 @@
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
-import { CoreContentBlock, CoreTask, CoreTaskChecklistChange, CoreTaskChecklistItem, CoreTaskModification, CoreTextLink, CoreLinkValue, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
+import { CoreContentBlockChange, CoreContentNode, CoreContentBlock, CoreTask, CoreTaskChecklistChange, CoreTaskChecklistItem, CoreTaskModification, CoreTextLink, CoreLinkValue, CoreBridgeError, coreErrorMessage } from '../../services/NativeCoreService'
 import { DataSetWriteError } from '../../services/DataSet'
 import { TaskInlineSession } from '../../services/TaskInlineService'
 import { TaskContentEditor } from './TaskContentEditor'
@@ -19,6 +19,7 @@ export struct TaskDocumentContent {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop @Watch('snapshotChanged') task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
+  @Prop contentTree: CoreContentNode[] | undefined = undefined
   @Prop contentRevision: string = ''
   @Prop readonly: boolean = false
   @Prop projectReading: boolean = false
@@ -115,7 +116,8 @@ export struct TaskDocumentContent {
       const index = before.editContent.checklist.findIndex((item: CoreTaskChecklistItem): boolean => item.id === id)
       if (!await this.saveCheck(false) || !this.active) return
       const current = this.current?.editContent.checklist[index]
-      if (change.type !== 'add' && !current) return
+      // 混排列表的 checkbox 来自正文树，保留同版本的源定位。
+      if (change.type !== 'add' && !current && before.fileVersion !== this.current?.fileVersion) return
       if (change.type === 'setChecked' && current) change = { type: 'setChecked', id: current.id, checked: change.checked }
       if (change.type === 'remove' && current) change = { type: 'remove', id: current.id }
       await this.commit([{ field: 'CHECKLIST', value: change }])
@@ -138,12 +140,12 @@ export struct TaskDocumentContent {
     } finally { this.coordinating = false; this.releaseIdle() }
   }
 
-  async addCheck() {
+  async addCheck(after: string = '') {
     if (!await this.session()) return
     this.coordinating = true
     try {
       if (!await this.blockEditor.finish() || !await this.linkEditor.finish() || !await this.saveCheck(false) || !this.active) return
-      this.addingAfter = ''; this.adding = true
+      this.addingAfter = after; this.adding = true
       this.checkFocus.request(`inline_new_check_${this.owner}`)
     } finally { this.coordinating = false; this.releaseIdle() }
   }
@@ -194,9 +196,20 @@ export struct TaskDocumentContent {
     return blocks.length > 0 && blocks[blocks.length - 1].id === block.id
   }
 
+  private tree(): CoreContentNode[] | undefined { return this.current?.editContent.contentTree ?? this.task?.editContent.contentTree ?? this.contentTree }
+
+  async writeContentNode(change: CoreContentBlockChange): Promise<void> {
+    if (!await this.commit([{ field: 'CONTENT_BLOCK', value: change }])) throw new Error(this.message || '修改正文失败，请重试')
+  }
+
   @Builder
   checklist(index: number) {
     TaskChecklistBlock({ items: this.content()[index].items, readonly: this.isReadonly(), disabled: this.working || this.blocked,
+      tree: this.tree()?.find(node => node.id === this.content()[index].id), revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '',
+      processor: this.internalLinkProcessor, editor: this.blockEditor, linkEditor: this.linkEditor,
+      beginNode: (): Promise<boolean> => this.beginBlock(this.content()[index]), writeNode: change => this.writeContentNode(change),
+      editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (!editing) this.releaseIdle() },
+      linkEditingChanged: (editing: boolean): void => { this.linkEditing = editing; if (editing) this.session(); else this.releaseIdle() },
       indentStep: this.projectReading ? 8 : 12,
       ownerKey: this.owner, blockId: this.content()[index].id, editingId: this.editingId, editingText: this.editingText,
       adding: this.adding && (this.addingAfter ? this.content()[index].items.some(item => item.id === this.addingAfter) :
@@ -208,7 +221,7 @@ export struct TaskDocumentContent {
       newChanged: (text: string): void => { this.newText = text },
       save: (next: boolean): void => { this.saveCheck(next) },
       remove: (item: CoreTaskChecklistItem): void => { this.changeCheck({ type: 'remove', id: item.id }) },
-      add: (): void => { this.addCheck() },
+      add: (): void => { this.addCheck() }, insertAfter: (id: string): void => { this.addCheck(id) },
       inputAppeared: (id: string): void => { this.checkFocus.appeared(id) },
       inputDisappeared: (id: string): void => { this.checkFocus.disappeared(id) },
       inputVisible: (id: string): void => { this.checkFocus.visible(id) } }).width('100%')
@@ -216,7 +229,8 @@ export struct TaskDocumentContent {
 
   build() {
     Column({ space: 8 }) {
-      TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
+      TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), contentTree: this.tree(), writeNode: change => this.writeContentNode(change),
+        toggle: change => { this.changeCheck(change) }, beginEmpty: (): Promise<boolean> => this.session(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
         projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
         revision: this.contentRevision || this.current?.fileVersion || this.task?.fileVersion || '', contentBackground: this.contentBackground,
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,

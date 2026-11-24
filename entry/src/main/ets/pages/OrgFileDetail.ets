@@ -104,6 +104,7 @@ struct OrgFileDetail {
   private appliedHistoryRevision: number = -1
   private entryTaskRead: boolean = false
   @State entryTask: CoreTaskPath | undefined = undefined
+  @State entryLink: string = ''
   private loadRevision: number = 0
   private needsReload: boolean = false
   private fileVersion: string = ''
@@ -179,6 +180,7 @@ struct OrgFileDetail {
     if (!this.entryTaskRead) {
       this.entryTaskRead = true
       this.entryTask = params.focusTask
+      this.entryLink = params.focusLink ?? ''
     }
     if (params.syncId) {
       await this.loadHistory(params, params.syncId, force)
@@ -614,7 +616,7 @@ struct OrgFileDetail {
       this.projectFile = project !== null && !this.historyLabel
       this.title = this.projectFile ? projectHeaderTitle(file.category() || '', project!) : file.title() || path
       this.titleParts = this.projectFile ? [] : file.titleParts()
-      if (identity !== this.fileIdentity && !this.projectFile && !this.historyLabel && !this.entryTask) {
+      if (identity !== this.fileIdentity && !this.projectFile && !this.historyLabel && !this.entryTask && !this.entryLink) {
         const context = this.getUIContext().getHostContext()!
         this.sourceMode = AppDataManager.shared(context).configuration?.fileDisplayMode === 'source'
       }
@@ -700,7 +702,8 @@ struct OrgFileDetail {
             Stack() {
               ForEach([this.documentSession], (identity: string) => {
               OrgFileDocumentView({ dataSet: this.fileDataSet, sections: this.sections, matchedIds: this.matchedIds,
-                focusTask: this.entryTask, focusConsumed: (): void => { this.entryTask = undefined },
+                focusTask: this.entryTask, focusLink: this.entryLink,
+                focusConsumed: (): void => { this.entryTask = undefined; this.entryLink = '' },
                 readOnly: !!this.historyLabel, fileContext: this.historyLabel,
                 tagFiltered: this.selectedTags.length > 0 || this.selectedCategory.length > 0,
                 headerEntries: this.headerEntries, headerVersion: this.headerVersion, categoryOptions: this.categoryOptions, tagOptions: this.tagOptions,

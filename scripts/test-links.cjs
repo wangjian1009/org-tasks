@@ -28,7 +28,7 @@ const filename = 'entry/src/main/ets/components/LinkView.ets';
 const source = fs.readFileSync(filename, 'utf8');
 const behavior = source.slice(0, source.indexOf('  build() {')).replace(/  @Builder\n[\s\S]*?\n  \}\n/g, '')
   + '}\n' + source.slice(source.indexOf('interface GeoCoordinates'));
-const code = ts.transpileModule(behavior.replace(/@Component\n|@State |@Prop |@BuilderParam /g, '')
+const code = ts.transpileModule(behavior.replace(/@Component\n|@State |@Prop |@Watch\('[^']+'\) |@BuilderParam /g, '')
   .replace('export struct LinkView', 'export class LinkView'), {
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
 }).outputText;

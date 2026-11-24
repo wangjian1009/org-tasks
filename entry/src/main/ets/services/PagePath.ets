@@ -7,6 +7,7 @@ export interface PageParameters {
   readonly coreRepoId?: string
   readonly path?: string
   readonly focusTask?: CoreTaskPath
+  readonly focusLink?: string
   readonly syncId?: string
   readonly repositoryName?: string
   readonly backupTime?: number | null

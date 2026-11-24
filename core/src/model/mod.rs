@@ -1,4 +1,5 @@
 mod content_block;
+mod content_tree;
 use crate::{CoreError, TimestampMs};
 pub use file_header::{FileHeaderEditSpec, FileHeaderEntry, FileHeaderValueKind};
 use orgize::rowan::ast::AstNode;
@@ -49,6 +50,7 @@ pub(crate) mod write_intent;
 
 pub use conflict_preview::*;
 pub use content_block::*;
+pub use content_tree::{ContentCheckbox, ContentNode, ContentNodeKind};
 pub use data_changes::*;
 pub use editor::*;
 pub use external_files::*;

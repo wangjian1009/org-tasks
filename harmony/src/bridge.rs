@@ -1939,6 +1939,10 @@ mod tests {
         let snapshot: serde_json::Value = serde_json::from_str(&repo_file_json(handle,
             root.to_string_lossy().into_owned(), "tasks.org".into()).unwrap()).unwrap();
         assert_eq!(snapshot["documentSections"][1]["blocks"], task["editContent"]["blocks"]);
+        let tree = &task["editContent"]["contentTree"];
+        assert_eq!(snapshot["documentSections"][1]["contentTree"], *tree);
+        assert_eq!(tree[2]["children"][0]["checkbox"], "unchecked");
+        assert_eq!(tree[2]["children"][0]["children"][0]["parts"][0]["text"], "Item");
         let request = serde_json::json!({
             "operations":[{"type":"Modification","data":{"path":task["fullPath"],"modifications":[
                 {"field":"CONTENT_BLOCK","value":{"type":"replace","id":blocks[1]["id"],"source":"| A | B |\n| 3 | 4 |"}}

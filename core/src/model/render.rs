@@ -31,6 +31,7 @@ pub struct DocumentSection {
     pub path: Option<super::TaskPath>,
     pub html: String,
     pub blocks: Vec<super::ContentBlock>,
+    pub content_tree: Vec<super::ContentNode>,
     pub link_targets: Vec<DocumentLinkTarget>,
 }
 
@@ -118,10 +119,10 @@ impl OrgFile {
             }
             view.0.finish()
         };
-        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section()), blocks: super::content_block::blocks(self, self.syntax().document().section(), None), link_targets: document_link_targets(None, self.syntax().document().section()) }];
+        let mut sections = vec![DocumentSection { path: None, html: render(self.syntax().document().section()), blocks: super::content_block::blocks(self, self.syntax().document().section(), None), content_tree: super::content_tree::tree(self, self.syntax().document().section(), None), link_targets: document_link_targets(None, self.syntax().document().section()) }];
         sections.extend(self.path_headlines().into_iter()
             .filter(|(_, headline)| !Self::is_conflict_headline(headline))
-            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section()), blocks: super::content_block::blocks(self, headline.section(), Some(&headline)), link_targets: document_link_targets(Some(&headline), headline.section()) }));
+            .map(|(path, headline)| DocumentSection { path: Some(path), html: render(headline.section()), blocks: super::content_block::blocks(self, headline.section(), Some(&headline)), content_tree: super::content_tree::tree(self, headline.section(), Some(&headline)), link_targets: document_link_targets(Some(&headline), headline.section()) }));
         sections
     }
 
@@ -396,6 +397,114 @@ impl Traverser for TitleView {
             _ => {}
         }
     }
+}
+
+/// 正文行内片段。href 复用标题的安全链接协议，link 保存原文定位。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentInline {
+    pub text: String,
+    pub href: Option<String>,
+    pub is_link: bool,
+    pub link: Option<super::TextLink>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub styles: Vec<ContentInlineStyle>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ContentInlineStyle { Bold, Italic, Underline, Strike, Code, Subscript, Superscript }
+
+#[derive(Default)]
+struct ContentInlineView {
+    parts: Vec<ContentInline>,
+    styles: Vec<ContentInlineStyle>,
+}
+
+impl ContentInlineView {
+    fn format(container: &Container) -> Option<ContentInlineStyle> {
+        use ContentInlineStyle::*;
+        match container {
+            Container::Bold(_) => Some(Bold),
+            Container::Italic(_) => Some(Italic),
+            Container::Underline(_) => Some(Underline),
+            Container::Strike(_) => Some(Strike),
+            Container::Code(_) | Container::Verbatim(_) => Some(Code),
+            Container::Subscript(_) => Some(Subscript),
+            Container::Superscript(_) => Some(Superscript),
+            _ => None,
+        }
+    }
+
+    fn link(&mut self, label: String, href: Option<String>) {
+        self.parts.push(ContentInline { text: label, href, is_link: true, link: None, styles: self.styles.clone() });
+    }
+}
+
+impl Traverser for ContentInlineView {
+    fn event(&mut self, event: Event, ctx: &mut TraversalContext) {
+        match event {
+            Event::Enter(Container::Link(link)) => {
+                let label = if link.has_description() {
+                    let mut label = Self::default();
+                    for element in link.description() { label.element(element, &mut TraversalContext::default()); }
+                    label.parts.into_iter().map(|part| part.text).collect()
+                } else { link.path().to_string() };
+                self.link(label, rendered_link_href(link.path().as_ref()));
+                ctx.skip();
+            }
+            Event::Enter(Container::Target(_) | Container::AffiliatedKeyword(_)) => ctx.skip(),
+            Event::Enter(container) => {
+                if let Some(style) = Self::format(&container) { self.styles.push(style); }
+            }
+            Event::Leave(container) => {
+                if Self::format(&container).is_some() { self.styles.pop(); }
+            }
+            Event::Text(text) => self.inline_text(text.as_ref()),
+            Event::Entity(entity) => self.inline_text(entity.utf8()),
+            Event::Timestamp(value) => self.inline_text(&value.raw()),
+            Event::Cookie(value) => self.inline_text(&value.raw()),
+            Event::Macros(value) => self.inline_text(&value.raw()),
+            Event::Snippet(value) => self.inline_text(&value.raw()),
+            Event::InlineCall(value) => self.inline_text(&value.raw()),
+            Event::InlineSrc(value) => self.inline_text(&value.raw()),
+            Event::LatexFragment(value) => self.inline_text(&value.raw()),
+            Event::LineBreak(_) => self.inline_text("\n"),
+            _ => {}
+        }
+    }
+}
+
+impl InlineLinkView for ContentInlineView {
+    fn inline_text(&mut self, text: &str) {
+        if text.is_empty() { return; }
+        if let Some(last) = self.parts.last_mut().filter(|part| !part.is_link && part.styles == self.styles) {
+            last.text.push_str(text);
+        } else {
+            self.parts.push(ContentInline { text: text.into(), href: None, is_link: false, link: None, styles: self.styles.clone() });
+        }
+    }
+
+    fn inline_link(&mut self, target: &str) {
+        self.link(target.to_owned(), external_link_href(target));
+    }
+}
+
+pub(super) fn content_inlines(source: &str) -> Vec<ContentInline> {
+    let rendered = source.trim();
+    if rendered.is_empty() { return vec![]; }
+    let mut view = ContentInlineView::default();
+    if !render_inline_links(&mut view, rendered) {
+        orgize::Org::parse(&format!("x {rendered}")).traverse(&mut view);
+        if let Some(first) = view.parts.first_mut() { first.text.drain(..2); }
+    }
+    let mut links = super::text_link::text_links(rendered).into_iter();
+    let shift = source.len() - source.trim_start().len();
+    for part in view.parts.iter_mut().filter(|part| part.is_link) {
+        part.link = links.next().map(|mut link| { link.start += shift; link.end += shift; link });
+    }
+    view.parts.retain(|part| !part.text.is_empty());
+    view.parts
 }
 
 // 用不会形成 Org 语法的占位符重新解析行内排版，避免 URL 中的下划线、斜线等被拆为格式节点。
@@ -1028,7 +1137,7 @@ mod tests {
     #[test]
     fn document_sections_include_empty_and_literal_content_without_executing_html() {
         let empty = file("").document_sections();
-        assert_eq!(empty, [DocumentSection { path: None, html: String::new(), blocks: Vec::new(), link_targets: Vec::new() }]);
+        assert_eq!(empty, [DocumentSection { path: None, html: String::new(), blocks: Vec::new(), content_tree: Vec::new(), link_targets: Vec::new() }]);
         let sections = file("* TODO 空任务\n** 普通标题\n#+begin_export html\n<script>bad()</script>\n#+end_export\n").document_sections();
         assert!(sections[1].html.trim().is_empty());
         assert!(sections[2].html.contains("&lt;script&gt;"));

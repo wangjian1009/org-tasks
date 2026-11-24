@@ -1,10 +1,11 @@
-import { CoreOrgFile, CoreTask, CoreDocumentSection, CoreContentBlock, CoreDocumentLinkTarget } from '../services/NativeCoreService'
+import { CoreOrgFile, CoreTask, CoreDocumentSection, CoreContentBlock, CoreContentNode, CoreDocumentLinkTarget } from '../services/NativeCoreService'
 
 export interface OrgFileReadingSection {
   key: string
   node: CoreTask | null
   html: string
   blocks: CoreContentBlock[]
+  contentTree?: CoreContentNode[]
   linkTargets: CoreDocumentLinkTarget[]
 }
 
@@ -16,7 +17,7 @@ export function projectReadingSections(file: CoreOrgFile, tasks: CoreTask[] = fi
     const key = section.path ? JSON.stringify(section.path) : 'preamble'
     const node = section.path ? nodes.get(key) : null
     if (section.path && !node) throw new Error('文档节点与正文版本不一致，请刷新项目。')
-    return { key, node: node ?? null, html: section.html, blocks: section.blocks, linkTargets: section.linkTargets }
+    return { key, node: node ?? null, html: section.html, blocks: section.blocks, contentTree: section.contentTree, linkTargets: section.linkTargets }
   })
 }
 

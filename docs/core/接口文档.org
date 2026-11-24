@@ -1088,6 +1088,12 @@ pub enum ContentBlockChange {
 
 ~OrgFile.document_sections()~ 的前言和每个节点同时提供相同区块结构；前言只读，节点的区块编辑通过节点路径与既有统一修改入口执行。该投影不进入持久化或同步记录。
 
+** 递归正文树
+
+~TaskEditContent.content_tree~ 与 ~DocumentSection.content_tree~ 原样输出为 ~contentTree~ 。数组按源顺序承载正文和直属子节点，段落、表格单元格的 ~parts~ 提供文字、样式、安全链接地址和相对于节点原文的 ~TextLink~ 引用。空数组表示正文为空。旧 ~blocks~ 通道继续为原消费者提供平铺区块。
+
+~CONTENT_BLOCK~ 扩展 ~replaceText { id, source }~ 、 ~treeLink { id, link, value }~ 、 ~insertLink { id, start, end, source, value }~ 、 ~insertParagraph { id, source }~ 与 ~insertLinkedParagraph { id, value }~ 。区块引用与 UTF-8 范围只在当前文件版本有效，替换链接会重新核对原始值，添加链接校验完整节点原文和插入结果。插入段落使用标题路径内的容器标识， ~root~ 表示标题直属正文， ~list:<id>~ 表示在指定列表末尾新增同级条目。标题及其现有属性与规划继续使用独立接口。表格单元格操作验证列边界，清单项下新增段落沿用条目缩进。
+
 * 文件历史结果与删除备份
 
 历史结果在同步决策时写入 ~OrgRepoSyncFileRecord.outcome~ ，含 ~Created~ 、 ~Deleted~ 、 ~Unchanged~ 、 ~Updated~ 、 ~Merged~ 、 ~Conflict~ 、 ~Uploaded~ 、 ~Failed~ 、 ~Skipped~ ；旧字段缺失使用 ~Legacy~ 兼容推导。 ~history_detail~ 直接消费该结果，冲突结果固定为 ~Conflict~ ，不再存在 ~Resolved~ 投影。 ~Updated~ 表示远端改变、本地无变化， ~Merged~ 表示两端变化且自动合并完成， ~Uploaded~ 表示仅本地变化。

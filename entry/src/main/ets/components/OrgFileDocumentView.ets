@@ -39,6 +39,7 @@ export struct OrgFileDocumentView {
 
   @Prop @Watch('updateDocument') sections: OrgFileReadingSection[] = []
   @Prop @Watch('updateDocument') focusTask: CoreTaskPath | undefined = undefined
+  @Prop @Watch('updateDocument') focusLink: string = ''
   focusConsumed: () => void = () => {}
   @Prop @Watch('updateDocument') matchedIds: string[] = []
   @Prop @Watch('updateDocument') tagFiltered: boolean = false
@@ -102,11 +103,11 @@ export struct OrgFileDocumentView {
   private stopTasks: (() => void) | undefined = undefined
   private updatePending: boolean = false
 
-  linkSection(target: string): OrgFileReadingSection | undefined {
+  linkSection(target: string, visibleOnly: boolean = true): OrgFileReadingSection | undefined {
     let priority = Infinity
     let found: OrgFileReadingSection | undefined = undefined
     for (const section of this.sections) {
-      if (!this.visibleKeys.includes(section.key)) continue
+      if (visibleOnly && !this.visibleKeys.includes(section.key)) continue
       for (const destination of section.linkTargets) {
         if (destination.target === target && destination.priority < priority) { found = section; priority = destination.priority }
       }
@@ -154,16 +155,12 @@ export struct OrgFileDocumentView {
     this.navigation.locateSection = (path: CoreTaskPath): Promise<boolean> => this.locateSection(path)
     this.navigation.locateCreated = (row: string, reveal: boolean): Promise<boolean> => this.locateCreated(row, reveal)
     this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
-      this.active && this.showing && this.linkSection(target) !== undefined
+      this.active && this.showing && this.linkSection(target, false) !== undefined
     this.navigation.followInternalLink = async (target: string): Promise<void> => {
-      const section = this.linkSection(target)
+      const section = this.linkSection(target, false)
       if (!section || !this.active || !this.showing) throw new Error('内部链接目标不存在或项目文档已隐藏')
-      const located = section.node
-        ? await this.navigation.locateSection(section.node.fullPath)
-        : await this.scrollToSection((): OrgFileReadingSection | undefined => {
-          const current = this.linkSection(target)
-          return current?.key === section.key ? current : undefined
-        })
+      if (!await TaskInlineSession.end(false)) throw new Error('请先完成当前编辑')
+      const located = await this.locateRow(section.key, true)
       if (!located) throw new Error('无法定位内部链接，请先完成当前编辑后重试')
     }
     this.pendingOffset = this.readOffset()
@@ -245,7 +242,7 @@ export struct OrgFileDocumentView {
     const revision = this.navigationRevision
     if (reveal) {
       this.revealAncestors(row)
-      this.updateDocument()
+      this.updateDocumentForNavigation()
     }
     for (let attempt = 0; attempt < 12 && this.active && this.showing && revision === this.navigationRevision; attempt++) {
       if (await this.scrollToSection((): OrgFileReadingSection | undefined => this.sections.find(section => section.key === row))) return true
@@ -291,20 +288,24 @@ export struct OrgFileDocumentView {
   updateOutline(): void {
     this.outlineItems = projectOutlineSections(this.readingItems.filter(item => item.visible).map(item => item.section).map((section: OrgFileReadingSection): OrgFileReadingSection => ({
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
-      html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
+      html: section.html, blocks: section.blocks, contentTree: section.contentTree, linkTargets: section.linkTargets
     })))
   }
 
-  updateDocument(): void {
-    if (TaskInlineSession.active()) { this.updatePending = true; return }
+  updateDocument(): void { this.updateDocumentState(false) }
+
+  private updateDocumentForNavigation(): void { this.updateDocumentState(true) }
+
+  private updateDocumentState(explicitNavigation: boolean): void {
+    if (!explicitNavigation && TaskInlineSession.active()) { this.updatePending = true; return }
     this.updatePending = false
     const current = this.sections.map((section: OrgFileReadingSection): OrgFileReadingSection => ({
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
-      html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
+      html: section.html, blocks: section.blocks, contentTree: section.contentTree, linkTargets: section.linkTargets
     }))
     const editing = this.edit.active
-    const focus = this.focusTask ? this.sectionAt(this.focusTask) : undefined
-    if (focus?.node?.state && !editing && !this.focusScrolled && this.focusRow !== focus.key) {
+    const focus = this.focusLink ? this.linkSection(this.focusLink, false) : this.focusTask ? this.sectionAt(this.focusTask) : undefined
+    if (focus && (this.focusLink || focus.node?.state) && !editing && !this.focusScrolled && this.focusRow !== focus.key) {
       this.focusRow = focus.key
       this.revealAncestors(focus.key)
     } else if (!focus) {
@@ -546,7 +547,7 @@ export struct OrgFileDocumentView {
               TitleText({ text: section.node.heading, parts: section.node.headingParts, textSize: 17, weight: FontWeight.Medium })
                 .width('100%').padding({ left: Math.min(section.node.level - 1, 4) * 12, top: 8 })
               if (section.blocks.length > 0) {
-                OrgFileSectionBody({ task: null, blocks: section.blocks, internalLinkProcessor: this.internalLinkProcessor })
+                OrgFileSectionBody({ task: null, blocks: section.blocks, contentTree: section.contentTree, internalLinkProcessor: this.internalLinkProcessor })
                   .width('100%')
               }
             } else if (section.node) {
@@ -565,7 +566,7 @@ export struct OrgFileDocumentView {
                 cancelDrag: (): void => { this.cancelOrderDrag() },
                 internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
             } else if (section.blocks.length > 0) {
-              OrgFileSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
+              OrgFileSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks, contentTree: section.contentTree,
                 contentBackground: UiColor.projectBlock }).width('100%')
             }
           }.width('100%').alignItems(HorizontalAlign.Start)

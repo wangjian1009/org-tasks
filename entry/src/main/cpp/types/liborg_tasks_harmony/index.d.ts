@@ -10,6 +10,7 @@ export interface TitlePart {
   readonly isLink: boolean;
   readonly count: TitleCount | null;
   readonly link: TextLink | null;
+  readonly styles?: ContentInlineStyle[];
 }
 
 export interface TextLink { readonly start: number; readonly end: number; readonly source: string; readonly title: string; readonly url: string; }
@@ -55,7 +56,7 @@ export interface TaskPlanningEdit { date: string; time?: TaskPlanningTime | null
 export interface TaskPlanningInfo { readonly date: string; readonly time: TaskPlanningTime | null; }
 export interface TaskRepeatInfo { readonly date: string; readonly hasTime: boolean; readonly rule: TaskRepeatRule | null; }
 export interface TaskChecklistItem { readonly id: string; readonly siblingGroup: string; readonly text: string; readonly checked: boolean; readonly partial: boolean; readonly depth: number; }
-export interface TaskEditContent { readonly noteRequiredStates: string[]; readonly ownTags: string[]; readonly notes: string; readonly notesHtml: string; readonly checklist: TaskChecklistItem[]; readonly blocks: ContentBlock[]; readonly scheduledRepeat: TaskRepeatInfo | null; readonly deadlineRepeat: TaskRepeatInfo | null; readonly scheduledPlanning: TaskPlanningInfo | null; readonly deadlinePlanning: TaskPlanningInfo | null; }
+export interface TaskEditContent { readonly noteRequiredStates: string[]; readonly ownTags: string[]; readonly notes: string; readonly notesHtml: string; readonly checklist: TaskChecklistItem[]; readonly blocks: ContentBlock[]; readonly contentTree?: ContentNode[]; readonly scheduledRepeat: TaskRepeatInfo | null; readonly deadlineRepeat: TaskRepeatInfo | null; readonly scheduledPlanning: TaskPlanningInfo | null; readonly deadlinePlanning: TaskPlanningInfo | null; }
 export interface SupportTags { readonly tags: string[]; readonly groups: string[][]; }
 export type TaskChecklistChange =
   { type: 'add'; text: string } |
@@ -65,7 +66,19 @@ export type TaskChecklistChange =
   { type: 'remove'; id: string } |
   { type: 'move'; id: string; beforeId: string | null };
 export interface ContentBlock { readonly id: string; readonly kind: 'text' | 'list' | 'table' | 'checklist'; readonly paragraph: boolean; readonly blankLinesBefore: number; readonly source: string; readonly html: string; readonly items: TaskChecklistItem[]; }
-export type ContentBlockChange = { type: 'replace'; id: string; source: string } | { type: 'link'; id: string; link: TextLink; value: LinkValue | null };
+export type ContentInlineStyle = 'bold' | 'italic' | 'underline' | 'strike' | 'code' | 'subscript' | 'superscript';
+export interface ContentInline {
+  readonly text: string; readonly href: string | null; readonly isLink: boolean;
+  readonly link: TextLink | null; readonly styles?: ContentInlineStyle[];
+}
+export interface ContentNode {
+  readonly id: string; readonly kind: 'paragraph' | 'list' | 'item' | 'table' | 'row' | 'rule' | 'cell' | 'quote' | 'literal';
+  readonly source: string; readonly blankLinesBefore: number; readonly children?: ContentNode[];
+  readonly parts?: ContentInline[]; readonly marker?: string; readonly checkbox?: 'unchecked' | 'checked' | 'partial';
+}
+export type ContentBlockChange = { type: 'replace' | 'replaceText'; id: string; source: string } | { type: 'link' | 'treeLink'; id: string; link: TextLink; value: LinkValue | null } |
+  { type: 'insertLink'; id: string; start: number; end: number; source: string; value: LinkValue } |
+  { type: 'insertParagraph'; id: string; source: string } | { type: 'insertLinkedParagraph'; id: string; value: LinkValue };
 export interface TaskPropertyChange { name: string; value: string | null; }
 export interface TaskModification { field: TaskModificationField; value: number | string | string[] | TaskAddressChange | TaskPropertyChange | TaskChecklistChange | ContentBlockChange | TaskLinkChange | TaskRepeatRule | TaskPlanningEdit | null; }
 export interface TaskModificationOperation { path: TaskPath; modifications: TaskModification[]; note?: string; }
@@ -138,7 +151,7 @@ export interface RefileTarget {
   category: string | null; projectName: string | null; fileVersion: string; titleParts: TitlePart[];
 }
 export interface DocumentLinkTarget { target: string; priority: number; }
-export interface DocumentSection { path: TaskPath | null; html: string; blocks: ContentBlock[]; linkTargets: DocumentLinkTarget[]; }
+export interface DocumentSection { path: TaskPath | null; html: string; blocks: ContentBlock[]; contentTree?: ContentNode[]; linkTargets: DocumentLinkTarget[]; }
 export type FileHeaderValueKind = 'text' | 'category' | 'fileTags' | 'tagConfig';
 export interface FileHeaderEditSpec { kind: FileHeaderValueKind; protectedTags: string[]; }
 export interface FileHeaderEntry { id: string; name: string; value: string; keyword: boolean; tags: string[]; edit: FileHeaderEditSpec | null; }

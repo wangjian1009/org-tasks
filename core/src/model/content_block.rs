@@ -25,14 +25,17 @@ pub struct ContentBlock {
 pub enum ContentBlockChange {
     Replace { id: String, source: String },
     Link { id: String, link: super::TextLink, value: Option<super::LinkValue> },
+    ReplaceText { id: String, source: String },
+    TreeLink { id: String, link: super::TextLink, value: Option<super::LinkValue> },
+    InsertLink { id: String, start: usize, end: usize, source: String, value: super::LinkValue },
+    InsertParagraph { id: String, source: String },
+    InsertLinkedParagraph { id: String, value: super::LinkValue },
 }
 
-pub(super) fn blocks(file: &OrgFile, section: Option<Section>, headline: Option<&Headline>) -> Vec<ContentBlock> {
+pub(super) fn sources<'a>(file: &'a OrgFile, section: Option<Section>, headline: Option<&Headline>)
+    -> impl Iterator<Item = (orgize::SyntaxElement, usize, &'a str)> + 'a {
     let planning_end = headline.and_then(|headline| super::task_operation_executor::planning_lines(file, headline).last().map(|(_, end, _)| *end)).unwrap_or(0);
-    let checklists = headline.map(super::task_inline::checklist_lists).unwrap_or_else(|| section.as_ref().map(|s| {
-        s.syntax().children().filter_map(List::cast).filter(super::task_inline::is_checklist).collect()
-    }).unwrap_or_default());
-    section.into_iter().flat_map(|section| section.syntax().children_with_tokens().collect::<Vec<_>>()).filter_map(|node| {
+    section.into_iter().flat_map(|section| section.syntax().children_with_tokens().collect::<Vec<_>>()).filter_map(move |node| {
         if matches!(node.kind(), SyntaxKind::PLANNING | SyntaxKind::PROPERTY_DRAWER | SyntaxKind::KEYWORD | SyntaxKind::COMMENT | SyntaxKind::COMMENT_BLOCK) { return None; }
         // 带重复窗口的规划可能让紧邻属性解析为普通 drawer，仍按名称排除元数据。
         if node.kind() == SyntaxKind::DRAWER && node.as_node().and_then(|n| orgize::ast::Drawer::cast(n.clone())).is_some_and(|d| ["PROPERTIES", "LOGBOOK"].iter().any(|name| d.name().eq_ignore_ascii_case(name))) { return None; }
@@ -41,6 +44,20 @@ pub(super) fn blocks(file: &OrgFile, section: Option<Section>, headline: Option<
         if start >= end { return None; }
         let source = std::str::from_utf8(&file.source_bytes()[start..end]).expect("UTF-8").trim_end_matches(['\r', '\n']);
         if source.trim().is_empty() { return None; }
+        Some((node, start, source))
+    })
+}
+
+pub(super) fn blank_lines(file: &OrgFile, start: usize) -> usize {
+    file.source_bytes()[..start].rsplit(|byte| *byte == b'\n').skip(1)
+        .take_while(|line| line.iter().all(u8::is_ascii_whitespace)).count()
+}
+
+pub(super) fn blocks(file: &OrgFile, section: Option<Section>, headline: Option<&Headline>) -> Vec<ContentBlock> {
+    let checklists = headline.map(super::task_inline::checklist_lists).unwrap_or_else(|| section.as_ref().map(|s| {
+        s.syntax().children().filter_map(List::cast).filter(super::task_inline::is_checklist).collect()
+    }).unwrap_or_default());
+    sources(file, section, headline).map(|(node, start, source)| {
         let list = checklists.iter().find(|list| list.syntax().text_range() == node.text_range());
         let kind = if list.is_some() { ContentBlockKind::Checklist } else { match node.kind() {
             SyntaxKind::LIST => ContentBlockKind::List,
@@ -48,13 +65,12 @@ pub(super) fn blocks(file: &OrgFile, section: Option<Section>, headline: Option<
             _ => ContentBlockKind::Text,
         }};
         // 分隔空行由无损节点的原位置投影，不混入可编辑 source，也不扫描块内部字面内容。
-        let blank_lines_before = file.source_bytes()[..start].rsplit(|byte| *byte == b'\n').skip(1)
-            .take_while(|line| line.iter().all(u8::is_ascii_whitespace)).count();
-        Some(ContentBlock { id: start.to_string(), kind, paragraph: node.kind() == SyntaxKind::PARAGRAPH,
+        let blank_lines_before = blank_lines(file, start);
+        ContentBlock { id: start.to_string(), kind, paragraph: node.kind() == SyntaxKind::PARAGRAPH,
             blank_lines_before, source: source.into(),
             html: if list.is_some() { String::new() } else { super::text_link::editable_html(source) },
             items: list.map(|list| super::task_inline::project_checklist(file, list)).unwrap_or_default(),
-        })
+        }
     }).collect()
 }
 
@@ -67,7 +83,10 @@ fn locate(file: &OrgFile, headline: &Headline, id: &str) -> Result<(ContentBlock
 }
 
 pub(super) fn modify(file: &mut OrgFile, headline: &Headline, change: &ContentBlockChange) -> Result<(), CoreError> {
-    let id = match change { ContentBlockChange::Replace { id, .. } | ContentBlockChange::Link { id, .. } => id };
+    let id = match change {
+        ContentBlockChange::Replace { id, .. } | ContentBlockChange::Link { id, .. } => id,
+        _ => return super::content_tree::modify(file, headline, change),
+    };
     let (block, range) = locate(file, headline, id)?;
     let source = match change {
         ContentBlockChange::Replace { source, .. } => {
@@ -85,6 +104,7 @@ pub(super) fn modify(file: &mut OrgFile, headline: &Headline, change: &ContentBl
             if block.kind == ContentBlockKind::Checklist { return Err(CoreError::InvalidInput("检查清单链接请通过清单原文编辑")); }
             super::text_link::changed_source(&block.source, link, value)?
         }
+        _ => unreachable!("树修改已分发"),
     };
     if block.source == source { return Ok(()); }
     let checkbox_changed = matches!(change, ContentBlockChange::Replace { .. }) && [&block.source, &source].into_iter().any(|source| {

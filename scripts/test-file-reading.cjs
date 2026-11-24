@@ -530,6 +530,7 @@ test('项目跳转等待草稿保存成功，失败保留页面，成功使用�
   const routes = [];
   let saved = false;
   const { OrgFileNavigation } = load(base + 'services/OrgFileNavigation.ets', {
+    './AppConfigService': {}, './NativeCoreService': {},
     './TaskInlineService': { TaskInlineSession: { async end(collapse) { assert.equal(collapse, true); return saved; } } }
   });
   const context = { getRouter: () => ({ async pushUrl(route) { routes.push(route); } }), getPromptAction: () => ({ showToast() {} }) };
@@ -864,7 +865,7 @@ test('原生项目内部链接共用 Core 目标索引，优先定位专用目�
   assert.equal(await page.internalLinks.isValid('不存在'),false);
   await page.internalLinks.process('目标');assert.equal(f.view.scroller.lastScroll.yOffset,388);
   f.save(async()=>false);f.view.offsets.set('dedicated',600);
-  await assert.rejects(page.internalLinks.process('目标'),/无法定位/);
+  await assert.rejects(page.internalLinks.process('目标'),/完成当前编辑/);
   assert.equal(f.view.scroller.lastScroll.yOffset,388);
   f.view.aboutToDisappear();assert.equal(await page.internalLinks.isValid('目标'),false);
 });

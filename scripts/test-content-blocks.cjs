@@ -217,12 +217,12 @@ test('编译后的清单在只读与可写状态保留相同字号、颜色、�
     const Row = ui('row'), Button = ui('button'), Text = ui('text');
     const globals = { module: {exports:{}}, Row, Button, Text, If:{create(){},pop(){}},
       UiColor:{text:'text',disabled:'disabled',secondary:'secondary'}, Color:{Transparent:'transparent'},
-      TextDecorationType:{LineThrough:'strike',None:'none'},
+      TextDecorationType:{LineThrough:'strike',None:'none'}, VerticalAlign:{Top:'top',Center:'center'},
       checklistSiblings:items=>items };
     vm.runInNewContext(code, globals);
     const item = {id:'first',text:'这是应当完整换行的很长清单文字，不能在只读状态切换成单行省略',checked,partial,depth:2};
     const component = Object.assign(new globals.module.exports(), {readonly,disabled:false,dragging:false,editingId:'',sorting:true,items:[item,{...item,id:'second'}],
-      indentStep:12,observeComponentCreation2(callback){callback(0,true);},ifElseBranchUpdateFunction(_,callback){callback();},
+      indentStep:12,projectedBody:()=>[],observeComponentCreation2(callback){callback(0,true);},ifElseBranchUpdateFunction(_,callback){callback();},
       grip(){Row.create();Row.width(44);Row.height(44);Row.pop();},toggle(){writes++;},edit(){writes++;}});
     component.row(item);
     for(const callback of callbacks)callback();
@@ -317,7 +317,7 @@ test('编译后的项目竖线仅在二级及更深正文按实测高度收尾�
 });
 
 test('编译后的任务区块回调在子组件中执行时仍使用任务宿主，清单与拖动手柄均能创建', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskEditor',['bodyBlocks','checklistBlock','checkBlock']);
+  const f=compiledBuilders('TaskEditor',['bodyBlocks','checklistBlock','checkBlock','tree','contentLinks']);
   const item={id:'42',text:'日志回归验证 20261112',checked:false,depth:0};
   const block={id:'20',kind:'checklist',items:[item]};
   const calls=[];
@@ -333,7 +333,7 @@ test('编译后的任务区块回调在子组件中执行时仍使用任务宿�
 });
 
 test('编译后的项目正文清单回调保持文档宿主，避免借用区块组件的 this', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskDocumentContent',['initialRender','checklist']);
+  const f=compiledBuilders('TaskDocumentContent',['initialRender','checklist','tree']);
   const block={id:'20',kind:'checklist',items:[{id:'42',text:'项目清单'}]};
   Object.assign(f.host,{content:()=>[block],isReadonly(){assert.equal(this,f.host);return false;},lastChecklist(){assert.equal(this,f.host);return true;},message:''});
   f.host.initialRender();
@@ -343,7 +343,7 @@ test('编译后的项目正文清单回调保持文档宿主，避免借用区�
 });
 
 test('编译后的项目清单在连续新增、勾选、删除和位置 ID 改变后读取当前快照', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskDocumentContent',['initialRender','checklist','lastChecklist']);
+  const f=compiledBuilders('TaskDocumentContent',['initialRender','checklist','lastChecklist','tree']);
   let blocks=[{id:'20',kind:'checklist',items:[{id:'42',text:'原条目',checked:false}]}];
   Object.assign(f.host,{content:()=>blocks,isReadonly:()=>false,adding:true,message:''});
   f.host.initialRender();f.children.find(child=>child.kind==='blocks').checklist(0);
@@ -361,7 +361,7 @@ test('编译后的项目清单在连续新增、勾选、删除和位置 ID 改�
 });
 
 test('编译后的任务编辑清单在新快照条目 ID 全部移动后仍显示完整清单', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskEditor',['checklistBlock','checkBlock','blockItems','lastChecklist']);
+  const f=compiledBuilders('TaskEditor',['checklistBlock','checkBlock','blockItems','lastChecklist','tree','contentLinks']);
   let blocks=[{id:'20',kind:'checklist',items:[{id:'42',text:'原条目'}]}];
   Object.assign(f.host,{value:()=>({editContent:{blocks}}),checkItems:()=>blocks[0].items,addingCheck:true});
   f.host.checklistBlock(0);

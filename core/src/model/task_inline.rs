@@ -29,6 +29,7 @@ pub struct TaskEditContent {
     pub notes_html: String,
     pub checklist: Vec<TaskChecklistItem>,
     pub blocks: Vec<super::ContentBlock>,
+    pub content_tree: Vec<super::ContentNode>,
     pub scheduled_repeat: Option<super::TaskRepeatInfo>,
     pub deadline_repeat: Option<super::TaskRepeatInfo>,
     pub scheduled_planning: Option<super::TaskPlanningInfo>,
@@ -137,16 +138,10 @@ pub(crate) fn note_ranges(file: &OrgFile, headline: &Headline) -> Vec<Range<usiz
 }
 
 pub(crate) fn checklist_items(headline: &Headline) -> Vec<ListItem> {
-    checklist_lists(headline)
-        .iter()
-        .flat_map(|list| {
-            list.syntax()
-                .descendants()
-                .filter_map(ListItem::cast)
-                .filter(|item| item.checkbox().is_some())
-                .collect::<Vec<_>>()
-        })
-        .collect()
+    headline.section().into_iter().flat_map(|section| {
+        section.syntax().descendants().filter_map(ListItem::cast)
+            .filter(|item| item.checkbox().is_some()).collect::<Vec<_>>()
+    }).collect()
 }
 
 pub(crate) fn item_text_range(file: &OrgFile, item: &ListItem) -> Range<usize> {
@@ -188,6 +183,7 @@ impl OrgFile {
             notes,
             checklist,
             blocks: super::content_block::blocks(self, headline.section(), Some(&headline)),
+            content_tree: super::content_tree::tree(self, headline.section(), Some(&headline)),
             scheduled_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),
             deadline_repeat: super::task_repeat::repeat_info(self, &headline, SyntaxKind::PLANNING_DEADLINE),
             scheduled_planning: super::task_repeat::planning_info(self, &headline, SyntaxKind::PLANNING_SCHEDULED),

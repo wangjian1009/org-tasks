@@ -90,6 +90,7 @@ export struct LinkView {
   @Prop lineLimit: number = 0
   @Prop lineHeight: number | undefined = undefined
   @Prop cancelled: boolean = false
+  @Prop @Watch('insertionChanged') insertion: CoreTextLink | undefined = undefined
   @Prop copyable: boolean = false
   @Prop openLinks: boolean = true
   @Prop editable: boolean = false
@@ -189,6 +190,14 @@ export struct LinkView {
       if (this.active && generation === this.generation) this.remeasure()
     }
     catch (_) { this.notify('链接控件加载失败，请重新载入正文。') }
+  }
+
+  insertionChanged(): void {
+    const link = this.insertion
+    if (!link || !this.active) return
+    this.selected = { link, href: '', label: link.title, x: 0, y: 0, width: this.widthVp }
+    this.selectedRevision = this.revision
+    this.beginEdit()
   }
 
   async beginEdit() {
@@ -558,11 +567,17 @@ export struct LinkView {
               .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.Underline,
                 color: this.cancelled ? UiColor.disabled : undefined,
                 style: part.href ? TextDecorationStyle.SOLID : TextDecorationStyle.DASHED })
+              .fontWeight(part.styles?.includes('bold') ? FontWeight.Bold : this.weight)
+              .fontStyle(part.styles?.includes('italic') ? FontStyle.Italic : FontStyle.Normal)
               .onClick((event: ClickEvent): void => { this.selectPart(part, event) })
           } else {
             Span(part.text).fontColor(this.cancelled ? UiColor.disabled : UiColor.text)
-              .decoration({ type: this.cancelled ? TextDecorationType.LineThrough : TextDecorationType.None,
-                color: UiColor.disabled })
+              .fontWeight(part.styles?.includes('bold') ? FontWeight.Bold : this.weight)
+              .fontStyle(part.styles?.includes('italic') ? FontStyle.Italic : FontStyle.Normal)
+              .fontFamily(part.styles?.includes('code') ? 'monospace' : 'sans-serif')
+              .decoration({ type: this.cancelled || part.styles?.includes('strike') ? TextDecorationType.LineThrough :
+                part.styles?.includes('underline') ? TextDecorationType.Underline : TextDecorationType.None,
+                color: this.cancelled ? UiColor.disabled : undefined })
           }
         })
       }

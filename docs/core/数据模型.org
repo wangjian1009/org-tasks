@@ -1725,6 +1725,7 @@ pub struct TaskEditContent {
     pub notes_html: String,
     pub checklist: Vec<TaskChecklistItem>,
     pub blocks: Vec<ContentBlock>,
+    pub content_tree: Vec<ContentNode>,
     pub scheduled_repeat: Option<TaskRepeatInfo>,
     pub deadline_repeat: Option<TaskRepeatInfo>,
     pub scheduled_planning: Option<TaskPlanningInfo>,
@@ -1807,6 +1808,21 @@ pub struct TaskPlanningInfo { pub date: String, pub time: Option<TaskPlanningTim
 \umlcompo[mult2=*]{TaskEditContent}{ContentBlock}
 \umlcompo[mult2=*]{DocumentSection}{ContentBlock}
 \umldep{ContentBlock}{ContentBlockKind}
+\end{tikzpicture}
+
+** 递归正文树
+
+~ContentNode~ 在当前文件快照内记录 ~id~ 、 ~kind~ 、 ~source~ 、 ~blank_lines_before~ 、直属 ~children~ 和行内 ~parts~ 。列表项保存 ~marker~ 和可空 ~checkbox~ 。清单项的后续段落、表格与子列表保留原语法次序，表格行分为数据行和分隔行。 ~ContentInline~ 保留显示文字、安全目的地、原文引用和样式。清单条目原始模型继续提供旧客户端所需的单行文字。新树仅用于查询和变更事件的只读快照。
+
+\begin{tikzpicture}
+\umlclass[x=0,y=0]{TaskEditContent}{content\_tree: Vec}{}
+\umlclass[x=7,y=0]{DocumentSection}{content\_tree: Vec}{}
+\umlclass[x=3.5,y=-3.5]{ContentNode}{id: String \\ kind: ContentNodeKind \\ source: String \\ blank\_lines\_before: usize \\ marker: Option \\ checkbox: Option}{}
+\umlclass[x=3.5,y=-7.8]{ContentInline}{text: String \\ href: Option \\ is\_link: bool \\ link: Option \\ styles: Vec}{}
+\umlcompo[mult2=*]{TaskEditContent}{ContentNode}
+\umlcompo[mult2=*]{DocumentSection}{ContentNode}
+\umlcompo[recursive=160|210|2cm,mult2=*]{ContentNode}{ContentNode}
+\umlcompo[mult2=*]{ContentNode}{ContentInline}
 \end{tikzpicture}
 
 * 标题统计更新

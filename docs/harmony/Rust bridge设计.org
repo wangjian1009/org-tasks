@@ -710,7 +710,7 @@ Core 的 ~TextLink~ 、 ~LinkValue~ 、 ~TaskLinkChange~ 分别透传为同名 T
 
 * 正文区块接入
 
-Core 的 ~TaskEditContent.blocks~ 和 ~DocumentSection.blocks~ 原样透传为 ~ContentBlock[]~ ，字段为 ~id~ 、 ~kind~ 、 ~paragraph~ 、 ~blankLinesBefore~ 、 ~source~ 、 ~html~ 和 ~items~ 。 ~kind~ 使用 ~text/list/table/checklist~ 判别联合。 ~paragraph~ 为普通段落标记， ~blankLinesBefore~ 为 Core 提供的前置完整空白行数，C++ 经既有嵌套快照透传，ArkTS wrapper 使用同一类型别名，不解析原文来重建空行。C++ 不识别 HTML 或重建区块；原生任务对象仍以只读可枚举的 ~editContent~ 承载有序区块。
+Core 的 ~TaskEditContent.blocks~ 和 ~DocumentSection.blocks~ 原样透传为 ~ContentBlock[]~ ，字段为 ~id~ 、 ~kind~ 、 ~paragraph~ 、 ~blankLinesBefore~ 、 ~source~ 、 ~html~ 和 ~items~ 。 ~kind~ 使用 ~text/list/table/checklist~ 判别联合。 ~paragraph~ 为普通段落标记， ~blankLinesBefore~ 为 Core 提供的前置完整空白行数，C++ 经既有嵌套快照透传，ArkTS wrapper 使用同一类型别名，不解析原文来重建空行。C++ 不识别 HTML 或重建区块；原生任务对象仍以只读可枚举的 ~editContent~ 承载有序区块。 ~TaskEditContent.contentTree~ 与 ~DocumentSection.contentTree~ 经同一快照传递递归 ~ContentNode~ 。 ~NativeCoreService~ 导出 ~CoreContentNode~ 与 ~CoreContentInline~ 。新增段落及嵌套链接沿用 ~CONTENT_BLOCK~ 、当前文件版本及现有工作线程接入。
 
 区块修改使用既有 ~Workspace.executeTaskOperations~ ， ~TaskModification.field~ 为 ~CONTENT_BLOCK~ ，值为 ~{ type: 'replace', id, source }~ 或 ~{ type: 'link', id, link, value }~ 。整块替换覆盖四类区块，空原文删除当前区块，checkbox 统计由 Core 在同一事务内更新；单项清单操作继续使用结构化接口。参数形状与 N-API 编组保持一致。任务列表与完整项目文件中的节点均提交原文件版本，不以新快照替换旧位置身份。写入、范围验证、链接生成、原换行适配与字节保真统一在 Core 执行，UI 只保存草稿并处理错误。
 

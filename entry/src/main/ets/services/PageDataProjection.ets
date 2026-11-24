@@ -12,7 +12,7 @@ function draftHtml(value: string): string {
 function content(value: TaskEditContent, notes: string | undefined = undefined, tags: string[] | undefined = undefined,
   scheduled: TaskPlanningEdit | null | undefined = undefined, deadline: TaskPlanningEdit | null | undefined = undefined): TaskEditContent {
   return { noteRequiredStates: value.noteRequiredStates ?? [], ownTags: tags ?? value.ownTags, notes: notes ?? value.notes, notesHtml: notes === undefined ? value.notesHtml : draftHtml(notes),
-    checklist: value.checklist, blocks: notes === undefined ? value.blocks :
+    checklist: value.checklist, contentTree: value.contentTree, blocks: notes === undefined ? value.blocks :
       (notes.trim().length ? [{ id: value.blocks.find(block => block.kind !== 'checklist')?.id ?? '$local-notes',
         kind: 'text', paragraph: true, blankLinesBefore: 0, source: notes, html: draftHtml(notes), items: [] } as ContentBlock] : [])
         .concat(value.blocks.filter(block => block.kind === 'checklist')), scheduledRepeat: value.scheduledRepeat, deadlineRepeat: value.deadlineRepeat,
@@ -58,7 +58,7 @@ function modify(record: PageTaskRecord, change: TaskModification): boolean {
     const blocks = old.blocks.filter(item => item.id !== block.id || block.source.trim().length > 0).map((item: ContentBlock): ContentBlock =>
       item.id === block.id ? { id: item.id, kind: item.kind, paragraph: item.paragraph, blankLinesBefore: item.blankLinesBefore,
         source: block.source, html: draftHtml(block.source), items: item.items } : item)
-    value.editContent = { noteRequiredStates: old.noteRequiredStates ?? [], ownTags: old.ownTags, notes: old.notes, notesHtml: old.notesHtml, checklist: old.checklist, blocks,
+    value.editContent = { noteRequiredStates: old.noteRequiredStates ?? [], ownTags: old.ownTags, notes: old.notes, notesHtml: old.notesHtml, checklist: old.checklist, contentTree: old.contentTree, blocks,
       scheduledRepeat: old.scheduledRepeat, deadlineRepeat: old.deadlineRepeat, scheduledPlanning: old.scheduledPlanning, deadlinePlanning: old.deadlinePlanning }
   } else if (change.field === 'CHECKLIST') {
     const checklist = change.value as TaskChecklistChange
@@ -72,7 +72,7 @@ function modify(record: PageTaskRecord, change: TaskModification): boolean {
     }
     const old = value.editContent
     value.editContent = { noteRequiredStates: old.noteRequiredStates ?? [], ownTags: old.ownTags, notes: old.notes, notesHtml: old.notesHtml,
-      checklist: checklist.type === 'move' ? checklistMovePreview(old.checklist, checklist.id, checklist.beforeId) : old.checklist.map(update), blocks: old.blocks.map((block: ContentBlock): ContentBlock => ({
+      contentTree: old.contentTree, checklist: checklist.type === 'move' ? checklistMovePreview(old.checklist, checklist.id, checklist.beforeId) : old.checklist.map(update), blocks: old.blocks.map((block: ContentBlock): ContentBlock => ({
         id: block.id, kind: block.kind, paragraph: block.paragraph, blankLinesBefore: block.blankLinesBefore,
         source: block.source, html: block.html, items: checklist.type === 'move' ? checklistMovePreview(block.items, checklist.id, checklist.beforeId) : block.items.map(update) })),
       scheduledRepeat: old.scheduledRepeat, deadlineRepeat: old.deadlineRepeat,

@@ -2,7 +2,7 @@ import { showDangerousConfirmation } from '../controls/DangerousConfirmation'
 import { reminderPlanning, reminderModification, reminderTimeLabel } from '../../ui/TaskReminderPresentation'
 import { PageNavigator } from '../../services/PageNavigator'
 import { ReminderManager } from '../../services/ReminderManager'
-import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
+import { CallbackInternalLinkProcessor, InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { OrgFileNavigation } from '../../services/OrgFileNavigation'
 import { TaskPriorityChoices } from './TaskPriorityChoices'
 import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskPriorityPresentation'
@@ -36,7 +36,7 @@ import { CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
 import { TaskContentEditor } from './TaskContentEditor'
 import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskBlockController } from '../../ui/TaskBlockController'
-import { CoreContentBlock } from '../../services/NativeCoreService'
+import { CoreContentBlockChange, CoreContentNode, CoreContentBlock } from '../../services/NativeCoreService'
 import { LogShowPolicy, taskLogVisible, taskNoteEntries, taskEventLogs } from '../../ui/TaskLogPresentation'
 import { TaskLogView } from './TaskLogView'
 import { TitleCounts } from '../TitleCounts'
@@ -868,12 +868,12 @@ export struct TaskEditor {
     this.checkId = current.id; this.checkText = current.text
     this.checkFocus.request(`inline_check_${current.id}`)
   }
-  async addCheck() {
+  async addCheck(after: string = '') {
     if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.prepare()) return
     if (!await this.saveText() || !await this.saveCheck(false)) return
-    this.checkAfter = ''; this.addingCheck = true
+    this.checkAfter = after; this.addingCheck = true
     this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
   }
   async setSchedule(value: CoreTaskPlanningEdit | null, allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
@@ -1591,9 +1591,34 @@ export struct TaskEditor {
     return this.value().editContent.blocks[index] ?? { id: 'new', kind: 'checklist', paragraph: false, blankLinesBefore: 0, source: '', html: '', items: [] }
   }
 
+  private fileLinks: InternalLinkProcessor = new CallbackInternalLinkProcessor(
+    (target: string): Promise<boolean> =>
+      OrgFileNavigation.hasInternalTarget(this.getUIContext(), this.value().repoId, this.value().filePath, target),
+    (target: string): Promise<void> =>
+      OrgFileNavigation.openInternal(this.getUIContext(), this.value().repoId, this.value().filePath, target)
+  )
+
+  private contentLinks(): InternalLinkProcessor { return this.internalLinkProcessor ?? this.fileLinks }
+
+  private tree(): CoreContentNode[] | undefined { return this.value().editContent.contentTree }
+
+  async writeContentNode(change: CoreContentBlockChange): Promise<void> {
+    this.blockSaving = true; this.linkSaving = true
+    try {
+      if (!await this.persist([{ field: 'CONTENT_BLOCK', value: change }]) || this.snapshotBlocked) {
+        throw new Error(this.message || '修改正文失败，请重试')
+      }
+    } finally { this.blockSaving = false; this.linkSaving = false }
+  }
+
   @Builder
   checklistBlock(index: number) {
     TaskChecklistBlock({ items: this.blockItems(this.checkBlock(index)), readonly: this.readOnly, sorting: true,
+      tree: this.tree()?.find(node => node.id === this.checkBlock(index).id), revision: this.value().fileVersion,
+      processor: this.contentLinks(), editor: this.blockEditor, linkEditor: this.linkEditor,
+      beginNode: (): Promise<boolean> => this.beginBlock(this.checkBlock(index)), writeNode: change => this.writeContentNode(change),
+      editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (editing) this.inputFocus() },
+      linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
       disabled: this.working || this.snapshotBlocked, editingId: this.checkId, editingText: this.checkText,
       adding: this.addingCheck && (this.checkAfter ? this.checkBlock(index).items.some(item => item.id === this.checkAfter) :
         this.lastChecklist(this.checkBlock(index))), addingAfter: this.checkAfter, newText: this.newCheck,
@@ -1608,7 +1633,7 @@ export struct TaskEditor {
       newChanged: (text: string): void => { this.newCheck = text },
       save: (next: boolean): void => { this.saveCheck(next) },
       remove: (item: CoreTaskChecklistItem): void => { this.changeCheck({ type: 'remove', id: item.id }) },
-      add: (): void => { this.addCheck() }, focused: (): void => { this.inputFocus() },
+      add: (): void => { this.addCheck() }, insertAfter: (id: string): void => { this.addCheck(id) }, focused: (): void => { this.inputFocus() },
       measured: (item: CoreTaskChecklistItem, area: Area): void => { this.checkMeasured(item, area) },
       touchChanged: (touching: boolean): void => { this.checklistTouch = touching },
       inputAppeared: (id: string): void => { this.checkFocus.appeared(id) },
@@ -1647,7 +1672,9 @@ export struct TaskEditor {
 
   @Builder
   bodyBlocks() {
-    TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.value().editContent.blocks, readonly: this.readOnly,
+    TaskContentEditor({ internalLinkProcessor: this.contentLinks(), blocks: this.value().editContent.blocks, contentTree: this.tree(),
+      writeNode: change => this.writeContentNode(change), toggle: change => { this.changeCheck(change) },
+      beginEmpty: (): Promise<boolean> => this.prepare(), readonly: this.readOnly,
       checklistEditing: this.checkId !== '' || this.addingCheck,
       disabled: this.working || this.snapshotBlocked || this.draggingCheck,
       revision: this.value().fileVersion, ownerKey: this.ownerKey,
@@ -1659,7 +1686,7 @@ export struct TaskEditor {
       changeLink: (block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeBlockLink(block, link, value),
       editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (editing) this.inputFocus() },
       linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) } }).width('100%')
-    if (!this.readOnly && this.value().editContent.blocks.length === 0) {
+    if (!this.readOnly && !this.tree() && this.value().editContent.blocks.length === 0) {
       if (this.notesInput) {
         TextArea({ text: this.notes, controller: this.notesController, placeholder: '添加正文' }).id(`inline_notes_${this.ownerKey}`)
           .enabled(!this.working && !this.snapshotBlocked).width('100%').height('auto').minLines(1).maxLines(1000)

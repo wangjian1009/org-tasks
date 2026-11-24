@@ -1,75 +1,96 @@
-#+TITLE: TaskContentEditor 逻辑正文树与差异更新设计
+#+TITLE: TaskContentEditor 正文控件树与行内链接设计
 #+STARTUP: show2levels hidestars
 #+OPTIONS: author:nil date:nil toc:nil
 #+LANGUAGE: zh-CN
 
-* 当前实现与待确认范围
+* 当前实现与设计范围
 
-已新增 ~TaskContentEditor~ 并接入任务与项目正文，统一管理四类子控件；当前消费 Core 现有平铺区块，按内容、类型和当前定位匹配控件身份，未变化区块重用原引用。前方插入、删除和重排不再仅按数组索引复用错误的子控件，编辑定位更新仍使用真实当前版本。
+~TaskContentEditor~ 用于任务卡片、日志簿只读展开和项目文档。正文覆盖任务、章节和文档导言的直属内容。任务标题、规划、属性、日志和后代任务由各自的控件负责。Core 按 ~orgize~ 无损语法树和 Emacs org-element 语义投影节点，Harmony 组合 ArkUI 控件。
 
-下面的嵌套逻辑树需要 Core 新增投影字段，具体接口尚待确认。任务横向滑动由外层共享 ~TaskSwipeItem~ 管理，清单条目的内部手势保持各自边界。现有检查列表的平铺深度展示保持可用，不能据此宣称普通列表已具备独立的嵌套控件树。
-
-* 范围
-
-~TaskContentEditor~ 统一管理任务正文的逻辑结构、差异比较和子控件树。支持普通文本段落、表格、普通列表与检查列表，列表项可继续包含段落、表格和子列表。标题、规划、属性、日志与后代任务不作为本控件的正文元素。源码、引用等已有正文保持原安全阅读片段，作为不可再拆分的文本区块兼容展示，不在本次扩展其内部语法。
-
-Org 元素边界和列表嵌套遵循 Emacs org-element，由 Core 基于现有 orgize 无损语法树提供。控件负责消费 content 对应的投影、建立逻辑树、比较前后差异和更新渲染节点，不在 ArkTS 通过正则解析 Org，也不从 HTML 反推元素。
-
-* 待确认的 Core 投影扩展
-
-现有 ~ContentBlock~ 只有平铺顶层区块；普通列表的嵌套被包含在 HTML 中，检查列表额外有带深度的平铺条目。为提供统一逻辑结构，建议在既有模型上增加以下只读投影：
-
-#+begin_src rust
-pub enum ContentBlockKind { Text, List, Table, Checklist, ListItem }
-pub enum ContentCheckbox { Unchecked, Checked, Partial }
-pub struct ContentListItem {
-    pub marker: String,
-    pub checkbox: Option<ContentCheckbox>,
-}
-// ContentBlock 保留已有字段，并增加：
-// pub children: Vec<ContentBlock>,
-// pub list_item: Option<ContentListItem>,
-#+end_src
-
-JSON 对应 ~children~ 、 ~listItem~ ，后者包含 ~marker~ 与 ~checkbox~ 。顶层继续使用原有四种类型；普通列表和检查列表的子节点为 ~ListItem~ ，列表项再包含段落、表格和子列表。段落与表格作为叶节点，不额外扩展行、单元格或行内元素类型。普通列表和 checkbox 混排时保留每个列表项实际 checkbox 状态。
-
-新增字段随 ~TaskEditContent.blocks~ 和 ~DocumentSection.blocks~ 一并提供，复用现有快照透传，不增加 Workspace 查询入口或独立解析服务，不修改 Org 文件或持久化格式。历史缓存缺失新字段时按空子节点兼容。清单原有 ~items~ 和结构化修改保持可用。
-
-编辑定位的 ~id~ 继续只在当前文件版本内有效。现有 ~CONTENT_BLOCK~ 仍对顶层区块执行原文替换和链接修改；嵌套阅读节点将编辑动作交给所属顶层区块，单项 checkbox 修改沿用现有结构化接口。不得为了重用控件实例，把旧位置 ID 静默绑定到新文件版本。
-
-* 逻辑树与控件树
-
-正文为有序根列表。每个节点具有稳定的界面身份、Core 类型、当前定位上下文、展示载荷及有序子节点。界面身份与 Core 字节位置分开维护；前方插入段落导致后续字节位置整体移动时，后续阅读控件仍可复用，同时更新各自编辑上下文。
+* 控件树
 
 #+begin_example
-content
-  paragraph
-  list
-    listItem
-      paragraph
-      checklist
-        listItem [unchecked]
-          paragraph
-        listItem [checked]
-          paragraph
-    listItem
-      paragraph
-      table
-  paragraph
+TaskContentEditor
+├─ Paragraph                       行内文字、链接
+├─ ListBlock                       普通、编号和 checkbox 条目共用
+│  ├─ ListItem [ ]
+│  │  ├─ Paragraph                 核对发布清单 [发布规范 ↗]
+│  │  ├─ Paragraph                 补充说明 [测试报告 ↗]
+│  │  ├─ TableBlock
+│  │  │  └─ TableRow
+│  │  │     ├─ TableCell           回归
+│  │  │     └─ TableCell           [发布规范 ↗]
+│  │  └─ ListBlock
+│  │     └─ ListItem [ ]
+│  │        └─ Paragraph           确认回滚方案 [回滚步骤 ↗]
+│  └─ ListItem [X]
+│     └─ Paragraph                 归档
+├─ QuoteBlock
+│  └─ Paragraph                    行内文字、链接
+└─ LiteralBlock                    源码、示例及其他字面内容
 #+end_example
 
-~TaskContentEditor~ 按逻辑树创建相应文本、表格、列表容器和清单子控件；嵌套列表按父子关系递归渲染。列表标志和 checkbox 状态来自 Core 投影，缩进、交互与布局由展示层维护。只读模式使用同一树和布局，关闭写操作。
+| 控件 | 子内容与职责 |
+|-
+| ~TaskContentEditor~ | 接收有序正文树和当前文件上下文，分发只读、编辑和导航状态，维护局部更新与当前编辑会话。 |
+| ~Paragraph~ | 用共用的 ~InlineContent~ 在一个文字布局中承载文字、格式、换行和链接，由 ArkUI 统一换行和测量。 |
+| ~ListBlock~ | 按原顺序组合 ~ListItem~ 。列表样式和标记来自 Core，普通条目和带 checkbox 的条目可混排。 |
+| ~ListItem~ | 左侧放项目符号、编号或 checkbox，右侧按顺序放正文子区块。清单项的首段、后续段落、表格和子清单从同一内容列开始。排序手柄与首段对齐，拖动、删除父项时以整个子树为单位。 |
+| ~TableBlock~ 、 ~TableRow~ 、 ~TableCell~ | 表格负责列宽、行分隔和滚动，单元格复用 ~InlineContent~ ，链接随单元格文字共同换行。 |
+| ~QuoteBlock~ | 绘制引用样式并递归摆放其正文子区块。 |
+| ~LiteralBlock~ | 使用原生等宽文字控件呈现源码、示例或暂未支持的 Org 区块。字面内容中的链接写法按原样显示。 |
 
-* 差异更新
+清单的 checkbox 与段落链接分别接收点击。已完成样式作用于当前项首段，后续说明和子清单保留各自的阅读样式与完成状态。只读和编辑使用同一棵树，关闭写操作后仍可打开链接。列表内使用内容列排布局部高度，整段正文沿用宿主页面的纵向滚动。
 
-同一层先匹配未变化节点，再比较发生变化的节点及子列表。相同区块重用原展示载荷与控件身份；新增、删除和移动只调整对应节点。重复段落按顺序和相邻未变化节点匹配，不把内容哈希当作唯一身份；结构不明确时关闭旧编辑会话并按现有版本冲突规则保留草稿。
+对应的 Org 清单中，首段、补充说明、表格和子清单都是第一个条目的直属内容。
 
-比较分为展示载荷与编辑上下文。仅文件版本、源字节位置或同文件其他任务变化时，更新定位上下文，不重载正文 WebView，不更新未变化的段落、表格或列表展示。某个嵌套条目改变时，仅替换该条目的载荷和必要祖先的子列表关系，其他分支维持原引用。
+#+begin_src org
+- [ ] 核对发布清单 [[#release][发布规范]]
 
-状态底色由任务卡片外壳绘制，正文持续使用透明背景；切换进行中不重建正文，也不异步切换正文底色。真正的段落或表格 HTML 变化才更新相应阅读视图；链接编辑始终保留真实版本校验。
+  补充说明 [[https://example.com][测试报告]]。
 
-* 验证边界
+  | 检查项 | 参考 |
+  | 回归 | [[#release][发布规范]] |
 
-需覆盖单段修改、表格修改、普通／检查列表嵌套、混合条目、重复段落、头部插入导致定位整体移动、删除与重排，以及状态切换和版本推进但正文不变。模拟器交替通过 API 修改和界面操作核对展示、局部更新、嵌套清单交互、草稿保留与重开结果。
+  - [ ] 确认回滚方案 [[*回滚][回滚步骤]]
+- [X] 归档
+#+end_src
 
-本文的 Core 投影扩展尚未修改实现，待具体接口方案确认后同步模型、bridge、控件与接口文档。
+* 链接的展示、添加与跳转
+
+链接是段落、表格单元格等文本位置中可换行的行内控件。Core 提供显示文字、原始链接引用及语义目标。Harmony 共用链接图标、颜色、菜单和点击分发。点按链接打开目标，点按同段普通文字进入原位编辑，长按链接打开共用链接菜单。链接操作由命中的行内控件处理，checkbox、排序手柄与区块长按分别处理各自的事件。
+
+| 操作位置 | 添加链接的结果 |
+|-
+| 段落或单元格中的光标、选区 | 在光标处插入链接，或用选中文字作为链接描述。 |
+| 空正文、引用容器或清单项的区块末尾 | 在该容器内新增一个含链接的段落。清单项的缩进与子内容归属由 Core 写入。 |
+| 列表项之间的插入位置 | 新增同级列表项并在其首段插入链接。新条目类型沿用该列表的插入规则。 |
+| 表格 | 选定单元格后插入或编辑链接，保持同行及相邻列的边界。 |
+
+从已有共用链接表单输入目标和描述。清单项文本编辑区提供“添加说明”，打开该项末尾的段落输入。编辑工具栏提供“链接”，使用当前 Org 原文输入中的选区。Core 引用采用 UTF-8 字节范围，输入控件的字符位置先转换，再与原快照核对。新增说明、链接和子清单按 Org 的列表缩进归属于当前项。源码和示例旁的可跳转链接可插入相邻的普通段落。
+
+同文件链接继续支持 CUSTOM_ID、标题、专用目标和命名元素，并沿用 Core 的匹配优先级。文档内复用当前文档的定位器，保存正在编辑的内容后，展开折叠祖先并定位到目标所在章节或导言。在普通任务列表中点按时，按任务所属文件读取目标索引并确认目标，打开文件后由同一定位器跳转。目标失效或草稿保存失败时，停留在原处并给出提示。
+
+* Core 投影和写入方案
+
+~TaskEditContent~ 和 ~DocumentSection~ 通过已有快照传递 ~contentTree~ 。节点的序列化结构如下。
+
+#+begin_example
+ContentNode = { id, kind, source, blankLinesBefore, children?, parts?, marker?, checkbox? }
+
+kind = paragraph | list | item | table | row | rule | cell | quote | literal
+parts = [{ text, href, isLink, link: TextLink?, styles? }]
+checkbox = unchecked | checked | partial
+#+end_example
+
+每个区块带当前快照的源引用和前置空白行信息。文字样式使用语义标记，表格分隔和单元格信息由 Core 投影。清单项的勾选状态包含未完成、已完成和部分完成。清单项结构直接包含其直属区块，顺序和归属来自 Org AST。每个链接的 ~TextLink~ 沿用现有值对象，范围相对于所属文本位置，保证同段内多个相同地址的链接可分别识别。界面按语义目标分发链接，Org 原文保留原链接地址和描述。
+
+新控件读取 ~contentTree~ 中的节点和行内数据。过渡期原有 ~blocks~ 、 ~checklist~ 和 HTML 投影继续服务现有消费者。旧缓存缺少 ~contentTree~ 时，先显示已有版式，收到正式快照后切换。空树表示正文为空。树和源引用属于当前快照，Org 文件与同步格式沿用原结构。
+
+修改继续从统一操作组提交。 ~CONTENT_BLOCK~ 的 ~replaceText~ 保存段落或单元格文字， ~treeLink~ 安全替换或删除现有链接， ~insertLink~ 在当前文本节点定位选区。 ~insertParagraph~ 与 ~insertLinkedParagraph~ 向正文、列表项或引用插入段落，向列表插入同级条目，由 Core 计算 Org 缩进、分隔符和换行。每次操作带原文件版本、任务或章节路径和节点引用，Core 验证节点归属及原始字节后做局部修改。现有清单的勾选、删除、同级移动和统计通过 ~CHECKLIST~ 提交，混排条目使用同一勾选规则。
+
+* 差异更新与验收
+
+界面身份独立于源字节位置。插入前置段落导致源位置变化时，只更新受影响节点的编辑上下文。链接、段落或单元格修改时，仅更新该节点及必要的父级子节点关系。重复兄弟节点按位置、内容和相邻节点匹配。仍有歧义或文件版本已变化时，保留草稿并提示重新读取。拖动父清单项时按整个子树实际高度更新占位，其他条目的编辑和链接命中范围按当前布局刷新。
+
+验收覆盖清单首段、后续说明、表格单元格和子清单里的内部与外部链接，核对只读跳转、从一级任务页跳到所属文件、相同 URL 的局部编辑、嵌套清单移动和 LF／CRLF 保真。通过应用内嵌接口改变当页记录，核对订阅刷新、局部更新、保存失败保留草稿和重开结果。

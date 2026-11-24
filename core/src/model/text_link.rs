@@ -95,7 +95,7 @@ pub(super) fn editable_html(source: &str) -> String {
     result
 }
 
-fn replacement(value: &LinkValue) -> Result<String, CoreError> {
+pub(super) fn replacement(value: &LinkValue) -> Result<String, CoreError> {
     if value.url.trim().is_empty() || value.url.chars().any(char::is_control)
         || value.title.chars().any(char::is_control)
     {

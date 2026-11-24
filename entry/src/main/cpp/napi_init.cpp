@@ -564,6 +564,7 @@ napi_value CreateTaskObject(napi_env env, napi_value data)
     // id 为 Core 的明文逻辑路径；区块及其 paragraph、blankLinesBefore 均随 editContent.blocks 与文档快照原样透传。
     // CONTENT_BLOCK、清单及链接操作沿用原文件版本，在 worker 中由 Core 校验源范围。
     // editContent.noteRequiredStates 透传 Core 的继承日志判定；状态原因随 Modification.note 透传，独立 Note 仍共用批次 worker。
+    // editContent 中的正文树与嵌套链接一起作为快照透传。
     for (const char* name : {"orderKey", "id", "taskId", "fullPath", "fileVersion", "repoId", "heading", "category", "projectName", "headingParts", "state", "createdAt", "closedAt", "modifiedAt", "deletedAt", "priority", "priorityOptions", "defaultPriority", "scheduled",
         "deadline", "tags", "ownTags", "inheritedTags", "supportTags", "editContent", "filePath", "fileName", "level", "body", "bodyFirstLine", "addressLinks", "appLinks", "bodyHtml", "logbookHtml", "logs", "progress", "hasList", "hasText", "isRepeating", "isHabit", "reminderAt", "properties", "hasAttach"}) {
         napi_value value;

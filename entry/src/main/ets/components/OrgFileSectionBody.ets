@@ -1,4 +1,4 @@
-import { CoreTask, CoreContentBlock, CoreTaskModification } from '../services/NativeCoreService'
+import { CoreTask, CoreContentBlock, CoreContentNode, CoreTaskModification } from '../services/NativeCoreService'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { TaskDocumentContent } from './editors/TaskDocumentContent'
 import { UiColor } from '../ui/Theme'
@@ -10,6 +10,7 @@ export struct OrgFileSectionBody {
   readTask: (() => CoreTask | undefined) | undefined = undefined
   @Prop task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
+  @Prop contentTree: CoreContentNode[] | undefined = undefined
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop contentRevision: string = ''
   @Prop contentBackground: string = UiColor.surface
@@ -28,7 +29,7 @@ export struct OrgFileSectionBody {
     Stack({ alignContent: Alignment.TopStart }) {
       this.bodyGuide()
       TaskDocumentContent({ modify: this.modify, readTask: this.readTask, internalLinkProcessor: this.internalLinkProcessor, task: this.task,
-        blocks: this.blocks, contentRevision: this.contentRevision, readonly: this.task === null, projectReading: true, contentBackground: this.contentBackground }).width('100%')
+        blocks: this.blocks, contentTree: this.contentTree, contentRevision: this.contentRevision, readonly: this.task === null, projectReading: true, contentBackground: this.contentBackground }).width('100%')
         .padding({ left: this.task ? (this.task.state ? 28 : 8) : 0 })
         .onAreaChange((_old: Area, area: Area): void => { this.bodyHeight = Math.max(0, Number(area.height)) })
     }.width('100%')

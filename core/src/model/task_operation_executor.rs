@@ -1523,7 +1523,7 @@ fn parse_planning_time(value: &str) -> Result<chrono::NaiveTime, CoreError> {
     chrono::NaiveTime::parse_from_str(value, "%H:%M").map_err(|_| CoreError::InvalidInput("时间必须是有效的 HH:MM"))
 }
 
-fn inline_body_start(file: &OrgFile, headline: &Headline) -> usize {
+pub(super) fn inline_body_start(file: &OrgFile, headline: &Headline) -> usize {
     let mut at = file.source_bytes()[start(headline)..]
         .iter()
         .position(|b| *b == b'\n')

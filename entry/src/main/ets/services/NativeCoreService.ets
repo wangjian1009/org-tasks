@@ -76,6 +76,9 @@ import {
   DocumentLinkTarget as NativeDocumentLinkTarget,
   ContentBlock as NativeContentBlock,
   ContentBlockChange as NativeContentBlockChange,
+  ContentNode as NativeContentNode,
+  ContentInline as NativeContentInline,
+  ContentInlineStyle as NativeContentInlineStyle,
   OrgFileMetadata as NativeOrgFileMetadata,
   SyncRecord as NativeSyncRecord,
   SyncTriggerReason,
@@ -123,6 +126,9 @@ export type CoreDocumentSection = NativeDocumentSection
 // paragraph 与 blankLinesBefore 来自 Core 语法树投影，宿主仅选择阅读间距。
 export type CoreContentBlock = NativeContentBlock
 export type CoreContentBlockChange = NativeContentBlockChange
+export type CoreContentNode = NativeContentNode
+export type CoreContentInline = NativeContentInline
+export type CoreContentInlineStyle = NativeContentInlineStyle
 // 文件 category 与 projectName 来自同一 Core 快照，供导航展示分区。
 export type CoreOrgFileMetadata = NativeOrgFileMetadata
 export type CoreFileHeaderEntry = NativeFileHeaderEntry

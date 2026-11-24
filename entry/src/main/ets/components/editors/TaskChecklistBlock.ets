@@ -1,6 +1,10 @@
-import { CoreTaskChecklistItem, CoreTaskChecklistChange } from '../../services/NativeCoreService'
+import { CoreTaskChecklistItem, CoreTaskChecklistChange, CoreContentNode, CoreContentBlockChange } from '../../services/NativeCoreService'
 import { checklistBlockEnd, checklistSiblings } from '../../ui/TaskChecklistReorder'
 import { UiColor } from '../../ui/Theme'
+import { TaskNativeContent } from './TaskNativeContent'
+import { TaskBlockController } from '../../ui/TaskBlockController'
+import { LinkEditController } from '../LinkView'
+import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { FrameCallback } from '@ohos.arkui.UIContext'
 
 export class ChecklistFocusFrame extends FrameCallback {
@@ -33,6 +37,15 @@ export struct TaskChecklistBlock {
   @Prop dragPlaceholder: number = 0
   @Prop dragValid: boolean = true
   @Prop dragItems: CoreTaskChecklistItem[] = []
+  @Prop tree: CoreContentNode | undefined = undefined
+  @Prop revision: string = ''
+  processor: InternalLinkProcessor | undefined = undefined
+  editor: TaskBlockController = new TaskBlockController()
+  linkEditor: LinkEditController = new LinkEditController()
+  beginNode: () => Promise<boolean> = async () => false
+  writeNode: (change: CoreContentBlockChange) => Promise<void> = async () => {}
+  editingChanged: (editing: boolean) => void = () => {}
+  linkEditingChanged: (editing: boolean) => void = () => {}
   scroller: ListScroller = new ListScroller()
   toggle: (change: CoreTaskChecklistChange) => void = () => {}
   edit: (item: CoreTaskChecklistItem) => void = () => {}
@@ -41,6 +54,7 @@ export struct TaskChecklistBlock {
   save: (next: boolean) => void = () => {}
   remove: (item: CoreTaskChecklistItem) => void = () => {}
   add: () => void = () => {}
+  insertAfter: ((id: string) => void) | undefined = undefined
   focused: () => void = () => {}
   inputAppeared: (id: string) => void = () => {}
   inputDisappeared: (id: string) => void = () => {}
@@ -86,6 +100,56 @@ export struct TaskChecklistBlock {
     }.width('100%').height(44).padding({ left: Math.min(depth, 6) * this.indentStep })
   }
 
+  // 现有排序使用平铺行的测量值。续段按原次序绑定到上一个可见清单行。
+  private projectedItem(nodes: CoreContentNode[], id: string): CoreContentNode | undefined {
+    for (const node of nodes) {
+      if (node.kind === 'item' && node.id === id) return node
+      const entry = this.projectedItem(node.children ?? [], id)
+      if (entry) return entry
+    }
+    return undefined
+  }
+
+  private projectedBody(id: string): CoreContentNode[] {
+    const item = this.projectedItem(this.tree?.children ?? [], id)
+    const children = item?.children ?? []
+    const at = children.findIndex((child: CoreContentNode): boolean => child.kind === 'list')
+    return at === -1 ? children : children.slice(0, at)
+  }
+
+  private continuations(nodes: CoreContentNode[], id: string): CoreContentNode[] {
+    const result: CoreContentNode[] = []
+    for (const item of nodes) {
+      let after = ''
+      for (const child of item.children ?? []) {
+        if (child.kind === 'list') {
+          result.push(...this.continuations(child.children ?? [], id))
+          after = this.lastItem(child)
+        } else if (after === id) {
+          result.push(child)
+        }
+      }
+    }
+    return result
+  }
+
+  private lastItem(list: CoreContentNode): string {
+    const items = list.children ?? []
+    const item = items[items.length - 1]
+    if (!item) return ''
+    const children = item.children ?? []
+    for (let index = children.length - 1; index >= 0; index--) {
+      if (children[index].kind === 'list') return this.lastItem(children[index]) || item.id
+    }
+    return item.id
+  }
+
+  private projectionKey(id: string): string {
+    const tree = this.tree?.children ?? []
+    const projected = this.projectedItem(tree, id)
+    return JSON.stringify([projected?.source, this.continuations(tree, id).map(node => [node.id, node.source])])
+  }
+
   @Builder
   row(item: CoreTaskChecklistItem, floating: boolean = false) {
     Row({ space: 4 }) {
@@ -103,6 +167,12 @@ export struct TaskChecklistBlock {
           .onDisAppear((): void => { this.inputDisappeared(`inline_check_${item.id}`) })
           .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_check_${item.id}`) })
           .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true) })
+      } else if (this.projectedBody(item.id).length > 0) {
+        TaskNativeContent({ nodes: this.projectedBody(item.id), itemId: item.id, insertChecklistAfter: this.insertAfter, completed: item.checked,
+          readonly: this.readonly || floating, disabled: this.disabled || this.dragging, revision: this.revision,
+          processor: this.processor, editor: this.editor, linkEditor: this.linkEditor,
+          begin: this.beginNode, write: this.writeNode, editingChanged: this.editingChanged,
+          linkEditingChanged: this.linkEditingChanged }).layoutWeight(1).padding({ top: 11, bottom: 11 })
       } else {
         Text(item.text).layoutWeight(1).fontSize(14).fontColor(item.checked ? UiColor.disabled : UiColor.text)
           .decoration({ type: item.checked ? TextDecorationType.LineThrough : TextDecorationType.None })
@@ -112,7 +182,9 @@ export struct TaskChecklistBlock {
         if (this.readonly) { Row().width(44).height(44).accessibilityLevel('no') }
         else { this.grip(item, floating) }
       }
-    }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: Math.min(item.depth, 6) * this.indentStep })
+    }.width('100%').constraintSize({ minHeight: 44 })
+      .alignItems(this.projectedBody(item.id).length > 0 ? VerticalAlign.Top : VerticalAlign.Center)
+      .padding({ left: Math.min(item.depth, 6) * this.indentStep })
   }
 
   @Builder
@@ -130,7 +202,22 @@ export struct TaskChecklistBlock {
           if (item.id === '') {
             ListItem() { this.draftRow(item.depth) }
           } else {
-            ListItem() { this.row(item) }
+            ListItem() {
+              Column() {
+                ForEach([this.projectionKey(item.id)], () => {
+                  Column() {
+                    this.row(item)
+                    if (this.continuations(this.tree?.children ?? [], item.id).length > 0) {
+                      TaskNativeContent({ nodes: this.continuations(this.tree?.children ?? [], item.id),
+                        readonly: this.readonly, disabled: this.disabled || this.dragging, revision: this.revision,
+                        processor: this.processor, editor: this.editor, linkEditor: this.linkEditor,
+                        begin: this.beginNode, write: this.writeNode, editingChanged: this.editingChanged,
+                        linkEditingChanged: this.linkEditingChanged }).padding({ left: 32 })
+                    }
+                  }.width('100%')
+                }, (key: string): string => key)
+              }.width('100%')
+            }
               .opacity(this.dragging && this.dragItems.some((moving: CoreTaskChecklistItem): boolean => moving.id === item.id) ? 0 : 1)
               .onAreaChange((_old: Area, area: Area): void => {
                 const height = Math.max(44, parseFloat(area.height.toString()))
