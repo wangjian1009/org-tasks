@@ -205,7 +205,7 @@ function repositoryFixture(existing = true, repositoryCreation) {
       },
       async listEntries(current, repo) {
         assert.ok(current.repos.some(item => item.id === repo.id));
-        return repositoryCreation === 'localDirectory' ? [{ path: 'existing.org', title: '某天' }] : [];
+        return [];
       },
       bindEntries(current, repo, files) {
         if (!current.somedayRepoId && files.length) {
@@ -276,26 +276,13 @@ test('新建默认不同步，返回不创建；选择 WebDAV 并明确添加后
   assert.deepEqual(f.lifecycle, [['repositoryCreated', 'repo-new']]);
 });
 
-test('无仓库引导区分初始化、接入已有目录与远程连接', async () => {
+test('无仓库引导区分初始化与远程连接', async () => {
   const local = repositoryFixture(false, 'initialize');
   await local.page.load();
   assert.equal(local.page.directoryOpen, false);
   await local.page.save();
   assert.deepEqual(local.initialized, ['/app/files/repositories/repo-new']);
   assert.equal(local.writes[0].somedayFile, 'someday.org');
-
-  const attached = repositoryFixture(false, 'localDirectory');
-  await attached.page.load();
-  assert.equal(attached.page.directoryOpen, true);
-  assert.equal(attached.page.rootDirectory, '');
-  attached.page.onBackPress();
-  assert.equal(attached.page.directoryOpen, false);
-  assert.equal(attached.writes.length, 0);
-  attached.page.rootDirectory = '/org/existing';
-  await attached.page.save();
-  assert.deepEqual(attached.initialized, []);
-  assert.deepEqual(attached.validations, ['/org/existing']);
-  assert.equal(attached.writes[0].somedayFile, 'existing.org');
 
   const remote = repositoryFixture(false, 'remote');
   await remote.page.load();

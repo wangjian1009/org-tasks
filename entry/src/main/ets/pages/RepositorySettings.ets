@@ -145,7 +145,7 @@ struct RepositorySettings {
       const repo = existing || AppConfigService.newRepository()
       this.repoId = repo.id
       this.name = repo.name
-      this.rootDirectory = this.creationMode === 'localDirectory' ? '' : repo.rootDirectory || this.managedDirectory()
+      this.rootDirectory = repo.rootDirectory || this.managedDirectory()
       this.webdavEnabled = this.creationMode === 'remote' || repo.webdavEnabled
       this.webdavUrl = repo.webdavUrl
       this.webdavUsername = repo.webdavUsername
@@ -158,7 +158,6 @@ struct RepositorySettings {
       }
       this.originalDraft = JSON.stringify(this.draft())
       this.loaded = true
-      if (this.creationMode === 'localDirectory') this.directoryOpen = true
     } catch (e) { this.message = `读取配置失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.loading = false }
   }
@@ -168,7 +167,6 @@ struct RepositorySettings {
     switch (this.creationMode) {
       case 'initialize': return '初始化新仓库'
       case 'remote': return '新增远程仓库'
-      case 'localDirectory': return '添加本地目录'
       default: return '添加仓库'
     }
   }
@@ -276,8 +274,7 @@ struct RepositorySettings {
       }
       if (!this.existing && !repository.webdavEnabled) {
         current.repos.push(repository)
-        const files = this.creationMode === 'localDirectory' ? await RepositorySetupService.listEntries(current, repository)
-          : await RepositorySetupService.initialize(context, current, repository)
+        const files = await RepositorySetupService.initialize(context, current, repository)
         current = await AppConfigService.load(context)
         RepositorySetupService.bindEntries(current, repository, files)
       }
@@ -421,16 +418,16 @@ struct RepositorySettings {
           Scroll() {
             Column() {
               SettingsGroup({ title: '基本信息', detail: this.creationMode ?
-                (this.creationMode === 'localDirectory' ? '请选择应用可访问的 Org 文件目录。' : '使用应用专用目录存放文件。') :
+                '使用应用专用目录存放文件。' :
                 (this.existing ? '名称可留空，默认使用目录名称。修改后点击底部“确定”保存。' : '默认使用应用专用目录，也可选择应用可访问的其他目录。') }) {
                 SettingsField({ title: '名称', text: this.name,
                   placeholder: !this.existing && this.rootDirectory === this.managedDirectory() ? (this.webdavEnabled ? 'WebDAV 仓库' : '本地仓库') : repositoryName(this.rootDirectory),
                   changed: (value: string): void => { this.name = value } })
                 SettingsRow({ title: '本地目录', value: this.rootDirectory === this.managedDirectory() ? '应用专用目录' : repositoryName(this.rootDirectory),
                   detail: this.rootDirectory, icon: $r('app.media.ui_folder'), divider: false,
-                  disclosure: this.existing || !this.creationMode || this.creationMode === 'localDirectory',
+                  disclosure: this.existing || !this.creationMode,
                   action: (): void => {
-                    if (this.existing || !this.creationMode || this.creationMode === 'localDirectory') this.directoryOpen = true
+                    if (this.existing || !this.creationMode) this.directoryOpen = true
                   } })
               }
               if (this.existing || !this.creationMode) {
@@ -483,7 +480,7 @@ struct RepositorySettings {
           }.width('100%').layoutWeight(1).align(Alignment.TopStart)
           if (!this.loading && this.loaded && (!this.existing || this.hasChanges())) {
             Column() {
-              Button(this.saving ? '正在保存…' : this.existing ? '确定' : this.creationMode === 'localDirectory' ? '添加目录' : '新建仓库')
+              Button(this.saving ? '正在保存…' : this.existing ? '确定' : '新建仓库')
                 .id(this.existing ? 'repository_confirm' : 'repository_create')
                 .width('100%').height(48).borderRadius(12)
                 .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)

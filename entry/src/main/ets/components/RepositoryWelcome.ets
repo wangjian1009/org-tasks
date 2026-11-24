@@ -47,10 +47,8 @@ export struct RepositoryWelcome {
           Column() {
             SettingsRow({ title: '新增远程仓库', value: 'WebDAV',
               action: (): void => { addRepository(this.getUIContext(), 'remote') } })
-            SettingsRow({ title: '导入备份配置',
+            SettingsRow({ title: '导入备份配置', divider: false,
               action: (): void => { this.importBackup() } })
-            SettingsRow({ title: '添加本地目录', divider: false,
-              action: (): void => { addRepository(this.getUIContext(), 'localDirectory') } })
           }.width('100%').backgroundColor(UiColor.container).borderRadius(12).clip(true)
         }.width('100%').enabled(!this.selectingBackup)
       }.width('100%').constraintSize({ maxWidth: 400 }).padding({ left: 24, right: 24, top: 24, bottom: 24 })

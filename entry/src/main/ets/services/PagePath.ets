@@ -1,6 +1,6 @@
 import { CoreTask, CoreTaskPath } from './NativeCoreService'
 
-export type RepositoryCreationMode = 'initialize' | 'remote' | 'localDirectory'
+export type RepositoryCreationMode = 'initialize' | 'remote'
 
 export interface PageParameters {
   readonly repoId?: string
