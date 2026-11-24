@@ -76,6 +76,7 @@ struct OrgFileDetail {
   @State editVersion: string = ''
   @State editConflict: boolean = false
   @State editMessage: string = ''
+  @State orderHint: string = ''
   private editSession: OrgFileEditSession | undefined = undefined
   @State structureOrderParents: string[] = []
   private fileDataSet: DataSet | undefined = undefined
@@ -459,12 +460,11 @@ struct OrgFileDetail {
     if (this.editSession && !this.editBusy) this.exitStructureEdit()
   }
 
-  private moveStructureRow(row: string, target: string, placement: OrgFileDropPlacement): void {
-    if (!this.canEditStructure()) return
-    if (this.editSession?.move(row, target, placement)) {
-      this.editMessage = ''
-      this.publishStructureEdit()
-    }
+  private moveStructureRow(row: string, target: string, placement: OrgFileDropPlacement): boolean {
+    if (!this.canEditStructure() || !this.editSession?.move(row, target, placement)) return false
+    this.editMessage = ''
+    this.publishStructureEdit()
+    return true
   }
 
   private async saveStructureOrder(): Promise<void> {
@@ -713,9 +713,9 @@ struct OrgFileDetail {
                 structureOrderParents: this.structureOrderParents,
                 structureActions: (row: string, canOrder: boolean): PopupMenuItem[] => this.nodeStructureActions(row, canOrder),
                 edit: this.structureEdit, editBusy: this.editBusy || this.staleStructureEdit(),
-                moveNode: (row: string, target: string, placement: OrgFileDropPlacement): void => {
-                  this.moveStructureRow(row, target, placement)
-                },
+                moveNode: (row: string, target: string, placement: OrgFileDropPlacement): boolean =>
+                  this.moveStructureRow(row, target, placement),
+                orderHintChanged: (hint: string): void => { this.orderHint = hint },
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,
                 scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
                 ready: (): void => { this.renderReady = true } })
@@ -735,7 +735,7 @@ struct OrgFileDetail {
             }.width('100%').layoutWeight(1)
             if (this.structureEdit.active) {
               OrgFileEditBar({ busy: this.editBusy, stale: this.staleStructureEdit(),
-                changed: this.structureEdit.changed, message: this.editMessage,
+                changed: this.structureEdit.changed, message: this.editMessage, dragHint: this.orderHint,
                 save: (): void => { this.saveStructureOrder() },
                 discard: (): void => { this.discardStructureEdit() } })
             }

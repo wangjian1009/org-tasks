@@ -14,7 +14,7 @@ import { samePageValue } from '../services/PageDataEquality'
 import { samePagePath } from '../services/PageDataSnapshot'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 import { PopupMenuItem } from './controls/PopupMenu'
-import { OrgFileDropPlacement, OrgFileEditRow, OrgFileEditView, projectEditIdle } from '../ui/OrgFileStructurePresentation'
+import { OrgFileDropPlacement, OrgFileEditRow, OrgFileEditView, projectDropPlacement, projectEditIdle } from '../ui/OrgFileStructurePresentation'
 
 export class OrgFileDocumentNavigation {
   captureReadingState: () => Promise<string> = async () => ''
@@ -52,6 +52,7 @@ export struct OrgFileDocumentView {
   private focusRow: string = ''
   private focusScrolled: boolean = false
   @State dropRow: string = ''
+  @State dropIndent: number = 0
   @State dropPlacement: OrgFileDropPlacement = 'before'
   @State dragSource: string = ''
   @State dragOffset: number = 0
@@ -63,7 +64,7 @@ export struct OrgFileDocumentView {
   private orderFinger: FingerInfo | undefined = undefined
   private orderStartY: number = 0
   private orderStartScroll: number = 0
-  private orderDropTarget: string = ''
+  @State orderDropTarget: string = ''
   private rowHeights: Map<string, number> = new Map()
   private revealedParents: string[] = []
   private highlightTimer: number = -1
@@ -91,7 +92,8 @@ export struct OrgFileDocumentView {
   structureActions: (row: string, canOrder: boolean) => PopupMenuItem[] = () => []
   @Prop @Watch('editingChanged') edit: OrgFileEditView = projectEditIdle()
   @Prop editBusy: boolean = false
-  moveNode: (row: string, target: string, placement: OrgFileDropPlacement) => void = () => {}
+  moveNode: (row: string, target: string, placement: OrgFileDropPlacement) => boolean = () => false
+  orderHintChanged: (hint: string) => void = () => {}
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
   @State outlineItems: OrgFileReadingSection[] = []
@@ -372,8 +374,14 @@ export struct OrgFileDocumentView {
     this.orderFinger = undefined
     this.dragSource = ''
     this.dragOffset = 0
+    this.clearOrderDrop()
+  }
+
+  private clearOrderDrop(): void {
+    if (!this.orderDropTarget) return
     this.orderDropTarget = ''
     this.dropRow = ''
+    this.orderHintChanged('')
   }
 
   private beginOrderDrag(row: string, event: GestureEvent): void {
@@ -405,9 +413,7 @@ export struct OrgFileDocumentView {
       finger.globalX >= viewport.x && finger.globalX <= right
     const scrollY = this.scroller.currentOffset().yOffset
     this.dragOffset = finger.globalY - this.orderStartY + scrollY - this.orderStartScroll
-    this.orderDropTarget = ''
-    this.dropRow = ''
-    if (!visible) return
+    if (!visible) { this.clearOrderDrop(); return }
 
     if (scroll) {
       const speed = checklistEdgeScroll(finger.globalY, viewport.y, bottom)
@@ -418,26 +424,28 @@ export struct OrgFileDocumentView {
       const top = this.offsets.get(item.row)
       return top !== undefined && pointerY >= top && pointerY < top + (this.rowHeights.get(item.row) ?? 44)
     })
-    if (targetIndex < 0) return
+    if (targetIndex < 0) { this.clearOrderDrop(); return }
     let subtreeEnd = source + 1
     while (subtreeEnd < rows.length && rows[subtreeEnd].level > rows[source].level) subtreeEnd++
-    if (targetIndex >= source && targetIndex < subtreeEnd) return
+    if (targetIndex >= source && targetIndex < subtreeEnd) { this.clearOrderDrop(); return }
 
     const target = rows[targetIndex]
     const fraction = (pointerY - this.offsets.get(target.row)!) / (this.rowHeights.get(target.row) ?? 44)
-    const sameParent = target.parent === rows[source].parent
-    const center = fraction >= 0.28 && fraction <= 0.72
-    const acceptsChild = !target.task || this.parentKeys.includes(target.row)
-    if (!sameParent && center && acceptsChild) {
-      this.dropPlacement = 'child'
-    } else {
-      this.dropPlacement = (sameParent && center ? targetIndex > source : fraction >= 0.5) ? 'after' : 'before'
+    const placement = projectDropPlacement(fraction, this.orderDropTarget === target.row ? this.dropPlacement : undefined)
+    if (this.orderDropTarget !== target.row || this.dropPlacement !== placement) {
+      const relation = placement === 'child' ? '成为子项' : placement === 'before' ? '移到前面' : '移到后面'
+      this.orderHintChanged(`${relation}\n${target.title}`)
+      this.orderDropTarget = target.row
+      this.dropPlacement = placement
     }
-    this.orderDropTarget = target.row
     let lineIndex = targetIndex
-    if (this.dropPlacement === 'after') {
+    if (placement !== 'before') {
       while (lineIndex + 1 < rows.length && rows[lineIndex + 1].level > target.level) lineIndex++
+      const lineRow = rows[lineIndex].row
+      const lineBottom = (this.offsets.get(lineRow) ?? 0) + (this.rowHeights.get(lineRow) ?? 44)
+      if (lineBottom > scrollY + bottom - viewport.y) lineIndex = targetIndex
     }
+    this.dropIndent = Math.min(target.level - 1, 2) * 8 + (placement === 'child' ? 28 : 0)
     this.dropRow = rows[lineIndex].row
   }
 
@@ -450,14 +458,16 @@ export struct OrgFileDocumentView {
     const target = this.orderDropTarget
     const placement = this.dropPlacement
     this.cancelOrderDrag()
-    if (source && target) this.moveNode(source, target, placement)
+    if (source && target && this.moveNode(source, target, placement) && placement === 'child') {
+      this.orderFolded = this.orderFolded.filter(row => row !== target)
+    }
   }
 
   @Builder
   insertionLine(row: string) {
     if (this.dropRow === row) {
       Row() { Rect().width('100%').height(2).fill(UiColor.primary) }
-        .width('100%').padding({ left: this.dropPlacement === 'child' ? 44 : 0 })
+        .width('100%').padding({ left: this.dropIndent })
         .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
     }
   }
@@ -563,6 +573,7 @@ export struct OrgFileDocumentView {
               right: !section.node && section.blocks.length > 0 ? 16 : 0,
               top: !section.node && section.blocks.length > 0 ? 16 : 0, bottom: !section.node && section.blocks.length > 0 ? 16 : 0 })
             .backgroundColor(this.dragSource === section.key ? UiColor.projectBlock :
+              this.orderDropTarget === section.key && this.dropPlacement === 'child' ? UiColor.selectionTint :
               this.highlightedRow === section.key ? UiColor.field : section.node ? Color.Transparent : UiColor.projectBlock)
             .borderRadius(this.dragSource === section.key ? 8 : section.node ? 0 : 12)
             .zIndex(this.dragSource === section.key ? 1 : 0)

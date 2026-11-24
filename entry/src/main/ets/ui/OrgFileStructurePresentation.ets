@@ -185,7 +185,7 @@ export class ProjectStructureDraft {
     return result
   }
 
-  destination(target: string | null, placement: string, selected: string[]): OrgFileStructureMove | undefined {
+  destination(target: string | null, placement: OrgFilePlacement | 'lastChild', selected: string[]): OrgFileStructureMove | undefined {
     const node = this.nodes.find(item => item.id === target)
     if (target === null) {
       const remaining = projectSiblings(this.nodes, null).filter(item => !selected.includes(item.id))
@@ -193,6 +193,10 @@ export class ProjectStructureDraft {
     }
     if (!node || this.covered(target, selected)) return undefined
     if (placement === 'child') return { parent: node.id, after: null }
+    if (placement === 'lastChild') {
+      const children = this.siblings(node.id).filter(item => !selected.includes(item.id))
+      return { parent: node.id, after: children[children.length - 1]?.id ?? null }
+    }
     if (placement === 'after') return { parent: node.parent, after: node.id }
     const remaining = projectSiblings(this.nodes, node.parent).filter(item => !selected.includes(item.id))
     const index = remaining.findIndex(item => item.id === node.id)
@@ -204,11 +208,19 @@ export class ProjectStructureDraft {
 export type OrgFilePlacement = 'first' | 'last' | 'before' | 'after' | 'child'
 export type OrgFileDropPlacement = 'before' | 'after' | 'child'
 
+export function projectDropPlacement(fraction: number, previous?: OrgFileDropPlacement): OrgFileDropPlacement {
+  // 在同一行的分界处留出缓冲，避免手指轻微抖动来回切换层级。
+  const upper = previous === 'child' ? 0.25 : previous === 'before' ? 0.35 : 0.30
+  const lower = previous === 'child' ? 0.75 : previous === 'after' ? 0.65 : 0.70
+  if (fraction < upper) return 'before'
+  if (fraction > lower) return 'after'
+  return 'child'
+}
+
 export interface OrgFileEditRow {
   row: string
+  title: string
   level: number
-  parent: string | null
-  task: boolean
   canReorder: boolean
 }
 
@@ -240,7 +252,7 @@ export class OrgFileEditSession {
     const source = nodes.find(node => node.row === row)
     const target = nodes.find(node => node.row === targetRow)
     if (!source || !target) return false
-    const position = this.draft.destination(target.id, placement, [source.id])
+    const position = this.draft.destination(target.id, placement === 'child' ? 'lastChild' : placement, [source.id])
     if (!position || !this.draft.move(source, position)) return false
     this.highlighted = ''
     return true
@@ -253,8 +265,8 @@ export class OrgFileEditSession {
     const rows = this.draft.nodes.map((node): OrgFileEditRow => {
       const level = 1 + (node.parent === null ? 0 : levels.get(node.parent) ?? 0)
       levels.set(node.id, level)
-      return { row: node.row, level, parent: node.parent, task: node.task,
-        canReorder: node.parent !== null || this.draft.siblings(null).length > 1 }
+      const title = node.titleParts?.map(part => part.text).join('') || node.title
+      return { row: node.row, title, level, canReorder: node.parent !== null || this.draft.siblings(null).length > 1 }
     })
     return { active: true, changed: this.draft.changed, rows, highlighted: this.highlighted }
   }

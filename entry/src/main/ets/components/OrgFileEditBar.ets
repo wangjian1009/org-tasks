@@ -6,14 +6,17 @@ export struct OrgFileEditBar {
   @Prop stale: boolean = false
   @Prop changed: boolean = false
   @Prop message: string = ''
+  @Prop dragHint: string = ''
   save: () => void = () => {}
   discard: () => void = () => {}
 
   build() {
     Column({ space: 6 }) {
       Row({ space: 8 }) {
-        Text(this.busy ? '正在保存顺序' : '长按手柄移动条目')
-          .fontSize(13).fontColor(this.busy ? UiColor.secondary : UiColor.text).layoutWeight(1)
+        Text(this.busy ? '正在保存顺序' : this.dragHint || '拖到行中间成为子项\n拖到上下缘调整顺序')
+          .id('project_order_drop_hint').fontSize(13).lineHeight(18).maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontColor(this.dragHint ? UiColor.primary : UiColor.secondary).layoutWeight(1)
         Button('放弃').id('project_order_discard').fontColor(UiColor.secondary).backgroundColor(Color.Transparent).height(44)
           .enabled(!this.busy).onClick(this.discard)
         Button('保存').id('project_order_save').fontColor(UiColor.surface).backgroundColor(UiColor.primary).height(44)

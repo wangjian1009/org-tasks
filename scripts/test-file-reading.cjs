@@ -686,7 +686,7 @@ test('重构可独立折叠各层子节点，折叠后按可见行定位，确�
   }
   const parent = view.sections[0].node;
   parent.property = name => name === 'VISIBILITY' ? 'folded' : null;
-  const editRows = rows.map(([row, level]) => ({ row, level, parent: null, task: false, canReorder: true }));
+  const editRows = rows.map(([row, level]) => ({ row, title: row, level, canReorder: true }));
   view.edit = { active: true, changed: false, rows: editRows, highlighted: '' };
   view.editingChanged();
   assert.deepEqual(view.visibleKeys, ['parent', 'child', 'leaf', 'sibling']);
@@ -744,6 +744,22 @@ test('重构可移动唯一子节点，连续移动以草稿层级为准并拒�
   assert.equal(session.move('task', 'dev', 'child'), true);
   assert.equal(session.view().changed, false);
   assert.deepEqual(session.edits(), []);
+});
+
+test('拖到同级任务中央时依次追加子任务，分界的小幅移动保留当前落点', () => {
+  const node = id => ({ id, row: id, title: id, titleParts: [], task: true, parent: null });
+  const session = new projectStructure.OrgFileEditSession({ nodes: ['a', 'b', 'c'].map(node) });
+  const placement = projectStructure.projectDropPlacement;
+  assert.equal(placement(0.18), 'before');
+  assert.equal(placement(0.29, 'child'), 'child');
+  assert.equal(placement(0.32, 'before'), 'before');
+  assert.equal(placement(0.68, 'after'), 'after');
+  assert.equal(placement(0.72, 'child'), 'child');
+  assert.equal(placement(0.82), 'after');
+  assert.equal(session.move('b', 'a', placement(0.50)), true);
+  assert.equal(session.move('c', 'a', placement(0.50)), true);
+  assert.deepEqual(session.view().rows.map(row => [row.row, row.level]), [['a', 1], ['b', 2], ['c', 2]]);
+  assert.deepEqual(session.edits().map(edit => edit.after), [null, 'b']);
 });
 
 test('项目首次阅读等待布局完成后跳过文件头，后续高度变化不重设位置', () => {
