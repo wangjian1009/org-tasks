@@ -42,6 +42,7 @@ export struct TaskPageContent {
   private orderFilesDataSet: DataSet | undefined = undefined
   private stops: (() => void)[] = []
   @State pageReady: boolean = false
+  @State repositoryReady: boolean = false
   private taskDataSet(): DataSet { return this.view === 'planned' && !this.selectedPlanRegion ? this.rangeDataSet! : this.tasksDataSet! }
 
   @StorageLink('taskChecklistDragging') checklistDragging: boolean = false
@@ -426,16 +427,17 @@ export struct TaskPageContent {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       AppShell({ title: overviewTitle(this.view), activeRoute: this.pageRoute, activeOverview: this.view,
-        titleIcon: this.overviewIcon(),
+        titleIcon: this.overviewIcon(), requiresRepository: true,
+        repositoryReadyChanged: (ready: boolean): void => { this.repositoryReady = ready },
         actionLabel: this.view === 'today' ? '今天更多操作' : '', actionMenuItems: this.todayActions(),
         drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletingMemo || this.orderSaving || this.supportsBatchActions() && this.selection.blocked(),
         pullDisabled: this.orderSheetOpen || this.supportsBatchActions() && this.selection.selecting }) {
         ForEach([this.taskDataSet()], (_dataSet: DataSet) => { this.overviewContent() }, (dataSet: DataSet) => dataSet.identity)
       }
-      if (this.view === 'someday' && !this.drawerOpen) {
+      if (this.repositoryReady && this.view === 'someday' && !this.drawerOpen) {
         TaskSelectionToolbar({ selection: this.selection, operations: taskPageActionPolicy(this.view).bulkOperations, idPrefix: this.view })
       }
-      if (this.view === 'memo' && this.pageReady && !this.needsConfiguration && !this.drawerOpen) {
+      if (this.repositoryReady && this.view === 'memo' && this.pageReady && !this.needsConfiguration && !this.drawerOpen) {
         Button({ type: ButtonType.Circle }) {
           Image($r('app.media.ui_add_memo')).width(28).height(28)
         }.id('memo_create').width(56).height(56).backgroundColor(UiColor.primary)

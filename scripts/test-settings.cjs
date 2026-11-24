@@ -171,14 +171,14 @@ test('展示方式菜单标记已保存值，重复选择不写入，失败保�
   assert.deepEqual(f.settings.displayModeChoices().map(item=>item.checked), [false,true]);
 });
 
-function repositoryFixture(existing = true) {
+function repositoryFixture(existing = true, repositoryCreation) {
   const original = { id: 'repo-1', name: '旧名称', rootDirectory: '/org/work', webdavEnabled: true,
     webdavUrl: 'https://dav.example.com/org/', webdavUsername: 'user', webdavPassword: 'secret',
     excludedDirectories: ['private'] };
   const config = { repos: existing ? [original] : [], inboxRepoId: 'repo-1', inboxFile: 'inbox.org',
     somedayRepoId: '', somedayFile: '', memoRepoId: 'repo-1', memoFile: 'memo.org',
     todoDefaults: '#+TODO: OPEN | CLOSED', coreSettings: { additionStates: [] }, fileDisplayMode: 'source' };
-  const writes = [], directories = [], validations = [], connections = [], lifecycle = [];
+  const writes = [], directories = [], validations = [], connections = [], lifecycle = [], initialized = [];
   let backed = 0, failure, gate, syncFailure, dialog;
   const page = load('pages/RepositorySettings', 'RepositorySettings', {
     '../services/AppConfigService': { AppConfigService: {
@@ -200,9 +200,13 @@ function repositoryFixture(existing = true) {
     '../services/RepositorySetupService': { RepositorySetupService: {
       async initialize(context, current, repo) {
         assert.ok(current.repos.some(item => item.id === repo.id));
+        initialized.push(repo.rootDirectory);
         return [{ path: 'someday.org', title: '某天' }];
       },
-      async listEntries() { return []; },
+      async listEntries(current, repo) {
+        assert.ok(current.repos.some(item => item.id === repo.id));
+        return repositoryCreation === 'localDirectory' ? [{ path: 'existing.org', title: '某天' }] : [];
+      },
       bindEntries(current, repo, files) {
         if (!current.somedayRepoId && files.length) {
           current.somedayRepoId = repo.id;
@@ -226,9 +230,9 @@ function repositoryFixture(existing = true) {
     '../ui/Theme': { UiColor: {}, repositoryLabel: repo => repo.name }
   });
   page.getUIContext = () => ({ getHostContext: () => ({ filesDir: '/app/files' }),
-    getRouter: () => ({ getParams: () => existing ? { repoId: 'repo-1' } : {}, back() { backed++; } }),
+    getRouter: () => ({ getParams: () => existing ? { repoId: 'repo-1' } : { repositoryCreation }, back() { backed++; } }),
     showAlertDialog(value) { dialog = value; }, getPromptAction: () => ({ showToast() {} }) });
-  return { page, config, writes, directories, validations, connections, lifecycle, backed: () => backed,
+  return { page, config, writes, directories, validations, connections, lifecycle, initialized, backed: () => backed,
     failSync(message) { syncFailure = message; }, dialog: () => dialog,
     fail(e) { failure = e; }, hold(p) { gate = p; } };
 }
@@ -270,6 +274,46 @@ test('新建默认不同步，返回不创建；选择 WebDAV 并明确添加后
   assert.equal(f.writes[0].repos[0].name, '新仓库'); assert.equal(f.writes[0].repos[0].webdavEnabled, true);
   assert.deepEqual(f.writes[0].repos[0].excludedDirectories, ['archive']);
   assert.deepEqual(f.lifecycle, [['repositoryCreated', 'repo-new']]);
+});
+
+test('无仓库引导区分初始化、接入已有目录与远程连接', async () => {
+  const local = repositoryFixture(false, 'initialize');
+  await local.page.load();
+  assert.equal(local.page.directoryOpen, false);
+  await local.page.save();
+  assert.deepEqual(local.initialized, ['/app/files/repositories/repo-new']);
+  assert.equal(local.writes[0].somedayFile, 'someday.org');
+
+  const attached = repositoryFixture(false, 'localDirectory');
+  await attached.page.load();
+  assert.equal(attached.page.directoryOpen, true);
+  assert.equal(attached.page.rootDirectory, '');
+  attached.page.onBackPress();
+  assert.equal(attached.page.directoryOpen, false);
+  assert.equal(attached.writes.length, 0);
+  attached.page.rootDirectory = '/org/existing';
+  await attached.page.save();
+  assert.deepEqual(attached.initialized, []);
+  assert.deepEqual(attached.validations, ['/org/existing']);
+  assert.equal(attached.writes[0].somedayFile, 'existing.org');
+
+  const remote = repositoryFixture(false, 'remote');
+  await remote.page.load();
+  assert.equal(remote.page.webdavEnabled, true);
+  remote.page.webdavUrl = 'https://dav.example.com/org/';
+  remote.page.webdavUsername = 'user';
+  remote.page.webdavPassword = 'secret';
+  remote.failSync('网络不可用');
+  await remote.page.save();
+  assert.equal(remote.writes.length, 1);
+  assert.equal(remote.page.syncRetry, 'repositoryCreated');
+  assert.deepEqual(remote.initialized, []);
+  remote.failSync(undefined);
+  await remote.page.retrySync();
+  assert.deepEqual(remote.lifecycle, [['repositoryCreated', 'repo-new'], ['repositoryCreated', 'repo-new']]);
+  assert.deepEqual(remote.writes.at(-1).repos.map(repo => repo.id), ['repo-new']);
+  assert.equal(remote.writes.at(-1).somedayRepoId, 'repo-new');
+  assert.deepEqual(remote.initialized, ['/app/files/repositories/repo-new']);
 });
 
 test('WebDAV 重置先清空，再同步，失败后的重试沿用原因且不再清空', async () => {

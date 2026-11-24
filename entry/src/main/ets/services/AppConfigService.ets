@@ -28,6 +28,12 @@ export class AppConfigService {
   static watchChanges(listener: () => void): void { AppConfigService.changeListeners.add(listener) }
   static stopWatchingChanges(listener: () => void): void { AppConfigService.changeListeners.delete(listener) }
 
+  static async hasUserRepositories(context: Context): Promise<boolean> {
+    const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
+    const repos = await AppConfigService.loadRepositories(store, false)
+    return repos.some(repo => !SystemRepositoryService.isSystem(repo))
+  }
+
   static async load(context: Context, includeCredentials: boolean = true): Promise<AppConfig> {
     const store = await PreferencesStore.open(context, APP_CONFIG_PREFERENCES)
     const repos = (await AppConfigService.loadRepositories(store, includeCredentials)).filter(repo => !SystemRepositoryService.isSystem(repo))

@@ -157,7 +157,7 @@ function captureFixture() {
     module, module.exports, { end: async collapse => { calls.push(collapse); return await finish(); } },
     { RESIZE: 'resize' }, { Hidden: 'hidden', Visible: 'visible' }, error => error.message);
   const state = Object.assign(new module.exports.InboxCapture(), {
-    visible: true, pageReady: true, needsConfiguration: false, captureOpen: false, drawerOpen: false, actionBusy: false, selected: undefined,
+    visible: true, pageReady: true, repositoryReady: true, needsConfiguration: false, captureOpen: false, drawerOpen: false, actionBusy: false, selected: undefined,
     selection: {selecting:false,starting:false}, inlineActive: '', inlineTyping: false,
     captureTitle: '保留的捕捉草稿',
     getUIContext: () => ({ getKeyboardAvoidMode: () => keyboardMode, setKeyboardAvoidMode: mode => { keyboardMode = mode; },
@@ -198,9 +198,9 @@ test('原位编辑保存失败或页面离开时不打开捕捉，异常可反�
   await f.state.capture(); assert.equal(f.state.captureOpen, true);
 });
 
-test('抽屉、移动浮层与多选期间继续隐藏新增按钮，关闭后恢复', () => {
+test('无仓库、抽屉、移动浮层与多选期间隐藏新增按钮，恢复后显示', () => {
   const f = captureFixture();
-  for (const [key, value] of [['pageReady', false], ['needsConfiguration', true], ['drawerOpen', true], ['selection', {selecting:true}], ['selection', {starting:true}]]) {
+  for (const [key, value] of [['repositoryReady', false], ['pageReady', false], ['needsConfiguration', true], ['drawerOpen', true], ['selection', {selecting:true}], ['selection', {starting:true}]]) {
     const previous = f.state[key]; f.state[key] = value;
     assert.equal(f.state.buttonVisibility(), 'hidden');
     f.state[key] = previous;

@@ -17,6 +17,11 @@ import { TaskView } from '../services/TaskViewQueries'
 import { CoreOrgFileMetadata } from '../services/NativeCoreService'
 import { RegionOrderService } from '../services/RegionOrderService'
 import { RegionOrder } from '../ui/RegionOrderPresentation'
+import { AppConfigService } from '../services/AppConfigService'
+import { EmptyState } from './controls/EmptyState'
+import { RepositoryWelcome } from './RepositoryWelcome'
+
+type RepositoryStatus = 'loading' | 'ready' | 'missing' | 'error'
 
 @Component
 export struct AppShell {
@@ -36,9 +41,11 @@ export struct AppShell {
   @Prop busy: boolean = false
   @Prop pullToSync: boolean = false
   @Prop pullDisabled: boolean = false
+  @Prop requiresRepository: boolean = false
   @Prop actionMenuItems: PopupMenuItem[] = []
   @Link @Watch('drawerChanged') drawerOpen: boolean
   @BuilderParam content: () => void
+  repositoryReadyChanged: (ready: boolean) => void = () => {}
   action: () => void = () => {}
   secondaryAction: () => void = () => {}
   beforePull: () => Promise<void> = async (): Promise<void> => {}
@@ -64,6 +71,26 @@ export struct AppShell {
   private stopSidebar: (() => void) | undefined = undefined
   private orderChanged: ((order: RegionOrder | null) => void) | undefined = undefined
   private orderRevision: number = 0
+  @State repositoryStatus: RepositoryStatus = 'loading'
+  private repositoryRequest: number = 0
+  private readonly repositoriesChanged = (): void => { this.loadRepositoryStatus() }
+
+  private showsPageContent(): boolean {
+    return !this.requiresRepository || this.repositoryStatus === 'ready'
+  }
+
+  private async loadRepositoryStatus(): Promise<void> {
+    const request = ++this.repositoryRequest
+    try {
+      const available = await AppConfigService.hasUserRepositories(this.getUIContext().getHostContext()!)
+      if (request !== this.repositoryRequest) return
+      this.repositoryStatus = available ? 'ready' : 'missing'
+    } catch (_) {
+      if (request !== this.repositoryRequest) return
+      this.repositoryStatus = 'error'
+    }
+    this.repositoryReadyChanged(this.repositoryStatus === 'ready')
+  }
 
   titleLabel(): string {
     return this.titleParts.length > 0 ? this.titleParts.map((part: CoreTitlePart) => part.text).join('') : this.title
@@ -71,10 +98,16 @@ export struct AppShell {
 
   aboutToAppear() {
     this.stopNotifications = NotificationManager.watchVisibility(visible => { this.showNotifications = visible })
+    if (this.requiresRepository) {
+      AppConfigService.watchChanges(this.repositoriesChanged)
+      this.repositoriesChanged()
+    }
     if (this.drawerOpen) this.loadNavigation()
   }
 
   aboutToDisappear() {
+    AppConfigService.stopWatchingChanges(this.repositoriesChanged)
+    this.repositoryRequest++
     this.stopNotifications?.()
     this.stopNotifications = undefined
     this.stopSidebar?.(); this.stopSidebar = undefined
@@ -289,14 +322,14 @@ export struct AppShell {
                 .textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(2)
             }
           }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
-          if (this.inlineTyping) {
+          if (this.showsPageContent() && this.inlineTyping) {
             Button('完成').height(48).width(64).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
               .onClick(() => { TaskInlineSession.end(false) })
           }
-          if (this.secondaryActionLabel.length > 0) {
+          if (this.showsPageContent() && this.secondaryActionLabel.length > 0) {
             IconButton({ icon: this.secondaryActionIcon, label: this.secondaryActionLabel, disabled: this.busy, action: this.secondaryAction })
           }
-          if (this.actionLabel.length > 0) {
+          if (this.showsPageContent() && this.actionLabel.length > 0) {
             if (this.actionText.length > 0) {
               Button(this.actionText).height(this.actionProminent ? 44 : 48).constraintSize({ minWidth: 64 }).fontSize(15)
                 .fontColor(this.actionProminent ? Color.White : UiColor.primary)
@@ -310,17 +343,26 @@ export struct AppShell {
             }
           }
         }.width('100%').height(64).padding({ left: 4, right: 4 }).backgroundColor(UiColor.surface)
-        if (!this.pullToSync || !this.showNotifications) {
+        if (!this.showsPageContent() || !this.pullToSync || !this.showNotifications) {
           Divider().color(UiColor.outline).strokeWidth(0.5)
         }
         Column() {
-          RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen || this.pullDisabled,
-            beforePull: async (): Promise<boolean> => {
-              if (!await TaskInlineSession.end(true)) return false
-              await this.beforePull()
-              return true
-            } }) {
-            this.content()
+          if (this.showsPageContent()) {
+            RepositorySyncView({ pullEnabled: this.pullToSync, disabled: this.busy || this.drawerOpen || this.pullDisabled,
+              beforePull: async (): Promise<boolean> => {
+                if (!await TaskInlineSession.end(true)) return false
+                await this.beforePull()
+                return true
+              } }) {
+              this.content()
+            }
+          } else if (this.repositoryStatus === 'missing') {
+            RepositoryWelcome()
+          } else if (this.repositoryStatus === 'error') {
+            EmptyState({ title: '无法读取仓库配置', actionLabel: '重试',
+              action: (): void => { this.repositoryStatus = 'loading'; this.loadRepositoryStatus() } })
+          } else {
+            EmptyState({ title: '正在读取仓库配置', busy: true })
           }
         }.width('100%').layoutWeight(1)
       }.width('100%').height('100%').backgroundColor(UiColor.surface)

@@ -1,5 +1,6 @@
 import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { PageNavigator } from '../services/PageNavigator'
+import { PageParameters, RepositoryCreationMode } from '../services/PagePath'
 import { PageQueryService } from '../services/PageQueryService'
 import { fileIo } from '@kit.CoreFileKit'
 import { defaultSyncOptions, SyncOptions as NativeSyncOptions } from 'liborg_tasks_harmony.so'
@@ -19,8 +20,6 @@ import { LocalDirectorySheet } from '../components/editors/LocalDirectorySheet'
 import { repositoryLabel, repositoryName, UiColor } from '../ui/Theme'
 import { SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
 
-interface RepositoryParams { repoId?: string }
-
 @Entry
 @Component
 struct RepositorySettings {
@@ -39,6 +38,7 @@ struct RepositorySettings {
   @State retryInitialization: boolean = false
   @State syncRetry: RepositorySyncSource | '' = ''
   @State existing: boolean = false
+  @State creationMode: RepositoryCreationMode | undefined = undefined
   @State testing: boolean = false
   @State testMessage: string = ''
   @State testSucceeded: boolean = false
@@ -136,16 +136,17 @@ struct RepositorySettings {
   async load() {
     try {
       this.config = await AppConfigService.load(this.getUIContext().getHostContext()!)
-      const params = this.getUIContext().getRouter().getParams() as RepositoryParams | undefined
+      const params = this.getUIContext().getRouter().getParams() as PageParameters | undefined
       if (params?.repoId === SYSTEM_REPOSITORY_ID) throw new Error('系统仓库由应用管理，不能修改')
       const existing = this.config.repos.find((item: RepoConfig) => item.id === params?.repoId)
       if (params?.repoId && !existing) throw new Error('此存储库已不存在，请返回存储库列表')
       this.existing = existing !== undefined
+      this.creationMode = existing ? undefined : params?.repositoryCreation
       const repo = existing || AppConfigService.newRepository()
       this.repoId = repo.id
       this.name = repo.name
-      this.rootDirectory = repo.rootDirectory || this.managedDirectory()
-      this.webdavEnabled = repo.webdavEnabled
+      this.rootDirectory = this.creationMode === 'localDirectory' ? '' : repo.rootDirectory || this.managedDirectory()
+      this.webdavEnabled = this.creationMode === 'remote' || repo.webdavEnabled
       this.webdavUrl = repo.webdavUrl
       this.webdavUsername = repo.webdavUsername
       this.webdavPassword = repo.webdavPassword
@@ -157,8 +158,19 @@ struct RepositorySettings {
       }
       this.originalDraft = JSON.stringify(this.draft())
       this.loaded = true
+      if (this.creationMode === 'localDirectory') this.directoryOpen = true
     } catch (e) { this.message = `读取配置失败：${coreErrorMessage(e as CoreBridgeError)}` }
     finally { this.loading = false }
+  }
+
+  private pageTitle(): string {
+    if (this.existing) return '仓库'
+    switch (this.creationMode) {
+      case 'initialize': return '初始化新仓库'
+      case 'remote': return '新增远程仓库'
+      case 'localDirectory': return '添加本地目录'
+      default: return '添加仓库'
+    }
   }
 
   private managedDirectory(): string {
@@ -264,7 +276,8 @@ struct RepositorySettings {
       }
       if (!this.existing && !repository.webdavEnabled) {
         current.repos.push(repository)
-        const files = await RepositorySetupService.initialize(context, current, repository)
+        const files = this.creationMode === 'localDirectory' ? await RepositorySetupService.listEntries(current, repository)
+          : await RepositorySetupService.initialize(context, current, repository)
         current = await AppConfigService.load(context)
         RepositorySetupService.bindEntries(current, repository, files)
       }
@@ -397,7 +410,7 @@ struct RepositorySettings {
 
   build() {
     Column() {
-      AppShell({ title: this.existing ? '仓库' : '添加仓库', titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen,
+      AppShell({ title: this.pageTitle(), titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen,
         busy: this.loading || this.saving || this.testing || this.deleting || this.resetting || this.directoryBusy,
         actionLabel: this.existing ? '重置本地目录' : '',
         actionText: this.resetting ? '正在重置…' : '重置',
@@ -407,20 +420,27 @@ struct RepositorySettings {
           MessageBar({ message: this.message, error: true })
           Scroll() {
             Column() {
-              SettingsGroup({ title: '基本信息', detail: this.existing ? '名称可留空，默认使用目录名称。修改后点击底部“确定”保存。' : '默认使用应用专用目录，也可选择应用可访问的其他目录。' }) {
+              SettingsGroup({ title: '基本信息', detail: this.creationMode ?
+                (this.creationMode === 'localDirectory' ? '请选择应用可访问的 Org 文件目录。' : '使用应用专用目录存放文件。') :
+                (this.existing ? '名称可留空，默认使用目录名称。修改后点击底部“确定”保存。' : '默认使用应用专用目录，也可选择应用可访问的其他目录。') }) {
                 SettingsField({ title: '名称', text: this.name,
                   placeholder: !this.existing && this.rootDirectory === this.managedDirectory() ? (this.webdavEnabled ? 'WebDAV 仓库' : '本地仓库') : repositoryName(this.rootDirectory),
                   changed: (value: string): void => { this.name = value } })
                 SettingsRow({ title: '本地目录', value: this.rootDirectory === this.managedDirectory() ? '应用专用目录' : repositoryName(this.rootDirectory),
                   detail: this.rootDirectory, icon: $r('app.media.ui_folder'), divider: false,
-                  action: (): void => { this.directoryOpen = true } })
+                  disclosure: this.existing || !this.creationMode || this.creationMode === 'localDirectory',
+                  action: (): void => {
+                    if (this.existing || !this.creationMode || this.creationMode === 'localDirectory') this.directoryOpen = true
+                  } })
               }
-              SettingsGroup({ title: '同步', detail: '本地仓库仅使用本机文件。WebDAV 仓库切换为不同步时，需要确认清理同步信息。' }) {
-                SettingsChoiceRow({ title: '同步方式', value: this.webdavEnabled ? 'WebDAV' : '不同步',
-                  divider: false, items: this.syncMethodChoices() })
-                if (this.cleanupPending) {
-                  SettingsRow({ title: '重试清理同步信息', divider: false, disclosure: false,
-                    action: (): void => { this.finishLocalConversion(this.rootDirectory) } })
+              if (this.existing || !this.creationMode) {
+                SettingsGroup({ title: '同步', detail: '本地仓库仅使用本机文件。WebDAV 仓库切换为不同步时，需要确认清理同步信息。' }) {
+                  SettingsChoiceRow({ title: '同步方式', value: this.webdavEnabled ? 'WebDAV' : '不同步',
+                    divider: false, items: this.syncMethodChoices() })
+                  if (this.cleanupPending) {
+                    SettingsRow({ title: '重试清理同步信息', divider: false, disclosure: false,
+                      action: (): void => { this.finishLocalConversion(this.rootDirectory) } })
+                  }
                 }
               }
               if (this.webdavEnabled) {
@@ -463,11 +483,11 @@ struct RepositorySettings {
           }.width('100%').layoutWeight(1).align(Alignment.TopStart)
           if (!this.loading && this.loaded && (!this.existing || this.hasChanges())) {
             Column() {
-              Button(this.existing ? (this.saving ? '正在保存…' : '确定') : (this.saving ? '正在新建…' : '新建仓库'))
+              Button(this.saving ? '正在保存…' : this.existing ? '确定' : this.creationMode === 'localDirectory' ? '添加目录' : '新建仓库')
                 .id(this.existing ? 'repository_confirm' : 'repository_create')
                 .width('100%').height(48).borderRadius(12)
                 .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
-                .enabled(!this.saving && !this.testing && !this.deleting && !this.resetting && !this.directoryBusy)
+                .enabled(!this.saving && !this.testing && !this.deleting && !this.resetting && !this.directoryBusy && !!this.rootDirectory)
                 .onClick((): void => { this.save() })
             }.width('100%').padding({ left: 16, right: 16, top: 12, bottom: 16 })
           }

@@ -41,6 +41,7 @@ struct Inbox {
   private targetDataSet: DataSet | undefined = undefined
   private stops: (() => void)[] = []
   @State pageReady: boolean = false
+  @State repositoryReady: boolean = false
   @StorageLink('taskInlineActive') @Watch('pageInlineChanged') pageInlineActive: string = ''
   private taskDataSet(name: string = 'tasks'): DataSet { return name === 'recent' ? this.recentDataSet! : this.tasksDataSet! }
 
@@ -319,7 +320,8 @@ struct Inbox {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'),
-        activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen,
+        activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen, requiresRepository: true,
+        repositoryReadyChanged: (ready: boolean): void => { this.repositoryReady = ready },
         pullToSync: true, pullDisabled: this.selection.selecting, busy: this.actionBusy || this.selection.busy || this.selection.starting }) {
         Column() {
           if (this.loading) {
@@ -395,12 +397,14 @@ struct Inbox {
         Image($r('app.media.ui_add_primary')).width(28).height(28)
       }.id('inbox_capture').width(56).height(56).backgroundColor(UiColor.primary)
         .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
-        .visibility(!this.pageReady || this.needsConfiguration || this.drawerOpen || this.captureOpen || this.inlineTyping ||
+        .visibility(!this.repositoryReady || !this.pageReady || this.needsConfiguration || this.drawerOpen || this.captureOpen || this.inlineTyping ||
           this.selection.selecting || this.selection.starting ? Visibility.Hidden : Visibility.Visible)
         .enabled(!this.actionBusy).accessibilityText('记一条')
         .onClick((): void => { this.capture() })
-      TaskSelectionToolbar({ selection: this.selection, operations: this.actionPolicy.bulkOperations, idPrefix: 'inbox' })
-      if (this.captureOpen) {
+      if (this.repositoryReady) {
+        TaskSelectionToolbar({ selection: this.selection, operations: this.actionPolicy.bulkOperations, idPrefix: 'inbox' })
+      }
+      if (this.repositoryReady && this.captureOpen) {
         Column().width('100%').height('100%').backgroundColor('#66000000')
           .accessibilityText('关闭并保留草稿').onClick((): void => { this.closeCapture() })
         Column({ space: 12 }) {
