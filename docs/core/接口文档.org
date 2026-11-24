@@ -1057,13 +1057,13 @@ impl OrgFile {
 
 调用方必须提交原文件版本。旧条目 ID、已变更文件和无效条目文字被拒绝，不自动换新版本重试；成功只返回提交完成，宿主通过数据变化监听后重新读取最新投影。
 
-清单按位置新增使用 ~InsertAfter { id, text }~ ，JSON 的 ~type~ 为 ~insertAfter~ 。Core 在该条目及其子项后插入未勾选的同级条目，保留原项目符号、缩进和换行样式，并更新标题统计。
+清单按位置新增使用 ~InsertAfter { id, text }~ ，JSON 的 ~type~ 为 ~insertAfter~ 。Core 在该条目及其子项后插入同级条目，保留原项目符号、缩进和换行样式。普通锚点产生普通条目，带 checkbox 的锚点产生未勾选条目。操作更新标题统计。
 
-清单排序使用 ~Move { id, before_id }~ ，目标为空时移到本同级列表末尾。Core 投影直接父列表身份 ~sibling_group~ 并验证来源和目标同组，移动父项携带嵌套内容；宿主只维护拖动预览，松手后提交一次，成功后重新读取条目 ID 和文件版本。
+清单排序使用 ~Move { id, before_id }~ ，目标为空时移到本同级列表末尾。Core 投影直接父列表身份 ~sibling_group~ 并验证来源和目标同组，移动父项携带嵌套内容；同级普通条目与 checkbox 条目可相互移动。宿主维护拖动预览，松手后提交一次，成功后重新读取条目 ID 和文件版本。
 
 * 有序正文区块
 
-~TaskEditContent.blocks~ 与 ~DocumentSection.blocks~ 使用同一 ~ContentBlock~ 投影，按原文件顺序提供文本、普通列表、表格和纯 checkbox 清单。区块由 Core 遍历 ~orgize~ 直属节点识别，宿主不得解析 Org 或拆分 HTML；规划、PROPERTIES、LOGBOOK、文件配置和后代正文不混入区块，源码与示例中的同名字面内容继续展示。属性抽屉即使因重复窗口（如 ~.+1w/2w~ ）被解析为普通 drawer，也按不区分大小写的名称排除；其他普通 drawer 保留，投影和区块修改均不改写邻接元数据。混合普通条目的列表作为完整 ~list~ 区块，纯 checkbox 列表才投影为 ~checklist~ 与结构化条目。
+~TaskEditContent.blocks~ 与 ~DocumentSection.blocks~ 使用同一 ~ContentBlock~ 投影，按原文件顺序提供文本、普通列表、表格和纯 checkbox 清单。区块由 Core 遍历 ~orgize~ 直属节点识别，宿主不得解析 Org 或拆分 HTML；规划、PROPERTIES、LOGBOOK、文件配置和后代正文不混入区块，源码与示例中的同名字面内容继续展示。属性抽屉即使因重复窗口（如 ~.+1w/2w~ ）被解析为普通 drawer，也按不区分大小写的名称排除；其他普通 drawer 保留，投影和区块修改均不改写邻接元数据。混合普通条目的列表仍作为 ~list~ 区块，纯 checkbox 列表为 ~checklist~ 区块。两种区块的 ~items~ 都提供完整的同级和嵌套条目，用于排序、编辑和插入。独立的 ~TaskEditContent.checklist~ 保留纯 checkbox 列表投影。
 
 #+begin_src rust
 pub enum ContentBlockKind { Text, List, Table, Checklist }

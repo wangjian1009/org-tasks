@@ -21,7 +21,7 @@ export struct TaskNativeContent {
   begin: () => Promise<boolean> = async () => false
   write: (change: CoreContentBlockChange) => Promise<void> = async () => {}
   toggle: (change: CoreTaskChecklistChange) => void = () => {}
-  insertChecklistAfter: ((id: string) => void) | undefined = undefined
+  activateParagraph: ((node: CoreContentNode) => void) | undefined = undefined
   editingChanged: (editing: boolean) => void = () => {}
   linkEditingChanged: (editing: boolean) => void = () => {}
   @State editNode: CoreContentNode | undefined = undefined
@@ -120,8 +120,12 @@ export struct TaskNativeContent {
     await this.write({ type: 'treeLink', id: node.id, link, value })
   }
 
-  private checklistEntry(node: CoreContentNode): boolean {
-    return !this.addingParagraph && !!this.insertChecklistAfter && this.nodes[0]?.id === node.id
+  private activate(node: CoreContentNode): void {
+    if (node.kind === 'paragraph' && this.nodes[0]?.id === node.id && this.activateParagraph) {
+      this.activateParagraph(node)
+    } else {
+      this.startEdit(node)
+    }
   }
 
   @Builder
@@ -131,13 +135,7 @@ export struct TaskNativeContent {
         .width('100%').height('auto').fontSize(14).fontColor(UiColor.text).minLines(1)
         .backgroundColor(UiColor.field).enabled(!this.saving && !this.inserting)
         .onChange((value: string): void => { this.draft = value })
-        .enterKeyType(this.checklistEntry(node) ? EnterKeyType.Next : EnterKeyType.NEW_LINE)
-        .onSubmit((_key: EnterKeyType, event: SubmitEvent): void => {
-          if (!this.checklistEntry(node)) return
-          event.keepEditableState()
-          const itemId = this.itemId
-          this.finish().then((saved: boolean): void => { if (saved) this.insertChecklistAfter?.(itemId) })
-        })
+        .enterKeyType(EnterKeyType.NEW_LINE)
         .onTextSelectionChange((start: number, end: number): void => {
           this.selectionStart = start
           this.selectionEnd = end
@@ -178,7 +176,7 @@ export struct TaskNativeContent {
       LinkView({ text: node.kind === 'cell' ? ' ' : node.source, parts: this.parts(node), textSize: 14, cancelled: checked,
         revision: this.revision, editable: !this.readonly && !this.disabled, internalLinkProcessor: this.processor,
         editor: this.linkEditor, editingChanged: this.linkEditingChanged,
-        activate: !this.readonly && !this.disabled ? (): void => { this.startEdit(node) } : undefined,
+        activate: !this.readonly && !this.disabled ? (): void => { this.activate(node) } : undefined,
         change: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink(node, link, value) }).width('100%')
     }
   }

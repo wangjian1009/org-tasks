@@ -1574,7 +1574,6 @@ fn modify_checklist(
             return Err(CoreError::InvalidInput("清单条目不能变为描述列表"));
         }
     }
-    let items = super::task_inline::checklist_items(headline);
     if let TaskChecklistChange::Add { text } = change {
         let lists = super::task_inline::checklist_lists(headline);
         let last = lists.last().and_then(|list| list.items().last());
@@ -1615,17 +1614,28 @@ fn modify_checklist(
         | TaskChecklistChange::Move { id, .. } => id,
         _ => unreachable!(),
     };
-    let item = items
-        .into_iter()
+    let item = headline.section().into_iter().flat_map(|section| section.syntax().descendants())
+        .filter_map(orgize::ast::ListItem::cast)
         .find(|item| u32::from(item.start()).to_string() == *id)
         .ok_or(CoreError::InvalidInput("清单条目不存在或已改变"))?;
+    if item.checkbox().is_none() {
+        if let Some(text) = text {
+            let org = orgize::Org::parse(&format!("- {text}\n"));
+            if org.first_node::<orgize::ast::ListItem>().is_some_and(|entry| {
+                entry.checkbox().is_some() || entry.counter().is_some()
+            }) {
+                return Err(CoreError::InvalidInput("条目文字不能更改列表标记"));
+            }
+        }
+    }
     match change {
         TaskChecklistChange::InsertAfter { text, .. } => {
             let start = u32::from(item.start()) as usize;
             let bullet_end = u32::from(item.bullet().text_range().end()) as usize;
             let end = u32::from(item.end()) as usize;
             let source = file.source_bytes();
-            let marker = std::str::from_utf8(&source[start..bullet_end]).expect("UTF-8");
+            let marker = std::str::from_utf8(&source[start..bullet_end]).expect("UTF-8")
+                .trim_end_matches(['\r', '\n']);
             // 取条目及其后代的最后一行，把原有分隔空行留在新条目之后。
             let raw = std::str::from_utf8(&source[start..end]).expect("UTF-8");
             let content_end = start + raw.trim_end_matches([' ', '\t', '\r', '\n']).len();
@@ -1635,12 +1645,15 @@ fn modify_checklist(
                 .map_or(end, |offset| content_end + offset + 1);
             let nl = newline(file);
             let prefix = if source[at - 1] == b'\n' { "" } else { nl };
-            let content = format!("{prefix}{marker}[ ] {text}{nl}");
+            let checkbox = if item.checkbox().is_some() { "[ ] " } else { "" };
+            let space = if marker.ends_with([' ', '\t']) { "" } else { " " };
+            let content = format!("{prefix}{marker}{space}{checkbox}{text}{nl}");
             replace(file, at..at, content.as_bytes())
         }
         TaskChecklistChange::Edit { text, .. } => {
             let range = super::task_inline::item_text_range(file, &item);
-            let content = if file.source_bytes().get(range.start.wrapping_sub(1)) == Some(&b']') {
+            let content = if file.source_bytes().get(range.start.wrapping_sub(1))
+                .is_some_and(|byte| !byte.is_ascii_whitespace()) {
                 format!(" {text}")
             } else {
                 text.clone()
@@ -1648,7 +1661,7 @@ fn modify_checklist(
             replace(file, range, content.as_bytes())
         }
         TaskChecklistChange::SetChecked { checked, .. } => {
-            let token = item.checkbox().expect("checkbox");
+            let token = item.checkbox().ok_or(CoreError::InvalidInput("条目没有 checkbox"))?;
             replace(
                 file,
                 u32::from(token.text_range().start()) as usize

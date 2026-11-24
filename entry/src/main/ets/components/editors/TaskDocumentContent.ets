@@ -203,25 +203,27 @@ export struct TaskDocumentContent {
   }
 
   @Builder
-  checklist(index: number) {
-    TaskChecklistBlock({ items: this.content()[index].items, readonly: this.isReadonly(), disabled: this.working || this.blocked,
-      tree: this.tree()?.find(node => node.id === this.content()[index].id), revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '',
+  checklist(index: () => number) {
+    TaskChecklistBlock({ items: this.content()[index()].items, readonly: this.isReadonly(), disabled: this.working || this.blocked,
+      tree: this.tree()?.find(node => node.id === this.content()[index()].id), revision: this.current?.fileVersion ?? this.task?.fileVersion ?? '',
       processor: this.internalLinkProcessor, editor: this.blockEditor, linkEditor: this.linkEditor,
-      beginNode: (): Promise<boolean> => this.beginBlock(this.content()[index]), writeNode: change => this.writeContentNode(change),
+      beginNode: (): Promise<boolean> => this.beginBlock(this.content()[index()]), writeNode: change => this.writeContentNode(change),
       editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (!editing) this.releaseIdle() },
       linkEditingChanged: (editing: boolean): void => { this.linkEditing = editing; if (editing) this.session(); else this.releaseIdle() },
       indentStep: this.projectReading ? 8 : 12,
-      ownerKey: this.owner, blockId: this.content()[index].id, editingId: this.editingId, editingText: this.editingText,
-      adding: this.adding && (this.addingAfter ? this.content()[index].items.some(item => item.id === this.addingAfter) :
-        this.lastChecklist(this.content()[index])), addingAfter: this.addingAfter,
-      newText: this.newText, showAdd: this.lastChecklist(this.content()[index]),
+      ownerKey: this.owner, blockId: this.content()[index()].id, editingId: this.editingId, editingText: this.editingText,
+      adding: this.adding && (this.addingAfter ? this.content()[index()].items.some(item => item.id === this.addingAfter) :
+        this.lastChecklist(this.content()[index()])), addingAfter: this.addingAfter,
+      newText: this.newText, showAdd: this.lastChecklist(this.content()[index()]),
       toggle: (change: CoreTaskChecklistChange): void => { this.changeCheck(change) },
       edit: (item: CoreTaskChecklistItem): void => { this.editCheck(item) },
       editChanged: (text: string): void => { this.editingText = text },
       newChanged: (text: string): void => { this.newText = text },
-      save: (next: boolean): void => { this.saveCheck(next) },
+      save: (next: boolean, id: string): void => {
+        if (id ? id === this.editingId : this.adding) this.saveCheck(next)
+      },
       remove: (item: CoreTaskChecklistItem): void => { this.changeCheck({ type: 'remove', id: item.id }) },
-      add: (): void => { this.addCheck() }, insertAfter: (id: string): void => { this.addCheck(id) },
+      add: (): void => { this.addCheck() },
       inputAppeared: (id: string): void => { this.checkFocus.appeared(id) },
       inputDisappeared: (id: string): void => { this.checkFocus.disappeared(id) },
       inputVisible: (id: string): void => { this.checkFocus.visible(id) } }).width('100%')
@@ -234,7 +236,7 @@ export struct TaskDocumentContent {
         projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
         revision: this.contentRevision || this.current?.fileVersion || this.task?.fileVersion || '', contentBackground: this.contentBackground,
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,
-        checklist: (index: number): void => { this.checklist(index) },
+        checklist: (index: () => number): void => { this.checklist(index) },
         begin: (block: CoreContentBlock): Promise<boolean> => this.beginBlock(block),
         save: (block: CoreContentBlock, source: string): Promise<boolean> => this.saveBlock(block, source),
         changeLink: (block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeBlockLink(block, link, value),

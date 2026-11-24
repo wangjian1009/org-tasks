@@ -58,8 +58,9 @@ pub(super) fn blocks(file: &OrgFile, section: Option<Section>, headline: Option<
         s.syntax().children().filter_map(List::cast).filter(super::task_inline::is_checklist).collect()
     }).unwrap_or_default());
     sources(file, section, headline).map(|(node, start, source)| {
-        let list = checklists.iter().find(|list| list.syntax().text_range() == node.text_range());
-        let kind = if list.is_some() { ContentBlockKind::Checklist } else { match node.kind() {
+        let checklist = checklists.iter().any(|list| list.syntax().text_range() == node.text_range());
+        let list = node.as_node().cloned().and_then(List::cast);
+        let kind = if checklist { ContentBlockKind::Checklist } else { match node.kind() {
             SyntaxKind::LIST => ContentBlockKind::List,
             SyntaxKind::ORG_TABLE => ContentBlockKind::Table,
             _ => ContentBlockKind::Text,
@@ -68,8 +69,8 @@ pub(super) fn blocks(file: &OrgFile, section: Option<Section>, headline: Option<
         let blank_lines_before = blank_lines(file, start);
         ContentBlock { id: start.to_string(), kind, paragraph: node.kind() == SyntaxKind::PARAGRAPH,
             blank_lines_before, source: source.into(),
-            html: if list.is_some() { String::new() } else { super::text_link::editable_html(source) },
-            items: list.map(|list| super::task_inline::project_checklist(file, list)).unwrap_or_default(),
+            html: if checklist { String::new() } else { super::text_link::editable_html(source) },
+            items: list.map(|list| super::task_inline::project_list(file, &list)).unwrap_or_default(),
         }
     }).collect()
 }
@@ -98,7 +99,12 @@ pub(super) fn modify(file: &mut OrgFile, headline: &Headline, change: &ContentBl
                 return Err(CoreError::InvalidInput("正文区块不能新增标题、规划或属性与日志抽屉"));
             }
             // 输入法使用 LF；只在当前替换区块内适配文件原有换行，外围字节不变。
-            source.replace("\r\n", "\n").replace('\r', "\n").replace('\n', super::task_operation_executor::newline(file))
+            let (prefix, changed) = source.strip_prefix(&block.source).map_or(("", source.as_str()), |suffix| {
+                (block.source.as_str(), suffix)
+            });
+            let changed = changed.replace("\r\n", "\n").replace('\r', "\n")
+                .replace('\n', super::task_operation_executor::newline(file));
+            format!("{prefix}{changed}")
         }
         ContentBlockChange::Link { link, value, .. } => {
             if block.kind == ContentBlockKind::Checklist { return Err(CoreError::InvalidInput("检查清单链接请通过清单原文编辑")); }

@@ -521,6 +521,7 @@ export struct TaskEditor {
   }
   applySnapshot(current: CoreTask | undefined, savedCheck: boolean = false) {
     if (!current) { this.removeDeletedTask(); return }
+    if (this.draggingCheck && current.fileVersion !== this.value().fileVersion) this.cancelCheckDrag()
     if (this.blockEditing && !this.blockSaving && current.fileVersion !== this.value().fileVersion) {
       this.snapshotBlocked = true; this.message = '文件已变化，区块草稿已保留，请取消编辑后重新载入'
       return
@@ -812,8 +813,9 @@ export struct TaskEditor {
     this.checkSaving = this.commitCheck()
     const result = await this.checkSaving
     this.checkSaving = undefined
-    if (result && this.continueCheck && this.addingCheck && !this.snapshotBlocked && this.appeared && !this.removed) {
-      this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
+    if (result && this.continueCheck && !this.snapshotBlocked && this.appeared && !this.removed) {
+      if (this.checkId) this.checkFocus.request(`inline_check_${this.checkId}`)
+      else if (this.addingCheck) this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
     }
     this.continueCheck = false
     return result
@@ -822,20 +824,27 @@ export struct TaskEditor {
     await this.pending
     const id = this.checkId
     const text = id ? this.checkText : this.newCheck
-    if (!id && !text.trim()) return true
+    if (!id && !text.trim()) {
+      this.addingCheck = false; this.checkAfter = ''; this.newCheck = ''
+      return true
+    }
     if (this.snapshotBlocked || this.removed) return false
     if (!text.trim()) { this.message = '清单条目不能为空'; return false }
-    const items = this.value().editContent.checklist
+    const items = this.listItems()
     const anchor = id || this.checkAfter
     const index = items.findIndex(item => item.id === anchor)
     if (anchor && index < 0) { this.message = '清单条目已变化，请重新载入'; return false }
     const change: CoreTaskChecklistChange = id ? { type: 'edit', id, text } :
       anchor ? { type: 'insertAfter', id: anchor, text } : { type: 'add', text }
     if ((!id || items[index].text !== text) && !await this.persist([{ field: 'CHECKLIST', value: change }])) return false
-    const nextIndex = !id && anchor ? checklistBlockEnd(items, index) : index
-    this.addingCheck = this.continueCheck && !this.snapshotBlocked && !this.removed
-    this.checkAfter = this.addingCheck ? this.value().editContent.checklist[nextIndex]?.id ?? '' : ''
-    this.checkText = ''; this.newCheck = ''; this.checkId = ''
+    const continueEditing = this.continueCheck && !this.snapshotBlocked && !this.removed
+    const current = this.listItems()
+    const afterSubtree = anchor ? checklistBlockEnd(items, index) : current.length - 1
+    const next = continueEditing && id && items[afterSubtree]?.siblingGroup === items[index].siblingGroup ?
+      current[afterSubtree] : undefined
+    this.addingCheck = continueEditing && !next
+    this.checkAfter = this.addingCheck ? current[id ? index : afterSubtree]?.id ?? '' : ''
+    this.checkText = next?.text ?? ''; this.newCheck = ''; this.checkId = next?.id ?? ''
     return true
   }
   async changeCheck(change: CoreTaskChecklistChange) {
@@ -843,12 +852,10 @@ export struct TaskEditor {
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.prepare()) return
     const id = change.type === 'add' ? '' : change.id
-    const index = this.value().editContent.checklist.findIndex(item => item.id === id)
-    const blockWasEditing = this.blockEditing
+    const index = this.listItems().findIndex(item => item.id === id)
     const version = this.value().fileVersion
-    if (!await this.saveText() || !await this.saveCheck(false)) return
-    if (blockWasEditing && version !== this.value().fileVersion) return
-    const current = this.value().editContent.checklist[index]
+    if (!await this.saveText() || !await this.saveCheck(false) || version !== this.value().fileVersion) return
+    const current = this.listItems()[index]
     if (change.type === 'setChecked' && current) change = { type: 'setChecked', id: current.id, checked: change.checked }
     else if (change.type === 'remove' && current) change = { type: 'remove', id: current.id }
     await this.persist([{ field: 'CHECKLIST', value: change }])
@@ -857,12 +864,10 @@ export struct TaskEditor {
     if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.prepare()) return
-    const index = this.value().editContent.checklist.findIndex(current => current.id === item.id)
-    const blockWasEditing = this.blockEditing
+    const index = this.listItems().findIndex(current => current.id === item.id)
     const version = this.value().fileVersion
-    if (!await this.saveText() || !await this.saveCheck(false)) return
-    if (blockWasEditing && version !== this.value().fileVersion) return
-    const current = this.value().editContent.checklist[index]
+    if (!await this.saveText() || !await this.saveCheck(false) || version !== this.value().fileVersion) return
+    const current = this.listItems()[index]
     if (!current) return
     this.addingCheck = false; this.checkAfter = ''
     this.checkId = current.id; this.checkText = current.text
@@ -871,9 +876,12 @@ export struct TaskEditor {
   async addCheck(after: string = '') {
     if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
+    const version = this.value().fileVersion
     if (!await this.prepare()) return
     if (!await this.saveText() || !await this.saveCheck(false)) return
-    this.checkAfter = after; this.addingCheck = true
+    if (after && version !== this.value().fileVersion) return
+    this.checkAfter = after || this.value().editContent.checklist.filter(item => item.depth === 0).pop()?.id || ''
+    this.addingCheck = true
     this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
   }
   async setSchedule(value: CoreTaskPlanningEdit | null, allowed: () => boolean = () => true): Promise<CoreTaskOperationGroup | undefined> {
@@ -1086,8 +1094,12 @@ export struct TaskEditor {
     } catch (error) { this.message = coreErrorMessage(error as CoreBridgeError) }
   }
 
+  listItems(task: CoreTask = this.value()): CoreTaskChecklistItem[] {
+    return task.editContent.blocks?.flatMap(block => block.items) ?? task.editContent.checklist
+  }
+
   checkItems(): CoreTaskChecklistItem[] {
-    const items = this.value().editContent.checklist
+    const items = this.listItems()
     if (!this.draggingCheck && !(this.working && this.checkPreview.length > 0)) return items
     const preview = this.checkPreview
     let index = 0
@@ -1105,7 +1117,7 @@ export struct TaskEditor {
     this.checkLayoutRevision++
   }
   canSortCheck(): boolean {
-    return !this.working && !this.typing && !this.blockEditing && !this.linkEditing && !this.checkId && !this.newCheck.trim() && !this.checkSaving &&
+    return !this.working && !this.typing && !this.blockEditing && !this.linkEditing && !this.checkId && !this.addingCheck && !this.checkSaving &&
       !this.snapshotBlocked && !this.droppingCheck && this.heading === this.value().heading && this.notes === this.value().editContent.notes.trimEnd()
   }
   cancelCheckDrag() {
@@ -1118,7 +1130,7 @@ export struct TaskEditor {
   }
   startCheckDrag(item: CoreTaskChecklistItem, event: GestureEvent) {
     if (this.readOnly) return
-    if (this.gripPress !== item.id || !this.canSortCheck() || this.draggingCheck || checklistSiblings(this.value().editContent.checklist, item.id).length < 2) return
+    if (this.gripPress !== item.id || !this.canSortCheck() || this.draggingCheck || checklistSiblings(this.listItems(), item.id).length < 2) return
     const finger = event.fingerList[0]
     const block = this.value().editContent.blocks.find((block: CoreContentBlock): boolean => block.items.some((entry: CoreTaskChecklistItem): boolean => entry.id === item.id))
     this.dragBlockId = block?.id ?? ''
@@ -1131,7 +1143,7 @@ export struct TaskEditor {
     }
     this.checkFocus.cancel()
     const localY = finger.globalY - node.getPositionToWindow().y
-    this.checkDrag = new TaskChecklistDrag(block?.items ?? this.value().editContent.checklist, item.id, this.checkHeights, localY)
+    this.checkDrag = new TaskChecklistDrag(block?.items ?? this.listItems(), item.id, this.checkHeights, localY)
     this.dragItems = this.checkDrag.moving
     this.dragHeight = this.checkDrag.height
     this.dragTop = this.checkDrag.top
@@ -1195,8 +1207,9 @@ export struct TaskEditor {
   async sortCheck(id: string, beforeId: string | null) {
     if (!this.canSortCheck() || this.draggingCheck) return
     const task = this.value()
-    this.checkPreview = checklistMovePreview(task.editContent.checklist, id, beforeId)
-    if (!this.checkPreview.some((item: CoreTaskChecklistItem, index: number) => item.id !== task.editContent.checklist[index].id)) return
+    const items = this.listItems(task)
+    this.checkPreview = checklistMovePreview(items, id, beforeId)
+    if (!this.checkPreview.some((item: CoreTaskChecklistItem, index: number) => item.id !== items[index].id)) return
     this.working = true; this.message = ''
     const operation = this.pending.then(async () => {
       let committed = false
@@ -1230,7 +1243,7 @@ export struct TaskEditor {
   }
   accessibleCheckOrder(item: CoreTaskChecklistItem) {
     if (!this.canSortCheck()) return
-    const siblings = checklistSiblings(this.value().editContent.checklist, item.id)
+    const siblings = checklistSiblings(this.listItems(), item.id)
     const index = siblings.findIndex(current => current.id === item.id)
     const sheets: SheetInfo[] = []
     if (index > 0) sheets.push({ title: '上移', action: () => { this.sortCheck(item.id, siblings[index - 1].id) } })
@@ -1602,6 +1615,11 @@ export struct TaskEditor {
 
   private tree(): CoreContentNode[] | undefined { return this.value().editContent.contentTree }
 
+  private useNotesInput(): boolean {
+    const content = this.value().editContent
+    return this.notesInput || (content.blocks.length === 0 && !content.notes.trim())
+  }
+
   async writeContentNode(change: CoreContentBlockChange): Promise<void> {
     this.blockSaving = true; this.linkSaving = true
     try {
@@ -1612,18 +1630,18 @@ export struct TaskEditor {
   }
 
   @Builder
-  checklistBlock(index: number) {
-    TaskChecklistBlock({ items: this.blockItems(this.checkBlock(index)), readonly: this.readOnly, sorting: true,
-      tree: this.tree()?.find(node => node.id === this.checkBlock(index).id), revision: this.value().fileVersion,
+  checklistBlock(index: () => number) {
+    TaskChecklistBlock({ items: this.blockItems(this.checkBlock(index())), readonly: this.readOnly, sorting: true,
+      tree: this.tree()?.find(node => node.id === this.checkBlock(index()).id), revision: this.value().fileVersion,
       processor: this.contentLinks(), editor: this.blockEditor, linkEditor: this.linkEditor,
-      beginNode: (): Promise<boolean> => this.beginBlock(this.checkBlock(index)), writeNode: change => this.writeContentNode(change),
+      beginNode: (): Promise<boolean> => this.beginBlock(this.checkBlock(index())), writeNode: change => this.writeContentNode(change),
       editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (editing) this.inputFocus() },
       linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
       disabled: this.working || this.snapshotBlocked, editingId: this.checkId, editingText: this.checkText,
-      adding: this.addingCheck && (this.checkAfter ? this.checkBlock(index).items.some(item => item.id === this.checkAfter) :
-        this.lastChecklist(this.checkBlock(index))), addingAfter: this.checkAfter, newText: this.newCheck,
-      showAdd: this.lastChecklist(this.checkBlock(index)), ownerKey: this.ownerKey, blockId: this.checkBlock(index).id,
-      dragging: this.draggingCheck && this.dragBlockId === this.checkBlock(index).id,
+      adding: this.addingCheck && (this.checkAfter ? this.checkBlock(index()).items.some(item => item.id === this.checkAfter) :
+        this.lastChecklist(this.checkBlock(index()))), addingAfter: this.checkAfter, newText: this.newCheck,
+      showAdd: index() >= 0, ownerKey: this.ownerKey, blockId: this.checkBlock(index()).id,
+      dragging: this.draggingCheck && this.dragBlockId === this.checkBlock(index()).id,
       dragTop: this.dragTop, dragHeight: this.dragHeight, dragPlaceholder: this.dragPlaceholder,
       dragValid: this.dragValid, dragItems: this.dragItems, scroller: this.checkScroller,
       grip: (item: CoreTaskChecklistItem, floating: boolean): void => { this.checklistGrip(item, floating) },
@@ -1631,9 +1649,12 @@ export struct TaskEditor {
       edit: (item: CoreTaskChecklistItem): void => { this.editCheck(item) },
       editChanged: (text: string): void => { this.checkText = text },
       newChanged: (text: string): void => { this.newCheck = text },
-      save: (next: boolean): void => { this.saveCheck(next) },
+      save: (next: boolean, id: string): void => {
+        if (id ? id === this.checkId : this.addingCheck) this.saveCheck(next)
+      },
       remove: (item: CoreTaskChecklistItem): void => { this.changeCheck({ type: 'remove', id: item.id }) },
-      add: (): void => { this.addCheck() }, insertAfter: (id: string): void => { this.addCheck(id) }, focused: (): void => { this.inputFocus() },
+      add: (): void => { this.addCheck(this.checkBlock(index()).items.filter(item => item.depth === 0).pop()?.id ?? '') },
+      focused: (): void => { this.inputFocus() },
       measured: (item: CoreTaskChecklistItem, area: Area): void => { this.checkMeasured(item, area) },
       touchChanged: (touching: boolean): void => { this.checklistTouch = touching },
       inputAppeared: (id: string): void => { this.checkFocus.appeared(id) },
@@ -1674,23 +1695,26 @@ export struct TaskEditor {
   bodyBlocks() {
     TaskContentEditor({ internalLinkProcessor: this.contentLinks(), blocks: this.value().editContent.blocks, contentTree: this.tree(),
       writeNode: change => this.writeContentNode(change), toggle: change => { this.changeCheck(change) },
-      beginEmpty: (): Promise<boolean> => this.prepare(), readonly: this.readOnly,
+      beginEmpty: (): Promise<boolean> => this.prepare(), readonly: this.readOnly, useNotesInput: this.useNotesInput(), interactiveLists: true,
       checklistEditing: this.checkId !== '' || this.addingCheck,
       disabled: this.working || this.snapshotBlocked || this.draggingCheck,
       revision: this.value().fileVersion, ownerKey: this.ownerKey,
       contentBackground: '#00000000',
       editor: this.blockEditor, linkEditor: this.linkEditor,
-      checklist: (index: number): void => { this.checklistBlock(index) },
+      checklist: (index: () => number): void => { this.checklistBlock(index) },
       begin: (block: CoreContentBlock): Promise<boolean> => this.beginBlock(block),
       save: (block: CoreContentBlock, source: string): Promise<boolean> => this.saveBlock(block, source),
       changeLink: (block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeBlockLink(block, link, value),
       editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (editing) this.inputFocus() },
       linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) } }).width('100%')
-    if (!this.readOnly && !this.tree() && this.value().editContent.blocks.length === 0) {
+    if (!this.readOnly && this.useNotesInput()) {
       if (this.notesInput) {
         TextArea({ text: this.notes, controller: this.notesController, placeholder: '添加正文' }).id(`inline_notes_${this.ownerKey}`)
           .enabled(!this.working && !this.snapshotBlocked).width('100%').height('auto').minLines(1).maxLines(1000)
           .fontSize(14).fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0)
+          .onAppear((): void => { this.checkFocus.appeared(`inline_notes_${this.ownerKey}`) })
+          .onDisAppear((): void => { this.checkFocus.disappeared(`inline_notes_${this.ownerKey}`) })
+          .onFocus((): void => { this.inputFocus() })
           .onChange((value: string): void => { this.notes = value; this.notesEditing = true; this.notesDirty = value !== this.notesBaseline })
           .onBlur((): void => { this.finishNotes() })
       } else {
@@ -1698,8 +1722,8 @@ export struct TaskEditor {
           .onClick((): void => { this.editNotes() })
       }
     }
-    if (!this.readOnly && this.addingCheck && this.value().editContent.checklist.length === 0) {
-      this.checklistBlock(-1)
+    if (!this.readOnly && this.addingCheck && !this.checkAfter && this.value().editContent.checklist.length === 0) {
+      this.checklistBlock((): number => -1)
     }
   }
 

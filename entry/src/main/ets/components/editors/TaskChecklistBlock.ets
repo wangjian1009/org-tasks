@@ -51,10 +51,9 @@ export struct TaskChecklistBlock {
   edit: (item: CoreTaskChecklistItem) => void = () => {}
   editChanged: (text: string) => void = () => {}
   newChanged: (text: string) => void = () => {}
-  save: (next: boolean) => void = () => {}
+  save: (next: boolean, id: string) => void = () => {}
   remove: (item: CoreTaskChecklistItem) => void = () => {}
   add: () => void = () => {}
-  insertAfter: ((id: string) => void) | undefined = undefined
   focused: () => void = () => {}
   inputAppeared: (id: string) => void = () => {}
   inputDisappeared: (id: string) => void = () => {}
@@ -87,16 +86,16 @@ export struct TaskChecklistBlock {
   @Builder
   draftRow(depth: number) {
     Row({ space: 4 }) {
-      Text('○').width(28).fontSize(19).fontColor(UiColor.secondary)
-      TextInput({ text: this.newText, placeholder: '清单项' }).id(`inline_new_check_${this.ownerKey}`)
+      Text(this.marker(this.addingAfter) ?? '○').width(28).fontSize(19).fontColor(UiColor.secondary)
+      TextInput({ text: this.newText, placeholder: '条目' }).id(`inline_new_check_${this.ownerKey}`)
         .enabled(!this.disabled && !this.dragging).layoutWeight(1).fontSize(14).fontColor(UiColor.text)
         .backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
         .onFocus((): void => { this.focused() }).onChange((text: string): void => { this.newChanged(text) })
-        .onBlur((): void => { this.save(false) })
+        .onBlur((): void => { this.save(false, '') })
         .onAppear((): void => { this.inputAppeared(`inline_new_check_${this.ownerKey}`) })
         .onDisAppear((): void => { this.inputDisappeared(`inline_new_check_${this.ownerKey}`) })
         .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_new_check_${this.ownerKey}`) })
-        .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true) })
+        .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true, '') })
     }.width('100%').height(44).padding({ left: Math.min(depth, 6) * this.indentStep })
   }
 
@@ -115,6 +114,11 @@ export struct TaskChecklistBlock {
     const children = item?.children ?? []
     const at = children.findIndex((child: CoreContentNode): boolean => child.kind === 'list')
     return at === -1 ? children : children.slice(0, at)
+  }
+
+  private marker(id: string): string | undefined {
+    const node = this.projectedItem(this.tree?.children ?? [], id)
+    return node && !node.checkbox ? node.marker ?? '•' : undefined
   }
 
   private continuations(nodes: CoreContentNode[], id: string): CoreContentNode[] {
@@ -144,31 +148,29 @@ export struct TaskChecklistBlock {
     return item.id
   }
 
-  private projectionKey(id: string): string {
-    const tree = this.tree?.children ?? []
-    const projected = this.projectedItem(tree, id)
-    return JSON.stringify([projected?.source, this.continuations(tree, id).map(node => [node.id, node.source])])
-  }
-
   @Builder
   row(item: CoreTaskChecklistItem, floating: boolean = false) {
     Row({ space: 4 }) {
-      Button(item.checked ? '✓' : item.partial ? '−' : '○').width(28).height(44).padding(0)
-        .fontSize(19).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
-        .enabled(!this.disabled && !this.dragging && !floating).focusable(!this.readonly)
-        .accessibilityText(this.readonly ? `${item.text}，${item.checked ? '已完成' : item.partial ? '部分完成' : '未完成'}` : item.checked ? `恢复未完成：${item.text}` : `完成：${item.text}`)
-        .onClick((): void => { if (!this.readonly) this.toggle({ type: 'setChecked', id: item.id, checked: !item.checked }) })
+      if (this.marker(item.id) !== undefined) {
+        Text(this.marker(item.id)).width(28).height(44).padding({ top: 11 }).fontSize(14).fontColor(UiColor.secondary)
+      } else {
+        Button(item.checked ? '✓' : item.partial ? '−' : '○').width(28).height(44).padding(0)
+          .fontSize(19).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+          .enabled(!this.disabled && !this.dragging && !floating).focusable(!this.readonly)
+          .accessibilityText(this.readonly ? `${item.text}，${item.checked ? '已完成' : item.partial ? '部分完成' : '未完成'}` : item.checked ? `恢复未完成：${item.text}` : `完成：${item.text}`)
+          .onClick((): void => { if (!this.readonly) this.toggle({ type: 'setChecked', id: item.id, checked: !item.checked }) })
+      }
       if (!this.readonly && !floating && this.editingId === item.id) {
         TextInput({ text: this.editingText }).id(`inline_check_${item.id}`).layoutWeight(1).fontSize(14)
           .fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
           .enabled(!this.disabled).onChange((text: string): void => { this.editChanged(text) })
-          .onFocus((): void => { this.focused() }).onBlur((): void => { this.save(false) })
+          .onFocus((): void => { this.focused() }).onBlur((): void => { this.save(false, item.id) })
           .onAppear((): void => { this.inputAppeared(`inline_check_${item.id}`) })
           .onDisAppear((): void => { this.inputDisappeared(`inline_check_${item.id}`) })
           .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_check_${item.id}`) })
-          .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true) })
+          .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true, item.id) })
       } else if (this.projectedBody(item.id).length > 0) {
-        TaskNativeContent({ nodes: this.projectedBody(item.id), itemId: item.id, insertChecklistAfter: this.insertAfter, completed: item.checked,
+        TaskNativeContent({ nodes: this.projectedBody(item.id), itemId: item.id, activateParagraph: (): void => { this.edit(item) }, completed: item.checked,
           readonly: this.readonly || floating, disabled: this.disabled || this.dragging, revision: this.revision,
           processor: this.processor, editor: this.editor, linkEditor: this.linkEditor,
           begin: this.beginNode, write: this.writeNode, editingChanged: this.editingChanged,
@@ -204,18 +206,8 @@ export struct TaskChecklistBlock {
           } else {
             ListItem() {
               Column() {
-                ForEach([this.projectionKey(item.id)], () => {
-                  Column() {
-                    this.row(item)
-                    if (this.continuations(this.tree?.children ?? [], item.id).length > 0) {
-                      TaskNativeContent({ nodes: this.continuations(this.tree?.children ?? [], item.id),
-                        readonly: this.readonly, disabled: this.disabled || this.dragging, revision: this.revision,
-                        processor: this.processor, editor: this.editor, linkEditor: this.linkEditor,
-                        begin: this.beginNode, write: this.writeNode, editingChanged: this.editingChanged,
-                        linkEditingChanged: this.linkEditingChanged }).padding({ left: 32 })
-                    }
-                  }.width('100%')
-                }, (key: string): string => key)
+                this.row(item)
+                this.continuedBody(item, false)
               }.width('100%')
             }
               .opacity(this.dragging && this.dragItems.some((moving: CoreTaskChecklistItem): boolean => moving.id === item.id) ? 0 : 1)
@@ -235,7 +227,8 @@ export struct TaskChecklistBlock {
         }, (item: CoreTaskChecklistItem): string => `${item.id}:${item.text}:${item.checked}:${item.partial}:${item.depth}`)
         if (!this.readonly && this.showAdd) {
           ListItem() {
-            Text('+  添加清单项').fontSize(14).fontColor(UiColor.secondary).width('100%').height(44)
+            Text(this.marker(this.items[0]?.id ?? '') === undefined ? '+  添加清单项' : '+  添加条目')
+              .fontSize(14).fontColor(UiColor.secondary).width('100%').height(44)
               .enabled(!this.disabled && !this.dragging).onClick((): void => { this.add() })
           }
         }
@@ -246,10 +239,28 @@ export struct TaskChecklistBlock {
         if (this.dragValid) {
           Rect().width('100%').height(2).fill(UiColor.primary).position({ x: 0, y: this.dragPlaceholder }).hitTestBehavior(HitTestMode.None)
         }
-        Column() { ForEach(this.dragItems, (item: CoreTaskChecklistItem) => { this.row(item, true) }, (item: CoreTaskChecklistItem): string => item.id) }
+        Column() {
+          ForEach(this.dragItems, (item: CoreTaskChecklistItem) => {
+            Column() {
+              this.row(item, true)
+              this.continuedBody(item, true)
+            }.width('100%')
+          }, (item: CoreTaskChecklistItem): string => item.id)
+        }
           .width('100%').height(this.dragHeight).backgroundColor('#494743').borderRadius(8)
           .shadow({ radius: 8, color: '#52000000', offsetY: 4 }).position({ x: 0, y: this.dragTop - 4 }).hitTestBehavior(HitTestMode.None)
       }
     }.id(`inline_checks_${this.ownerKey}_${this.blockId}`).width('100%').height(this.rowHeight(this.measuredHeight))
+  }
+
+  @Builder
+  continuedBody(item: CoreTaskChecklistItem, floating: boolean) {
+    if (this.continuations(this.tree?.children ?? [], item.id).length > 0) {
+      TaskNativeContent({ nodes: this.continuations(this.tree?.children ?? [], item.id),
+        readonly: this.readonly || floating, disabled: this.disabled || this.dragging, revision: this.revision,
+        processor: this.processor, editor: this.editor, linkEditor: this.linkEditor,
+        begin: this.beginNode, write: this.writeNode, editingChanged: this.editingChanged,
+        linkEditingChanged: this.linkEditingChanged }).padding({ left: 32 + Math.min(item.depth, 6) * this.indentStep })
+    }
   }
 }

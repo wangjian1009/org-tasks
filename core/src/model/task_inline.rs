@@ -89,17 +89,17 @@ pub(super) fn is_checklist(list: &List) -> bool {
         .all(|item| item.checkbox().is_some() && item.tag().next().is_none())
 }
 
-pub(super) fn project_checklist(file: &OrgFile, list: &List) -> Vec<TaskChecklistItem> {
-    list.syntax().descendants().filter_map(ListItem::cast).filter_map(|item| {
-        let token = item.checkbox()?;
-        Some(TaskChecklistItem {
+pub(super) fn project_list(file: &OrgFile, list: &List) -> Vec<TaskChecklistItem> {
+    list.syntax().descendants().filter_map(ListItem::cast).map(|item| {
+        let token = item.checkbox();
+        TaskChecklistItem {
             id: u32::from(item.start()).to_string(),
             sibling_group: u32::from(item.syntax().parent().expect("父列表").text_range().start()).to_string(),
             text: std::str::from_utf8(&file.source_bytes()[item_text_range(file, &item)]).expect("UTF-8").into(),
-            checked: token.as_ref() == "X" || token.as_ref() == "x",
-            partial: token.as_ref() == "-",
+            checked: token.as_deref().is_some_and(|value| matches!(value, "X" | "x")),
+            partial: token.as_deref() == Some("-"),
             depth: item.syntax().ancestors().skip(1).filter(|node| node.kind() == SyntaxKind::LIST_ITEM).count(),
-        })
+        }
     }).collect()
 }
 
@@ -137,26 +137,20 @@ pub(crate) fn note_ranges(file: &OrgFile, headline: &Headline) -> Vec<Range<usiz
         .collect()
 }
 
-pub(crate) fn checklist_items(headline: &Headline) -> Vec<ListItem> {
-    headline.section().into_iter().flat_map(|section| {
-        section.syntax().descendants().filter_map(ListItem::cast)
-            .filter(|item| item.checkbox().is_some()).collect::<Vec<_>>()
-    }).collect()
-}
-
 pub(crate) fn item_text_range(file: &OrgFile, item: &ListItem) -> Range<usize> {
-    let token = item.checkbox().expect("已验证 checkbox");
     let source = file.source_bytes();
-    let mut a = u32::from(token.text_range().end()) as usize + 1;
-    while matches!(source.get(a), Some(b' ' | b'\t')) {
+    let start = u32::from(item.start()) as usize;
+    let line_end = source[start..].iter().position(|byte| *byte == b'\n')
+        .map_or(source.len(), |offset| start + offset);
+    let line_end = line_end - usize::from(source.get(line_end.wrapping_sub(1)) == Some(&b'\r'));
+    let mut a = item.syntax().children()
+        .find(|node| node.kind() == SyntaxKind::LIST_ITEM_CONTENT)
+        .map_or(line_end, |node| (u32::from(node.text_range().start()) as usize).min(line_end));
+    while a < line_end && matches!(source[a], b' ' | b'\t') {
         a += 1;
     }
-    let mut b = source[a..]
-        .iter()
-        .position(|byte| *byte == b'\n')
-        .map(|n| a + n)
-        .unwrap_or(source.len());
-    while b > a && matches!(source.get(b - 1), Some(b' ' | b'\t' | b'\r')) {
+    let mut b = line_end;
+    while b > a && matches!(source[b - 1], b' ' | b'\t') {
         b -= 1;
     }
     a..b
@@ -174,7 +168,7 @@ impl OrgFile {
             .iter()
             .map(|range| std::str::from_utf8(&self.source_bytes()[range.clone()]).expect("UTF-8"))
             .collect::<String>();
-        let checklist = checklist_lists(&headline).iter().flat_map(|list| project_checklist(self, list)).collect();
+        let checklist = checklist_lists(&headline).iter().flat_map(|list| project_list(self, list)).collect();
         Ok(TaskEditContent {
             // 非法日志配置不妨碍读取；真实状态操作仍由写入入口报错。
             note_required_states: super::task_state::note_required_states(self, &headline).unwrap_or_default(),
@@ -433,6 +427,34 @@ mod tests {
         let edit = projection(&file(source));
         assert!(edit.checklist.is_empty());
         assert!(edit.notes.contains("ordinary") && edit.notes.contains("checked item"));
+    }
+
+    #[test]
+    fn mixed_list_move_and_insert_keep_markers_subtrees_and_raw_notes() {
+        let header = "* Task\r\n";
+        let plain = "- Ordinary\r\n  - [ ] Child\r\n";
+        let checked = "- [X] Complete\r\n";
+        let after = "\r\nNext paragraph\r\n";
+        let mut file = file(&format!("{header}{plain}{checked}{after}"));
+        let edit = projection(&file);
+        let items = &edit.blocks[0].items;
+        assert_eq!(items.iter().map(|item| item.text.as_str()).collect::<Vec<_>>(),
+            ["Ordinary", "Child", "Complete"]);
+        assert_eq!(items[0].sibling_group, items[2].sibling_group);
+        assert_ne!(items[0].sibling_group, items[1].sibling_group);
+        apply(&mut file, TaskModification::Checklist(TaskChecklistChange::Move {
+            id: items[0].id.clone(), before_id: None,
+        }));
+        assert_eq!(file.source_bytes(), format!("{header}{checked}{plain}{after}").as_bytes());
+        let moved = projection(&file);
+        assert!(moved.checklist.is_empty());
+        assert!(moved.notes.contains(checked));
+        let id = moved.blocks[0].items[1].id.clone();
+        apply(&mut file, TaskModification::Checklist(TaskChecklistChange::InsertAfter {
+            id, text: "New ordinary".into(),
+        }));
+        assert_eq!(file.source_bytes(),
+            format!("{header}{checked}{plain}- New ordinary\r\n{after}").as_bytes());
     }
     #[test]
     fn changing_a_day_preserves_time_repeater_warning_and_other_planning() {

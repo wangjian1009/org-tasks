@@ -18,6 +18,8 @@ export struct TaskContentEditor {
   @Prop @Watch('contentChanged') blocks: CoreContentBlock[] = []
   @State private slots: TaskContentSlot[] = []
   @Prop contentTree: CoreContentNode[] | undefined = undefined
+  @Prop useNotesInput: boolean = false
+  @Prop interactiveLists: boolean = false
   beginEmpty: () => Promise<boolean> = async () => false
   writeNode: (change: CoreContentBlockChange) => Promise<void> = async () => {}
   toggle: (change: CoreTaskChecklistChange) => void = () => {}
@@ -35,7 +37,7 @@ export struct TaskContentEditor {
   changeLink: ((block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   editingChanged: (editing: boolean) => void = () => {}
   linkEditingChanged: (editing: boolean) => void = () => {}
-  @BuilderParam checklist: (index: number) => void = this.readChecklist
+  @BuilderParam checklist: (index: () => number) => void = this.readChecklist
 
   aboutToAppear(): void { this.contentChanged() }
 
@@ -48,24 +50,25 @@ export struct TaskContentEditor {
   indexFor(key: string): number { return this.slots.findIndex(slot => slot.key === key) }
 
   @Builder
-  readChecklist(index: number) {
-    TaskChecklistBlock({ items: this.blocks[index].items, readonly: this.readonly, ownerKey: this.ownerKey, blockId: this.blocks[index].id,
-      tree: this.treeFor(this.blocks[index].id), processor: this.internalLinkProcessor, revision: this.revision }).width('100%')
+  readChecklist(index: () => number) {
+    TaskChecklistBlock({ items: this.blocks[index()].items, readonly: this.readonly, ownerKey: this.ownerKey, blockId: this.blocks[index()].id,
+      tree: this.treeFor(this.blocks[index()].id), processor: this.internalLinkProcessor, revision: this.revision }).width('100%')
   }
 
   treeFor(id: string): CoreContentNode | undefined { return this.contentTree?.find(node => node.id === id) }
 
   @Builder
-  nativeBlock(block: CoreContentBlock) {
-    TaskNativeContent({ nodes: [this.treeFor(block.id)!], readonly: this.readonly, disabled: this.disabled,
+  nativeBlock(key: string, edit: () => void) {
+    TaskNativeContent({ nodes: [this.treeFor(this.blockFor(key).id)!], readonly: this.readonly, disabled: this.disabled,
       revision: this.revision, processor: this.internalLinkProcessor, editor: this.editor, linkEditor: this.linkEditor,
-      begin: (): Promise<boolean> => this.begin(block), write: this.writeNode, toggle: this.toggle,
+      activateParagraph: this.blockFor(key).paragraph ? edit : undefined,
+      begin: (): Promise<boolean> => this.begin(this.blockFor(key)), write: this.writeNode, toggle: this.toggle,
       editingChanged: this.editingChanged, linkEditingChanged: this.linkEditingChanged })
   }
 
   build() {
     Column({ space: this.projectReading ? 0 : 12 }) {
-      if (!this.readonly && this.contentTree?.length === 0) {
+      if (!this.readonly && !this.useNotesInput && this.contentTree?.length === 0) {
         TaskNativeContent({ emptyBody: true, disabled: this.disabled, revision: this.revision,
           processor: this.internalLinkProcessor, editor: this.editor, linkEditor: this.linkEditor,
           begin: this.beginEmpty, write: this.writeNode, editingChanged: this.editingChanged,
@@ -73,16 +76,22 @@ export struct TaskContentEditor {
       }
       ForEach(this.slots, (slot: TaskContentSlot) => {
         Column() {
-          if (this.blockFor(slot.key).kind === 'checklist') {
+          if (this.blockFor(slot.key).kind === 'checklist' ||
+            (this.interactiveLists && this.blockFor(slot.key).kind === 'list' && this.blockFor(slot.key).items.length > 0 &&
+              this.treeFor(this.blockFor(slot.key).id))) {
             TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled,
               revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
               contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
-              placeholder: '清单（Org 原文）', readContent: (): void => { this.checklist(this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
+              insertBelow: true, nextBlock: this.blocks[this.indexFor(slot.key) + 1],
+              placeholder: '列表（Org 原文）', readContent: (): void => { this.checklist((): number => this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
               editingChanged: this.editingChanged }).width('100%')
           } else if (this.treeFor(this.blockFor(slot.key).id)) {
             TaskBlockView({ block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled,
               revision: this.revision, nativeChecklist: true, contentBackground: this.contentBackground, ownerKey: this.ownerKey,
-              editor: this.editor, linkEditor: this.linkEditor, readContent: (): void => { this.nativeBlock(this.blockFor(slot.key)) },
+              insertBelow: this.blockFor(slot.key).paragraph || this.blockFor(slot.key).kind === 'list',
+              nextBlock: this.blocks[this.indexFor(slot.key) + 1],
+              placeholder: this.blockFor(slot.key).paragraph ? '段落（Org 原文）' : '文本（Org 原文）',
+              editor: this.editor, linkEditor: this.linkEditor, nativeContent: (edit: () => void): void => { this.nativeBlock(slot.key, edit) },
               begin: this.begin, save: this.save, editingChanged: this.editingChanged }).width('100%')
           } else if (this.blockFor(slot.key).kind === 'list') {
             TaskListBlock({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot.key), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,

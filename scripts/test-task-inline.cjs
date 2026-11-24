@@ -479,7 +479,7 @@ function sortFixture({writeError,reloadError}={}) {
   const filename='entry/src/main/ets/components/editors/TaskEditor.ets';
   const source=fs.readFileSync(filename,'utf8');
   const method=source.match(/  async sortCheck\(id: string, beforeId: string \| null\) \{[\s\S]*?\n  \}\n(?=  accessibleCheckOrder)/)[0];
-  const adapters=['currentTask','modifyTask'].map(name=>source.match(new RegExp('  private async '+name+'\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
+  const adapters=['currentTask','modifyTask','listItems'].map(name=>source.match(new RegExp('  (?:private async )?'+name+'\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
   const code=ts.transpileModule('export class SortCheck {'+adapters+method+'\n}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module={exports:{}}, requests=[];
   const items=[checklistItem('a'),checklistItem('b')];
@@ -492,7 +492,7 @@ function sortFixture({writeError,reloadError}={}) {
     localDataSet:()=>({}),localDataSet:()=>({updateTaskFields:async(_id,changes)=>{await service.modify({},state.value(),changes);},getTask:()=>state.value()}),
     heading:'Title',notes:'Notes',canSortCheck(){return !this.snapshotBlocked&&!this.working;},
     value(){return this.editTask??current;},getUIContext:()=>({getHostContext:()=>({})})};
-  state.modifyTask=module.exports.SortCheck.prototype.modifyTask;state.currentTask=async()=>requests.length?await service.reload():current;
+  state.modifyTask=module.exports.SortCheck.prototype.modifyTask;state.listItems=module.exports.SortCheck.prototype.listItems;state.currentTask=async()=>requests.length?await service.reload():current;
   return {state,requests,updated,reloadCalls:()=>reloadCalls,sort:()=>module.exports.SortCheck.prototype.sortCheck.call(state,'a',null)};
 }
 test('清单排序只提交一次原版本请求，成功后采用新快照并清除预览', async()=>{
