@@ -13,12 +13,14 @@ import { samePageValue } from '../services/PageDataEquality'
 import { samePagePath } from '../services/PageDataSnapshot'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 import { PopupMenuItem } from './controls/PopupMenu'
+import { OrgFileEditRow, OrgFileEditView, projectEditIdle } from '../ui/OrgFileStructurePresentation'
 
 export class OrgFileDocumentNavigation {
   captureReadingState: () => Promise<string> = async () => ''
   openOutline: () => void = () => {}
   closePanel: () => boolean = () => false
   locateSection: (path: CoreTaskPath) => Promise<boolean> = async (): Promise<boolean> => false
+  locateEditSource: (row: string) => Promise<boolean> = async () => false
   locateCreated: (row: string, reveal: boolean) => Promise<boolean> = async () => false
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
   followInternalLink: (target: string) => Promise<void> = async (): Promise<void> => { throw new Error('项目文档尚未载入') }
@@ -49,6 +51,8 @@ export struct OrgFileDocumentView {
   @State attentionRow: string = ''
   private focusRow: string = ''
   private focusScrolled: boolean = false
+  @State dropRow: string = ''
+  @State dropAfter: boolean = false
   private revealedParents: string[] = []
   private highlightTimer: number = -1
   @StorageLink('taskInlineActive') @Watch('inlineChanged') inlineActive: string = ''
@@ -73,6 +77,11 @@ export struct OrgFileDocumentView {
   ready: () => void = () => {}
   @Prop structureOrderParents: string[] = []
   structureActions: (row: string, canOrder: boolean) => PopupMenuItem[] = () => []
+  @Prop @Watch('editingChanged') edit: OrgFileEditView = projectEditIdle()
+  @Prop editBusy: boolean = false
+  placeNode: (row: string) => void = () => {}
+  chooseNode: (row: string) => void = () => {}
+  reorderNode: (row: string, sibling: string) => void = () => {}
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
   @State outlineItems: OrgFileReadingSection[] = []
@@ -131,6 +140,7 @@ export struct OrgFileDocumentView {
     this.stopTasks = this.dataSet?.subscribeStructure((): void => { this.updateDocument() })
     this.updateDocument()
     this.navigation.locateSection = (path: CoreTaskPath): Promise<boolean> => this.locateSection(path)
+    this.navigation.locateEditSource = (row: string): Promise<boolean> => this.locateRow(row, false)
     this.navigation.locateCreated = (row: string, reveal: boolean): Promise<boolean> => this.locateCreated(row, reveal)
     this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
       this.active && this.showing && this.linkSection(target) !== undefined
@@ -277,16 +287,29 @@ export struct OrgFileDocumentView {
       key: section.key, node: section.node ? this.dataSet?.getTask(section.key) ?? section.node : null,
       html: section.html, blocks: section.blocks, linkTargets: section.linkTargets
     }))
+    const editing = this.edit.phase !== 'idle'
     const focus = this.focusTask ? this.sectionAt(this.focusTask) : undefined
-    if (focus?.node?.state && !this.focusScrolled && this.focusRow !== focus.key) {
+    if (focus?.node?.state && !editing && !this.focusScrolled && this.focusRow !== focus.key) {
       this.focusRow = focus.key
       this.revealAncestors(focus.key)
     } else if (!focus) {
       this.focusRow = ''
       this.focusScrolled = false
     }
-    this.displayedSections = current
-    this.readingItems = projectReadingItems(current, this.tagFiltered ? this.matchedIds : null, this.revealedParents)
+    const levels = new Map<string, number>()
+    let displayed = current
+    if (editing) {
+      const byRow = new Map<string, OrgFileReadingSection>()
+      current.forEach(section => byRow.set(section.key, section))
+      displayed = current.filter(section => section.node === null)
+      for (const row of this.edit.rows) {
+        const section = byRow.get(row.row)
+        if (section) { displayed.push(section); levels.set(row.row, row.level) }
+      }
+    }
+    this.displayedSections = displayed
+    this.readingItems = projectReadingItems(displayed, !editing && this.tagFiltered ? this.matchedIds : null,
+      editing ? this.edit.rows.map(row => row.row) : this.revealedParents, levels)
     const visible = this.readingItems.filter(item => item.visible).map(item => item.section.key)
     const contexts = this.readingItems.filter(item => item.contextOnly).map(item => item.section.key)
     const parents = this.readingItems.filter(item => item.hasChildren).map(item => item.section.key)
@@ -296,7 +319,41 @@ export struct OrgFileDocumentView {
     if (this.outlineVisible) this.updateOutline()
   }
 
+  editingChanged(): void {
+    this.swipeMenus.close()
+    this.dropRow = ''
+    this.updateDocument()
+  }
 
+  private editRow(row: string): OrgFileEditRow | undefined { return this.edit.rows.find(item => item.row === row) }
+
+  private dragRow(row: string, offset: number, dropped: boolean): void {
+    if (this.editBusy || this.edit.phase !== 'move') return
+    const source = this.edit.rows.findIndex(item => item.row === row)
+    const origin = this.offsets.get(row)
+    if (source < 0 || origin === undefined) return
+    const level = this.edit.rows[source].level
+    // 同层节点以最近的较浅标题划定同一父节点的排序范围。
+    let first = source, last = source
+    while (first > 0 && this.edit.rows[first - 1].level >= level) first--
+    while (last + 1 < this.edit.rows.length && this.edit.rows[last + 1].level >= level) last++
+    const y = origin + offset
+    let target = ''
+    let distance = Math.abs(offset)
+    for (let index = first; index <= last; index++) {
+      const candidate = this.edit.rows[index]
+      if (candidate.level !== level || index === source) continue
+      const position = this.offsets.get(candidate.row)
+      if (position === undefined) continue
+      if (Math.abs(y - position) < distance) {
+        distance = Math.abs(y - position)
+        target = candidate.row
+      }
+    }
+    this.dropAfter = offset > 0
+    this.dropRow = dropped ? '' : target
+    if (dropped && target && Math.abs(offset) >= 18) this.reorderNode(row, target)
+  }
 
   inlineChanged(): void { if (!this.inlineActive && this.updatePending) this.updateDocument() }
 
@@ -357,7 +414,7 @@ export struct OrgFileDocumentView {
             beforeEdit: this.beforeHeaderEdit, save: this.saveHeader, navigation: this.headerNavigation,
             tags: this.tagOptions, selectedTags: this.selectedTags,
             category: this.category, selectedCategory: this.selectedCategory,
-            toggle: this.toggleTag, toggleCategory: this.toggleCategory }).width('100%')
+            toggle: this.toggleTag, toggleCategory: this.toggleCategory }).width('100%').enabled(this.edit.phase === 'idle')
             .onAreaChange((_old: Area, area: Area): void => {
               this.headerHeight = Number(area.height)
               this.scheduleInitialOffset()
@@ -365,6 +422,7 @@ export struct OrgFileDocumentView {
         }
         ForEach(this.displayedSections, (section: OrgFileReadingSection) => {
           Column({ space: section.node ? 0 : 12 }) {
+            if (this.dropRow === section.key && !this.dropAfter) { Divider().color(UiColor.primary).strokeWidth(2) }
             if (!section.node && section.blocks.length > 0) {
               Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
             }
@@ -382,11 +440,18 @@ export struct OrgFileDocumentView {
                 menuCoordinator: this.swipeMenus, interactionEnabled: this.showing && this.visibleKeys.includes(section.key),
                 canOrderChildren: this.structureOrderParents.includes(section.key),
                 structureActions: (canOrder: boolean): PopupMenuItem[] => this.structureActions(section.key, canOrder),
+                editPhase: this.edit.phase, editRow: this.editRow(section.key), editBusy: this.editBusy,
+                sourceSelected: this.edit.source === section.key, targetSelected: this.edit.target === section.key,
+                placeNode: (): void => { this.placeNode(section.key) },
+                chooseNode: (): void => { this.chooseNode(section.key) },
+                dragNode: (offset: number, dropped: boolean): void => { this.dragRow(section.key, offset, dropped) },
+                cancelDrag: (): void => { this.dropRow = '' },
                 internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
             } else if (section.blocks.length > 0) {
               OrgFileSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
                 contentBackground: UiColor.projectBlock }).width('100%')
             }
+            if (this.dropRow === section.key && this.dropAfter) { Divider().color(UiColor.primary).strokeWidth(2) }
           }.width('100%').alignItems(HorizontalAlign.Start)
             .padding({ left: section.node ? 0 : (section.blocks.length > 0 ? 16 : 0),
               right: !section.node && section.blocks.length > 0 ? 16 : 0,
@@ -400,7 +465,7 @@ export struct OrgFileDocumentView {
               if (section.key === this.focusRow) this.focusWhenLaidOut()
             })
         }, (section: OrgFileReadingSection) => `${this.revision}:${section.key}`)
-        if (this.tagFiltered && !this.readingItems.some(item => item.visible && item.section.node?.state && !item.contextOnly)) {
+        if (this.edit.phase === 'idle' && this.tagFiltered && !this.readingItems.some(item => item.visible && item.section.node?.state && !item.contextOnly)) {
           Text('没有匹配标签的任务').fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
         }
         if (this.sections.every((section: OrgFileReadingSection) => section.node === null && section.blocks.length === 0)) {

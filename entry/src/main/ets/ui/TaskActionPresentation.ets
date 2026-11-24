@@ -8,6 +8,7 @@ export enum TaskOperation {
   Wait = 'wait',
   Cancel = 'cancel',
   Move = 'move',
+  Refactor = 'refactor',
   Project = 'project',
   Schedule = 'schedule',
   Deadline = 'deadline',
@@ -162,7 +163,7 @@ export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: T
   return items
 }
 
-export function taskSelectItem(action: () => void): TaskActionItem {
+function taskSelectItem(action: () => void): TaskActionItem {
   return { id: TaskOperation.Select, title: '多选', label: '进入批量编辑', icon: $r('app.media.ui_select_records'), style: 'selection', action }
 }
 

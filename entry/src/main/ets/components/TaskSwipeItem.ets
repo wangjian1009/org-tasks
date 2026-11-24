@@ -277,9 +277,9 @@ export struct TaskSwipeItem {
     const activate = (action: TaskOperation): void => { close?.(); this.activateOperation(action) }
     if (this.projectStructure) {
       const items = taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory, this.toggleWaitCategory)
-      const move = this.structureActions(this.canOrderChildren).find(item => item.title === '移动')
-      if (move) items.unshift({ id: TaskOperation.Move, title: move.title, label: '调整任务位置', icon: move.icon!,
-        action: (): void => { close?.(); move.action() } })
+      const refactor = this.structureActions(this.canOrderChildren).find(item => item.title === '重构')
+      if (refactor) items.unshift({ id: TaskOperation.Refactor, title: refactor.title, label: '重构任务', icon: refactor.icon!,
+        action: (): void => { close?.(); refactor.action() } })
       return items
     }
     return this.selection ? taskSwipeMenu(taskActionPolicy({ singleOperations: this.singleOperations }), activate, this.toggleStateCategory, this.toggleWaitCategory) :
