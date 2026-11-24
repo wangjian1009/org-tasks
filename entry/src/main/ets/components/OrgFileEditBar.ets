@@ -12,7 +12,7 @@ export struct OrgFileEditBar {
   build() {
     Column({ space: 6 }) {
       Row({ space: 8 }) {
-        Text(this.busy ? '正在保存顺序' : '长按手柄拖动排序')
+        Text(this.busy ? '正在保存顺序' : '长按手柄移动条目')
           .fontSize(13).fontColor(this.busy ? UiColor.secondary : UiColor.text).layoutWeight(1)
         Button('放弃').id('project_order_discard').fontColor(UiColor.secondary).backgroundColor(Color.Transparent).height(44)
           .enabled(!this.busy).onClick(this.discard)

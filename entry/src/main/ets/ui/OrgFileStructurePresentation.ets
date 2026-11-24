@@ -51,6 +51,7 @@ export class ProjectStructureDraft {
   private readonly orderedChildren: Map<string | null, OrgFileStructureNode[]>
   private readonly orderEdits: CoreTaskStructureEdit[] = []
   private readonly changedParents: Set<string | null> = new Set()
+  private hasParentMoves: boolean = false
 
   constructor(snapshot: OrgFileStructureSnapshot) {
     this.initial = snapshot
@@ -76,25 +77,54 @@ export class ProjectStructureDraft {
   siblings(parent: string | null): OrgFileStructureNode[] { return this.orderedChildren.get(parent) ?? [] }
 
   reorder(node: OrgFileStructureNode, to: number): boolean {
-    const siblings = this.siblings(node.parent).slice()
-    const from = siblings.findIndex(item => item.id === node.id)
-    if (from < 0 || to < 0 || to >= siblings.length || from === to) return false
-    siblings.splice(from, 1)
-    siblings.splice(to, 0, node)
-    this.orderedChildren.set(node.parent, siblings)
-    const initial = this.initialChildren.get(node.parent)!
-    if (siblings.every((item, index) => item.id === initial[index].id)) {
-      this.changedParents.delete(node.parent)
-      // 已恢复初始顺序，此前该组的拖动无需提交。
+    const siblings = this.siblings(node.parent)
+    if (to < 0 || to >= siblings.length) return false
+    const remaining = siblings.filter(item => item.id !== node.id)
+    return this.move(node, { parent: node.parent, after: remaining[to - 1]?.id ?? null })
+  }
+
+  move(node: OrgFileStructureNode, position: OrgFileStructureMove): boolean {
+    const previous = this.siblings(node.parent)
+    const from = previous.findIndex(item => item.id === node.id)
+    const sameParent = node.parent === position.parent
+    if (from < 0 || (sameParent && (previous[from - 1]?.id ?? null) === position.after)) return false
+    const remaining = previous.slice()
+    remaining.splice(from, 1)
+    const destination = sameParent ? remaining : this.siblings(position.parent).slice()
+    const anchor = destination.findIndex(item => item.id === position.after)
+    if (position.after !== null && anchor < 0) return false
+    const moved: OrgFileStructureNode = {
+      id: node.id, row: node.row, parent: position.parent, title: node.title, titleParts: node.titleParts,
+      task: node.task, taskPreview: node.taskPreview, hidden: node.hidden
+    }
+    destination.splice(anchor + 1, 0, moved)
+    if (!sameParent) {
+      this.setSiblings(node.parent, remaining)
+      this.hasParentMoves = true
+    }
+    this.setSiblings(position.parent, destination)
+    this.orderEdits.push({ type: 'move', ids: [node.id], parent: position.parent, after: position.after })
+    if (!this.changed) {
+      this.orderEdits.length = 0
+      this.hasParentMoves = false
+    } else if (!this.hasParentMoves && !this.changedParents.has(node.parent)) {
+      // 跨父级操作依赖操作顺序。纯同级排序可以跳过已恢复初始顺序的分组。
       for (let index = this.orderEdits.length - 1; index >= 0; index--) {
         const edit = this.orderEdits[index]
         if (edit.type === 'move' && edit.parent === node.parent) this.orderEdits.splice(index, 1)
       }
-    } else {
-      this.changedParents.add(node.parent)
-      this.orderEdits.push({ type: 'move', ids: [node.id], parent: node.parent, after: siblings[to - 1]?.id ?? null })
     }
     return true
+  }
+
+  private setSiblings(parent: string | null, siblings: OrgFileStructureNode[]): void {
+    this.orderedChildren.set(parent, siblings)
+    const initial = this.initialChildren.get(parent) ?? []
+    if (siblings.length === initial.length && siblings.every((item, index) => item.id === initial[index].id)) {
+      this.changedParents.delete(parent)
+    } else {
+      this.changedParents.add(parent)
+    }
   }
 
   edits(): CoreTaskStructureEdit[] { return this.orderEdits.slice() }
@@ -172,10 +202,13 @@ export class ProjectStructureDraft {
 }
 
 export type OrgFilePlacement = 'first' | 'last' | 'before' | 'after' | 'child'
+export type OrgFileDropPlacement = 'before' | 'after' | 'child'
 
 export interface OrgFileEditRow {
   row: string
   level: number
+  parent: string | null
+  task: boolean
   canReorder: boolean
 }
 
@@ -193,23 +226,22 @@ export function projectEditIdle(): OrgFileEditView {
 // 手柄操作只更新草稿，保存时将同一快照上的移动交给 Core。
 export class OrgFileEditSession {
   readonly snapshot: OrgFileStructureSnapshot
-  private readonly byRow: Map<string, OrgFileStructureNode>
   private readonly draft: ProjectStructureDraft
   private highlighted: string
 
   constructor(snapshot: OrgFileStructureSnapshot, row: string = '') {
     this.snapshot = snapshot
     this.draft = new ProjectStructureDraft(snapshot)
-    this.byRow = new Map<string, OrgFileStructureNode>(snapshot.nodes.map(node => [node.row, node]))
     this.highlighted = row
   }
 
-  reorder(row: string, sibling: string): boolean {
-    const source = this.byRow.get(row)
-    const target = this.byRow.get(sibling)
-    if (!source || !target || source.parent !== target.parent) return false
-    const index = this.draft.siblings(source.parent).findIndex(node => node.id === target.id)
-    if (!this.draft.reorder(source, index)) return false
+  move(row: string, targetRow: string, placement: OrgFileDropPlacement): boolean {
+    const nodes = this.draft.nodes
+    const source = nodes.find(node => node.row === row)
+    const target = nodes.find(node => node.row === targetRow)
+    if (!source || !target) return false
+    const position = this.draft.destination(target.id, placement, [source.id])
+    if (!position || !this.draft.move(source, position)) return false
     this.highlighted = ''
     return true
   }
@@ -221,7 +253,8 @@ export class OrgFileEditSession {
     const rows = this.draft.nodes.map((node): OrgFileEditRow => {
       const level = 1 + (node.parent === null ? 0 : levels.get(node.parent) ?? 0)
       levels.set(node.id, level)
-      return { row: node.row, level, canReorder: this.draft.siblings(node.parent).length > 1 }
+      return { row: node.row, level, parent: node.parent, task: node.task,
+        canReorder: node.parent !== null || this.draft.siblings(null).length > 1 }
     })
     return { active: true, changed: this.draft.changed, rows, highlighted: this.highlighted }
   }

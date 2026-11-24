@@ -18,7 +18,7 @@ import { samePageValue } from '../services/PageDataEquality'
 import { PopupMenuItem } from '../components/controls/PopupMenu'
 import { OrgFileStructureMode, OrgFileStructureNodeKind, OrgFileStructureSheet,
   OrgFileStructureSheetController } from '../components/editors/OrgFileStructureSheet'
-import { OrgFileEditSession, OrgFileEditView, OrgFileStructureSnapshot,
+import { OrgFileDropPlacement, OrgFileEditSession, OrgFileEditView, OrgFileStructureSnapshot,
   projectEditIdle, projectStructureNodes } from '../ui/OrgFileStructurePresentation'
 import { OrgFileEditBar } from '../components/OrgFileEditBar'
 import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
@@ -459,9 +459,9 @@ struct OrgFileDetail {
     if (this.editSession && !this.editBusy) this.exitStructureEdit()
   }
 
-  private reorderStructureRow(row: string, sibling: string): void {
+  private moveStructureRow(row: string, target: string, placement: OrgFileDropPlacement): void {
     if (!this.canEditStructure()) return
-    if (this.editSession?.reorder(row, sibling)) {
+    if (this.editSession?.move(row, target, placement)) {
       this.editMessage = ''
       this.publishStructureEdit()
     }
@@ -713,7 +713,9 @@ struct OrgFileDetail {
                 structureOrderParents: this.structureOrderParents,
                 structureActions: (row: string, canOrder: boolean): PopupMenuItem[] => this.nodeStructureActions(row, canOrder),
                 edit: this.structureEdit, editBusy: this.editBusy || this.staleStructureEdit(),
-                reorderNode: (row: string, sibling: string): void => { this.reorderStructureRow(row, sibling) },
+                moveNode: (row: string, target: string, placement: OrgFileDropPlacement): void => {
+                  this.moveStructureRow(row, target, placement)
+                },
                 readingState: this.readingState, showing: this.pageVisible && !this.sourceMode && !this.refreshing,
                 scrolled: (offset: number): void => { this.readingState = JSON.stringify({ scroll: offset }) },
                 ready: (): void => { this.renderReady = true } })

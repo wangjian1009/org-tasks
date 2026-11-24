@@ -139,7 +139,7 @@ export struct OrgFileTaskSection {
       if (this.editRow?.canReorder) {
         Row() {
           Image($r('app.media.ui_drag_handle')).width(22).height(22).draggable(false)
-        }.width(44).height(44).justifyContent(FlexAlign.Center).enabled(!this.editBusy)
+        }.id(`project_order_drag:${this.taskId}`).width(44).height(44).justifyContent(FlexAlign.Center).enabled(!this.editBusy)
           .accessibilityText(`长按拖动，${this.node?.heading ?? ''}`)
           .gesture(GestureGroup(GestureMode.Sequence, LongPressGesture({ repeat: false, duration: 300 }),
             PanGesture({ direction: PanDirection.Vertical, distance: 4 })

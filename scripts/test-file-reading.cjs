@@ -686,7 +686,7 @@ test('重构可独立折叠各层子节点，折叠后按可见行定位，确�
   }
   const parent = view.sections[0].node;
   parent.property = name => name === 'VISIBILITY' ? 'folded' : null;
-  const editRows = rows.map(([row, level]) => ({ row, level, canReorder: level === 1 }));
+  const editRows = rows.map(([row, level]) => ({ row, level, parent: null, task: false, canReorder: true }));
   view.edit = { active: true, changed: false, rows: editRows, highlighted: '' };
   view.editingChanged();
   assert.deepEqual(view.visibleKeys, ['parent', 'child', 'leaf', 'sibling']);
@@ -710,11 +710,11 @@ test('重构草稿按当前顺序连续移动完整子树，只提交仍有变�
   const node = (id, parent = null) => ({ id, row: id, parent });
   const nodes = [node('a'), node('x', 'a'), node('y', 'a'), node('b'), node('c')];
   const session = new projectStructure.OrgFileEditSession({ nodes }, 'a');
-  assert.equal(session.reorder('a', 'x'), false);
-  assert.equal(session.reorder('a', 'c'), true);
-  assert.equal(session.reorder('b', 'a'), true);
-  assert.equal(session.reorder('y', 'x'), true);
-  assert.equal(session.reorder('x', 'y'), true);
+  assert.equal(session.move('a', 'x', 'before'), false);
+  assert.equal(session.move('a', 'c', 'after'), true);
+  assert.equal(session.move('b', 'a', 'after'), true);
+  assert.equal(session.move('y', 'x', 'before'), true);
+  assert.equal(session.move('x', 'y', 'before'), true);
   assert.deepEqual(session.view().rows.map(item => item.row), ['c', 'a', 'x', 'y', 'b']);
   assert.equal(session.view().highlighted, '');
   assert.deepEqual(nodes.map(item => item.id), ['a', 'x', 'y', 'b', 'c']);
@@ -722,7 +722,26 @@ test('重构草稿按当前顺序连续移动完整子树，只提交仍有变�
     { type: 'move', ids: ['a'], parent: null, after: 'c' },
     { type: 'move', ids: ['b'], parent: null, after: 'a' },
   ]);
-  assert.equal(session.reorder('c', 'b'), true);
+  assert.equal(session.move('c', 'b', 'after'), true);
+  assert.equal(session.view().changed, false);
+  assert.deepEqual(session.edits(), []);
+});
+
+test('重构可移动唯一子节点，连续移动以草稿层级为准并拒绝移入自身子树', () => {
+  const node = (id, parent = null) => ({ id, row: id, parent });
+  const nodes = [node('dev'), node('task', 'dev'), node('child', 'task'), node('done')];
+  const session = new projectStructure.OrgFileEditSession({ nodes });
+  assert.equal(session.view().rows.find(row => row.row === 'task').canReorder, true);
+  assert.equal(session.move('task', 'child', 'after'), false);
+  assert.equal(session.move('task', 'done', 'child'), true);
+  assert.deepEqual(session.view().rows.map(row => [row.row, row.level]),
+    [['dev', 1], ['done', 1], ['task', 2], ['child', 3]]);
+  assert.equal(session.move('task', 'done', 'after'), true);
+  assert.deepEqual(session.edits(), [
+    { type: 'move', ids: ['task'], parent: 'done', after: null },
+    { type: 'move', ids: ['task'], parent: null, after: 'done' },
+  ]);
+  assert.equal(session.move('task', 'dev', 'child'), true);
   assert.equal(session.view().changed, false);
   assert.deepEqual(session.edits(), []);
 });

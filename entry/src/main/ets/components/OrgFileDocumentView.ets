@@ -14,7 +14,7 @@ import { samePageValue } from '../services/PageDataEquality'
 import { samePagePath } from '../services/PageDataSnapshot'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 import { PopupMenuItem } from './controls/PopupMenu'
-import { OrgFileEditRow, OrgFileEditView, projectEditIdle } from '../ui/OrgFileStructurePresentation'
+import { OrgFileDropPlacement, OrgFileEditRow, OrgFileEditView, projectEditIdle } from '../ui/OrgFileStructurePresentation'
 
 export class OrgFileDocumentNavigation {
   captureReadingState: () => Promise<string> = async () => ''
@@ -52,7 +52,7 @@ export struct OrgFileDocumentView {
   private focusRow: string = ''
   private focusScrolled: boolean = false
   @State dropRow: string = ''
-  @State dropAfter: boolean = false
+  @State dropPlacement: OrgFileDropPlacement = 'before'
   @State dragSource: string = ''
   @State dragOffset: number = 0
   @State orderHighlight: string = ''
@@ -91,7 +91,7 @@ export struct OrgFileDocumentView {
   structureActions: (row: string, canOrder: boolean) => PopupMenuItem[] = () => []
   @Prop @Watch('editingChanged') edit: OrgFileEditView = projectEditIdle()
   @Prop editBusy: boolean = false
-  reorderNode: (row: string, sibling: string) => void = () => {}
+  moveNode: (row: string, target: string, placement: OrgFileDropPlacement) => void = () => {}
   scrolled: (offset: number) => void = () => {}
   @State outlineVisible: boolean = false
   @State outlineItems: OrgFileReadingSection[] = []
@@ -409,40 +409,36 @@ export struct OrgFileDocumentView {
     this.dropRow = ''
     if (!visible) return
 
-    const level = rows[source].level
-    let first = source, last = source
-    while (first > 0 && rows[first - 1].level >= level) first--
-    while (last + 1 < rows.length && rows[last + 1].level >= level) last++
-    const top = this.offsets.get(rows[first].row)
-    const end = this.offsets.get(rows[last].row)
-    const origin = this.offsets.get(this.dragSource)
-    if (top === undefined || end === undefined || origin === undefined) return
-    const pointerY = finger.globalY - viewport.y + scrollY
-    if (pointerY < top || pointerY > end + (this.rowHeights.get(rows[last].row) ?? 44)) return
     if (scroll) {
       const speed = checklistEdgeScroll(finger.globalY, viewport.y, bottom)
       if (speed !== 0) this.scroller.scrollBy(0, speed * 0.016)
     }
+    const pointerY = finger.globalY - viewport.y + scrollY
+    const targetIndex = rows.findIndex(item => {
+      const top = this.offsets.get(item.row)
+      return top !== undefined && pointerY >= top && pointerY < top + (this.rowHeights.get(item.row) ?? 44)
+    })
+    if (targetIndex < 0) return
+    let subtreeEnd = source + 1
+    while (subtreeEnd < rows.length && rows[subtreeEnd].level > rows[source].level) subtreeEnd++
+    if (targetIndex >= source && targetIndex < subtreeEnd) return
 
-    const y = origin + this.dragOffset
-    let nearest = source
-    let distance = Math.abs(this.dragOffset)
-    for (let index = first; index <= last; index++) {
-      if (rows[index].level !== level || index === source) continue
-      const position = this.offsets.get(rows[index].row)
-      if (position !== undefined && Math.abs(y - position) < distance) {
-        distance = Math.abs(y - position)
-        nearest = index
-      }
+    const target = rows[targetIndex]
+    const fraction = (pointerY - this.offsets.get(target.row)!) / (this.rowHeights.get(target.row) ?? 44)
+    const sameParent = target.parent === rows[source].parent
+    const center = fraction >= 0.28 && fraction <= 0.72
+    const acceptsChild = !target.task || this.parentKeys.includes(target.row)
+    if (!sameParent && center && acceptsChild) {
+      this.dropPlacement = 'child'
+    } else {
+      this.dropPlacement = (sameParent && center ? targetIndex > source : fraction >= 0.5) ? 'after' : 'before'
     }
-    if (nearest === source) return
-    this.orderDropTarget = rows[nearest].row
-    this.dropAfter = nearest > source
-    // 向下移动时，插入线在目标的最后一个后代之后。
-    if (this.dropAfter) {
-      while (nearest < last && rows[nearest + 1].level > level) nearest++
+    this.orderDropTarget = target.row
+    let lineIndex = targetIndex
+    if (this.dropPlacement === 'after') {
+      while (lineIndex + 1 < rows.length && rows[lineIndex + 1].level > target.level) lineIndex++
     }
-    this.dropRow = rows[nearest].row
+    this.dropRow = rows[lineIndex].row
   }
 
   private dragOrder(event: GestureEvent, dropped: boolean): void {
@@ -452,15 +448,16 @@ export struct OrgFileDocumentView {
     if (!dropped) return
     const source = this.dragSource
     const target = this.orderDropTarget
+    const placement = this.dropPlacement
     this.cancelOrderDrag()
-    if (source && target) this.reorderNode(source, target)
+    if (source && target) this.moveNode(source, target, placement)
   }
 
   @Builder
   insertionLine(row: string) {
     if (this.dropRow === row) {
-      Rect().width('100%').height(2).fill(UiColor.primary)
-        .align(this.dropAfter ? Alignment.Bottom : Alignment.Top)
+      Row() { Rect().width('100%').height(2).fill(UiColor.primary) }
+        .width('100%').padding({ left: this.dropPlacement === 'child' ? 44 : 0 })
         .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
     }
   }
@@ -569,7 +566,7 @@ export struct OrgFileDocumentView {
               this.highlightedRow === section.key ? UiColor.field : section.node ? Color.Transparent : UiColor.projectBlock)
             .borderRadius(this.dragSource === section.key ? 8 : section.node ? 0 : 12)
             .zIndex(this.dragSource === section.key ? 1 : 0)
-            .overlay(this.insertionLine(section.key), { align: this.dropAfter ? Alignment.Bottom : Alignment.Top })
+            .overlay(this.insertionLine(section.key), { align: this.dropPlacement === 'before' ? Alignment.Top : Alignment.Bottom })
             .visibility(this.visibleKeys.includes(section.key) ? Visibility.Visible : Visibility.None)
             .onAreaChange((_old: Area, area: Area): void => {
               if (Number(area.height) <= 0) { this.offsets.delete(section.key); return }
