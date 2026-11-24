@@ -7,7 +7,8 @@ import { UiColor, UiSize } from '../../ui/Theme'
 import { PopupMenu, PopupMenuItem } from '../controls/PopupMenu'
 import { pasteboard } from '@kit.BasicServicesKit'
 import { display } from '@kit.ArkUI'
-import { ChecklistFocusFrame } from './TaskChecklistBlock'
+import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
+import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
 
 // 正文区块共用菜单与原文编辑外壳；清单阅读保留原生交互，只读仍可拷贝。
 @Component
@@ -17,7 +18,7 @@ export struct TaskBlockView {
   @Prop @Watch('readonlyChanged') readonly: boolean = false
   @Prop projectReading: boolean = false
   @Prop disabled: boolean = false
-  @Prop revision: string = ''
+  @Prop @Watch('closeParagraphSwipe') revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
   @Prop ownerKey: string = ''
   @Prop placeholder: string = '文本'
@@ -36,6 +37,7 @@ export struct TaskBlockView {
   move: (block: CoreContentBlock) => Promise<void> = async () => {}
   save: (block: CoreContentBlock, source: string) => Promise<boolean> = async () => false
   followParagraph: ((save: () => Promise<boolean>) => Promise<void>) | undefined = undefined
+  followChecklist: ((save: () => Promise<boolean>) => Promise<void>) | undefined = undefined
   changeLink: ((block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   editingChanged: (editing: boolean) => void = () => {}
   linkEditingChanged: (editing: boolean) => void = () => {}
@@ -48,8 +50,12 @@ export struct TaskBlockView {
   @State menuX: number = 0
   @State menuY: number = 0
   @State menuWidth: number = 320
+  @State private paragraphHeight: number = 20
   private menuBlock: CoreContentBlock | undefined = undefined
   private menuRevision: string = ''
+  private swipedBlock: CoreContentBlock | undefined = undefined
+  private swipeRevision: string = ''
+  private paragraphScroller: ListScroller = new ListScroller()
   private preparing: boolean = false
   private original: CoreContentBlock | undefined = undefined
   private editRevision: string = ''
@@ -59,13 +65,22 @@ export struct TaskBlockView {
   private handledFollow: number = 0
   private submitting: boolean = false
   private inputController: TextAreaController = new TextAreaController()
+  private checklistFocus: TaskInlineFocus = new TaskInlineFocus(
+    (callback: () => void) => { this.getUIContext().postFrameCallback(new ChecklistFocusFrame(callback)) },
+    (key: string) => { this.getUIContext().getFocusController().requestFocus(key) })
 
   aboutToAppear() {
     this.alive = true
     this.inputKey = `block_${this.ownerKey}_${this.getUniqueId()}`
     this.followRequested()
   }
-  aboutToDisappear() { this.alive = false; this.menuVisible = false; this.editor.release(this.inputKey); if (this.editing) this.editingChanged(false) }
+  aboutToDisappear() {
+    this.alive = false
+    this.menuVisible = false
+    this.checklistFocus.dispose()
+    this.editor.release(this.inputKey)
+    if (this.editing) this.editingChanged(false)
+  }
 
   readonlyChanged() { this.menuVisible = false; if (this.readonly) this.cancel() }
 
@@ -93,9 +108,10 @@ export struct TaskBlockView {
       this.editRevision = revision
       this.adding = addition !== ''
       this.addingList = addition === 'list'
-      this.draft = this.adding ? (this.addingList ? '- [ ] ' : '') : block.source
+      this.draft = this.adding ? '' : block.source
       if (!await this.editor.begin(this.inputKey, async (): Promise<boolean> => this.finish(), (): void => { this.cancel() })) return
       this.editing = true; this.editingChanged(true)
+      if (this.addingList) this.checklistFocus.request(`inline_new_check_${this.inputKey}`)
     } finally { this.preparing = false }
   }
 
@@ -133,7 +149,11 @@ export struct TaskBlockView {
     const block = this.menuBlock
     const revision = this.menuRevision
     this.menuVisible = false
-    if (!block || this.preparing) return false
+    return block ? this.deleteBlock(block, revision) : false
+  }
+
+  private async deleteBlock(block: CoreContentBlock, revision: string): Promise<boolean> {
+    if (this.preparing) return false
     this.preparing = true
     let started: boolean = false
     try {
@@ -146,6 +166,27 @@ export struct TaskBlockView {
       this.preparing = false; this.saving = false
       if (started) this.editingChanged(false)
     }
+  }
+
+  closeParagraphSwipe(): void {
+    if (!this.swipedBlock) return
+    try { this.paragraphScroller.closeAllSwipeActions() }
+    catch (_) { this.swipedBlock = undefined }
+  }
+
+  private paragraphOffsetChanged(offset: number): void {
+    if (offset < 0 && !this.swipedBlock) {
+      this.swipedBlock = this.block
+      this.swipeRevision = this.revision
+    } else if (offset === 0) this.swipedBlock = undefined
+  }
+
+  private async deleteSwipedParagraph(): Promise<boolean> {
+    const block = this.swipedBlock
+    const revision = this.swipeRevision
+    LinkEditController.protectInteraction()
+    this.closeParagraphSwipe()
+    return block ? this.deleteBlock(block, revision) : false
   }
 
   async moveSelected(): Promise<void> {
@@ -183,15 +224,16 @@ export struct TaskBlockView {
 
   private editedSource(block: CoreContentBlock): string {
     if (!this.adding) return this.draft
-    const draft = this.draft.replace(/[\r\n]+$/, '')
-    if (!draft.trim() || (this.addingList && draft.trim() === '- [ ]')) return block.source
+    const draft = this.addingList ? this.draft.replace(/[\r\n]+/g, ' ').trim() : this.draft.replace(/[\r\n]+$/, '')
+    if (!draft.trim()) return block.source
     const afterList = block.kind === 'list' || block.kind === 'checklist'
     const separator = this.addingList && afterList ? '\n\n\n' : '\n\n'
     const next = this.nextBlock
     const nextList = next?.kind === 'list' || next?.kind === 'checklist'
     const gap = this.addingList && nextList ? 2 : 1
     const suffix = next ? '\n'.repeat(Math.max(0, gap - next.blankLinesBefore)) : ''
-    return block.source + separator + draft + suffix
+    const content = this.addingList ? `- [ ] ${draft}` : draft
+    return block.source + separator + content + suffix
   }
 
   async finish(): Promise<boolean> {
@@ -210,12 +252,13 @@ export struct TaskBlockView {
     } finally { this.pending = undefined; if (this.alive) this.saving = false }
   }
 
-  async submitParagraph(): Promise<void> {
+  async submitDraft(): Promise<void> {
     if (this.pending || this.submitting || !this.editing) return
     this.submitting = true
     try {
-      if (this.followParagraph && this.draft.trim()) {
-        await this.followParagraph((): Promise<boolean> => this.finish())
+      const follow = this.addingList ? this.followChecklist : this.followParagraph
+      if (follow && this.draft.trim()) {
+        await follow((): Promise<boolean> => this.finish())
       } else {
         await this.finish()
       }
@@ -224,6 +267,7 @@ export struct TaskBlockView {
 
   cancel() {
     if (this.saving) return
+    this.checklistFocus.cancel()
     this.editing = false; this.editingChanged(false); this.editor.release(this.inputKey)
   }
 
@@ -252,18 +296,77 @@ export struct TaskBlockView {
   }
 
   @Builder
+  newChecklist() {
+    TaskChecklistBlock({ adding: true, newText: this.draft, ownerKey: this.inputKey, blockId: 'new',
+      disabled: this.disabled || this.saving,
+      newChanged: (text: string): void => { this.draft = text },
+      save: (next: boolean): void => {
+        if (next) this.submitDraft()
+        else if (!this.submitting) this.finish()
+      },
+      inputAppeared: (id: string): void => { this.checklistFocus.appeared(id) },
+      inputDisappeared: (id: string): void => { this.checklistFocus.disappeared(id) },
+      inputVisible: (id: string): void => { this.checklistFocus.visible(id) } }).width('100%')
+  }
+
+  @Builder
+  reading() {
+    if (this.nativeChecklist) {
+      Column() { this.nativeContent((): void => { this.editCurrent() }) }.width('100%')
+        .onTouch((event: TouchEvent): void => {
+          if (event.type === TouchType.Down || event.type === TouchType.Up) LinkEditController.protectInteraction()
+        })
+        .gesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent): void => {
+          this.openMenu(event.fingerList[0]?.localX ?? 0, event.fingerList[0]?.localY ?? 0)
+        }))
+    } else {
+      OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: this.block.html, revision: this.revision, reloadOnRevision: false, embedded: true, embeddedPadding: 0,
+        projectReading: this.projectReading, horizontalParentFirst: !this.projectReading,
+        editable: !this.readonly && !this.disabled && this.changeLink !== undefined,
+        linkEditor: this.linkEditor, linkEditingChanged: this.linkEditingChanged,
+        changeLink: this.changeLink ? (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink!(this.block, link, value) : undefined,
+        contentBackground: this.contentBackground, activate: this.readonly ? undefined : (): void => { this.editCurrent() },
+        contextMenu: (x: number, y: number): void => { this.openMenu(x, y) } }).width('100%')
+    }
+  }
+
+  @Builder
+  paragraphDeleteButton() {
+    Button({ type: ButtonType.Normal }) {
+      Image($r('app.media.ui_delete')).width(18).height(18)
+    }.width(44).height(Math.min(44, this.paragraphHeight)).padding(0).borderRadius(6)
+      .backgroundColor('#513A40').accessibilityText('删除段落')
+      .enabled(!this.disabled && !this.saving).onClick((): void => { this.deleteSwipedParagraph() })
+  }
+
+  @Builder
+  swipeParagraph() {
+    List({ scroller: this.paragraphScroller }) {
+      ListItem() {
+        Column() { this.reading() }.width('100%').onAreaChange((_old: Area, area: Area): void => {
+          const height = Math.ceil(Number(area.height))
+          if (height > 0 && height !== this.paragraphHeight) this.paragraphHeight = height
+        })
+      }.swipeAction(this.disabled || this.editing || this.checklistEditing || this.saving ? {} : {
+        end: this.paragraphDeleteButton(), edgeEffect: SwipeEdgeEffect.None,
+        onOffsetChange: (offset: number): void => { this.paragraphOffsetChanged(offset) }
+      })
+    }.width('100%').height(this.paragraphHeight).scrollBar(BarState.Off).enableScrollInteraction(false)
+  }
+
+  @Builder
   input() {
     Column({ space: 4 }) {
       TextArea({ text: this.draft, controller: this.inputController,
-        placeholder: this.adding ? (this.addingList ? '列表' : '段落') : this.placeholder })
+        placeholder: this.adding ? '段落' : this.placeholder })
         .id(this.inputKey).defaultFocus(true)
         .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(14).fontColor(UiColor.text)
         .backgroundColor(Color.Transparent).padding(0).borderRadius(0).enabled(!this.readonly && !this.saving && !this.disabled)
-        .enterKeyType(this.emptyBody || (this.adding ? !this.addingList : this.block.paragraph) ? EnterKeyType.Next : EnterKeyType.NEW_LINE)
+        .enterKeyType(this.emptyBody || this.adding || this.block.paragraph ? EnterKeyType.Next : EnterKeyType.NEW_LINE)
         .onSubmit((key: EnterKeyType, event: SubmitEvent): void => {
           if (key !== EnterKeyType.Next) return
           event.keepEditableState()
-          this.submitParagraph()
+          this.submitDraft()
         })
         .onChange((value: string): void => { this.draft = value })
         .onBlur((): void => { if (!this.submitting) this.finish() })
@@ -288,24 +391,15 @@ export struct TaskBlockView {
         Text('添加正文').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
           .enabled(!this.readonly && !this.disabled)
           .onClick((): void => { this.editCurrent() })
-      } else if (this.nativeChecklist) {
-        Column() { this.nativeContent((): void => { this.editCurrent() }) }.width('100%')
-          .onTouch((event: TouchEvent): void => {
-            if (event.type === TouchType.Down || event.type === TouchType.Up) LinkEditController.protectInteraction()
-          })
-          .gesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent): void => {
-            this.openMenu(event.fingerList[0]?.localX ?? 0, event.fingerList[0]?.localY ?? 0)
-          }))
+      } else if (this.block.paragraph && !this.readonly) {
+        this.swipeParagraph()
       } else {
-        OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: this.block.html, revision: this.revision, reloadOnRevision: false, embedded: true, embeddedPadding: 0,
-          projectReading: this.projectReading, horizontalParentFirst: !this.projectReading,
-          editable: !this.readonly && !this.disabled && this.changeLink !== undefined,
-          linkEditor: this.linkEditor, linkEditingChanged: this.linkEditingChanged,
-          changeLink: this.changeLink ? (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink!(this.block, link, value) : undefined,
-          contentBackground: this.contentBackground, activate: this.readonly ? undefined : (): void => { this.editCurrent() },
-          contextMenu: (x: number, y: number): void => { this.openMenu(x, y) } }).width('100%')
+        this.reading()
       }
-      if (this.editing && this.adding) { this.input() }
+      if (this.editing && this.adding) {
+        if (this.addingList) { this.newChecklist() }
+        else { this.input() }
+      }
       this.menuAnchor()
     }.width('100%').outline({ width: this.menuVisible ? 1 : 0, color: '#597C75', radius: 4 })
   }

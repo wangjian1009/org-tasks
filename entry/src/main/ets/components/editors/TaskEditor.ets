@@ -1679,6 +1679,7 @@ export struct TaskEditor {
   bodyBlocks() {
     TaskContentEditor({ internalLinkProcessor: this.contentLinks(), blocks: this.value().editContent.blocks, contentTree: this.tree(),
       writeNode: change => this.writeContentNode(change), toggle: change => { this.changeCheck(change) },
+      addChecklistItem: (after: string): void => { this.addCheck(after) },
       beginEmpty: async (): Promise<boolean> => await this.prepare() && await this.saveText() && await this.saveCheck(false)
         && this.value().editContent.blocks.length === 0, readonly: this.readOnly, interactiveLists: true,
       projectReading: this.bodyOnly,

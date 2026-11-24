@@ -57,14 +57,16 @@ function blockFixture() {
     '../../ui/TaskBlockController': controller, '../LinkView': { LinkEditController: class {
       static protectInteraction() {} async finish() { return true; }
     } },
+    '../../ui/TaskInlineFocus': load('ui/TaskInlineFocus'),
+    './TaskChecklistBlock': { ChecklistFocusFrame: class {} },
     '../../ui/Theme': { UiColor: { taskCard: 'card' } },
     '@kit.ArkUI': { display: { getDefaultDisplaySync: () => ({width:390}) } },
     '@kit.BasicServicesKit': { pasteboard: { MIMETYPE_TEXT_PLAIN:'text/plain', createData: (type,value) => ({type,value}),
       getSystemPasteboard: () => ({async setData(data) { copies.push(data); }}) } }
-  }, source => 'const $r = name => name; class TextAreaController {}\n' + prefix('TaskBlockView')(source.split('  @Builder\n')[0].replace(/@BuilderParam /g,'')));
+  }, source => 'const $r = name => name; class TextAreaController {} class ListScroller {}\n' + prefix('TaskBlockView')(source.split('  @Builder\n')[0].replace(/@BuilderParam /g,'')));
   const editor = new TaskBlockView();
   const writes = [], events = [];
-  editor.getUIContext = () => ({px2vp:value=>value,getPromptAction:()=>({showToast:({message})=>messages.push(message)})});
+  editor.getUIContext = () => ({px2vp:value=>value,postFrameCallback(){},getPromptAction:()=>({showToast:({message})=>messages.push(message)})});
   editor.inputKey = 'block'; editor.block = { id: '1', kind: 'text', source: 'Original', html: '<p>Original</p>', items: [] };
   editor.readonly = false;editor.disabled = false;
   editor.begin = async () => true;
@@ -94,8 +96,15 @@ test('在两个相邻列表之间插入独立列表时保留前后列表的分�
   f.editor.openMenu(10,20);
   assert.ok(f.editor.menuItems().some(item=>item.title==='在下方添加列表'));
   await f.editor.edit(f.editor.block, f.editor.revision, 'list');
-  f.editor.draft = '- [ ] 新条目';
+  assert.equal(f.editor.draft, '');
   assert.equal(await f.editor.finish(), true);
+  assert.deepEqual(f.writes, []);
+  await f.editor.edit(f.editor.block, f.editor.revision, 'list');
+  let followed = false;
+  f.editor.followChecklist = async finish => { followed = await finish(); };
+  f.editor.draft = '新条目';
+  await f.editor.submitDraft();
+  assert.equal(followed, true);
   assert.equal(f.writes[0].source, '- 原列表\n\n\n- [ ] 新条目\n');
 });
 
@@ -105,11 +114,11 @@ test('回车提交有内容的段落，空白新增输入结束时不打开下�
   f.editor.followParagraph = async finish => { if (await finish()) nextParagraphs++; };
   await f.editor.edit();
   f.editor.draft = '更新后的段落';
-  await f.editor.submitParagraph();
+  await f.editor.submitDraft();
   assert.equal(nextParagraphs, 1);
   assert.equal(f.writes[0].source, '更新后的段落');
   await f.editor.edit(f.editor.block, f.editor.revision, 'paragraph');
-  await f.editor.submitParagraph();
+  await f.editor.submitDraft();
   assert.equal(nextParagraphs, 1);
   assert.equal(f.writes.length, 1);
   assert.equal(f.editor.editing, false);
@@ -127,6 +136,25 @@ test('删除只提交选中的原区块，结束其他草稿失败或快照变�
     if(failure==='同位置区块变化')g.editor.block={...g.editor.block,source:'其他内容'};
     assert.equal(await g.editor.deleteSelected(),false);assert.deepEqual(g.writes,[]);assert.deepEqual(g.events,[]);
   }
+});
+
+test('左滑删除保留露出按钮时的段落和版本', async () => {
+  const f = blockFixture();
+  f.editor.revision = 'v1';
+  f.editor.paragraphScroller = {closeAllSwipeActions() {}};
+  f.editor.paragraphOffsetChanged(-44);
+  assert.deepEqual(f.writes, []);
+  const original = f.editor.block;
+  f.editor.revision = 'v2';
+  f.editor.block = {...original, source:'外部更新'};
+  f.editor.closeParagraphSwipe();
+  f.editor.paragraphOffsetChanged(-22);
+  assert.equal(await f.editor.deleteSwipedParagraph(), false);
+  assert.deepEqual(f.writes, []);
+  f.editor.paragraphOffsetChanged(0);
+  f.editor.paragraphOffsetChanged(-44);
+  assert.equal(await f.editor.deleteSwipedParagraph(), true);
+  assert.deepEqual(f.writes, [{block:f.editor.block, source:''}]);
 });
 
 test('菜单自动关闭后编辑仍使用点选时的快照；清单输入期间不弹出区块菜单', async () => {

@@ -66,7 +66,6 @@ export struct AppShell {
   @State navMessage: string = ''
   @State showNotifications: boolean = false
   private stopNotifications: (() => void) | undefined = undefined
-  @StorageLink('taskInlineTyping') inlineTyping: boolean = false
   private sidebarManager: SidebarDataManager | undefined = undefined
   private stopSidebar: (() => void) | undefined = undefined
   private orderChanged: ((order: RegionOrder | null) => void) | undefined = undefined
@@ -322,10 +321,6 @@ export struct AppShell {
                 .textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(2)
             }
           }.layoutWeight(1).height(48).padding({ left: 8, right: 8 }).borderRadius(12)
-          if (this.showsPageContent() && this.inlineTyping) {
-            Button('完成').height(48).width(64).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
-              .onClick(() => { TaskInlineSession.end(false) })
-          }
           if (this.showsPageContent() && this.secondaryActionLabel.length > 0) {
             IconButton({ icon: this.secondaryActionIcon, label: this.secondaryActionLabel, disabled: this.busy, action: this.secondaryAction })
           }

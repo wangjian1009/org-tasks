@@ -255,6 +255,7 @@ export struct TaskDocumentContent {
   build() {
     Column({ space: 8 }) {
       TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.content(), contentTree: this.tree(), writeNode: change => this.writeContentNode(change),
+        addChecklistItem: (after: string): void => { this.addCheck(after) },
         toggle: change => { this.changeCheck(change) }, beginEmpty: (): Promise<boolean> => this.session(), readonly: this.isReadonly(), disabled: this.working || this.blocked,
         projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
         revision: this.current?.fileVersion ?? this.task?.fileVersion ?? this.contentRevision, contentBackground: this.contentBackground,
