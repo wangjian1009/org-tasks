@@ -1,3 +1,4 @@
+import { checklistEdgeScroll } from '../ui/TaskChecklistReorder'
 import { DataSet } from '../services/DataSet'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { OrgFileReadingSection, projectOutlineSections, projectReadingItems, OrgFileReadingItem } from '../ui/OrgFileReadingPresentation'
@@ -20,7 +21,6 @@ export class OrgFileDocumentNavigation {
   openOutline: () => void = () => {}
   closePanel: () => boolean = () => false
   locateSection: (path: CoreTaskPath) => Promise<boolean> = async (): Promise<boolean> => false
-  locateEditSource: (row: string) => Promise<boolean> = async () => false
   locateCreated: (row: string, reveal: boolean) => Promise<boolean> = async () => false
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
   followInternalLink: (target: string) => Promise<void> = async (): Promise<void> => { throw new Error('项目文档尚未载入') }
@@ -53,6 +53,18 @@ export struct OrgFileDocumentView {
   private focusScrolled: boolean = false
   @State dropRow: string = ''
   @State dropAfter: boolean = false
+  @State dragSource: string = ''
+  @State dragOffset: number = 0
+  @State orderHighlight: string = ''
+  @State orderFolded: string[] = []
+  private visibleOrderRows: OrgFileEditRow[] = []
+  private orderFocusTimer: number = -1
+  private orderScrollTimer: number = -1
+  private orderFinger: FingerInfo | undefined = undefined
+  private orderStartY: number = 0
+  private orderStartScroll: number = 0
+  private orderDropTarget: string = ''
+  private rowHeights: Map<string, number> = new Map()
   private revealedParents: string[] = []
   private highlightTimer: number = -1
   @StorageLink('taskInlineActive') @Watch('inlineChanged') inlineActive: string = ''
@@ -138,7 +150,6 @@ export struct OrgFileDocumentView {
     this.stopTasks = this.dataSet?.subscribeStructure((): void => { this.updateDocument() })
     this.updateDocument()
     this.navigation.locateSection = (path: CoreTaskPath): Promise<boolean> => this.locateSection(path)
-    this.navigation.locateEditSource = (row: string): Promise<boolean> => this.locateRow(row, false)
     this.navigation.locateCreated = (row: string, reveal: boolean): Promise<boolean> => this.locateCreated(row, reveal)
     this.navigation.isValidInternalLink = async (target: string): Promise<boolean> =>
       this.active && this.showing && this.linkSection(target) !== undefined
@@ -168,10 +179,12 @@ export struct OrgFileDocumentView {
   aboutToDisappear() {
     this.stopTasks?.(); this.stopTasks = undefined; this.active = false; this.outlineVisible = false
     clearTimeout(this.highlightTimer)
+    clearTimeout(this.orderFocusTimer)
+    this.cancelOrderDrag()
   }
 
   visibilityChanged() {
-    if (!this.showing) { this.navigationRevision++; this.attentionRow = ''; this.swipeMenus.close(); return }
+    if (!this.showing) { this.cancelOrderDrag(); this.navigationRevision++; this.attentionRow = ''; this.swipeMenus.close(); return }
     this.pendingOffset = this.readOffset()
     this.initialOffsetApplied = this.pendingOffset !== undefined
     this.focusWhenLaidOut()
@@ -181,7 +194,9 @@ export struct OrgFileDocumentView {
     this.navigationRevision++
     this.attentionRow = ''
     this.swipeMenus.close()
+    this.cancelOrderDrag()
     this.offsets.clear()
+    this.rowHeights.clear()
     this.revealedParents = []
     if (this.focusRow) this.revealAncestors(this.focusRow)
     this.outlineVisible = false
@@ -307,8 +322,10 @@ export struct OrgFileDocumentView {
     }
     this.displayedSections = displayed
     this.readingItems = projectReadingItems(displayed, !editing && this.tagFiltered ? this.matchedIds : null,
-      editing ? this.edit.rows.map(row => row.row) : this.revealedParents, levels)
+      this.revealedParents, levels, editing ? this.orderFolded : undefined)
     const visible = this.readingItems.filter(item => item.visible).map(item => item.section.key)
+    const visibleSet = new Set<string>(visible)
+    this.visibleOrderRows = editing ? this.edit.rows.filter(row => visibleSet.has(row.row)) : []
     const contexts = this.readingItems.filter(item => item.contextOnly).map(item => item.section.key)
     const parents = this.readingItems.filter(item => item.hasChildren).map(item => item.section.key)
     if (!samePageValue(this.visibleKeys, visible)) this.visibleKeys = visible
@@ -319,38 +336,133 @@ export struct OrgFileDocumentView {
 
   editingChanged(): void {
     this.swipeMenus.close()
-    this.dropRow = ''
+    this.cancelOrderDrag()
+    clearTimeout(this.orderFocusTimer)
+    this.orderHighlight = ''
+    if (!this.edit.active) this.orderFolded = []
     this.updateDocument()
+    if (this.edit.highlighted) this.locateOrderSource(this.edit.highlighted)
+  }
+
+  private locateOrderSource(row: string, attempts: number = 12): void {
+    this.orderFocusTimer = setTimeout((): void => {
+      if (!this.active || !this.showing || !this.edit.active || this.edit.highlighted !== row) return
+      const heading = this.getUIContext().getFrameNodeById(`project_order_heading:${row}`)
+      const host = this.getUIContext().getFrameNodeById('project_document_scroll')
+      if (!heading || !host || heading.getMeasuredSize().height <= 0) {
+        if (attempts > 1) this.locateOrderSource(row, attempts - 1)
+        return
+      }
+      const offset = this.scroller.currentOffset().yOffset + heading.getPositionToWindow().y - host.getPositionToWindow().y
+      this.scrollToOffset(offset)
+      this.orderFocusTimer = setTimeout((): void => { this.orderHighlight = row }, 80)
+    }, 40)
   }
 
   private editRow(row: string): OrgFileEditRow | undefined { return this.edit.rows.find(item => item.row === row) }
 
-  private dragRow(row: string, offset: number, dropped: boolean): void {
-    if (this.editBusy || !this.edit.active) return
-    const source = this.edit.rows.findIndex(item => item.row === row)
-    const origin = this.offsets.get(row)
-    if (source < 0 || origin === undefined) return
-    const level = this.edit.rows[source].level
-    // 同层节点以最近的较浅标题划定同一父节点的排序范围。
+  private toggleOrderFold(row: string): void {
+    if (!this.edit.active || this.dragSource || !this.parentKeys.includes(row)) return
+    this.orderFolded = this.orderFolded.includes(row) ? this.orderFolded.filter(key => key !== row) : this.orderFolded.concat(row)
+    this.updateDocument()
+  }
+
+  private cancelOrderDrag(): void {
+    clearInterval(this.orderScrollTimer)
+    this.orderFinger = undefined
+    this.dragSource = ''
+    this.dragOffset = 0
+    this.orderDropTarget = ''
+    this.dropRow = ''
+  }
+
+  private beginOrderDrag(row: string, event: GestureEvent): void {
+    const finger = event.fingerList[0]
+    if (!finger || this.editBusy || !this.edit.active || !this.offsets.has(row)) return
+    this.cancelOrderDrag()
+    this.dragSource = row
+    this.orderFinger = finger
+    this.orderStartY = finger.globalY - event.offsetY
+    this.orderStartScroll = this.scroller.currentOffset().yOffset
+    this.updateOrderDrag()
+    this.orderScrollTimer = setInterval((): void => { this.updateOrderDrag(true) }, 16)
+  }
+
+  private updateOrderDrag(scroll: boolean = false): void {
+    const finger = this.orderFinger
+    const host = this.getUIContext().getFrameNodeById('project_document_scroll')
+    const rows = this.visibleOrderRows
+    const source = rows.findIndex(item => item.row === this.dragSource)
+    if (!finger || !host || source < 0 || !this.showing || this.editBusy) {
+      this.cancelOrderDrag()
+      return
+    }
+    const viewport = host.getPositionToWindow()
+    const size = host.getMeasuredSize()
+    const bottom = viewport.y + this.getUIContext().px2vp(size.height)
+    const right = viewport.x + this.getUIContext().px2vp(size.width)
+    const visible = finger.globalY >= viewport.y && finger.globalY <= bottom &&
+      finger.globalX >= viewport.x && finger.globalX <= right
+    const scrollY = this.scroller.currentOffset().yOffset
+    this.dragOffset = finger.globalY - this.orderStartY + scrollY - this.orderStartScroll
+    this.orderDropTarget = ''
+    this.dropRow = ''
+    if (!visible) return
+
+    const level = rows[source].level
     let first = source, last = source
-    while (first > 0 && this.edit.rows[first - 1].level >= level) first--
-    while (last + 1 < this.edit.rows.length && this.edit.rows[last + 1].level >= level) last++
-    const y = origin + offset
-    let target = ''
-    let distance = Math.abs(offset)
+    while (first > 0 && rows[first - 1].level >= level) first--
+    while (last + 1 < rows.length && rows[last + 1].level >= level) last++
+    const top = this.offsets.get(rows[first].row)
+    const end = this.offsets.get(rows[last].row)
+    const origin = this.offsets.get(this.dragSource)
+    if (top === undefined || end === undefined || origin === undefined) return
+    const pointerY = finger.globalY - viewport.y + scrollY
+    if (pointerY < top || pointerY > end + (this.rowHeights.get(rows[last].row) ?? 44)) return
+    if (scroll) {
+      const speed = checklistEdgeScroll(finger.globalY, viewport.y, bottom)
+      if (speed !== 0) this.scroller.scrollBy(0, speed * 0.016)
+    }
+
+    const y = origin + this.dragOffset
+    let nearest = source
+    let distance = Math.abs(this.dragOffset)
     for (let index = first; index <= last; index++) {
-      const candidate = this.edit.rows[index]
-      if (candidate.level !== level || index === source) continue
-      const position = this.offsets.get(candidate.row)
-      if (position === undefined) continue
-      if (Math.abs(y - position) < distance) {
+      if (rows[index].level !== level || index === source) continue
+      const position = this.offsets.get(rows[index].row)
+      if (position !== undefined && Math.abs(y - position) < distance) {
         distance = Math.abs(y - position)
-        target = candidate.row
+        nearest = index
       }
     }
-    this.dropAfter = offset > 0
-    this.dropRow = dropped ? '' : target
-    if (dropped && target && Math.abs(offset) >= 18) this.reorderNode(row, target)
+    if (nearest === source) return
+    this.orderDropTarget = rows[nearest].row
+    this.dropAfter = nearest > source
+    // 向下移动时，插入线在目标的最后一个后代之后。
+    if (this.dropAfter) {
+      while (nearest < last && rows[nearest + 1].level > level) nearest++
+    }
+    this.dropRow = rows[nearest].row
+  }
+
+  private dragOrder(event: GestureEvent, dropped: boolean): void {
+    if (!this.dragSource) return
+    this.orderFinger = event.fingerList[0] ?? this.orderFinger
+    this.updateOrderDrag()
+    if (!dropped) return
+    const source = this.dragSource
+    const target = this.orderDropTarget
+    this.cancelOrderDrag()
+    if (source && target) this.reorderNode(source, target)
+  }
+
+  @Builder
+  insertionLine(row: string) {
+    if (this.dropRow === row) {
+      Rect().width('100%').height(2).fill(UiColor.primary)
+        .align(this.dropAfter ? Alignment.Bottom : Alignment.Top)
+        .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+    }
   }
 
   inlineChanged(): void { if (!this.inlineActive && this.updatePending) this.updateDocument() }
@@ -420,7 +532,6 @@ export struct OrgFileDocumentView {
         }
         ForEach(this.displayedSections, (section: OrgFileReadingSection) => {
           Column({ space: section.node ? 0 : 12 }) {
-            if (this.dropRow === section.key && !this.dropAfter) { Divider().color(UiColor.primary).strokeWidth(2) }
             if (!section.node && section.blocks.length > 0) {
               Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
             }
@@ -438,25 +549,32 @@ export struct OrgFileDocumentView {
                 menuCoordinator: this.swipeMenus, interactionEnabled: this.showing && this.visibleKeys.includes(section.key),
                 canOrderChildren: this.structureOrderParents.includes(section.key),
                 structureActions: (canOrder: boolean): PopupMenuItem[] => this.structureActions(section.key, canOrder),
-                editRow: this.editRow(section.key), editBusy: this.editBusy, highlighted: this.edit.highlighted === section.key,
-                dragNode: (offset: number, dropped: boolean): void => { this.dragRow(section.key, offset, dropped) },
-                cancelDrag: (): void => { this.dropRow = '' },
+                editRow: this.editRow(section.key), editBusy: this.editBusy, highlighted: this.orderHighlight === section.key,
+                orderFolded: this.orderFolded.includes(section.key), orderDragActive: this.dragSource !== '',
+                toggleOrderFold: (): void => { this.toggleOrderFold(section.key) },
+                dragging: this.dragSource === section.key, dragOffset: this.dragSource === section.key ? this.dragOffset : 0,
+                beginDrag: (event: GestureEvent): void => { this.beginOrderDrag(section.key, event) },
+                dragNode: (event: GestureEvent, dropped: boolean): void => { this.dragOrder(event, dropped) },
+                cancelDrag: (): void => { this.cancelOrderDrag() },
                 internalLinkProcessor: this.internalLinkProcessor, specialTags: this.specialTags, scrollHost: this.scroller }).width('100%')
             } else if (section.blocks.length > 0) {
               OrgFileSectionBody({ internalLinkProcessor: this.internalLinkProcessor, task: null, blocks: section.blocks,
                 contentBackground: UiColor.projectBlock }).width('100%')
             }
-            if (this.dropRow === section.key && this.dropAfter) { Divider().color(UiColor.primary).strokeWidth(2) }
           }.width('100%').alignItems(HorizontalAlign.Start)
             .padding({ left: section.node ? 0 : (section.blocks.length > 0 ? 16 : 0),
               right: !section.node && section.blocks.length > 0 ? 16 : 0,
               top: !section.node && section.blocks.length > 0 ? 16 : 0, bottom: !section.node && section.blocks.length > 0 ? 16 : 0 })
-            .backgroundColor(this.highlightedRow === section.key ? UiColor.field : section.node ? Color.Transparent : UiColor.projectBlock)
-            .borderRadius(section.node ? 0 : 12)
+            .backgroundColor(this.dragSource === section.key ? UiColor.projectBlock :
+              this.highlightedRow === section.key ? UiColor.field : section.node ? Color.Transparent : UiColor.projectBlock)
+            .borderRadius(this.dragSource === section.key ? 8 : section.node ? 0 : 12)
+            .zIndex(this.dragSource === section.key ? 1 : 0)
+            .overlay(this.insertionLine(section.key), { align: this.dropAfter ? Alignment.Bottom : Alignment.Top })
             .visibility(this.visibleKeys.includes(section.key) ? Visibility.Visible : Visibility.None)
             .onAreaChange((_old: Area, area: Area): void => {
               if (Number(area.height) <= 0) { this.offsets.delete(section.key); return }
               this.offsets.set(section.key, Number(area.position.y))
+              this.rowHeights.set(section.key, Number(area.height))
               if (section.key === this.focusRow) this.focusWhenLaidOut()
             })
         }, (section: OrgFileReadingSection) => `${this.revision}:${section.key}`)
@@ -473,7 +591,7 @@ export struct OrgFileDocumentView {
           this.focusWhenLaidOut()
         })
     }.id('project_document_scroll').width('100%').height('100%').align(Alignment.Top)
-      .scrollBar(BarState.Off)
+      .scrollBar(BarState.Off).enableScrollInteraction(this.dragSource === '')
       .onAppear((): void => { this.ready() })
       .onScrollStart((): void => { this.swipeMenus.close() })
       .onDidScroll((): void => { if (this.showing) this.scrolled(this.scroller.currentOffset().yOffset) })

@@ -7,6 +7,7 @@ export interface OrgFileStructureNode {
   title: string
   titleParts: CoreTitlePart[]
   task: boolean
+  taskPreview?: CoreTask
   hidden: boolean
 }
 export interface OrgFileStructureSnapshot {
@@ -35,6 +36,7 @@ export function projectStructureNodes(tasks: CoreTask[], key: (task: CoreTask) =
     const parent = ancestors.length ? ancestors[ancestors.length - 1].id : null
     ancestors.push(task)
     return { id: task.id, row: key(task), parent, title: task.heading, titleParts: task.headingParts, task: !!task.state,
+      taskPreview: task.state ? task : undefined,
       hidden: !!task.state && matches !== null && !matches.has(task.id) }
   })
 }
@@ -43,20 +45,59 @@ export function projectSiblings(nodes: OrgFileStructureNode[], parent: string | 
   return nodes.filter(node => node.parent === parent)
 }
 
-export function projectOrderMove(nodes: OrgFileStructureNode[], id: string, to: number): OrgFileStructureMove | undefined {
-  const node = nodes.find(item => item.id === id)
-  if (!node) return undefined
-  const siblings = projectSiblings(nodes, node.parent)
-  const from = siblings.findIndex(item => item.id === id)
-  if (to < 0 || to >= siblings.length || from === to) return undefined
-  siblings.splice(from, 1)
-  return { parent: node.parent, after: to === 0 ? null : siblings[to - 1].id }
-}
-
 export class ProjectStructureDraft {
   readonly initial: OrgFileStructureSnapshot
-  constructor(snapshot: OrgFileStructureSnapshot) { this.initial = snapshot }
-  get nodes(): OrgFileStructureNode[] { return this.initial.nodes }
+  private readonly initialChildren: Map<string | null, OrgFileStructureNode[]>
+  private readonly orderedChildren: Map<string | null, OrgFileStructureNode[]>
+  private readonly orderEdits: CoreTaskStructureEdit[] = []
+  private readonly changedParents: Set<string | null> = new Set()
+
+  constructor(snapshot: OrgFileStructureSnapshot) {
+    this.initial = snapshot
+    this.initialChildren = this.children(snapshot.nodes)
+    this.orderedChildren = new Map(this.initialChildren)
+  }
+
+  get changed(): boolean { return this.changedParents.size > 0 }
+
+  get nodes(): OrgFileStructureNode[] {
+    if (!this.changed) return this.initial.nodes
+    const ordered: OrgFileStructureNode[] = []
+    const visit = (parent: string | null): void => {
+      for (const node of this.siblings(parent)) {
+        ordered.push(node)
+        visit(node.id)
+      }
+    }
+    visit(null)
+    return ordered
+  }
+
+  siblings(parent: string | null): OrgFileStructureNode[] { return this.orderedChildren.get(parent) ?? [] }
+
+  reorder(node: OrgFileStructureNode, to: number): boolean {
+    const siblings = this.siblings(node.parent).slice()
+    const from = siblings.findIndex(item => item.id === node.id)
+    if (from < 0 || to < 0 || to >= siblings.length || from === to) return false
+    siblings.splice(from, 1)
+    siblings.splice(to, 0, node)
+    this.orderedChildren.set(node.parent, siblings)
+    const initial = this.initialChildren.get(node.parent)!
+    if (siblings.every((item, index) => item.id === initial[index].id)) {
+      this.changedParents.delete(node.parent)
+      // 已恢复初始顺序，此前该组的拖动无需提交。
+      for (let index = this.orderEdits.length - 1; index >= 0; index--) {
+        const edit = this.orderEdits[index]
+        if (edit.type === 'move' && edit.parent === node.parent) this.orderEdits.splice(index, 1)
+      }
+    } else {
+      this.changedParents.add(node.parent)
+      this.orderEdits.push({ type: 'move', ids: [node.id], parent: node.parent, after: siblings[to - 1]?.id ?? null })
+    }
+    return true
+  }
+
+  edits(): CoreTaskStructureEdit[] { return this.orderEdits.slice() }
 
   private index(nodes: OrgFileStructureNode[] = this.nodes): Map<string, OrgFileStructureNode> {
     return new Map<string, OrgFileStructureNode>(nodes.map(node => [node.id, node]))
@@ -99,14 +140,13 @@ export class ProjectStructureDraft {
   }
 
   rows(expanded: string[], query: string): OrgFileStructureRow[] {
-    const children = this.children()
     const open = new Set<string>(expanded)
     const result: OrgFileStructureRow[] = []
     const text = query.trim().toLocaleLowerCase()
     const visit = (parent: string | null, depth: number, path: string): void => {
-      for (const node of children.get(parent) ?? []) {
+      for (const node of this.siblings(parent)) {
         const location = path ? `${path} › ${node.title}` : node.title
-        const hasChildren = !!children.get(node.id)?.length
+        const hasChildren = this.siblings(node.id).length > 0
         if (!text || location.toLocaleLowerCase().includes(text)) result.push({ node, depth, hasChildren, path: location })
         if (hasChildren && (text || open.has(node.id))) visit(node.id, depth + 1, location)
       }
@@ -141,46 +181,48 @@ export interface OrgFileEditRow {
 
 export interface OrgFileEditView {
   active: boolean
+  changed: boolean
   rows: OrgFileEditRow[]
   highlighted: string
 }
 
 export function projectEditIdle(): OrgFileEditView {
-  return { active: false, rows: [], highlighted: '' }
+  return { active: false, changed: false, rows: [], highlighted: '' }
 }
 
-// 会话保留一份已确认的结构快照，每次移动由 Core 验证并提交。
+// 手柄操作只更新草稿，保存时将同一快照上的移动交给 Core。
 export class OrgFileEditSession {
   readonly snapshot: OrgFileStructureSnapshot
   private readonly byRow: Map<string, OrgFileStructureNode>
-  private readonly highlighted: string
+  private readonly draft: ProjectStructureDraft
+  private highlighted: string
 
   constructor(snapshot: OrgFileStructureSnapshot, row: string = '') {
     this.snapshot = snapshot
+    this.draft = new ProjectStructureDraft(snapshot)
     this.byRow = new Map<string, OrgFileStructureNode>(snapshot.nodes.map(node => [node.row, node]))
     this.highlighted = row
   }
 
-  reorder(row: string, sibling: string): CoreTaskStructureEdit | undefined {
+  reorder(row: string, sibling: string): boolean {
     const source = this.byRow.get(row)
     const target = this.byRow.get(sibling)
-    if (!source || !target || source.parent !== target.parent) return undefined
-    const index = projectSiblings(this.snapshot.nodes, source.parent).findIndex(node => node.id === target.id)
-    const destination = projectOrderMove(this.snapshot.nodes, source.id, index)
-    return destination ? { type: 'move', ids: [source.id], parent: destination.parent, after: destination.after } : undefined
+    if (!source || !target || source.parent !== target.parent) return false
+    const index = this.draft.siblings(source.parent).findIndex(node => node.id === target.id)
+    if (!this.draft.reorder(source, index)) return false
+    this.highlighted = ''
+    return true
   }
+
+  edits(): CoreTaskStructureEdit[] { return this.draft.edits() }
 
   view(): OrgFileEditView {
     const levels = new Map<string, number>()
-    const siblingCounts = new Map<string | null, number>()
-    for (const node of this.snapshot.nodes) {
-      siblingCounts.set(node.parent, (siblingCounts.get(node.parent) ?? 0) + 1)
-    }
-    const rows = this.snapshot.nodes.map((node): OrgFileEditRow => {
+    const rows = this.draft.nodes.map((node): OrgFileEditRow => {
       const level = 1 + (node.parent === null ? 0 : levels.get(node.parent) ?? 0)
       levels.set(node.id, level)
-      return { row: node.row, level, canReorder: (siblingCounts.get(node.parent) ?? 0) > 1 }
+      return { row: node.row, level, canReorder: this.draft.siblings(node.parent).length > 1 }
     })
-    return { active: true, rows, highlighted: this.highlighted }
+    return { active: true, changed: this.draft.changed, rows, highlighted: this.highlighted }
   }
 }

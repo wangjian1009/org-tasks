@@ -10,6 +10,7 @@ import { TaskSwipeItem } from './TaskSwipeItem'
 import { OrgHeadingView } from './OrgHeadingView'
 import { OrgFileSectionBody } from './OrgFileSectionBody'
 import { TitleText } from './TitleText'
+import { TaskEditor } from './editors/TaskEditor'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 import { PopupMenuItem } from './controls/PopupMenu'
 import { OrgFileEditRow } from '../ui/OrgFileStructurePresentation'
@@ -35,9 +36,15 @@ export struct OrgFileTaskSection {
   structureActions: (canOrder: boolean) => PopupMenuItem[] = () => []
   @Prop editRow: OrgFileEditRow | undefined = undefined
   @Prop editBusy: boolean = false
+  @Prop orderFolded: boolean = false
+  @Prop orderDragActive: boolean = false
+  toggleOrderFold: () => void = () => {}
+  @Prop dragging: boolean = false
+  @Prop dragOffset: number = 0
   @Prop @Watch('highlightChanged') highlighted: boolean = false
-  @State sourceGlow: number = 0
-  dragNode: (offsetY: number, dropped: boolean) => void = () => {}
+  @State highlightColor: string = '#00000000'
+  beginDrag: (event: GestureEvent) => void = () => {}
+  dragNode: (event: GestureEvent, dropped: boolean) => void = () => {}
   cancelDrag: () => void = () => {}
   private actionPolicy = taskPageActionPolicy('today')
   @State node: CoreTask | undefined = undefined
@@ -88,13 +95,14 @@ export struct OrgFileTaskSection {
 
   private highlightChanged(): void {
     if (!this.highlighted) {
-      this.sourceGlow = 0
+      this.highlightColor = '#00000000'
       return
     }
     this.getUIContext().keyframeAnimateTo({ iterations: 1 }, [
-      { duration: 130, curve: Curve.EaseOut, event: (): void => { this.sourceGlow = 0.34 } },
-      { duration: 250, curve: Curve.Linear, event: (): void => { this.sourceGlow = 0.34 } },
-      { duration: 500, curve: Curve.EaseOut, event: (): void => { this.sourceGlow = 0 } }
+      { duration: 120, curve: Curve.EaseOut, event: (): void => { this.highlightColor = '#737CC9B8' } },
+      { duration: 150, curve: Curve.EaseInOut, event: (): void => { this.highlightColor = '#00000000' } },
+      { duration: 120, curve: Curve.EaseOut, event: (): void => { this.highlightColor = '#737CC9B8' } },
+      { duration: 380, curve: Curve.EaseOut, event: (): void => { this.highlightColor = '#00000000' } }
     ])
   }
 
@@ -110,10 +118,24 @@ export struct OrgFileTaskSection {
   @Builder
   orderHeading() {
     Row({ space: 8 }) {
-      Image(this.node?.state ? $r('app.media.ui_task_list') : $r('app.media.ui_document_outline'))
-        .width(18).height(18).accessibilityLevel('no')
-      TitleText({ text: this.node?.heading ?? '', parts: this.node?.headingParts ?? [],
-        textSize: this.node?.state ? 16 : 18, lineLimit: 2, openLinks: false }).layoutWeight(1)
+      if (this.hasChildren) {
+        Button({ type: ButtonType.Normal }) {
+          Image(this.orderFolded ? $r('app.media.ui_next') : $r('app.media.ui_down'))
+            .width(14).height(14).fillColor(UiColor.secondary).accessibilityLevel('no')
+        }.id(`project_order_fold:${this.taskId}`).width(28).height(44).padding(0)
+          .backgroundColor(Color.Transparent).enabled(!this.orderDragActive)
+          .accessibilityText(`${this.orderFolded ? '展开子节点' : '折叠子节点'}，${this.node?.heading ?? ''}`)
+          .onClick(this.toggleOrderFold)
+      } else {
+        Blank().width(28)
+      }
+      if (this.node?.state) {
+        TaskEditor({ previewTask: this.node, readOnly: true, titleOnly: true }).layoutWeight(1)
+      } else {
+        Image($r('app.media.ui_document_outline')).width(18).height(18).accessibilityLevel('no')
+        TitleText({ text: this.node?.heading ?? '', parts: this.node?.headingParts ?? [],
+          textSize: 18, lineLimit: 2, openLinks: false }).layoutWeight(1)
+      }
       if (this.editRow?.canReorder) {
         Row() {
           Image($r('app.media.ui_drag_handle')).width(22).height(22).draggable(false)
@@ -121,20 +143,15 @@ export struct OrgFileTaskSection {
           .accessibilityText(`长按拖动，${this.node?.heading ?? ''}`)
           .gesture(GestureGroup(GestureMode.Sequence, LongPressGesture({ repeat: false, duration: 300 }),
             PanGesture({ direction: PanDirection.Vertical, distance: 4 })
-              .onActionUpdate((event: GestureEvent): void => { this.dragNode(event.offsetY, false) })
-              .onActionEnd((event: GestureEvent): void => { this.dragNode(event.offsetY, true) })
+              .onActionStart(this.beginDrag)
+              .onActionUpdate((event: GestureEvent): void => { this.dragNode(event, false) })
+              .onActionEnd((event: GestureEvent): void => { this.dragNode(event, true) })
               .onActionCancel(this.cancelDrag)).onCancel(this.cancelDrag))
       } else { Blank().width(44) }
-    }.width('100%').constraintSize({ minHeight: 44 }).overlay(this.selectedEffect())
-  }
-
-  @Builder
-  selectedEffect() {
-    if (this.highlighted) {
-      Row().width('100%').height('100%').borderRadius(8)
-        .backgroundColor(UiColor.primary).opacity(this.sourceGlow)
-        .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
-    }
+    }.id(`project_order_heading:${this.taskId}`).width('100%').constraintSize({ minHeight: 44 })
+      .backgroundColor(this.dragging ? UiColor.container : this.highlightColor).borderRadius(8)
+      .shadow(this.dragging ? { radius: 8, color: '#52000000', offsetY: 4 } : { radius: 0 })
+      .translate({ y: this.dragOffset })
   }
 
   build() {

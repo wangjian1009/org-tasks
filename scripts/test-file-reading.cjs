@@ -603,6 +603,7 @@ function nativeProjectFixture() {
     '../services/PageDataSnapshot': load(base + 'services/PageDataSnapshot.ets'),
     '../ui/OrgFileReadingPresentation': projectReading,
     '../ui/OrgFileStructurePresentation': projectStructure,
+    '../ui/TaskChecklistReorder': load(base + 'ui/TaskChecklistReorder.ets'),
     './OrgFileHeader': { OrgFileHeaderNavigation: class { close() { return false; } } },
     './controls/RightSwipe': swipeMenus,
     '../services/TaskInlineService': { TaskInlineSession: { end: (...args) => save(...args), active: () => false } }
@@ -674,6 +675,56 @@ test('原生项目离开或切换版本后，迟到目录定位失效；切回�
   f.view.showing = true; f.view.visibilityChanged(); assert.equal(f.view.pendingOffset, 345);
   f.view.aboutToDisappear();
   assert.equal(f.view.active, false);
+});
+
+test('重构可独立折叠各层子节点，折叠后按可见行定位，确认移动时保留折叠状态', () => {
+  const { view, section } = nativeProjectFixture();
+  const rows = [['parent', 1], ['child', 2], ['leaf', 3], ['sibling', 1]];
+  for (const [key, level] of rows) {
+    section(key, key, level * 44);
+    view.sections.at(-1).node.level = level;
+  }
+  const parent = view.sections[0].node;
+  parent.property = name => name === 'VISIBILITY' ? 'folded' : null;
+  const editRows = rows.map(([row, level]) => ({ row, level, canReorder: level === 1 }));
+  view.edit = { active: true, changed: false, rows: editRows, highlighted: '' };
+  view.editingChanged();
+  assert.deepEqual(view.visibleKeys, ['parent', 'child', 'leaf', 'sibling']);
+  view.toggleOrderFold('child');
+  view.toggleOrderFold('parent');
+  assert.deepEqual(view.visibleOrderRows.map(row => row.row), ['parent', 'sibling']);
+  view.edit = { active: true, changed: true, rows: [editRows[3], ...editRows.slice(0, 3)], highlighted: '' };
+  view.editingChanged();
+  assert.deepEqual(view.visibleKeys, ['sibling', 'parent']);
+  view.toggleOrderFold('parent');
+  assert.deepEqual(view.visibleKeys, ['sibling', 'parent', 'child']);
+  view.edit = projectStructure.projectEditIdle();
+  view.editingChanged();
+  assert.deepEqual(view.visibleKeys, ['parent', 'sibling']);
+  view.edit = { active: true, changed: false, rows: editRows, highlighted: '' };
+  view.editingChanged();
+  assert.deepEqual(view.visibleKeys, ['parent', 'child', 'leaf', 'sibling']);
+});
+
+test('重构草稿按当前顺序连续移动完整子树，只提交仍有变化的同级组', () => {
+  const node = (id, parent = null) => ({ id, row: id, parent });
+  const nodes = [node('a'), node('x', 'a'), node('y', 'a'), node('b'), node('c')];
+  const session = new projectStructure.OrgFileEditSession({ nodes }, 'a');
+  assert.equal(session.reorder('a', 'x'), false);
+  assert.equal(session.reorder('a', 'c'), true);
+  assert.equal(session.reorder('b', 'a'), true);
+  assert.equal(session.reorder('y', 'x'), true);
+  assert.equal(session.reorder('x', 'y'), true);
+  assert.deepEqual(session.view().rows.map(item => item.row), ['c', 'a', 'x', 'y', 'b']);
+  assert.equal(session.view().highlighted, '');
+  assert.deepEqual(nodes.map(item => item.id), ['a', 'x', 'y', 'b', 'c']);
+  assert.deepEqual(session.edits(), [
+    { type: 'move', ids: ['a'], parent: null, after: 'c' },
+    { type: 'move', ids: ['b'], parent: null, after: 'a' },
+  ]);
+  assert.equal(session.reorder('c', 'b'), true);
+  assert.equal(session.view().changed, false);
+  assert.deepEqual(session.edits(), []);
 });
 
 test('项目首次阅读等待布局完成后跳过文件头，后续高度变化不重设位置', () => {
@@ -818,6 +869,7 @@ test('项目章节按稳定任务身份订阅，属性修改保留正文修订�
  const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);let active=false,listener,stopped=false;
  const {Section}=load(base+'components/OrgFileTaskSection.ets',{
   './TitleText': {},
+  './editors/TaskEditor': {},
   './controls/PopupMenuButton': {},
   './TaskSelectionRow': {},
   '../services/PageDataEquality':{samePageValue:equal},'../services/TaskInlineService':{TaskInlineSession:{active:()=>active}},
@@ -1016,6 +1068,7 @@ test('项目单章节保存直接读取来源最新版本，删除通知清除�
  let callback,cancelled=false;const source={task:{fileVersion:'v1',editContent:{blocks:[]}},monitor(fn){callback=fn;fn({task:this.task});return()=>cancelled=true}};
  const {Section}=load(base+'components/OrgFileTaskSection.ets',{
   './TitleText': {},
+  './editors/TaskEditor': {},
   './controls/PopupMenuButton': {}, './TaskSelectionRow': {},
   '../ui/TaskActionPresentation':taskActions,
   '../services/TaskInlineService':{TaskInlineSession:{active:()=>false}},'../ui/Theme':theme

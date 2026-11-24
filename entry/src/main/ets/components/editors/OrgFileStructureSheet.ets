@@ -1,9 +1,11 @@
 import { util } from '@kit.ArkTS'
 import { CoreBridgeError, CoreTaskStructureEdit, coreErrorMessage } from '../../services/NativeCoreService'
-import { ProjectStructureDraft, OrgFileStructureNode, OrgFileStructureSnapshot, OrgFileStructureRow, OrgFilePlacement, projectOrderMove, projectSiblings } from '../../ui/OrgFileStructurePresentation'
+import { ProjectStructureDraft, OrgFileStructureNode, OrgFileStructureSnapshot, OrgFileStructureRow, OrgFilePlacement, projectSiblings } from '../../ui/OrgFileStructurePresentation'
+import { showDangerousConfirmation } from '../controls/DangerousConfirmation'
 import { UiColor } from '../../ui/Theme'
 import { checklistEdgeScroll } from '../../ui/TaskChecklistReorder'
 import { TitleText } from '../TitleText'
+import { TaskEditor } from './TaskEditor'
 
 export class OrgFileStructureSheetController {
   back: () => void = () => {}
@@ -37,12 +39,16 @@ export struct OrgFileStructureSheet {
   @State source: OrgFileStructureSnapshot = { file: { repoId: '', file: null, titles: [] },
     version: '', title: '', nodes: [], hasConflict: false }
   @State ordered: OrgFileStructureNode[] = []
+  @State orderChanged: boolean = false
   @State busy: boolean = false
   @State message: string = ''
   @State conflict: boolean = false
   @State dropBefore: string = ''
   @State dropAfter: string = ''
   @State dragId: string = ''
+  @State liftedNode: OrgFileStructureNode | undefined = undefined
+  @State liftedTop: number = 0
+  private dragGrabY: number = 0
   private orderScroller: Scroller = new Scroller()
   private dragPoint: FingerInfo | undefined = undefined
   private dragIndex: number = -1
@@ -71,7 +77,10 @@ export struct OrgFileStructureSheet {
     if (this.mode === 'move') {
       this.moveRows = this.draft.rows(this.source.nodes.map(node => node.id), this.moveQuery)
         .filter(row => this.parent !== null && !this.draft!.covered(row.node.id, [this.parent]))
-    } else this.ordered = projectSiblings(this.draft.nodes, this.parent)
+    } else if (this.mode === 'order') {
+      this.ordered = this.draft.siblings(this.parent)
+      this.orderChanged = this.draft.changed
+    }
   }
 
   private stale(): boolean {
@@ -79,6 +88,16 @@ export struct OrgFileStructureSheet {
   }
 
   private back(): void {
+    if (this.busy) return
+    if (this.mode === 'order' && this.orderChanged) {
+      showDangerousConfirmation(this.getUIContext(), { title: '放弃顺序调整？', message: '本次调整尚未保存。',
+        cancelLabel: '继续排序', confirmLabel: '放弃', onConfirm: (): void => { this.discardOrder() } })
+    } else {
+      this.close()
+    }
+  }
+
+  private discardOrder(): void {
     if (!this.busy) this.close()
   }
 
@@ -102,45 +121,24 @@ export struct OrgFileStructureSheet {
     finally { this.busy = false }
   }
 
-  private async commit(edits: CoreTaskStructureEdit[], finish: boolean): Promise<void> {
+  private async commit(edits: CoreTaskStructureEdit[]): Promise<void> {
     if (this.busy || this.stale()) return
     this.busy = true
     this.message = ''
     try {
       const rows = await this.save(this.source, edits)
-      if (finish) {
-        this.close()
-        if (this.mode === 'add' && rows.length === 1) this.created(rows[0])
-      } else await this.updateOrderAfterCommit()
+      this.close()
+      if (this.mode === 'add' && rows.length === 1) this.created(rows[0])
     } catch (error) {
       this.message = coreErrorMessage(error as CoreBridgeError)
       this.conflict = this.stale() || this.message.includes('版本')
-      if (!finish && this.conflict) await this.updateOrderAfterCommit()
     } finally { this.busy = false }
-  }
-
-  private async updateOrderAfterCommit(): Promise<void> {
-    const oldParent = this.source.nodes.find(node => node.id === this.parent)
-    try {
-      const latest = await this.reload(this.conflict)
-      if (oldParent) {
-        const current = latest.nodes.find(node => node.row === oldParent.row)
-        if (!current) throw new Error('父节点已移除，请重新选择')
-        this.parent = current.id
-      }
-      this.source = latest
-      this.resetDraft()
-      this.conflict = false
-    } catch (error) {
-      this.conflict = true
-      this.message = coreErrorMessage(error as CoreBridgeError)
-    }
   }
 
   private applyForm(): void {
     const title = this.titleInput.trim()
     if (!title || this.busy || this.stale()) return
-    this.commit([{ type: 'add', id: util.generateRandomUUID(), title, parent: this.parent, task: this.initialKind === 'task' }], true)
+    this.commit([{ type: 'add', id: util.generateRandomUUID(), title, parent: this.parent, task: this.initialKind === 'task' }])
   }
 
   private chooseMoveTarget(id: string | null): void {
@@ -164,7 +162,7 @@ export struct OrgFileStructureSheet {
       this.message = '已在此位置，请选择其他位置'
       return
     }
-    this.commit([{ type: 'move', ids: [id], parent: destination.parent, after: destination.after }], true)
+    this.commit([{ type: 'move', ids: [id], parent: destination.parent, after: destination.after }])
   }
 
   @Builder
@@ -233,9 +231,15 @@ export struct OrgFileStructureSheet {
 
   private sort(id: string, to: number): void {
     if (this.busy || this.stale()) return
-    const position = projectOrderMove(this.draft!.nodes, id, to)
-    if (!position) return
-    this.commit([{ type: 'move', ids: [id], parent: position.parent, after: position.after }], false)
+    const node = this.ordered.find(item => item.id === id)
+    if (node && this.draft?.reorder(node, to)) {
+      this.message = ''
+      this.refresh()
+    }
+  }
+
+  private saveOrder(): void {
+    if (this.orderChanged && !this.dragId && this.draft) this.commit(this.draft.edits())
   }
 
   private clearDrop(): void {
@@ -244,16 +248,23 @@ export struct OrgFileStructureSheet {
     this.dragPoint = undefined
     this.dragIndex = -1
     this.dragId = ''
+    this.liftedNode = undefined
     this.dropBefore = ''
     this.dropAfter = ''
   }
 
   private startOrderDrag(id: string, event: GestureEvent): void {
-    if (this.busy || this.stale()) return
+    const finger = event.fingerList[0]
+    const list = this.getUIContext().getFrameNodeById('project_child_order_list')
+    const index = this.ordered.findIndex(node => node.id === id)
+    if (this.busy || this.stale() || !finger || !list || index < 0) return
     this.clearDrop()
     this.dragId = id
+    const originalTop = index * orderRowHeight - this.orderScroller.currentOffset().yOffset
+    this.dragGrabY = finger.globalY - event.offsetY - list.getPositionToWindow().y - originalTop
     this.updateOrderDrag(event)
-    this.scrollTimer = setInterval((): void => { this.updateDrop(true) }, 24)
+    this.liftedNode = this.ordered[index]
+    this.scrollTimer = setInterval((): void => { this.updateDrop(true) }, 16)
   }
 
   private updateOrderDrag(event: GestureEvent): void {
@@ -277,14 +288,15 @@ export struct OrgFileStructureSheet {
     const inside = point.globalY >= top && point.globalY <= bottom &&
       point.globalX >= origin.x && point.globalX <= right
     const offset = this.orderScroller.currentOffset().yOffset
-    const position = point.globalY - top + offset
-    const to = Math.max(0, Math.min(this.ordered.length - 1, Math.floor(position / orderRowHeight)))
+    this.liftedTop = point.globalY - top - this.dragGrabY
+    const position = this.liftedTop + offset
+    const to = Math.max(0, Math.min(this.ordered.length - 1, Math.round(position / orderRowHeight)))
     this.dragIndex = inside ? to : -1
     this.dropBefore = inside && to < from ? this.ordered[to].id : ''
     this.dropAfter = inside && to > from ? this.ordered[to].id : ''
     if (inside && scroll) {
       const speed = checklistEdgeScroll(point.globalY, top, bottom)
-      if (speed !== 0) this.orderScroller.scrollBy(0, speed * 0.024)
+      if (speed !== 0) this.orderScroller.scrollBy(0, speed * 0.016)
     }
   }
 
@@ -302,8 +314,11 @@ export struct OrgFileStructureSheet {
       Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%').padding({ bottom: 8 })
     }
     if (this.stale()) {
-      Text('文件已更新，请重新载入结构').fontSize(13).fontColor(UiColor.error).width('100%')
-      OrgFileStructureAction({ title: '重新载入结构', available: !this.busy, action: (): void => { this.loadCurrent() } })
+      Text(this.mode === 'order' ? '文件已更新，请放弃本次调整后重新进入排序。' : '文件已更新，请重新载入结构')
+        .fontSize(13).fontColor(UiColor.error).width('100%')
+      if (this.mode !== 'order') {
+        OrgFileStructureAction({ title: '重新载入结构', available: !this.busy, action: (): void => { this.loadCurrent() } })
+      }
     }
   }
 
@@ -344,6 +359,27 @@ export struct OrgFileStructureSheet {
   }
 
   @Builder
+  orderRow(node: OrgFileStructureNode, lifted: boolean) {
+    Row({ space: 10 }) {
+      if (node.taskPreview) {
+        TaskEditor({ previewTask: node.taskPreview, readOnly: true, titleOnly: true }).layoutWeight(1)
+      } else {
+        this.nodeIcon(node.task)
+        TitleText({ text: node.title, parts: node.titleParts, textSize: 16, lineLimit: 1, openLinks: false }).layoutWeight(1)
+      }
+      if (node.hidden) { Text('筛选隐藏').fontSize(12).fontColor(UiColor.secondary) }
+      if (lifted) {
+        Row() {
+          Image($r('app.media.ui_drag_handle')).width(24).height(24)
+        }.width(44).height(44).justifyContent(FlexAlign.Center)
+      } else {
+        this.grip(node)
+      }
+    }.width('100%').height(orderRowHeight).opacity(!lifted && this.dragId === node.id ? 0 : 1)
+      .padding({ left: node.task ? 0 : 8 })
+  }
+
+  @Builder
   inputPanel() {
     Column({ space: 12 }) {
       TextInput({ text: this.titleInput, placeholder: this.initialKind === 'task' ? '任务标题' : '章节标题' })
@@ -378,30 +414,38 @@ export struct OrgFileStructureSheet {
     Row() {
       Text('调整子节点顺序')
         .fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
-      OrgFileStructureAction({ title: this.busy ? '正在保存' : '完成', available: !this.busy, action: this.close })
+      Button('放弃').id('project_child_order_discard').height(44).fontColor(UiColor.secondary)
+        .backgroundColor(Color.Transparent).enabled(!this.busy).onClick((): void => { this.discardOrder() })
+      Button(this.busy ? '正在保存' : '保存').id('project_child_order_save').height(44)
+        .fontColor(UiColor.surface).backgroundColor(UiColor.primary)
+        .enabled(this.orderChanged && !this.busy && !this.stale() && !this.dragId)
+        .onClick((): void => { this.saveOrder() })
     }.width('100%')
     Text(this.draft?.path(this.parent) ?? this.source.title).fontSize(14).fontColor(UiColor.secondary).width('100%')
     this.status()
     if (this.source.hasConflict) {
       Text('文件包含受保护的同步冲突').fontSize(13).fontColor(UiColor.secondary).width('100%').padding({top: 6, bottom: 6})
     }
-    List({ scroller: this.orderScroller }) {
-      ForEach(this.ordered, (node: OrgFileStructureNode) => {
-        ListItem() {
-          Stack({ alignContent: Alignment.Center }) {
-            Row({ space: 10 }) {
-              this.nodeIcon(node.task)
-              TitleText({ text: node.title, parts: node.titleParts, textSize: 16, lineLimit: 1, openLinks: false }).layoutWeight(1)
-              if (node.hidden) { Text('筛选隐藏').fontSize(12).fontColor(UiColor.secondary) }
-              this.grip(node)
-            }.width('100%').height(orderRowHeight)
-              .backgroundColor(this.dragId === node.id ? UiColor.selectionTint : Color.Transparent)
-            this.dropLine(node.id)
-          }.width('100%').alignContent(this.dropBefore === node.id ? Alignment.Top : Alignment.Bottom)
-        }
-      }, (node: OrgFileStructureNode) => node.id)
-    }.id('project_child_order_list').layoutWeight(1).width('100%').divider({ strokeWidth: 0.5, color: UiColor.outline })
-      .enableScrollInteraction(this.dragId === '').enabled(!this.busy && !this.stale())
+    Stack({ alignContent: Alignment.TopStart }) {
+      List({ scroller: this.orderScroller }) {
+        ForEach(this.ordered, (node: OrgFileStructureNode) => {
+          ListItem() {
+            Stack({ alignContent: Alignment.Center }) {
+              this.orderRow(node, false)
+              this.dropLine(node.id)
+            }.width('100%').alignContent(this.dropBefore === node.id ? Alignment.Top : Alignment.Bottom)
+              .border({ width: { bottom: 0.5 }, color: UiColor.outline })
+              .backgroundColor(this.dragId === node.id ? UiColor.projectBlock : Color.Transparent)
+          }
+        }, (node: OrgFileStructureNode) => node.id)
+      }.id('project_child_order_list').height('100%').width('100%')
+        .enableScrollInteraction(this.dragId === '').enabled(!this.busy && !this.stale())
+      if (this.liftedNode) {
+        Row() { this.orderRow(this.liftedNode, true) }.width('100%').height(orderRowHeight)
+          .backgroundColor(UiColor.container).borderRadius(8).shadow({ radius: 8, color: '#52000000', offsetY: 4 })
+          .position({ x: 0, y: this.liftedTop }).hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
+      }
+    }.layoutWeight(1).width('100%').clip(true)
   }
 
   build() {

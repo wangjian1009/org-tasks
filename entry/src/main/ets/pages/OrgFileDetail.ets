@@ -21,6 +21,7 @@ import { OrgFileStructureMode, OrgFileStructureNodeKind, OrgFileStructureSheet,
 import { OrgFileEditSession, OrgFileEditView, OrgFileStructureSnapshot,
   projectEditIdle, projectStructureNodes } from '../ui/OrgFileStructurePresentation'
 import { OrgFileEditBar } from '../components/OrgFileEditBar'
+import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { PageParameters } from '../services/PagePath'
 import { HistoryFileDataManager, HistoryFileReadingSnapshot } from '../services/ReadingDataManager'
 import { SnapshotState } from '../services/SnapshotDataManager'
@@ -420,7 +421,6 @@ struct OrgFileDetail {
       this.editConflict = false
       this.editMessage = ''
       this.publishStructureEdit()
-      if (row) void this.navigation.locateEditSource(row)
     } catch (error) { this.structureMessage = coreErrorMessage(error as CoreBridgeError) }
     finally { this.editBusy = false }
   }
@@ -446,29 +446,37 @@ struct OrgFileDetail {
   }
 
   private backStructureEdit(): void {
+    if (!this.editSession || this.editBusy) return
+    if (this.structureEdit.changed) {
+      showDangerousConfirmation(this.getUIContext(), { title: '放弃顺序调整？', message: '本次调整尚未保存。',
+        cancelLabel: '继续排序', confirmLabel: '放弃', onConfirm: (): void => { this.discardStructureEdit() } })
+    } else {
+      this.exitStructureEdit()
+    }
+  }
+
+  private discardStructureEdit(): void {
     if (this.editSession && !this.editBusy) this.exitStructureEdit()
   }
 
   private reorderStructureRow(row: string, sibling: string): void {
     if (!this.canEditStructure()) return
-    const edit = this.editSession?.reorder(row, sibling)
-    if (edit) void this.commitStructureMove(edit)
+    if (this.editSession?.reorder(row, sibling)) {
+      this.editMessage = ''
+      this.publishStructureEdit()
+    }
   }
 
-  private async commitStructureMove(edit: CoreTaskStructureEdit): Promise<void> {
+  private async saveStructureOrder(): Promise<void> {
     const session = this.editSession, dataSet = this.fileDataSet
-    if (!session || !dataSet || !this.canEditStructure()) return
+    if (!session || !dataSet || !this.structureEdit.changed || !this.canEditStructure()) return
     this.editBusy = true
     this.editMessage = ''
     try {
       const snapshot = session.snapshot
       if (this.currentStructure().version !== snapshot.version) { this.editConflict = true; return }
-      await dataSet.commitStructure({ file: snapshot.file, fileVersion: snapshot.version, edits: [edit] })
-      if (session !== this.editSession || !this.pageVisible || dataSet !== this.fileDataSet) return
-      const confirmed = this.currentStructure()
-      this.editSession = new OrgFileEditSession(confirmed)
-      this.editVersion = confirmed.version
-      this.publishStructureEdit()
+      await dataSet.commitStructure({ file: snapshot.file, fileVersion: snapshot.version, edits: session.edits() })
+      if (session === this.editSession && dataSet === this.fileDataSet) this.exitStructureEdit()
     } catch (error) {
       this.editMessage = coreErrorMessage(error as CoreBridgeError)
       this.editConflict = this.editMessage.includes('版本')
@@ -725,8 +733,9 @@ struct OrgFileDetail {
             }.width('100%').layoutWeight(1)
             if (this.structureEdit.active) {
               OrgFileEditBar({ busy: this.editBusy, stale: this.staleStructureEdit(),
-                message: this.editMessage,
-                cancel: (): void => { this.backStructureEdit() } })
+                changed: this.structureEdit.changed, message: this.editMessage,
+                save: (): void => { this.saveStructureOrder() },
+                discard: (): void => { this.discardStructureEdit() } })
             }
           }
         }.width('100%').height('100%')

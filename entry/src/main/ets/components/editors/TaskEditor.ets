@@ -59,6 +59,7 @@ export struct TaskEditor {
   @Prop enableCompletionState: boolean = true
   @Prop readOnly: boolean = false
   @Prop previewTask: CoreTask | undefined = undefined
+  @Prop titleOnly: boolean = false
   previewExpanded: () => void = () => {}
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
   @Prop contentHidden: boolean = false
@@ -666,7 +667,7 @@ export struct TaskEditor {
     }
   }
   private toggleFromCompact(): void {
-    if (this.compactTouchMoved) return
+    if (this.titleOnly || this.compactTouchMoved) return
     this.toggle()
   }
   async finish(collapse: boolean): Promise<boolean> {
@@ -1277,6 +1278,7 @@ export struct TaskEditor {
   }
 
   countBudget(): number {
+    if (this.titleOnly) return Math.max(14, Math.min(140, this.rowWidth - 92))
     return Math.max(14, Math.min(140, this.rowWidth - this.deadlineWidth - this.leadingWidth() - (this.value().priority ? 28 : 0) - 126))
   }
 
@@ -1431,15 +1433,15 @@ export struct TaskEditor {
   compactTitle() {
     Row({ space: 6 }) {
       Row({ space: 4 }) {
-        this.priorityBadge()
+        if (!this.titleOnly) { this.priorityBadge() }
         Column({ space: 2 }) {
           TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts,
-            editable: false, openLinks: !this.previewTask,
+            editable: false, openLinks: !this.titleOnly && !this.previewTask,
             lineLimit: 1, lineHeight: UiSize.taskTitleLineHeight, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
             activate: (): void => { this.toggleFromCompact() } })
             .width('100%').constraintSize({ minWidth: 0 })
             .onAreaChange((_old: Area, area: Area): void => { this.locateCancelTitle(area) })
-          if (taskSourceText(this.value(), false, this.regionPolicy())) {
+          if (!this.titleOnly && taskSourceText(this.value(), false, this.regionPolicy())) {
             this.categoryProject()
           }
         }.layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).justifyContent(FlexAlign.Center)
@@ -1450,15 +1452,17 @@ export struct TaskEditor {
           .width(titleCountsWidth(this.value().headingParts, this.countBudget())).flexShrink(0)
           .onClick((): void => { this.toggleFromCompact() })
       }
-      if (this.displayTags().length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
-      if (this.layout().indicatorWidth > 0) { this.compactIndicators() }
-      if (this.layout().durationWidth > 0) {
-        Text(`${this.duration()}天`).fontSize(11).fontColor(UiColor.secondary)
-          .width(this.layout().durationWidth).flexShrink(0).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          .accessibilityText(`持续 ${this.duration()} 天`)
+      if (!this.titleOnly) {
+        if (this.displayTags().length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
+        if (this.layout().indicatorWidth > 0) { this.compactIndicators() }
+        if (this.layout().durationWidth > 0) {
+          Text(`${this.duration()}天`).fontSize(11).fontColor(UiColor.secondary)
+            .width(this.layout().durationWidth).flexShrink(0).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .accessibilityText(`持续 ${this.duration()} 天`)
+        }
       }
     }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
-      .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
+      .accessibilityText(this.titleOnly ? taskTitleText(this.value()) : `${taskTitleText(this.value())}，点击展开`)
   }
 
   @Builder
@@ -1909,7 +1913,12 @@ export struct TaskEditor {
 
   build() {
     Column() {
-      if (this.expanded) {
+      if (this.titleOnly) {
+        Row({ space: 6 }) {
+          this.stateIndicator()
+          this.compactTitle()
+        }.width('100%').padding({ left: 8 }).hitTestBehavior(HitTestMode.None)
+      } else if (this.expanded) {
         Column() {
           Column({ space: 8 }) {
             if (this.readOnly) {
@@ -1950,6 +1959,7 @@ export struct TaskEditor {
       .onAreaChange((oldArea: Area, area: Area) => {
         this.rowWidth = parseFloat(area.width.toString())
       })
+      .hitTestBehavior(this.titleOnly ? HitTestMode.None : HitTestMode.Default)
       .onClick(() => {})
       .bindSheet($$this.moveOpen, this.movePanel, {
         height: '70%', detents: ['70%', '90%'], detentSelection: this.moveDetent,

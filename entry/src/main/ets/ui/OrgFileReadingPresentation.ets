@@ -58,12 +58,13 @@ export interface OrgFileReadingItem {
 
 // 完整保留源节点；标签命中集合由 Core 查询提供，展示只更新可见性与祖先路径。
 export function projectReadingItems(sections: OrgFileReadingSection[], matches: string[] | null = null,
-  revealed: string[] = [], editLevels?: Map<string, number>): OrgFileReadingItem[] {
+  revealed: string[] = [], editLevels?: Map<string, number>, orderFolded?: string[]): OrgFileReadingItem[] {
   const result: OrgFileReadingItem[] = []
   const parents: number[] = []
   const available: boolean[] = []
   const ancestors: number[] = []
   const matched = matches === null ? null : new Set<string>(matches)
+  const folded = orderFolded === undefined ? null : new Set<string>(orderFolded)
   let hiddenLevel = 0
   for (let index = 0; index < sections.length; index++) {
     const section = sections[index], node = section.node
@@ -81,8 +82,11 @@ export function projectReadingItems(sections: OrgFileReadingSection[], matches: 
     parents.push(ancestors.length > 0 ? ancestors[ancestors.length - 1] : -1)
     ancestors.push(index)
     const hidden = hiddenLevel > 0 && level > hiddenLevel
-    if (!hidden) hiddenLevel = !revealed.includes(section.key) &&
-      (node.editContent.ownTags.includes('ARCHIVE') || node.property('VISIBILITY') === 'folded') ? level : 0
+    if (!hidden) {
+      const collapsed = folded ? folded.has(section.key) : !revealed.includes(section.key) &&
+        (node.editContent.ownTags.includes('ARCHIVE') || node.property('VISIBILITY') === 'folded')
+      hiddenLevel = collapsed ? level : 0
+    }
     const next = sections[index + 1]?.node
     const hasChildren = !!next && (editLevels?.get(sections[index + 1].key) ?? next.level) > level
     const contextOnly = matched !== null && !!node.state && !matched.has(node.id)
