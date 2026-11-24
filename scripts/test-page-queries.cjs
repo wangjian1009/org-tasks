@@ -535,9 +535,9 @@ test('今天编辑会话期间数据集继续更新，列表重排等会话结�
   const original=[plannedTask('old','core-a','plain.org','工作')];let rows=original;
   f.query(batch=>batch.map(request=>request.type==='file'?{type:'file',result:[]}:{type:'task',result:{tasks:rows,categories:[]}}));
   page.view='today';await page.loadTasks();assert.equal(page.tasks,original);
-  f.inline(true);page.pageInlineActive='editing';rows=[plannedTask('new','core-a','plain.org','工作'),...original];
+  f.inline(true);page.pageInlineActive='editing';page.pageReady=false;rows=[plannedTask('new','core-a','plain.org','工作'),...original];
   await page.dataManager.refresh();await new Promise(resolve=>setTimeout(resolve,1));assert.equal(page.dataManager.get('todayTasks').data.result.tasks,rows);
-  assert.equal(page.tasks,original);assert.equal(page.pageLayoutDeferred,true);
+  assert.equal(page.pageReady,true);assert.equal(page.tasks,original);assert.equal(page.pageLayoutDeferred,true);
   f.inline(false);page.pageInlineActive='';page.pageInlineChanged();
   assert.equal(page.tasks,rows);assert.equal(page.pageLayoutDeferred,false);assert.equal(f.batches.length,2);
 });

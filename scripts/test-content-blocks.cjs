@@ -94,7 +94,8 @@ test('在两个相邻列表之间插入独立列表时保留前后列表的分�
   f.editor.nextBlock = {kind:'checklist', blankLinesBefore:1};
   f.editor.insertBelow = true;
   f.editor.openMenu(10,20);
-  assert.ok(f.editor.menuItems().some(item=>item.title==='在下方添加列表'));
+  f.editor.allowMove = true;
+  assert.deepEqual(f.editor.menuItems().map(item=>item.title),['拷贝','编辑','移动…','段落','列表','删除']);
   await f.editor.edit(f.editor.block, f.editor.revision, 'list');
   assert.equal(f.editor.draft, '');
   assert.equal(await f.editor.finish(), true);
@@ -320,7 +321,9 @@ function compiledBuilders(name, methods, directory = 'components/editors') {
     TaskEditor:component('task'),
     TaskBlockView:component('block'),TaskDocumentContent:component('document'),ForEach:noop,Rect:rect,
     Alignment:{TopStart:'top'},HitTestMode:{None:'none'},projectContentGap:()=>0,
-    ViewPU:{create(){}},__Common__:common,Column:common,Stack:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'}};
+    Gesture:noop,GesturePriority:{High:'high'},PanGesture:noop,PanDirection:{All:'all'},
+    Row:noop,Color:{Transparent:'transparent'},
+    ViewPU:{create(){}},__Common__:common,Column:common,Stack:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'},UiSize:{contentLiftRadius:8,contentLiftShadowRadius:12,contentLiftShadowOffset:6}};
   const code = ts.transpileModule('class Host {' + bodies.join('\n') + '}\nmodule.exports=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInNewContext(code, globals);
   const host = new module.exports();
@@ -330,7 +333,7 @@ function compiledBuilders(name, methods, directory = 'components/editors') {
 }
 
 test('编译后的清单区块在菜单外壳中仍调用原宿主的阅读槽', {skip:!fs.existsSync(emittedChecklist)}, () => {
-  const f=compiledBuilders('TaskContentEditor',['initialRender','blockFor','indexFor','validMoveGap']);
+  const f=compiledBuilders('TaskContentEditor',['initialRender','blockFor','indexFor','validMoveGap','canDragBlock','selectedForMove']);
   const block={id:'20',kind:'checklist',items:[{id:'42',text:'项目清单'}]};
   const rendered=[];
   Object.assign(f.host,{blocks:[block],slots:[{key:'one',block}],checklist(index){assert.equal(this,f.host);rendered.push(this.blocks[index()]);}});

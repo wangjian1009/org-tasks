@@ -286,6 +286,7 @@ export struct TaskPageContent {
   }
 
   applyPageSnapshot(): void {
+    this.pageReady = this.taskDataSet()?.isReady() ?? false
     if (this.supportsBatchActions() && (this.selection.selecting || this.selection.busy)) return
     if (TaskInlineSession.active()) { this.pageLayoutDeferred = true; return }
     if (this.view === 'planned') {
@@ -301,7 +302,6 @@ export struct TaskPageContent {
     const file = target?.type === 'file' ? target.result[0] : undefined
     this.message = dataSet.error || this.targetDataSet?.error || this.rangeDataSet?.error || this.priorityDataSet?.error || ''
     this.loading = !this.message && (!data || (!!this.targetDataSet && !target))
-    this.pageReady = dataSet.isReady()
     this.needsConfiguration = (this.view === 'memo' || this.view === 'someday') && !!target && !file
     this.tasks = data?.type === 'task' ? data.result.tasks : []
     if (this.view === 'today') {

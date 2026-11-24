@@ -4,11 +4,15 @@ import { OrgContentView } from '../OrgContentView'
 import { LinkEditController } from '../LinkView'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { UiColor, UiSize } from '../../ui/Theme'
-import { PopupMenu, PopupMenuItem } from '../controls/PopupMenu'
+import { PopupMenuItem } from '../controls/PopupMenu'
 import { pasteboard } from '@kit.BasicServicesKit'
 import { display } from '@kit.ArkUI'
 import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
+
+interface TaskBlockMenuItem extends PopupMenuItem {
+  accessibilityLabel?: string
+}
 
 // 正文区块共用菜单与原文编辑外壳；清单阅读保留原生交互，只读仍可拷贝。
 @Component
@@ -171,8 +175,8 @@ export struct TaskBlockView {
     } finally { this.preparing = false }
   }
 
-  menuItems(): PopupMenuItem[] {
-    const items: PopupMenuItem[] = [{ title: '拷贝', icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected() } }]
+  menuItems(): TaskBlockMenuItem[] {
+    const items: TaskBlockMenuItem[] = [{ title: '拷贝', icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected() } }]
     if (!this.readonly) {
       items.push({ title: '编辑', icon: $r('app.media.ui_link_edit'), action: (): void => {
         if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision)
@@ -181,10 +185,10 @@ export struct TaskBlockView {
         items.push({ title: '移动…', icon: $r('app.media.ui_move_to'), action: (): void => { this.moveSelected() } })
       }
       if (this.insertBelow) {
-        items.push({ title: '在下方添加段落', action: (): void => {
+        items.push({ title: '段落', accessibilityLabel: '在下方添加段落', icon: $r('app.media.ui_add_section'), action: (): void => {
           if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision, 'paragraph')
         } })
-        items.push({ title: '在下方添加列表', action: (): void => {
+        items.push({ title: '列表', accessibilityLabel: '在下方添加列表', icon: $r('app.media.ui_add_task'), action: (): void => {
           if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision, 'list')
         } })
       }
@@ -249,18 +253,38 @@ export struct TaskBlockView {
   emptyNativeContent(_edit: () => void) { this.readContent() }
 
   @Builder
-  blockMenu() {
-    Column() {
-      PopupMenu({ items: this.menuItems(), maximumWidth: this.menuWidth, disabled: this.disabled || this.saving,
-        activate: (item: PopupMenuItem): void => { item.action() } })
-    }.backgroundColor(UiColor.menu).borderRadius(UiSize.menuRadius)
+  blockMenu(items: TaskBlockMenuItem[]) {
+    Scroll() {
+      Row() {
+        ForEach(items, (item: TaskBlockMenuItem, index: number) => {
+          if (index > 0) {
+            Divider().vertical(true).height(24).color(UiColor.menuOutline).accessibilityLevel('no')
+          }
+          Button({ type: ButtonType.Normal }) {
+            Column({ space: 4 }) {
+              if (item.icon) {
+                Image(item.icon).width(20).height(20).accessibilityLevel('no')
+              }
+              Text(item.title).fontSize(11).maxLines(2).textAlign(TextAlign.Center).wordBreak(WordBreak.BREAK_ALL)
+                .fontColor(item.dangerous ? UiColor.error : UiColor.text)
+                .width('100%').accessibilityLevel('no')
+            }
+          }.width(Math.max(50, Math.min(76, Math.floor((this.menuWidth - items.length) / Math.max(1, items.length)))))
+            .constraintSize({ minHeight: UiSize.menuRow }).padding({ left: 4, right: 4, top: 8, bottom: 5 })
+            .backgroundColor(Color.Transparent).accessibilityText(item.accessibilityLabel ?? item.title)
+            .enabled(!this.disabled && !this.saving && !item.disabled)
+            .onClick((): void => { item.action() })
+        }, (item: TaskBlockMenuItem): string => item.title)
+      }
+    }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None)
+      .constraintSize({ maxWidth: this.menuWidth }).backgroundColor(UiColor.menu).borderRadius(UiSize.menuRadius)
       .border({ width: UiSize.menuBorder, color: UiColor.menuOutline }).clip(true)
   }
 
   @Builder
   menuAnchor() {
     Row().width(1).height(1).position({ x: this.menuX, y: this.menuY })
-      .bindPopup(this.menuVisible, { builder: this.blockMenu(), placement: Placement.Top,
+      .bindPopup(this.menuVisible, { builder: this.blockMenu(this.menuItems()), placement: Placement.Top,
         targetSpace: 6, enableArrow: true, popupColor: UiColor.menu, backgroundBlurStyle: BlurStyle.NONE,
         mask: { color: Color.Transparent }, focusable: false, autoCancel: true,
         onStateChange: (event): void => { this.menuVisible = event.isVisible } })
@@ -346,6 +370,11 @@ export struct TaskBlockView {
         else { this.input() }
       }
       this.menuAnchor()
-    }.width('100%').outline({ width: this.menuVisible ? 1 : 0, color: '#597C75', radius: 4 })
+    }.width('100%').constraintSize({ minHeight: this.menuVisible ? 44 : 0 })
+      .padding({ left: this.menuVisible ? 10 : 0, right: this.menuVisible ? 10 : 0,
+        top: this.menuVisible ? 4 : 0, bottom: this.menuVisible ? 4 : 0 })
+      .backgroundColor(this.menuVisible ? UiColor.menu : Color.Transparent).borderRadius(UiSize.contentLiftRadius)
+      .shadow({ radius: UiSize.contentLiftShadowRadius, offsetY: UiSize.contentLiftShadowOffset,
+        color: this.menuVisible ? UiColor.contentLiftShadow : '#00000000' })
   }
 }

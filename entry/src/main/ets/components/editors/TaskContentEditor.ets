@@ -6,8 +6,9 @@ import { TaskNativeContent } from './TaskNativeContent'
 import { TaskBlockView } from './TaskBlockView'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { LinkEditController } from '../LinkView'
-import { UiColor } from '../../ui/Theme'
+import { UiColor, UiSize } from '../../ui/Theme'
 import { projectContentGap } from '../../ui/OrgFileReadingPresentation'
+import { checklistEdgeScroll } from '../../ui/TaskChecklistReorder'
 
 @Component
 export struct TaskContentEditor {
@@ -16,6 +17,9 @@ export struct TaskContentEditor {
   @State private slots: TaskContentSlot[] = []
   @State private movingId: string = ''
   @State private savingMove: boolean = false
+  @State private dragSlot: string = ''
+  @State private dragOffset: number = 0
+  @State private dragTarget: number = -1
   @Prop @Watch('moveContextChanged') moveVersion: string = ''
   @Prop contentTree: CoreContentNode[] | undefined = undefined
   @State private followKey: string = ''
@@ -32,6 +36,8 @@ export struct TaskContentEditor {
   @Prop revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
   @Prop ownerKey: string = ''
+  scrollHost: Scroller | undefined = undefined
+  scrollHostId: string = ''
   editor: TaskBlockController = new TaskBlockController()
   linkEditor: LinkEditController = new LinkEditController()
   begin: (block: CoreContentBlock) => Promise<boolean> = async () => true
@@ -45,6 +51,10 @@ export struct TaskContentEditor {
   private moveOwner: string = ''
   private selectedVersion: string = ''
   private active: boolean = false
+  private dragGrabY: number = 0
+  private dragX: number = 0
+  private dragY: number = 0
+  private dragScrollTimer: number = -1
   private emptyBlock: CoreContentBlock = { id: 'root', kind: 'text', paragraph: true, blankLinesBefore: 0, source: '', html: '', items: [] }
 
   aboutToAppear(): void {
@@ -92,9 +102,100 @@ export struct TaskContentEditor {
   }
 
   private cancelMove(): void {
+    this.resetDrag()
     this.movingId = ''
     this.selectedVersion = ''
     this.editor.release(this.moveOwner)
+  }
+
+  private canDragBlock(slot: TaskContentSlot): boolean {
+    return this.selectedForMove(slot) && !this.disabled && !this.readonly && !this.savingMove
+  }
+
+  private selectedForMove(slot: TaskContentSlot): boolean {
+    return this.movingId !== '' && this.blockFor(slot).id === this.movingId
+  }
+
+  private resetDrag(): void {
+    if (this.dragScrollTimer >= 0) clearInterval(this.dragScrollTimer)
+    this.dragScrollTimer = -1
+    this.dragSlot = ''
+    this.dragOffset = 0
+    this.dragTarget = -1
+  }
+
+  private startBlockDrag(slot: TaskContentSlot, event: GestureEvent): void {
+    const finger = event.fingerList[0]
+    const node = this.getUIContext().getFrameNodeById(`${this.moveOwner}_${slot.key}`)
+    if (!finger || !node || !this.canDragBlock(slot)) return
+    this.dragGrabY = finger.globalY - event.offsetY - node.getPositionToWindow().y
+    this.dragSlot = slot.key
+    this.updateBlockDrag(event)
+    if (this.dragSlot) {
+      this.dragScrollTimer = setInterval((): void => { this.scrollBlockDrag() }, 16)
+    }
+  }
+
+  private updateBlockDrag(event?: GestureEvent): void {
+    if (!this.dragSlot) return
+    const finger = event?.fingerList[0]
+    if (finger) {
+      this.dragX = finger.globalX
+      this.dragY = finger.globalY
+    }
+    const context = this.getUIContext()
+    const node = context.getFrameNodeById(`${this.moveOwner}_${this.dragSlot}`)
+    if (!node) { this.resetDrag(); return }
+    this.dragOffset = this.dragY - node.getPositionToWindow().y - this.dragGrabY
+    const target = this.blockDropTarget()
+    if (target !== this.dragTarget) {
+      context.animateTo({ duration: 140, curve: Curve.EaseOut }, (): void => { this.dragTarget = target })
+    }
+  }
+
+  private blockDropTarget(): number {
+    const context = this.getUIContext()
+    const host = this.scrollHostId ? context.getFrameNodeById(this.scrollHostId) : null
+    if (host) {
+      const top = host.getPositionToWindow().y
+      if (this.dragY < top || this.dragY > top + context.px2vp(host.getMeasuredSize().height)) return -1
+    }
+    for (let index = 0; index <= this.blocks.length; index++) {
+      if (!this.validMoveGap(index)) continue
+      const gap = context.getFrameNodeById(this.moveGapId(index))
+      if (!gap) continue
+      const position = gap.getPositionToWindow()
+      const size = gap.getMeasuredSize()
+      const height = context.px2vp(size.height)
+      // 收拢时仍保留足够的命中范围。展开后按实际高度接收松手。
+      const padding = Math.max(0, (44 - height) / 2)
+      if (this.dragX >= position.x && this.dragX <= position.x + context.px2vp(size.width) &&
+        this.dragY >= position.y - padding && this.dragY <= position.y + height + padding) {
+        return index
+      }
+    }
+    return -1
+  }
+
+  private scrollBlockDrag(): void {
+    if (!this.dragSlot) return
+    const context = this.getUIContext()
+    const host = this.scrollHostId ? context.getFrameNodeById(this.scrollHostId) : null
+    if (host && this.scrollHost) {
+      const top = host.getPositionToWindow().y
+      const speed = checklistEdgeScroll(this.dragY, top, top + context.px2vp(host.getMeasuredSize().height))
+      if (speed) this.scrollHost.scrollBy(0, speed * 0.016)
+    }
+    // 占位展开会改变源区块的位置，即使手指暂时停住也需要重新计算跟手偏移。
+    this.updateBlockDrag()
+  }
+
+  private finishBlockDrag(event: GestureEvent): void {
+    if (!this.dragSlot) return
+    this.updateBlockDrag(event)
+    const target = this.blockDropTarget()
+    this.resetDrag()
+    if (target >= 0) this.placeBlock(this.blocks[target]?.id ?? null)
   }
 
   private async followSavedBlock(key: string, finish: () => Promise<boolean>,
@@ -137,11 +238,18 @@ export struct TaskContentEditor {
   }
 
   private validMoveGap(index: number): boolean {
-    return !!this.movingId && this.blocks[index]?.id !== this.movingId && this.blocks[index - 1]?.id !== this.movingId
+    return !!this.movingId && index >= 0 && index <= this.blocks.length &&
+      this.blocks[index]?.id !== this.movingId && this.blocks[index - 1]?.id !== this.movingId
+  }
+
+  private moveGapId(index: number): string {
+    return `${this.moveOwner}_gap_${index}`
   }
 
   private async placeBlock(beforeId: string | null): Promise<void> {
     if (!this.movingId || this.savingMove || this.disabled || this.selectedVersion !== this.moveVersion || !this.moveContent) return
+    const index = beforeId === null ? this.blocks.length : this.blocks.findIndex(block => block.id === beforeId)
+    if (!this.validMoveGap(index)) return
     this.savingMove = true
     try {
       await this.moveContent(this.movingId, beforeId, this.selectedVersion)
@@ -152,15 +260,18 @@ export struct TaskContentEditor {
   }
 
   @Builder
-  moveGap(beforeId: string | null) {
+  moveGap(index: number, beforeId: string | null) {
     Button({ type: ButtonType.Normal }) {
-      Row({ space: 6 }) {
-        Circle({ width: 6, height: 6 }).fill(UiColor.primary)
-        Divider().strokeWidth(2).color(UiColor.primary).layoutWeight(1)
-      }.width('100%')
-    }.width('100%').height(44).padding(0).backgroundColor(Color.Transparent)
+      if (this.dragTarget === index) {
+        Text('放入').fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
+      } else if (!this.dragSlot) {
+        Circle({ width: 6, height: 6 }).fill(UiColor.projectLabel)
+      }
+    }.width('100%').height(this.dragTarget === index ? 52 : 16).padding(0).borderRadius(8)
+      .backgroundColor(this.dragTarget === index ? UiColor.projectOutline : Color.Transparent)
+      .responseRegion({ x: 0, y: -8, width: '100%', height: this.dragTarget === index ? 68 : 32 })
       .enabled(!this.savingMove && !this.disabled)
-      .id(beforeId === null ? 'content_move_end' : `content_move_before_${beforeId}`)
+      .id(this.moveGapId(index))
       .accessibilityText(beforeId === null ? '移到正文末尾' : `移到区块之前：${this.blocks.find(block => block.id === beforeId)?.source.split('\n', 1)[0] ?? ''}`)
       .onClick((): void => { this.placeBlock(beforeId) })
   }
@@ -192,7 +303,7 @@ export struct TaskContentEditor {
     Column({ space: this.projectReading ? 0 : 12 }) {
       if (this.movingId) {
         Row({ space: 8 }) {
-          Text(this.savingMove ? '正在移动…' : '点插入线选择位置').fontSize(14).fontColor(UiColor.text).layoutWeight(1)
+          Text(this.savingMove ? '正在移动…' : '拖到目标位置，或点按圆点').fontSize(14).fontColor(UiColor.text).layoutWeight(1)
           Button('取消').height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
             .enabled(!this.savingMove).onClick((): void => { this.cancelMove() })
         }.width('100%')
@@ -206,51 +317,71 @@ export struct TaskContentEditor {
           editingChanged: this.editingChanged }).width('100%')
       }
       ForEach(this.slots, (slot: TaskContentSlot) => {
-        if (this.validMoveGap(this.indexFor(slot.key))) { this.moveGap(this.blockFor(slot).id) }
+        if (this.validMoveGap(this.indexFor(slot.key))) { this.moveGap(this.indexFor(slot.key), this.blockFor(slot).id) }
         Column() {
-          if (this.blockFor(slot).kind === 'checklist' ||
-            (this.interactiveLists && this.blockFor(slot).kind === 'list' && this.blockFor(slot).items.length > 0 &&
-              this.treeFor(this.blockFor(slot).id))) {
-            TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled,
-              revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
-              contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
-              insertBelow: true, nextBlock: this.blocks[this.indexFor(slot.key) + 1],
-              allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1,
-              move: (block: CoreContentBlock): Promise<void> => this.selectMove(block),
-              followRequest: this.followKey === slot.key ? this.followRequest : 0,
-              followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
-              followChecklist: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingChecklistItem(slot.key, finish),
-              placeholder: '列表', readContent: (): void => { this.checklist((): number => this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
-              editingChanged: this.editingChanged }).width('100%')
-          } else if (this.treeFor(this.blockFor(slot).id)) {
-            TaskBlockView({ block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled,
-              revision: this.revision, nativeChecklist: true, contentBackground: this.contentBackground, ownerKey: this.ownerKey,
-              insertBelow: this.blockFor(slot).paragraph || this.blockFor(slot).kind === 'list',
-              allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1 &&
-                (this.blockFor(slot).paragraph || this.blockFor(slot).kind === 'list'),
-              move: (block: CoreContentBlock): Promise<void> => this.selectMove(block),
-              nextBlock: this.blocks[this.indexFor(slot.key) + 1],
-              followRequest: this.followKey === slot.key ? this.followRequest : 0,
-              followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
-              followChecklist: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingChecklistItem(slot.key, finish),
-              placeholder: this.blockFor(slot).paragraph ? '段落' : '正文',
-              editor: this.editor, linkEditor: this.linkEditor, nativeContent: (edit: () => void): void => { this.nativeBlock(slot, edit) },
-              begin: this.begin, save: this.save, editingChanged: this.editingChanged }).width('100%')
-          } else {
-            TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
-              contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
-              followRequest: this.followKey === slot.key ? this.followRequest : 0,
-              followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
-              nextBlock: this.blocks[this.indexFor(slot.key) + 1],
-              placeholder: this.blockFor(slot).paragraph ? '段落' : '正文',
-              begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
-              linkEditingChanged: this.linkEditingChanged }).width('100%')
-          }
-        }.width('100%').enabled(!this.movingId)
-          .outline({ width: this.blockFor(slot).id === this.movingId ? 1 : 0, color: UiColor.primary, radius: 4 })
+          Row({ space: 8 }) {
+            Column() {
+              if (this.blockFor(slot).kind === 'checklist' ||
+                (this.interactiveLists && this.blockFor(slot).kind === 'list' && this.blockFor(slot).items.length > 0 &&
+                  this.treeFor(this.blockFor(slot).id))) {
+                TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled,
+                  revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
+                  contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
+                  insertBelow: true, nextBlock: this.blocks[this.indexFor(slot.key) + 1],
+                  allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1,
+                  move: (block: CoreContentBlock): Promise<void> => this.selectMove(block),
+                  followRequest: this.followKey === slot.key ? this.followRequest : 0,
+                  followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
+                  followChecklist: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingChecklistItem(slot.key, finish),
+                  placeholder: '列表', readContent: (): void => { this.checklist((): number => this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
+                  editingChanged: this.editingChanged }).width('100%')
+              } else if (this.treeFor(this.blockFor(slot).id)) {
+                TaskBlockView({ block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled,
+                  revision: this.revision, nativeChecklist: true, contentBackground: this.contentBackground, ownerKey: this.ownerKey,
+                  insertBelow: this.blockFor(slot).paragraph || this.blockFor(slot).kind === 'list',
+                  allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1 &&
+                    (this.blockFor(slot).paragraph || this.blockFor(slot).kind === 'list'),
+                  move: (block: CoreContentBlock): Promise<void> => this.selectMove(block),
+                  nextBlock: this.blocks[this.indexFor(slot.key) + 1],
+                  followRequest: this.followKey === slot.key ? this.followRequest : 0,
+                  followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
+                  followChecklist: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingChecklistItem(slot.key, finish),
+                  placeholder: this.blockFor(slot).paragraph ? '段落' : '正文',
+                  editor: this.editor, linkEditor: this.linkEditor, nativeContent: (edit: () => void): void => { this.nativeBlock(slot, edit) },
+                  begin: this.begin, save: this.save, editingChanged: this.editingChanged }).width('100%')
+              } else {
+                TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+                  contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
+                  followRequest: this.followKey === slot.key ? this.followRequest : 0,
+                  followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
+                  nextBlock: this.blocks[this.indexFor(slot.key) + 1],
+                  placeholder: this.blockFor(slot).paragraph ? '段落' : '正文',
+                  begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
+                  linkEditingChanged: this.linkEditingChanged }).width('100%')
+              }
+            }.layoutWeight(1).enabled(!this.movingId)
+            if (this.canDragBlock(slot)) {
+              Image($r('app.media.ui_drag_handle')).width(20).height(20).fillColor(UiColor.secondary)
+                .draggable(false).accessibilityText(this.blockFor(slot).paragraph ? '拖动段落' : '拖动列表')
+                .alignSelf(ItemAlign.Start).margin({ top: 12 })
+            }
+          }.width('100%').constraintSize({ minHeight: this.canDragBlock(slot) ? 44 : 0 })
+            .padding({ left: this.selectedForMove(slot) ? 10 : 0, right: this.selectedForMove(slot) ? 10 : 0 })
+            .backgroundColor(this.selectedForMove(slot) ? UiColor.menu : Color.Transparent).borderRadius(UiSize.contentLiftRadius)
+            .shadow({ radius: UiSize.contentLiftShadowRadius, offsetY: UiSize.contentLiftShadowOffset,
+              color: this.selectedForMove(slot) ? UiColor.contentLiftShadow : '#00000000' })
+            .translate({ y: this.dragSlot === slot.key ? this.dragOffset : 0 })
+        }.width('100%').id(`${this.moveOwner}_${slot.key}`).zIndex(this.selectedForMove(slot) ? 1 : 0)
           .margin({ top: this.projectReading && !this.movingId ? projectContentGap(this.blocks, this.indexFor(slot.key)) : 0 })
+          .priorityGesture(PanGesture({ direction: PanDirection.All, distance: 4 }).tag('content_block_drag')
+            .onActionStart((event: GestureEvent): void => { this.startBlockDrag(slot, event) })
+            .onActionUpdate((event: GestureEvent): void => { this.updateBlockDrag(event) })
+            .onActionEnd((event: GestureEvent): void => { this.finishBlockDrag(event) })
+            .onActionCancel((): void => { this.resetDrag() }))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
+            info.tag === 'content_block_drag' && !this.canDragBlock(slot) ? GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
       }, (slot: TaskContentSlot): string => slot.key)
-      if (this.validMoveGap(this.blocks.length)) { this.moveGap(null) }
+      if (this.validMoveGap(this.blocks.length)) { this.moveGap(this.blocks.length, null) }
     }.width('100%')
   }
 }

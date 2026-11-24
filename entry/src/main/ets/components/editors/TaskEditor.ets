@@ -1249,17 +1249,6 @@ export struct TaskEditor {
     return value ? inlineDateLabel(value) : ''
   }
 
-  expandedPlanningText(): string {
-    const parts: string[] = []
-    if (this.value().scheduled) parts.push(`计划：${inlinePlanningLabel(this.value().scheduled, this.value().editContent.scheduledPlanning)}`)
-    if (this.value().deadline) parts.push(`截止：${inlinePlanningLabel(this.value().deadline, this.value().editContent.deadlinePlanning)}`)
-    if (this.dateDisplay === TaskDateDisplay.Closed) {
-      const closed = this.expandedDateLabel(TaskDateDisplay.Closed)
-      if (closed) parts.push(`完成：${closed}`)
-    }
-    return parts.join('    ')
-  }
-
   leadingTime(): string { return taskTimeForDisplay(this.value(), this.timeDisplay) }
 
   showTodayFlag(): boolean { return !this.expanded && this.todayFlag && taskDateIsToday(this.value().scheduled, new Date(this.referenceTime)) }
@@ -1686,6 +1675,7 @@ export struct TaskEditor {
       checklistEditing: this.checkId !== '' || this.addingCheck,
       disabled: this.working || this.snapshotBlocked || this.draggingCheck,
       revision: this.value().fileVersion, moveVersion: this.value().fileVersion, ownerKey: this.ownerKey,
+      scrollHost: this.scrollHost, scrollHostId: this.scrollHostId,
       moveContent: (id: string, beforeId: string | null, version: string): Promise<boolean> =>
         this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'move', id, beforeId } }], version),
       contentBackground: '#00000000',
@@ -1871,25 +1861,39 @@ export struct TaskEditor {
       if (this.value().editContent.deadlineRepeat?.rule) {
         this.repeatRule(true)
       }
+      if (this.dateDisplay === TaskDateDisplay.Closed && this.expandedDateLabel(TaskDateDisplay.Closed)) {
+        Row({ space: 5 }) {
+          Image($r('app.media.ui_task_done')).width(16).height(16).accessibilityLevel('no')
+          Text(this.expandedDateLabel(TaskDateDisplay.Closed)).fontSize(12).fontColor(UiColor.secondary)
+        }.width('100%').accessibilityText(`完成日期 ${this.expandedDateLabel(TaskDateDisplay.Closed)}`)
+      }
       Row() {
         Button({ type: ButtonType.Normal }) {
           Row({ space: 5 }) {
             Image(this.value().scheduled === inlineDate(new Date()) ? $r('app.media.nav_today') : $r('app.media.ui_task_calendar')).width(18).height(18)
             if (this.value().scheduled) { Text(inlinePlanningLabel(this.value().scheduled, this.value().editContent.scheduledPlanning)).fontSize(12).fontColor(UiColor.text).maxLines(2) }
           }
-        }.id('inline_schedule_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '46%' })
-          .accessibilityText('设置或修改计划日期').onClick(() => { this.emitAction(this.startSchedule()) })
+        }.id('inline_schedule_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent)
+          .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '46%' })
+          .stateEffect(!this.readOnly).focusable(!this.readOnly)
+          .accessibilityText(this.readOnly ? `计划日期 ${inlinePlanningLabel(this.value().scheduled ?? '', this.value().editContent.scheduledPlanning)}` : '设置或修改计划日期')
+          .onClick(() => { if (!this.readOnly) this.emitAction(this.startSchedule()) })
         Blank().layoutWeight(1)
-        this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
-        if (!this.contentHidden) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
+        if (!this.readOnly) {
+          this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
+          if (!this.contentHidden) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
+        }
         Button({ type: ButtonType.Normal }) {
           Row({ space: 4 }) {
             Image(this.deadlineIcon()).width(16).height(16)
             if (this.value().deadline) { Text(inlinePlanningLabel(this.value().deadline, this.value().editContent.deadlinePlanning)).fontSize(12).fontColor(this.deadlineColor()).maxLines(2) }
           }
-        }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
-          .accessibilityText('设置或修改截止日期').onClick(() => { this.emitAction(this.startDeadline()) })
-        this.moreButton()
+        }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent)
+          .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
+          .stateEffect(!this.readOnly).focusable(!this.readOnly)
+          .accessibilityText(this.readOnly ? `截止日期 ${inlinePlanningLabel(this.value().deadline ?? '', this.value().editContent.deadlinePlanning)}` : '设置或修改截止日期')
+          .onClick(() => { if (!this.readOnly) this.emitAction(this.startDeadline()) })
+        if (this.moreItems().length > 0) { this.moreButton() }
       }.width('100%')
     }.width('100%').padding({ left: 27 })
   }
@@ -1899,9 +1903,10 @@ export struct TaskEditor {
       if (!this.value().isHabit) { Image($r('app.media.ui_task_repeat')).width(18).height(18) }
       Text(`${deadline ? '截止' : '计划'} · ${repeatSummary(deadline ? this.value().editContent.deadlineRepeat?.rule : this.value().editContent.scheduledRepeat?.rule)}`)
         .fontSize(13).fontColor(UiColor.primary).layoutWeight(1)
-      Image($r('app.media.ui_next')).width(18).height(18).accessibilityLevel('no')
+      if (!this.readOnly) { Image($r('app.media.ui_next')).width(18).height(18).accessibilityLevel('no') }
     }.width('100%').constraintSize({ minHeight: 44 }).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
-      .accessibilityText(`编辑${deadline ? '截止' : '计划'}重复规则`).onClick(() => { this.repeats(deadline) })
+      .accessibilityText(this.readOnly ? `${deadline ? '截止' : '计划'}重复规则` : `编辑${deadline ? '截止' : '计划'}重复规则`)
+      .onClick(() => { if (!this.readOnly) this.repeats(deadline) })
   }
   @Builder
   readOnlyContent() {
@@ -1918,20 +1923,6 @@ export struct TaskEditor {
         }.width('100%')
       }
       this.logbookNotes()
-      this.reminderLine()
-      if (this.expandedPlanningText()) {
-        Text(this.expandedPlanningText())
-          .fontSize(12).fontColor(UiColor.secondary).width('100%')
-      }
-      if (this.value().editContent.scheduledRepeat?.rule) {
-        Text(`计划重复：${repeatSummary(this.value().editContent.scheduledRepeat?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
-      }
-      if (this.value().editContent.deadlineRepeat?.rule) {
-        Text(`截止重复：${repeatSummary(this.value().editContent.deadlineRepeat?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
-      }
-      if (this.moreItems().length > 0) {
-        Row() { this.moreButton() }.width('100%').justifyContent(FlexAlign.End)
-      }
     }.width('100%').padding({ left: 27 })
   }
 
@@ -1959,8 +1950,8 @@ export struct TaskEditor {
               this.readOnlyContent()
             } else {
               Column({ space: 12 }) { this.editorContent() }.width('100%')
-              this.attributes()
             }
+            this.attributes()
           }.width('100%')
           if (taskEventLogs(this.value().logs).length > 0) {
             TaskLogView({ internalLinkProcessor: this.internalLinkProcessor,
