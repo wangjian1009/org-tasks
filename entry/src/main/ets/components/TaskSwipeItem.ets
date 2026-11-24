@@ -7,7 +7,7 @@ import { OrgFileRepositoryOption } from '../ui/OrgFileCreatePresentation'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { OrgFileCreateSheet } from './editors/OrgFileCreateSheet'
 import { DataSet } from '../services/DataSet'
-import { CoreTask, CoreTaskOperationGroup, CoreTaskPath, CoreTaskMovement, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskOperationGroup, CoreTaskPath, CoreTaskMovement, CoreTaskModificationOperation, CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { TaskSwipeOperations } from './TaskSwipeOperations'
 import { TaskActionItem, TaskOperation, TaskSingleOperation, TaskRightSwipeAction, taskSingleMenu, taskSwipeMenu, taskActionPolicy, taskSwipeMenuWidth } from '../ui/TaskActionPresentation'
 import { TaskStateCategory, taskStateToggleCategory, taskStateToggleWaitCategory } from '../ui/TaskStatePresentation'
@@ -36,6 +36,7 @@ export struct TaskSwipeItem {
   @Prop menuIdPrefix: string = 'task_swipe'
   @Prop rightSwipeAction: TaskRightSwipeAction | undefined = undefined
   menuAvailable: (() => boolean) | undefined = undefined
+  dateGroupChanged: ((before: CoreTask, after: CoreTask) => boolean) | undefined = undefined
   @BuilderParam menuContent: (activate: (action: TaskOperation) => void) => void = this.swipeMenu
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop contentHidden: boolean = false
@@ -262,7 +263,15 @@ export struct TaskSwipeItem {
 
   async receiveOperation(group: CoreTaskOperationGroup, allowed: () => boolean = () => true): Promise<void> {
     if (this.hostBlocked() || !allowed()) return
-    await this.submitOperationGroups([group], allowed)
+    const regroupOnConfirm = this.dateGroupChanged !== undefined && TaskInlineSession.owns(this.taskId) &&
+      group.operations.some(operation => operation.type === 'Modification' &&
+        (operation.data as CoreTaskModificationOperation).modifications.some(change => change.field === 'SCHEDULE' || change.field === 'DEADLINE'))
+    const before = regroupOnConfirm ? this.taskDataSet().getTask(this.taskId) : undefined
+    await this.submitOperationGroups([group], allowed, before !== undefined)
+    // 日期确认后结束当前行的编辑会话，让计划列表一次应用新分组。
+    if (!before || this.hostBlocked() || !TaskInlineSession.owns(this.taskId) || !this.controller.canActivate()) return
+    const after = this.taskDataSet().getTask(this.taskId)
+    if (after && this.dateGroupChanged?.(before, after)) await TaskInlineSession.end(true)
   }
 
   async submitOperationGroups(groups: CoreTaskOperationGroup[], allowed: () => boolean = () => true,

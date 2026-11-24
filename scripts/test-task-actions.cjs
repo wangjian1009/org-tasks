@@ -170,11 +170,12 @@ const cardFile = 'entry/src/main/ets/components/editors/TaskEditor.ets';
 const cardSource = fs.readFileSync(cardFile, 'utf8');
 const controllerFile = 'entry/src/main/ets/ui/TaskEditorController.ets';
 const { TaskEditorController } = compile(fs.readFileSync(controllerFile, 'utf8'), controllerFile);
-function swipeCard(page) {
+function swipeCard(page, inlineSession = {}) {
   const adapterFile = 'entry/src/main/ets/components/TaskSwipeItem.ets';
   const source = fs.readFileSync(adapterFile, 'utf8');
-  const method = ['hostBlocked', 'gesturesBlocked', 'blocked', 'rightSwipeAvailable',  'operationEnabled', 'activateOperation'].map(name => source.match(new RegExp('  ' + '(?:async )?' + name + '\\([^\\n]*\\): [^\\n]+\\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
-  const { Card } = compile('import { TaskOperation } from \"actions\"; export class Card {' + method + '}', adapterFile, { actions });
+  const method = ['hostBlocked', 'gesturesBlocked', 'blocked', 'rightSwipeAvailable', 'operationEnabled', 'activateOperation', 'receiveOperation'].map(name => source.match(new RegExp('  ' + '(?:async )?' + name + '\\([^\\n]*\\): [^\\n]+\\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
+  const { Card } = compile('import { TaskOperation } from "actions"; import { TaskInlineSession } from "inline"; export class Card {' + method + '}',
+    adapterFile, { actions, inline: { TaskInlineSession: inlineSession } });
   const { Availability } = compile('export class Availability {' + cardSource.match(/  actionsAvailable\(\): boolean \{[\s\S]*?\n  \}/)[0] + '}', cardFile);
   const editor = Object.assign(new Availability(), { appeared: true });
   const controller = new TaskEditorController(), calls = [];
@@ -182,6 +183,39 @@ function swipeCard(page) {
   const state = Object.assign(new Card(), { active: true, interactionEnabled: true, singleOperations: [], rightSwipeAction: pagePolicy(page).rightSwipeAction, controller });
   return { state, editor, controller, calls };
 }
+
+test('计划卡片仅在跨日改期成功后结束编辑会话', async () => {
+  const ended = [];
+  const { state } = swipeCard('planned', {
+    owns: key => key === 'task',
+    end: async collapse => { ended.push(collapse); return true; }
+  });
+  const dateEdit = { operations: [{ type: 'Modification', data: { modifications: [{ field: 'SCHEDULE' }] } }] };
+  const tomorrow = { date: '2026-11-25' };
+  let task = tomorrow;
+  state.taskId = 'task';
+  state.taskDataSet = () => ({ getTask: () => task });
+  state.dateGroupChanged = (before, after) => before.date !== after.date;
+
+  let confirm;
+  state.submitOperationGroups = async (_groups, _allowed, wait) => {
+    assert.equal(wait, true);
+    await new Promise(resolve => { confirm = resolve; });
+    task = { date: '2026-11-27' };
+  };
+  const save = state.receiveOperation(dateEdit);
+  assert.deepEqual(ended, []);
+  confirm();
+  await save;
+  assert.deepEqual(ended, [true]);
+
+  ended.length = 0;
+  state.submitOperationGroups = async () => {};
+  await state.receiveOperation(dateEdit);
+  state.submitOperationGroups = async () => { throw new Error('版本变化'); };
+  await assert.rejects(state.receiveOperation(dateEdit), /版本变化/);
+  assert.deepEqual(ended, []);
+});
 
 test('等待页状态切换、取消、某天与删除按规划排序', () => {
   const menu = taskSwipeMenu(taskPageActionPolicy('waiting'), () => {}, 'Doing', 'Todo')

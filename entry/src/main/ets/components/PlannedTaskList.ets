@@ -54,6 +54,10 @@ export struct PlannedTaskList {
     return this.groups.find(group => group.key === groupKey)?.scheduleItems.find(item => this.taskKey(item.task) === key)
   }
 
+  private dateGroupChanged(before: CoreTask, after: CoreTask): boolean {
+    return plannedTaskDate(before) !== plannedTaskDate(after)
+  }
+
   private dateDisplay(groupKey: string, taskKey: string): TaskDateDisplay {
     const group = this.groups.find(item => item.key === groupKey), task = this.task(taskKey)
     if (!group || group.kind === 'day' || !task) return TaskDateDisplay.None
@@ -104,6 +108,7 @@ export struct PlannedTaskList {
     TaskSwipeItem({ readOnly: this.readOnly, singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule,
       dataSet: this.taskDataSet(), taskId: taskKey, selection: this.selection,
       busy: this.selection.selecting || this.selection.blocked(), menuIdPrefix: 'planned_swipe',
+      dateGroupChanged: (before: CoreTask, after: CoreTask): boolean => this.dateGroupChanged(before, after),
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
       content: (controller: TaskEditorController): void => { this.taskContent(taskKey, groupKey, controller, false) } })
   }
@@ -113,6 +118,7 @@ export struct PlannedTaskList {
     TaskSwipeItem({ readOnly: this.readOnly, singleOperations: this.singleOperations, rightSwipeAction: TaskOperation.Schedule,
       dataSet: this.taskDataSet(), taskId: taskKey, selection: this.selection,
       busy: this.selection.selecting || this.selection.blocked(), menuIdPrefix: 'planned_swipe',
+      dateGroupChanged: (before: CoreTask, after: CoreTask): boolean => this.dateGroupChanged(before, after),
       scrollHost: this.listScroller, scrollHostId: 'planned_task_list',
       content: (controller: TaskEditorController): void => { this.taskContent(taskKey, groupKey, controller, true) } })
   }
