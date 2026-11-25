@@ -1,4 +1,4 @@
-import { util } from '@kit.ArkTS'
+import { DraftInputFrame, DraftLinkAction, DraftLinkSelection } from './DraftLinkAction'
 import { CoreContentBlockChange, CoreContentNode, CoreContentInline, CoreTaskChecklistChange, CoreTitlePart,
   CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
@@ -26,14 +26,12 @@ export struct TaskNativeContent {
   @State editNode: CoreContentNode | undefined = undefined
   @State draft: string = ''
   @State addingParagraph: boolean = false
-  @State insertion: CoreTextLink | undefined = undefined
-  @State inserting: boolean = false
   @State saving: boolean = false
   @State error: string = ''
   private editKey: string = ''
   private editVersion: string = ''
-  private selectionStart: number = 0
-  private selectionEnd: number = 0
+  private inputController: TextAreaController = new TextAreaController()
+  private linkSelection: DraftLinkSelection = new DraftLinkSelection()
   private pending: Promise<boolean> | undefined = undefined
 
   aboutToAppear(): void { this.editKey = `native_body_${this.getUniqueId()}` }
@@ -54,8 +52,7 @@ export struct TaskNativeContent {
     if (!await this.editor.finish() || !await this.linkEditor.finish() || !await this.begin() || version !== this.revision) return
     if (!await this.editor.begin(this.editKey, (): Promise<boolean> => this.finish(), (): void => { this.cancel() })) return
     this.draft = append ? '' : node.source
-    this.selectionStart = this.draft.length
-    this.selectionEnd = this.draft.length
+    this.linkSelection.reset()
     this.editVersion = version
     this.error = ''
     this.addingParagraph = append
@@ -65,8 +62,6 @@ export struct TaskNativeContent {
 
   private cancel(): void {
     this.editNode = undefined
-    this.insertion = undefined
-    this.inserting = false
     this.editor.release(this.editKey)
     this.editingChanged(false)
   }
@@ -75,7 +70,7 @@ export struct TaskNativeContent {
     if (this.pending) return this.pending
     const node = this.editNode
     if (!node) return true
-    if (this.saving || this.inserting) return false
+    if (this.saving || this.linkSelection.busy) return false
     if (this.editVersion !== this.revision) {
       this.error = '内容已变化，请把草稿拷贝后重新载入'
       return false
@@ -104,24 +99,6 @@ export struct TaskNativeContent {
 
   private containerId(node: CoreContentNode): string { return this.addingParagraph && node.kind === 'list' ? `list:${node.id}` : node.id }
 
-  private startInsert(node: CoreContentNode): void {
-    const start = this.selectionStart
-    const end = this.selectionEnd
-    const encoder = new util.TextEncoder()
-    this.insertion = {
-      start: encoder.encodeInto(node.source.slice(0, start))?.length ?? 0,
-      end: encoder.encodeInto(node.source.slice(0, end))?.length ?? 0,
-      source: '', title: node.source.slice(start, end), url: ''
-    }
-  }
-
-  private async insertLink(node: CoreContentNode, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
-    if (!value || this.editVersion !== this.revision) throw new Error('内容已变化，请重新载入后编辑')
-    await this.write(this.addingParagraph ? { type: 'insertLinkedParagraph', id: this.containerId(node), value } :
-      { type: 'insertLink', id: node.id, start: link.start, end: link.end, source: node.source, value })
-    this.cancel()
-  }
-
   private async changeLink(node: CoreContentNode, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
     const version = this.revision
     if (!await this.begin() || version !== this.revision) throw new Error('内容已变化，请重新载入后编辑')
@@ -136,41 +113,54 @@ export struct TaskNativeContent {
     }
   }
 
+  private focusDraft(): void {
+    const node = this.editNode
+    const context = this.getUIContext()
+    context.postFrameCallback(new DraftInputFrame((): void => {
+      if (!node || this.editNode !== node || this.linkSelection.busy) return
+      try {
+        context.getFocusController().requestFocus(this.editKey)
+        this.inputController.caretPosition(this.draft.length)
+      } catch (_) {
+        // 视口移动后可点按输入框继续编辑。
+      }
+    }))
+  }
+
   @Builder
   editorContent(node: CoreContentNode, itemId: string) {
     Column({ space: 4 }) {
-      TextArea({ text: this.draft, placeholder: node.kind === 'cell' ? '单元格' : '段落' }).id(this.editKey).defaultFocus(true)
+      TextArea({ text: this.draft, controller: this.inputController,
+        placeholder: node.kind === 'cell' ? '单元格' : '段落' }).id(this.editKey).defaultFocus(true)
         .width('100%').height('auto').minLines(1)
         .fontSize(node.kind === 'cell' ? 14 : itemId ? UiSize.listItemFont : UiSize.paragraphFont)
         .lineHeight(node.kind === 'cell' ? 0 : itemId ? UiSize.listItemLineHeight : UiSize.paragraphLineHeight)
         .fontColor(UiColor.text)
-        .backgroundColor(UiColor.field).enabled(!this.saving && !this.inserting)
+        .backgroundColor(UiColor.field).enabled(!this.saving)
         .onChange((value: string): void => { this.draft = value })
-        .onBlur((): void => { if (!this.insertion && !this.inserting) this.finish() })
+        .onBlur((): void => { if (!this.linkSelection.busy) this.finish() })
+        .onAppear((): void => { this.focusDraft() })
         .enterKeyType(EnterKeyType.NEW_LINE)
         .onTextSelectionChange((start: number, end: number): void => {
-          this.selectionStart = start
-          this.selectionEnd = end
+          this.linkSelection.update(start, end)
         })
-      LinkView({ textSize: 14, editor: this.linkEditor, revision: this.revision, editable: true, insertion: this.insertion,
-          change: (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.insertLink(node, link, value),
-          editingChanged: (editing: boolean): void => {
-            this.inserting = editing
-            if (!editing) this.insertion = undefined
-          } }).width('100%')
-      Row({ space: 8 }) {
-        Button('链接').height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent).focusable(false)
-          .enabled(!this.saving && !this.inserting && this.draft === node.source)
-          .onClick((): void => { this.startInsert(node) })
-        if (!this.addingParagraph && itemId) {
+      DraftLinkAction({ source: this.draft, disabled: this.saving || this.editVersion !== this.revision,
+        inputId: this.editKey, editor: this.linkEditor, selection: this.linkSelection,
+        write: (source: string): void => { this.draft = source },
+        select: (start: number, end: number): void => {
+          this.inputController.setTextSelection(start, end, { menuPolicy: MenuPolicy.HIDE })
+        } })
+      if (!this.addingParagraph && itemId) {
+        Row() {
             Button('添加说明').height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent).focusable(false)
-              .enabled(!this.saving && !this.inserting && this.draft === node.source)
+              .enabled(!this.saving && this.draft === node.source)
               .onClick((): void => {
+                if (this.linkSelection.busy) return
                 this.cancel()
                 this.startEdit({ id: itemId, kind: 'item', source: '', blankLinesBefore: 0 }, true)
               })
-        }
-      }.width('100%').justifyContent(FlexAlign.End)
+        }.width('100%').justifyContent(FlexAlign.End)
+      }
       if (this.error) { Text(this.error).fontSize(12).fontColor(UiColor.error) }
     }.width('100%').alignItems(HorizontalAlign.Start)
       .onClick((): void => { LinkEditController.protectInteraction() })

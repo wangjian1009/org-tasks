@@ -487,6 +487,7 @@ export interface TodoMetadata {
   initialState: string | null;
 }
 
+export function formatOrgLink(value: LinkValue): Promise<string>;
 export function defaultTodoSettings(): Promise<string>;
 export function defaultTaskStates(): Promise<TaskState[]>;
 export function defaultSyncOptions(): Promise<SyncOptions>;

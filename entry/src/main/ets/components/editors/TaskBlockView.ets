@@ -10,6 +10,7 @@ import { pasteboard } from '@kit.BasicServicesKit'
 import { display } from '@kit.ArkUI'
 import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskInlineFocus } from '../../ui/TaskInlineFocus'
+import { DraftLinkAction, DraftLinkSelection } from './DraftLinkAction'
 
 // 正文区块共用菜单与原文编辑外壳；清单阅读保留原生交互，只读仍可拷贝。
 @Component
@@ -67,6 +68,7 @@ export struct TaskBlockView {
   private handledFollow: number = 0
   private submitting: boolean = false
   private inputController: TextAreaController = new TextAreaController()
+  private linkSelection: DraftLinkSelection = new DraftLinkSelection()
   private checklistFocus: TaskInlineFocus = new TaskInlineFocus(
     (callback: () => void) => { this.getUIContext().postFrameCallback(new ChecklistFocusFrame(callback)) },
     (key: string) => { this.getUIContext().getFocusController().requestFocus(key) })
@@ -112,6 +114,7 @@ export struct TaskBlockView {
       this.adding = addition !== ''
       this.addingList = addition === 'list'
       this.draft = this.adding ? '' : block.source
+      this.linkSelection.reset()
       if (!await this.editor.begin(this.inputKey, async (): Promise<boolean> => this.finish(), (): void => { this.cancel() })) return
       this.editing = true; this.editingChanged(true)
       if (this.addingList) this.checklistFocus.request(`inline_new_check_${this.inputKey}`)
@@ -247,7 +250,7 @@ export struct TaskBlockView {
   async finish(): Promise<boolean> {
     if (this.pending) return this.pending
     if (!this.editing || !this.original) return true
-    if (this.readonly || this.disabled || this.editRevision !== this.revision) return false
+    if (this.readonly || this.disabled || this.linkSelection.busy || this.editRevision !== this.revision) return false
     const block = this.original
     const source = this.editedSource(block)
     this.saving = true
@@ -304,7 +307,7 @@ export struct TaskBlockView {
   @Builder
   newChecklist() {
     TaskChecklistBlock({ adding: true, newText: this.draft, ownerKey: this.inputKey, blockId: 'new',
-      disabled: this.disabled || this.saving,
+      disabled: this.disabled || this.saving, linkEditor: this.linkEditor,
       newChanged: (text: string): void => { this.draft = text },
       save: (next: boolean): void => {
         if (next) this.submitDraft()
@@ -354,7 +357,8 @@ export struct TaskBlockView {
           this.submitDraft()
         })
         .onChange((value: string): void => { this.draft = value })
-        .onBlur((): void => { if (!this.submitting) this.finish() })
+        .onBlur((): void => { if (!this.submitting && !this.linkSelection.busy) this.finish() })
+        .onTextSelectionChange((start: number, end: number): void => { this.linkSelection.update(start, end) })
         .onAppear((): void => {
           const context = this.getUIContext()
           context.postFrameCallback(new ChecklistFocusFrame((): void => {
@@ -365,6 +369,14 @@ export struct TaskBlockView {
             } catch (_) { /* 控件移出可见区时仍保留草稿。 */ }
           }))
         })
+      if (this.emptyBody || this.adding || this.block.paragraph) {
+        DraftLinkAction({ source: this.draft, disabled: this.readonly || this.saving || this.disabled,
+          inputId: this.inputKey, editor: this.linkEditor, selection: this.linkSelection,
+          write: (source: string): void => { this.draft = source },
+          select: (start: number, end: number): void => {
+            this.inputController.setTextSelection(start, end, { menuPolicy: MenuPolicy.HIDE })
+          } })
+      }
     }.width('100%').onClick((): void => { LinkEditController.protectInteraction() })
   }
 

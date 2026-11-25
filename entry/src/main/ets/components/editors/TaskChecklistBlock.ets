@@ -6,6 +6,7 @@ import { TaskBlockController } from '../../ui/TaskBlockController'
 import { LinkEditController } from '../LinkView'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { FrameCallback } from '@ohos.arkui.UIContext'
+import { DraftLinkAction, DraftLinkSelection } from './DraftLinkAction'
 
 export class ChecklistFocusFrame extends FrameCallback {
   private callback: () => void
@@ -62,6 +63,10 @@ export struct TaskChecklistBlock {
   @BuilderParam grip: (item: CoreTaskChecklistItem, floating: boolean) => void = this.emptyGrip
   @State measuredHeight: number = 0
   private heights: Map<string, number> = new Map()
+  private draftController: TextInputController = new TextInputController()
+  private itemController: TextInputController = new TextInputController()
+  private draftSelection: DraftLinkSelection = new DraftLinkSelection()
+  private itemSelection: DraftLinkSelection = new DraftLinkSelection()
 
   @Builder
   emptyGrip(_item: CoreTaskChecklistItem, _floating: boolean) {}
@@ -84,18 +89,31 @@ export struct TaskChecklistBlock {
 
   @Builder
   draftRow(depth: number) {
-    Row({ space: UiSize.listMarkerGap }) {
-      Text(this.marker(this.addingAfter) ?? '○').width(UiSize.listMarkerWidth).fontSize(19).fontColor(UiColor.secondary)
-      TextInput({ text: this.newText, placeholder: '条目' }).id(`inline_new_check_${this.ownerKey}`)
-        .enabled(!this.disabled && !this.dragging).layoutWeight(1).fontSize(UiSize.listItemFont).fontColor(UiColor.text)
-        .backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
-        .onFocus((): void => { this.focused() }).onChange((text: string): void => { this.newChanged(text) })
-        .onBlur((): void => { this.save(false, '') })
-        .onAppear((): void => { this.inputAppeared(`inline_new_check_${this.ownerKey}`) })
-        .onDisAppear((): void => { this.inputDisappeared(`inline_new_check_${this.ownerKey}`) })
-        .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_new_check_${this.ownerKey}`) })
-        .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true, '') })
-    }.width('100%').height(44).padding({ left: Math.min(depth, 6) * UiSize.listIndent })
+    Column() {
+      Row({ space: UiSize.listMarkerGap }) {
+        Text(this.marker(this.addingAfter) ?? '○').width(UiSize.listMarkerWidth).fontSize(19).fontColor(UiColor.secondary)
+        TextInput({ text: this.newText, controller: this.draftController, placeholder: '条目' })
+          .id(`inline_new_check_${this.ownerKey}`)
+          .enabled(!this.disabled && !this.dragging).layoutWeight(1).fontSize(UiSize.listItemFont)
+          .backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
+          .onFocus((): void => { this.focused() }).onChange((text: string): void => { this.newChanged(text) })
+          .onTextSelectionChange((start: number, end: number): void => { this.draftSelection.update(start, end) })
+          .onBlur((): void => { if (!this.draftSelection.busy) this.save(false, '') })
+          .onAppear((): void => { this.draftSelection.reset(); this.inputAppeared(`inline_new_check_${this.ownerKey}`) })
+          .onDisAppear((): void => { this.inputDisappeared(`inline_new_check_${this.ownerKey}`) })
+          .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_new_check_${this.ownerKey}`) })
+          .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => {
+            event?.keepEditableState()
+            if (!this.draftSelection.busy) this.save(true, '')
+          })
+      }.width('100%').height(44)
+      DraftLinkAction({ source: this.newText, disabled: this.disabled || this.dragging,
+        inputId: `inline_new_check_${this.ownerKey}`, editor: this.linkEditor, selection: this.draftSelection,
+        write: (source: string): void => { this.newChanged(source) },
+        select: (start: number, end: number): void => {
+          this.draftController.setTextSelection(start, end, { menuPolicy: MenuPolicy.HIDE })
+        } })
+    }.width('100%').padding({ left: Math.min(depth, 6) * UiSize.listIndent })
   }
 
   // 现有排序使用平铺行的测量值。续段按原次序绑定到上一个可见清单行。
@@ -161,14 +179,28 @@ export struct TaskChecklistBlock {
           .onClick((): void => { if (!this.readonly) this.toggle({ type: 'setChecked', id: item.id, checked: !item.checked }) })
       }
       if (!this.readonly && !floating && this.editingId === item.id) {
-        TextInput({ text: this.editingText }).id(`inline_check_${item.id}`).layoutWeight(1).fontSize(UiSize.listItemFont)
-          .fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
-          .enabled(!this.disabled).onChange((text: string): void => { this.editChanged(text) })
-          .onFocus((): void => { this.focused() }).onBlur((): void => { this.save(false, item.id) })
-          .onAppear((): void => { this.inputAppeared(`inline_check_${item.id}`) })
-          .onDisAppear((): void => { this.inputDisappeared(`inline_check_${item.id}`) })
-          .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_check_${item.id}`) })
-          .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => { event?.keepEditableState(); this.save(true, item.id) })
+        Column() {
+          TextInput({ text: this.editingText, controller: this.itemController }).id(`inline_check_${item.id}`)
+            .width('100%').fontSize(UiSize.listItemFont)
+            .fontColor(UiColor.text).backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
+            .enabled(!this.disabled).onChange((text: string): void => { this.editChanged(text) })
+            .onTextSelectionChange((start: number, end: number): void => { this.itemSelection.update(start, end) })
+            .onFocus((): void => { this.focused() })
+            .onBlur((): void => { if (!this.itemSelection.busy) this.save(false, item.id) })
+            .onAppear((): void => { this.itemSelection.reset(); this.inputAppeared(`inline_check_${item.id}`) })
+            .onDisAppear((): void => { this.inputDisappeared(`inline_check_${item.id}`) })
+            .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputVisible(`inline_check_${item.id}`) })
+            .onSubmit((_key: EnterKeyType, event?: SubmitEvent): void => {
+              event?.keepEditableState()
+              if (!this.itemSelection.busy) this.save(true, item.id)
+            })
+          DraftLinkAction({ source: this.editingText, disabled: this.disabled,
+            inputId: `inline_check_${item.id}`, editor: this.linkEditor, selection: this.itemSelection,
+            write: (source: string): void => { this.editChanged(source) },
+            select: (start: number, end: number): void => {
+              this.itemController.setTextSelection(start, end, { menuPolicy: MenuPolicy.HIDE })
+            } })
+        }.layoutWeight(1)
       } else if (this.projectedBody(item.id).length > 0) {
         TaskNativeContent({ nodes: this.projectedBody(item.id), itemId: item.id, activateParagraph: (): void => { this.edit(item) }, completed: item.checked,
           readonly: this.readonly || floating, disabled: this.disabled || this.dragging, revision: this.revision,

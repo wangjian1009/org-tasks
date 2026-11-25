@@ -95,25 +95,28 @@ pub(super) fn editable_html(source: &str) -> String {
     result
 }
 
-pub(super) fn replacement(value: &LinkValue) -> Result<String, CoreError> {
-    if value.url.trim().is_empty() || value.url.chars().any(char::is_control)
-        || value.title.chars().any(char::is_control)
-    {
-        return Err(CoreError::InvalidInput("链接地址不能为空，标题与地址不能包含换行或控制字符"));
+impl LinkValue {
+    /// 校验链接并生成 Org 行内文本，可用于尚未保存的编辑草稿。
+    pub fn to_org(&self) -> Result<String, CoreError> {
+        if self.url.trim().is_empty() || self.url.chars().any(char::is_control)
+            || self.title.chars().any(char::is_control)
+        {
+            return Err(CoreError::InvalidInput("链接地址不能为空，标题与地址不能包含换行或控制字符"));
+        }
+        let url = self.url.replace('[', "%5B").replace(']', "%5D");
+        let result = if self.title.is_empty() { format!("[[{url}]]") }
+            else { format!("[[{url}][{}]]", self.title) };
+        let links = text_links(&result);
+        if links.len() != 1 || links[0].source != result || links[0].title != self.title || links[0].url != url {
+            return Err(CoreError::InvalidInput("标题或地址包含无法保存的 Org 链接分隔符"));
+        }
+        Ok(result)
     }
-    let url = value.url.replace('[', "%5B").replace(']', "%5D");
-    let result = if value.title.is_empty() { format!("[[{url}]]") }
-        else { format!("[[{url}][{}]]", value.title) };
-    let links = text_links(&result);
-    if links.len() != 1 || links[0].source != result || links[0].title != value.title || links[0].url != url {
-        return Err(CoreError::InvalidInput("标题或地址包含无法保存的 Org 链接分隔符"));
-    }
-    Ok(result)
 }
 
 pub(super) fn changed_source(source: &str, link: &TextLink, value: &Option<LinkValue>) -> Result<String, CoreError> {
     if !text_links(source).contains(link) { return Err(CoreError::InvalidInput("链接已变化，请重新载入后编辑")); }
-    let content = value.as_ref().map(replacement).transpose()?.unwrap_or_default();
+    let content = value.as_ref().map(LinkValue::to_org).transpose()?.unwrap_or_default();
     let mut result = source.to_owned();
     result.replace_range(link.start..link.end, &content);
     Ok(result)
@@ -139,7 +142,7 @@ pub(super) fn modify_link(file: &mut OrgFile, headline: &Headline, change: &Task
         return Err(CoreError::InvalidInput("链接已变化，请重新载入后编辑"));
     }
     if change.value.as_ref().is_some_and(|value| value.title == change.link.title && value.url == change.link.url) { return Ok(()); }
-    let content = change.value.as_ref().map(replacement).transpose()?.unwrap_or_default();
+    let content = change.value.as_ref().map(LinkValue::to_org).transpose()?.unwrap_or_default();
     let mut offset = 0;
     for range in ranges {
         let length = range.len();

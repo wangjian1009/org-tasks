@@ -90,7 +90,7 @@ export struct LinkView {
   @Prop lineLimit: number = 0
   @Prop lineHeight: number | undefined = undefined
   @Prop cancelled: boolean = false
-  @Prop @Watch('insertionChanged') insertion: CoreTextLink | undefined = undefined
+  @Prop @Watch('insertionChanged') insertionTitle: string | undefined = undefined
   @Prop copyable: boolean = false
   @Prop openLinks: boolean = true
   @Prop editable: boolean = false
@@ -135,7 +135,10 @@ export struct LinkView {
   aboutToAppear() {
     this.active = true; this.generation++; this.launching = false
     this.owner = this.getUniqueId()
-    this.editor.bind(this.owner, async (): Promise<boolean> => !this.editing || await this.saveEdit())
+    this.editor.bind(this.owner, async (): Promise<boolean> => {
+      if (this.insertionTitle !== undefined) return false
+      return !this.editing || await this.saveEdit()
+    })
     this.links.hit = (payload: string): void => { this.webHit(payload) }
     this.links.protocol = (payload: string): void => { this.webProtocol(payload) }
     this.links.draft = (title: string, url: string): void => { if (this.editing && !this.saving) { this.titleDraft = title; this.urlDraft = url } }
@@ -193,11 +196,12 @@ export struct LinkView {
   }
 
   insertionChanged(): void {
-    const link = this.insertion
-    if (!link || !this.active) return
+    const title = this.insertionTitle
+    if (title === undefined || !this.active) return
+    const link: CoreTextLink = { start: 0, end: 0, source: '', title, url: '' }
     this.selected = { link, href: '', label: link.title, x: 0, y: 0, width: this.widthVp }
     this.selectedRevision = this.revision
-    this.beginEdit()
+    this.showEditor(link)
   }
 
   async beginEdit() {
@@ -206,12 +210,18 @@ export struct LinkView {
     const selected = this.selected
     if (!await this.editor.finish(this.owner) || !this.active || !this.editable || generation !== this.generation
       || selected !== this.selected || this.revision !== this.selectedRevision || this.editing) return
+    this.showEditor(selected.link!)
+  }
+
+  private showEditor(link: CoreTextLink): void {
+    const generation = this.generation
     this.menuVisible = false
-    this.titleDraft = this.selected.link.title; this.urlDraft = this.selected.link.url
+    this.titleDraft = link.title; this.urlDraft = link.url
     this.editError = ''; this.editing = true; this.editingChanged(true)
-    if (!this.document) this.inputFocus.request(`link_title_${this.owner}`)
+    if (!this.document) this.inputFocus.request(this.insertionTitle === undefined ?
+      `link_title_${this.owner}` : `link_url_${this.owner}`)
     if (this.document && this.webController) {
-      this.webController.runJavaScript(`window.orgLinkEdit?.(${JSON.stringify(this.selected.link)}, ${JSON.stringify(this.titleDraft)}, ${JSON.stringify(this.urlDraft)})`)
+      this.webController.runJavaScript(`window.orgLinkEdit?.(${JSON.stringify(link)}, ${JSON.stringify(this.titleDraft)}, ${JSON.stringify(this.urlDraft)})`)
         .then((): void => { if (this.active && generation === this.generation) this.remeasure() })
         .catch((): void => { if (this.active && generation === this.generation) this.editError = '无法展开链接编辑，请重试。' })
     }
@@ -256,7 +266,8 @@ export struct LinkView {
 
   async saveEdit(): Promise<boolean> {
     if (!this.editing) return true
-    if (this.selected?.link && this.titleDraft === this.selected.link.title && this.urlDraft === this.selected.link.url) {
+    if (this.insertionTitle === undefined && this.selected?.link &&
+      this.titleDraft === this.selected.link.title && this.urlDraft === this.selected.link.url) {
       this.cancelEdit(); return true
     }
     return await this.commit({ title: this.titleDraft, url: this.urlDraft })
@@ -374,11 +385,31 @@ export struct LinkView {
   }
 
   @Builder
+  linkFormActions() {
+    Row({ space: 8 }) {
+      Button('取消').height(40).fontSize(14).fontColor(UiColor.text).backgroundColor(UiColor.field)
+        .enabled(!this.saving).onClick((): void => { this.cancelEdit() })
+      Button(this.insertionTitle === undefined ? '保存' : '插入').height(40).fontSize(14)
+        .fontColor(this.insertionTitle === undefined ? UiColor.text : UiColor.onPrimary)
+        .backgroundColor(this.insertionTitle === undefined ? UiColor.field : UiColor.primary)
+        .enabled(!this.saving).onClick((): void => { this.saveEdit() })
+    }.justifyContent(FlexAlign.End)
+  }
+
+  @Builder
   linkEditor() {
     Column({ space: 8 }) {
-      Text('标题').fontSize(12).fontColor(UiColor.secondary).width('100%')
+      if (this.insertionTitle === undefined) {
+        Text('标题').fontSize(12).fontColor(UiColor.secondary).width('100%')
+      } else {
+        Row({ space: 8 }) {
+          Text('显示文字').fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
+          this.linkFormActions()
+        }.width('100%')
+      }
       TextInput({ text: this.titleDraft, placeholder: '无标题时显示链接地址' }).fontSize(14).fontColor(UiColor.text)
-        .id(`link_title_${this.owner}`).accessibilityText('链接标题').enterKeyType(EnterKeyType.Next)
+        .id(`link_title_${this.owner}`).accessibilityText(this.insertionTitle === undefined ? '链接标题' : '显示文字')
+        .enterKeyType(EnterKeyType.Next)
         .onSubmit((_key: EnterKeyType, event: SubmitEvent): void => {
           event.keepEditableState()
           this.inputFocus.request(`link_url_${this.owner}`)
@@ -387,7 +418,7 @@ export struct LinkView {
         .onDisAppear((): void => { this.inputFocus.disappeared(`link_title_${this.owner}`) })
         .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputFocus.visible(`link_title_${this.owner}`) })
         .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.titleDraft = value })
-      Text('链接').fontSize(12).fontColor(UiColor.secondary).width('100%')
+      Text(this.insertionTitle === undefined ? '链接' : '链接地址').fontSize(12).fontColor(UiColor.secondary).width('100%')
       Row({ space: 8 }) {
         Button({ type: ButtonType.Normal }) {
           Row() {
@@ -402,19 +433,16 @@ export struct LinkView {
             onStateChange: (event): void => { this.protocolState(event.isVisible) } })
         TextInput({ text: this.urlDraft, placeholder: '链接地址' }).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
           .id(`link_url_${this.owner}`).accessibilityText('链接地址').enterKeyType(EnterKeyType.Done)
-          .onSubmit((): void => { this.saveEdit() })
+          .onSubmit((_key: EnterKeyType, event: SubmitEvent): void => { event.keepEditableState(); this.saveEdit() })
           .onAppear((): void => { this.inputFocus.appeared(`link_url_${this.owner}`) })
           .onDisAppear((): void => { this.inputFocus.disappeared(`link_url_${this.owner}`) })
           .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputFocus.visible(`link_url_${this.owner}`) })
           .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.urlDraft = value })
       }.width('100%')
       if (this.editError) { Text(this.editError).fontSize(12).fontColor(UiColor.error).width('100%') }
-      Row({ space: 12 }) {
-        Button('取消').height(40).fontSize(14).fontColor(UiColor.text).backgroundColor(UiColor.field)
-          .enabled(!this.saving).onClick((): void => { this.cancelEdit() })
-        Button('保存').height(40).fontSize(14).fontColor(UiColor.text).backgroundColor(UiColor.field)
-          .enabled(!this.saving).onClick((): void => { this.saveEdit() })
-      }.justifyContent(FlexAlign.End).width('100%')
+      if (this.insertionTitle === undefined) {
+        Row() { this.linkFormActions() }.justifyContent(FlexAlign.End).width('100%')
+      }
     }.width('100%').padding(12).borderRadius(10).backgroundColor(UiColor.surface)
       .onTouch((event: TouchEvent): void => { event.stopPropagation(); LinkEditController.protectInteraction() })
       .onClick((): void => { LinkEditController.protectInteraction() })

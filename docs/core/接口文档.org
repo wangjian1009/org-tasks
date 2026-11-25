@@ -868,6 +868,8 @@ pub struct LinkValue { pub title: String, pub url: String }
 pub struct TaskLinkChange { pub field: TaskLinkField, pub link: TextLink, pub value: Option<LinkValue> }
 #+end_src
 
+~LinkValue::to_org()~ 校验地址与显示文字并返回 Org 行内链接原文。编辑草稿预览、链接插入及局部替换使用同一格式化规则。此方法只读取链接值。
+
 ~TaskModification::Link(TaskLinkChange)~ 序列化为 ~LINK~ ，沿用唯一操作组入口和 ~file_versions~ 校验。Core 重新定位当前标题或备注中的真实链接，校验范围、准确原文、原始标题与地址全部一致后，只替换这一条链接；同网址的其他链接、未涉及的空格、换行、规划、清单、日志和子任务字节保持原样。备注范围映射回原文件，不把分离的检查清单重新拼入备注。标题修改复用既有结构校验，不顺带重算未涉及的进度统计。
 
 ~value=Some(LinkValue)~ 保存标题与地址，标题为空时仅保存链接地址；裸链接修改后使用显式 Org 链接。地址方括号按 URI 百分号编码，换行、控制字符、空地址与破坏链接结构的分隔符拒绝。没有修改标题或地址时不改写原文。 ~value=None~ 删除整个链接及其显示文字；若删除会使任务标题为空或被重新解释成状态等字段，按既有标题校验拒绝。旧快照、源位置失效、冲突范围或字面代码中的伪目标均拒绝，失败不提交部分内容。

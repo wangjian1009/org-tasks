@@ -38,6 +38,7 @@ import {
   SupportTags as NativeSupportTags,
   TodoMetadata as NativeTodoMetadata,
   defaultTodoSettings,
+  formatOrgLink as nativeFormatOrgLink,
   defaultTaskStates,
   CoreSettings,
   TaskState,
@@ -155,6 +156,8 @@ export type CoreTaskLog = NativeTaskLog
 export type CoreTitlePart = NativeTitlePart
 export type CoreTextLink = NativeTextLink
 export type CoreLinkValue = NativeLinkValue
+
+export async function formatOrgLink(value: CoreLinkValue): Promise<string> { return await nativeFormatOrgLink(value) }
 export type CoreTaskLinkChange = NativeTaskLinkChange
 export type CoreAddressLink = NativeAddressLink
 export type CoreAppLink = NativeAppLink

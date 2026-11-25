@@ -1053,9 +1053,11 @@ logbook\_html: String \\
 
 ~TaskLinkChange~ 通过 ~TaskLinkField::Title~ 或 ~Notes~ 指定字段，持有 ~TextLink~ 与可空的 ~LinkValue~ 。空值表示连同显示文字一起删除链接；非空值保存标题和地址。所有引用均与 ~TaskFileVersion~ 一起使用，Core 校验位置与准确原文后实施局部修改。标题链接编辑保留其他字段及统计字节，备注链接编辑保留独立清单、所有 drawer 和子标题。相关值对象只用于运行时投影与操作请求，不增加持久化或同步状态。
 
+~LinkValue::to_org()~ 复用局部替换的链接校验和格式化规则，为尚未提交的文本草稿生成 Org 行内链接。
+
 \begin{tikzpicture}
 \umlclass[x=0,y=0]{TextLink}{start: usize \\ end: usize \\ source: String \\ title: String \\ url: String}{}
-\umlclass[x=7,y=0]{LinkValue}{title: String \\ url: String}{}
+\umlclass[x=7,y=0]{LinkValue}{title: String \\ url: String}{to\_org()}
 \umlclass[x=0,y=-5]{TaskLinkChange}{field: TaskLinkField}{}
 \umlclass[x=7,y=-5,type=enumeration]{TaskLinkField}{Title \\ Notes}{}
 \umlcompo[mult2=1]{TaskLinkChange}{TextLink}

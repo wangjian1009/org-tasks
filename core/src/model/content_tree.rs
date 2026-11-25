@@ -252,7 +252,7 @@ pub(super) fn modify(
             let range = selection(&node, link.start, link.end).ok_or_else(missing)?;
             let content = value
                 .as_ref()
-                .map(super::text_link::replacement)
+                .map(super::LinkValue::to_org)
                 .transpose()?
                 .unwrap_or_default();
             if node.kind == ContentNodeKind::Cell && content.contains('|') {
@@ -279,7 +279,7 @@ pub(super) fn modify(
                 return Err(CoreError::InvalidInput("链接位置已变化或与已有链接重叠"));
             }
             let range = selection(&node, *start, *end).ok_or_else(missing)?;
-            let content = super::text_link::replacement(value)?;
+            let content = value.to_org()?;
             if node.kind == ContentNodeKind::Cell && content.contains('|') {
                 return Err(CoreError::InvalidInput("表格链接不能包含列分隔符"));
             }
@@ -298,7 +298,7 @@ pub(super) fn modify(
             insert_paragraph(file, headline, id, source)
         }
         ContentBlockChange::InsertLinkedParagraph { id, value } => {
-            insert_paragraph(file, headline, id, &super::text_link::replacement(value)?)
+            insert_paragraph(file, headline, id, &value.to_org()?)
         }
         _ => unreachable!("仅处理正文树修改"),
     }

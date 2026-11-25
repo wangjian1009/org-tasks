@@ -414,6 +414,8 @@ interface TitleCount {
 }
 #+end_src
 
+原位文字编辑的插入表单调用异步 ~formatOrgLink(LinkValue)~ 。C++ N-API 在工作线程调用 Rust bridge，由 Core 校验并返回 Org 行内链接文本。ArkTS 根据输入控件选区更新现有草稿，结束文字编辑时通过原字段提交。
+
 文件快照的 ~titleParts~ 由 Core 的 ~OrgFile.title_parts()~ 生成，native 文件对象通过 ~titleParts()~ 同步读取；文件列表元信息增加只读 ~titleParts~ 数组。任务快照的 ~headingParts~ 由 ~FilterTask.title_parts()~ 生成，与原始 ~heading~ 同时保留，C++ 为 native Task 定义可枚举只读属性，供列表、规划与编辑页跨路由使用。 ~NativeCoreService~ 导出对应 ~CoreTitlePart~ 类型，宿主只组合显示片段和调用系统打开链接，不解析 Org。
 
 ~LinkView~ 统一处理点击后的平台接入，网页地址使用 ~UIAbilityContext.openLink~ ，邮件和电话使用系统隐式 ~viewData~ Want；坐标和文字地址由控件内部的底部面板展示高德地图与花瓣地图。文字搜索时高德项禁用且点击只提示原因，花瓣使用 Map Kit；坐标地址可选择两项，高德使用 ~amapuri://route/plan~ 参数，花瓣使用 ~geo:~ URI。应用未安装或启动失败时提示，地图面板保留供重试。 ~addr:~ 先转换为 ~geo:0,0?q=...~ ， ~geo:0,0~ 缺少 ~q~ 时不启动地图；显式地址形式如 ~[[geo:39.9042,116.4074][北京市]]~ 与 ~[[addr:北京市朝阳区][北京市朝阳区]]~ 。 ~OrgContentView~ 只把 Web 导航事件转交控件的 ~LinkController~ ，系统打开动作、失败提示和生命周期隔离不再由正文或标题分别实现；阅读页继续禁止加载网络资源、文件或文内脚本，打开链接保留文档和滚动位置。

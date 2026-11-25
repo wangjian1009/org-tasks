@@ -431,6 +431,16 @@ pub extern "C" fn org_tasks_harmony_configuration_yaml(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn org_tasks_harmony_format_org_link(value: *const c_char) -> *mut c_char {
+    string_result(read_c_string(value).and_then(|value| {
+        let link: org_tasks_core::LinkValue = serde_json::from_str(&value)
+            .map_err(|_| CoreError::InvalidInput("链接参数无效"))?;
+        serde_json::to_string(&link.to_org()?)
+            .map_err(|_| CoreError::InvalidState("无法编码 Org 链接"))
+    }))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_default_todo_settings() -> *mut c_char {
     string_result(
         serde_json::to_string(&org_tasks_core::TodoConfig::default().to_settings())

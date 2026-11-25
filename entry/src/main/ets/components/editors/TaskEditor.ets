@@ -33,6 +33,7 @@ import { taskDateIsToday, taskDateText, taskDeadlineColor, taskDeadlineText, tas
 import { TitleText } from '../TitleText'
 import { LinkEditController } from '../LinkView'
 import { CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
+import { DraftLinkAction, DraftLinkSelection } from './DraftLinkAction'
 import { TaskContentEditor } from './TaskContentEditor'
 import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
 import { TaskBlockController } from '../../ui/TaskBlockController'
@@ -180,6 +181,7 @@ export struct TaskEditor {
   private gripX: number = 0
   private gripY: number = 0
   private headingController: TextAreaController = new TextAreaController()
+  private headingSelection: DraftLinkSelection = new DraftLinkSelection()
   private hostWindow: window.Window | undefined = undefined
   private checkFocus: TaskInlineFocus = new TaskInlineFocus(
     (callback: () => void) => { this.getUIContext().postFrameCallback(new ChecklistFocusFrame(callback)) },
@@ -692,7 +694,7 @@ export struct TaskEditor {
       }
       return true
     }
-    if (this.moveBusy) return false
+    if (this.moveBusy || this.headingSelection.busy) return false
     if (collapse && this.moveOpen) this.closeMove()
     this.cancelCheckDrag()
     this.continueCheck = false
@@ -722,13 +724,23 @@ export struct TaskEditor {
   async editHeading() {
     if (this.readOnly || this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.blockEditor.finish() || !await this.linkEditor.finish() || this.snapshotBlocked || this.removed) return
-    if (!this.headingEditing) this.headingBaseline = this.value().heading
+    if (!this.headingEditing) {
+      this.headingBaseline = this.value().heading
+      this.headingSelection.reset()
+    }
     this.headingInput = true
     this.checkFocus.request(`inline_title_${this.ownerKey}`)
   }
 
   async finishHeading() {
+    if (this.headingSelection.busy) return
     if (await this.saveText()) this.headingInput = false
+  }
+
+  private changeHeading(value: string): void {
+    this.heading = value
+    this.headingEditing = true
+    this.headingDirty = value !== this.headingBaseline
   }
 
   async persist(modifications: CoreTaskModification[], sourceVersion?: string): Promise<boolean> {
@@ -1765,13 +1777,20 @@ export struct TaskEditor {
                 color: UiColor.disabled })
               .backgroundColor(Color.Transparent).padding(0).borderRadius(0)
               .enterKeyType(EnterKeyType.Done).onSubmit(() => { TaskInlineSession.end(false) })
-              .onChange((value: string) => { this.heading = value; this.headingEditing = true; this.headingDirty = value !== this.headingBaseline })
+              .onChange((value: string) => { this.changeHeading(value) })
+              .onTextSelectionChange((start: number, end: number): void => { this.headingSelection.update(start, end) })
               .onFocus(() => { this.headingEditing = true; this.inputFocus() })
               .onBlur(() => { this.finishHeading() })
               .onAppear(() => { this.checkFocus.appeared(`inline_title_${this.ownerKey}`) })
               .onDisAppear(() => { this.checkFocus.disappeared(`inline_title_${this.ownerKey}`) })
               .onVisibleAreaChange([0, 1], (visible: boolean) => { if (visible) this.checkFocus.visible(`inline_title_${this.ownerKey}`) })
               .onAreaChange((_old: Area, area: Area): void => { this.locateCancelTitle(area) })
+            DraftLinkAction({ source: this.heading, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
+              inputId: `inline_title_${this.ownerKey}`, editor: this.linkEditor, selection: this.headingSelection,
+              write: (value: string): void => { this.changeHeading(value) },
+              select: (start: number, end: number): void => {
+                this.headingController.setTextSelection(start, end, { menuPolicy: MenuPolicy.HIDE })
+              } })
           } else {
             TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts,
               lineLimit: 1000, openLinks: !this.previewTask,
