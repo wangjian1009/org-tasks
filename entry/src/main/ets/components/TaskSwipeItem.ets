@@ -40,6 +40,9 @@ export struct TaskSwipeItem {
   @BuilderParam menuContent: (activate: (action: TaskOperation) => void) => void = this.swipeMenu
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop contentHidden: boolean = false
+  @Prop addContentRequest: number = 0
+  @Prop canAddContent: boolean = false
+  addContent: () => void = () => {}
   @Prop includeStructureActions: boolean = false
   @Prop shortActionLabels: boolean = false
   @Prop attentionRequested: boolean = false
@@ -290,6 +293,8 @@ export struct TaskSwipeItem {
       const refactor = this.structureActions(this.canOrderChildren).find(item => item.title === '重构')
       if (refactor) items.unshift({ id: TaskOperation.Refactor, title: refactor.title, label: '重构任务', icon: refactor.icon!,
         action: (): void => { close?.(); refactor.action() } })
+      if (this.canAddContent) items.unshift({ id: 'addContent', title: '添加内容', label: '添加任务内容', icon: $r('app.media.ui_add'),
+        action: (): void => { close?.(); if (!this.blocked()) this.addContent() } })
       return items
     }
     return this.selection ? taskSwipeMenu(taskActionPolicy({ singleOperations: this.singleOperations }), activate, this.toggleStateCategory, this.toggleWaitCategory) :
@@ -323,6 +328,7 @@ export struct TaskSwipeItem {
     TaskEditor({ dataSet: this.dataSet, taskId: this.taskId, controller,
       internalLinkProcessor: this.internalLinkProcessor,
       contentHidden: this.contentHidden, hiddenTags: this.hiddenTags, instanceKey: this.instanceKey,
+      documentContent: this.includeStructureActions, addContentRequest: this.addContentRequest,
       structureActions: this.structureActions, canOrderChildren: this.canOrderChildren,
       includeStructureActions: this.includeStructureActions, shortActionLabels: this.shortActionLabels,
       readOnly: this.readOnly, attentionRequested: this.attentionRequested, attentionStarted: this.attentionStarted,

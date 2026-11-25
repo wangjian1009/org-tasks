@@ -7,6 +7,7 @@ import { OrgFileTaskSection } from './OrgFileTaskSection'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { UiColor } from '../ui/Theme'
 import { TitleText } from './TitleText'
+import { TaskEditor } from './editors/TaskEditor'
 import { priorityColor, priorityBackground, priorityLabel } from '../ui/TaskPriorityPresentation'
 import { OrgFileHeader, OrgFileHeaderNavigation } from './OrgFileHeader'
 import { CoreFileHeaderEntry, CoreFileHeaderValueChange, CoreTaskPath } from '../services/NativeCoreService'
@@ -544,8 +545,14 @@ export struct OrgFileDocumentView {
               Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
             }
             if (section.node && this.readOnly) {
-              TitleText({ text: section.node.heading, parts: section.node.headingParts, textSize: 17, weight: FontWeight.Medium })
-                .width('100%').padding({ left: Math.min(section.node.level - 1, 4) * 12, top: 8 })
+              if (section.node.state) {
+                TaskEditor({ previewTask: section.node, readOnly: true, titleOnly: true, previewTitleLinks: true,
+                  internalLinkProcessor: this.internalLinkProcessor })
+                  .width('100%').padding({ left: Math.min(section.node.level - 1, 4) * 12, top: 8 })
+              } else {
+                TitleText({ text: section.node.heading, parts: section.node.headingParts, textSize: 17, weight: FontWeight.Medium })
+                  .width('100%').padding({ left: Math.min(section.node.level - 1, 4) * 12, top: 8 })
+              }
               if (section.blocks.length > 0) {
                 OrgFileSectionBody({ task: null, blocks: section.blocks, contentTree: section.contentTree, internalLinkProcessor: this.internalLinkProcessor })
                   .width('100%')

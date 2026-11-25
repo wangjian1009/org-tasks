@@ -1,4 +1,4 @@
-import { UiColor } from './Theme'
+import { UiColor, UiSize } from './Theme'
 
 // 输入是 Core 生成的安全 HTML 片段，宿主只负责阅读版式和主题。
 export function orgDocumentPage(fragment: string, empty: boolean, embedded: boolean = false,
@@ -150,16 +150,16 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .task-note-body > :last-child { margin-bottom: 0; }
 .project-reading { line-height: 1.75; padding: 16px 24px 60px; }
 .embedded.project-reading { padding: 0; max-width: none; }
-/* 原生项目区块的段距由 Core 边界决定，单段 WebView 不再叠加 margin 或最小行高。 */
-.embedded.project-reading.embedded-section { display: flow-root; font: 16px/26px sans-serif; }
+/* 正文区块的段距由共享控件计算，WebView 使用相同的字号和行高。 */
+.embedded.project-reading.embedded-section { display: flow-root; font: ${UiSize.paragraphFont}px/${UiSize.paragraphLineHeight}px sans-serif; }
 .embedded.project-reading.embedded-section > p,
 .embedded.project-reading.embedded-section > main > section > p { margin: 0; }
 .embedded.project-reading.embedded-section > :first-child,
 .embedded.project-reading.embedded-section > main > section > :first-child { margin-top: 0; }
 .embedded.project-reading.embedded-section > :last-child,
 .embedded.project-reading.embedded-section > main > section > :last-child { margin-bottom: 0; }
-.embedded.project-reading.embedded-section ul, .embedded.project-reading.embedded-section ol { padding-left: 24px; margin: 0; }
-.embedded.project-reading.embedded-section li { padding-left: 4px; margin: 6px 0; }
+.embedded.project-reading.embedded-section ul, .embedded.project-reading.embedded-section ol { padding-left: ${UiSize.listMarkerWidth}px; margin: 0; }
+.embedded.project-reading.embedded-section li { padding-left: ${UiSize.listMarkerGap}px; margin: 4px 0; font-size: ${UiSize.listItemFont}px; line-height: ${UiSize.listItemLineHeight}px; }
 .embedded.project-reading.embedded-section li:first-child { margin-top: 0; }
 .embedded.project-reading.embedded-section li:last-child { margin-bottom: 0; }
 .embedded.project-reading.embedded-section li::marker { color: ${UiColor.secondary}; font-variant-numeric: tabular-nums; }
@@ -167,7 +167,7 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .embedded.project-reading.embedded-section li > dl > dt { font-weight: 600; color: ${UiColor.text}; }
 .embedded.project-reading.embedded-section li > dl > dd { margin-left: 0; }
 .embedded.project-reading.embedded-section li > p { margin: 0; }
-.embedded.project-reading.embedded-section li > ul, .embedded.project-reading.embedded-section li > ol { margin: 6px 0 0; padding-left: 20px; }
+.embedded.project-reading.embedded-section li > ul, .embedded.project-reading.embedded-section li > ol { margin: 4px 0 0; padding-left: ${UiSize.listIndent}px; }
 .project-reading dt { color: #AEACA9; font-weight: 400; }
 .project-reading dd { margin: 0; min-width: 0; }
 .project-reading .heading { margin: 28px 0 0; scroll-margin-top: 18px; }

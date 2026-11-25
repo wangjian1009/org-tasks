@@ -1,9 +1,9 @@
-import { CoreTask, CoreContentBlock, CoreContentNode, CoreTaskModification } from '../services/NativeCoreService'
+import { CoreTask, CoreContentBlock, CoreContentNode } from '../services/NativeCoreService'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
-import { TaskDocumentContent } from './editors/TaskDocumentContent'
+import { TaskContentEditor } from './editors/TaskContentEditor'
 import { TaskEditor } from './editors/TaskEditor'
 import { DataSet } from '../services/DataSet'
-import { UiColor } from '../ui/Theme'
+import { UiColor, UiSize } from '../ui/Theme'
 
 // 装饰线作为不参与命中的独立子节点，按正文实测高度收尾。
 @Component
@@ -12,14 +12,13 @@ export struct OrgFileSectionBody {
   taskId: string = ''
   scrollHost: Scroller | undefined = undefined
   scrollHostId: string = ''
-  modify: (task: CoreTask, changes: CoreTaskModification[]) => Promise<CoreTask> = async (): Promise<CoreTask> => { throw new Error('未提供项目数据管理接口') }
-  readTask: (() => CoreTask | undefined) | undefined = undefined
   @Prop task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
   @Prop contentTree: CoreContentNode[] | undefined = undefined
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
-  @Prop contentRevision: string = ''
   @Prop contentBackground: string = UiColor.surface
+  @Prop documentContent: boolean = false
+  @Prop addContentRequest: number = 0
   @State bodyHeight: number = 0
 
   @Builder
@@ -37,13 +36,13 @@ export struct OrgFileSectionBody {
       Column() {
         if (this.dataSet && this.task) {
           TaskEditor({ dataSet: this.dataSet, taskId: this.taskId, bodyOnly: true, instanceKey: `body:${this.taskId}`,
+            documentContent: this.documentContent, addContentRequest: this.addContentRequest,
             internalLinkProcessor: this.internalLinkProcessor, scrollHost: this.scrollHost, scrollHostId: this.scrollHostId }).width('100%')
         } else {
-          TaskDocumentContent({ modify: this.modify, readTask: this.readTask, internalLinkProcessor: this.internalLinkProcessor, task: this.task,
-            scrollHost: this.scrollHost, scrollHostId: this.scrollHostId,
-            blocks: this.blocks, contentTree: this.contentTree, contentRevision: this.contentRevision, readonly: this.task === null, projectReading: true, contentBackground: this.contentBackground }).width('100%')
+          TaskContentEditor({ internalLinkProcessor: this.internalLinkProcessor, blocks: this.blocks, contentTree: this.contentTree,
+            readonly: true, horizontalParentFirst: false, contentBackground: this.contentBackground }).width('100%')
         }
-      }.width('100%').padding({ left: this.task ? (this.task.state ? 28 : 8) : 0 })
+      }.width('100%').padding({ left: this.task ? (this.task.state ? UiSize.taskBodyIndent : 12) : 0 })
         .onAreaChange((_old: Area, area: Area): void => { this.bodyHeight = Math.max(0, Number(area.height)) })
     }.width('100%')
   }

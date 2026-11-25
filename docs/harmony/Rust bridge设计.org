@@ -714,7 +714,7 @@ Core 的 ~TaskEditContent.blocks~ 和 ~DocumentSection.blocks~ 原样透传为 ~
 
 区块修改使用既有 ~Workspace.executeTaskOperations~ ， ~TaskModification.field~ 为 ~CONTENT_BLOCK~ ，值为 ~{ type: 'replace', id, source }~ 或 ~{ type: 'link', id, link, value }~ 。整块替换覆盖四类区块，空原文删除当前区块，checkbox 统计由 Core 在同一事务内更新；单项清单操作继续使用结构化接口。区块移动使用 ~{ type: 'move', id, beforeId }~ ，参数随现有操作组原样送到 Core。移动必须使用选择时的文件版本。参数形状与 N-API 编组保持一致。任务列表与完整项目文件中的节点均提交原文件版本，不以新快照替换旧位置身份。写入、范围验证、链接生成、原换行适配与字节保真统一在 Core 执行，UI 只保存草稿并处理错误。
 
-~TaskContentEditor~ 使用共用的 ~TaskBlockView~ 提供正文区块原位编辑，以 ~TaskNativeContent~ 递归展示正文树，清单项复用 ~TaskChecklistBlock~ 。 ~readonly~ 只关闭修改入口和操作，阅读布局保持一致；项目中的任务正文与其他任务列表共用 ~TaskEditor.bodyBlocks~ 和相同的 DataSet 写入逻辑，普通章节通过 ~TaskDocumentContent~ 接入，文件前言只读。
+~TaskContentEditor~ 使用共用的 ~TaskBlockView~ 提供正文区块原位编辑，以 ~TaskNativeContent~ 递归展示正文树，清单项复用 ~TaskChecklistBlock~ 。 ~readonly~ 只关闭修改入口和操作，阅读布局保持一致；普通章节、项目任务和其他任务列表的正文共用 ~TaskEditor.bodyBlocks~ 和 DataSet 写入逻辑。文件导言和备份正文以只读模式接入共享正文控件。
 
 共享正文控件先比较区块列表，未变化节点重用原引用，控件身份独立于数组索引；区块原文改变时仅更新相应子控件，定位与版本继续用于写入校验。正文 WebView 仅在片段变化时重新加载，不因文件版本推进重载相同内容；链接编辑仍取得真实版本。嵌套逻辑树的新增投影另见 [[file:TaskContentEditor设计.org][TaskContentEditor 设计]]，该 Core 接口扩展尚未确认。
 

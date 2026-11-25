@@ -60,10 +60,14 @@ export struct TaskEditor {
   @Prop readOnly: boolean = false
   @Prop previewTask: CoreTask | undefined = undefined
   @Prop titleOnly: boolean = false
+  @Prop previewTitleLinks: boolean = false
   @Prop bodyOnly: boolean = false
   previewExpanded: () => void = () => {}
   @Prop logShowPolicy: LogShowPolicy = LogShowPolicy.LogShowBySwitch
   @Prop contentHidden: boolean = false
+  @Prop documentContent: boolean = false
+  @Prop @Watch('addContentRequested') addContentRequest: number = 0
+  @State contentMenuRequest: number = 0
   @Prop includeStructureActions: boolean = false
   @Prop shortActionLabels: boolean = false
   @Prop @Watch('attentionChanged') attentionRequested: boolean = false
@@ -645,11 +649,20 @@ export struct TaskEditor {
   }
   async toggle() {
     if (this.expanded) { await this.finish(true); return }
+    await this.expand()
+  }
+  private async expand(): Promise<void> {
     if (!this.previewTask && !await this.prepare()) return
     this.logbookExpanded = false
     this.referenceTime = Date.now()
     if (this.previewTask) this.previewExpanded()
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = true })
+  }
+  async addContentRequested(): Promise<void> {
+    const request = this.addContentRequest
+    if (!request || this.bodyOnly || this.contentHidden || this.readOnly || this.working || this.snapshotBlocked) return
+    if (!this.expanded) await this.expand()
+    if (this.expanded && request === this.addContentRequest) this.contentMenuRequest = request
   }
   private collapseAnimated(): void {
     this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseInOut }, () => { this.expanded = false })
@@ -768,6 +781,7 @@ export struct TaskEditor {
     if (!await this.blockEditor.finish() || !await this.linkEditor.finish()) return false
     await this.pending
     if (this.removed) return false
+    if (this.bodyOnly) return true
     if (!this.heading.trim()) { this.message = '标题不能为空'; return false }
     const modifications: CoreTaskModification[] = []
     if (this.headingDirty && this.heading !== this.value().heading) modifications.push({ field: 'TITLE', value: this.heading })
@@ -780,7 +794,24 @@ export struct TaskEditor {
   }
   linkEditingChanged(editing: boolean) {
     this.linkEditing = editing
+    if (editing) {
+      this.inputFocus()
+      if (this.bodyOnly) this.prepare().then((): void => { this.releaseBodySession() })
+    } else {
+      this.releaseBodySession()
+    }
+  }
+  private releaseBodySession(): void {
+    if (this.bodyOnly && !this.working && !this.blockEditing && !this.linkEditing && !this.blockSaving && !this.linkSaving &&
+      !this.checkId && !this.addingCheck && !this.checkSaving) {
+      this.typing = false
+      TaskInlineSession.release(this.ownerKey)
+    }
+  }
+  private bodyEditingChanged(editing: boolean): void {
+    this.blockEditing = editing
     if (editing) this.inputFocus()
+    else this.releaseBodySession()
   }
   linksEditable(): boolean {
     return (this.expanded || this.bodyOnly) && !this.readOnly && !this.snapshotBlocked
@@ -840,14 +871,16 @@ export struct TaskEditor {
     if (this.readOnly) return
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     if (!await this.prepare()) return
-    const id = change.type === 'add' ? '' : change.id
-    const index = this.listItems().findIndex(item => item.id === id)
-    const version = this.value().fileVersion
-    if (!await this.saveText() || !await this.saveCheck(false) || version !== this.value().fileVersion) return
-    const current = this.listItems()[index]
-    if (change.type === 'setChecked' && current) change = { type: 'setChecked', id: current.id, checked: change.checked }
-    else if (change.type === 'remove' && current) change = { type: 'remove', id: current.id }
-    await this.persist([{ field: 'CHECKLIST', value: change }])
+    try {
+      const id = change.type === 'add' ? '' : change.id
+      const index = this.listItems().findIndex(item => item.id === id)
+      const version = this.value().fileVersion
+      if (!await this.saveText() || !await this.saveCheck(false) || version !== this.value().fileVersion) return
+      const current = this.listItems()[index]
+      if (change.type === 'setChecked' && current) change = { type: 'setChecked', id: current.id, checked: change.checked }
+      else if (change.type === 'remove' && current) change = { type: 'remove', id: current.id }
+      await this.persist([{ field: 'CHECKLIST', value: change }])
+    } finally { this.releaseBodySession() }
   }
   async editCheck(item: CoreTaskChecklistItem) {
     if (this.readOnly) return
@@ -855,9 +888,15 @@ export struct TaskEditor {
     if (!await this.prepare()) return
     const index = this.listItems().findIndex(current => current.id === item.id)
     const version = this.value().fileVersion
-    if (!await this.saveText() || !await this.saveCheck(false) || version !== this.value().fileVersion) return
+    if (!await this.saveText() || !await this.saveCheck(false) || version !== this.value().fileVersion) {
+      this.releaseBodySession()
+      return
+    }
     const current = this.listItems()[index]
-    if (!current) return
+    if (!current) {
+      this.releaseBodySession()
+      return
+    }
     this.addingCheck = false; this.checkAfter = ''
     this.checkId = current.id; this.checkText = current.text
     this.checkFocus.request(`inline_check_${current.id}`)
@@ -867,8 +906,10 @@ export struct TaskEditor {
     if (this.working || this.draggingCheck || this.snapshotBlocked) return
     const version = this.value().fileVersion
     if (!await this.prepare()) return
-    if (!await this.saveText() || !await this.saveCheck(false)) return
-    if (after && version !== this.value().fileVersion) return
+    if (!await this.saveText() || !await this.saveCheck(false) || (after && version !== this.value().fileVersion)) {
+      this.releaseBodySession()
+      return
+    }
     this.checkAfter = after || this.value().editContent.checklist.filter(item => item.depth === 0).pop()?.id || ''
     this.addingCheck = true
     this.checkFocus.request(`inline_new_check_${this.ownerKey}`)
@@ -1427,8 +1468,9 @@ export struct TaskEditor {
         if (!this.titleOnly) { this.priorityBadge() }
         Column({ space: 2 }) {
           TitleText({ internalLinkProcessor: this.internalLinkProcessor, text: this.value().heading, parts: this.value().headingParts,
-            editable: false, openLinks: !this.titleOnly && !this.previewTask,
-            lineLimit: 1, lineHeight: UiSize.taskTitleLineHeight, showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
+            editable: false, openLinks: this.previewTitleLinks || !this.titleOnly && !this.previewTask,
+            lineLimit: this.previewTitleLinks ? 0 : 1, lineHeight: UiSize.taskTitleLineHeight,
+            showCounts: false, cancelled: (this.value().state?.category === TaskStateCategory.Cancel),
             activate: (): void => { this.toggleFromCompact() } })
             .width('100%').constraintSize({ minWidth: 0 })
             .onAreaChange((_old: Area, area: Area): void => { this.locateCancelTitle(area) })
@@ -1521,9 +1563,9 @@ export struct TaskEditor {
           .padding({ left: this.value().state === null ? (this.leadingTime() ? 0 : 8) : 6, right: 8 })
           .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
           .onClick((): void => { if (!LinkEditController.interactionProtected()) this.toggleFromCompact() })
-        if (this.includeStructureActions && this.canOrderChildren) {
+      if (this.includeStructureActions && this.canOrderChildren) {
           PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '节点操作', iconSize: 20,
-            buttonWidth: 44, buttonHeight: 44, items: this.structureActions(this.canOrderChildren),
+            buttonWidth: 44, buttonHeight: 44, items: this.structureMenuItems(),
             disabled: this.working || this.snapshotBlocked })
         }
     }.width('100%').constraintSize({ minHeight: UiSize.taskRow })
@@ -1608,7 +1650,7 @@ export struct TaskEditor {
       tree: this.tree()?.find(node => node.id === this.checkBlock(index()).id), revision: this.value().fileVersion,
       processor: this.contentLinks(), editor: this.blockEditor, linkEditor: this.linkEditor,
       beginNode: (): Promise<boolean> => this.beginBlock(this.checkBlock(index())), writeNode: change => this.writeContentNode(change),
-      editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (editing) this.inputFocus() },
+      editingChanged: (editing: boolean): void => { this.bodyEditingChanged(editing) },
       linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) },
       disabled: this.working || this.snapshotBlocked, editingId: this.checkId, editingText: this.checkText,
       adding: this.addingCheck && (this.checkAfter ? this.checkBlock(index()).items.some(item => item.id === this.checkAfter) :
@@ -1623,7 +1665,7 @@ export struct TaskEditor {
       editChanged: (text: string): void => { this.checkText = text },
       newChanged: (text: string): void => { this.newCheck = text },
       save: (next: boolean, id: string): void => {
-        if (id ? id === this.checkId : this.addingCheck) this.saveCheck(next)
+        if (id ? id === this.checkId : this.addingCheck) this.saveCheck(next).finally((): void => { this.releaseBodySession() })
       },
       remove: (item: CoreTaskChecklistItem): void => { this.changeCheck({ type: 'remove', id: item.id }) },
       add: (): void => { this.addCheck(this.checkBlock(index()).items.filter(item => item.depth === 0).pop()?.id ?? '') },
@@ -1643,22 +1685,32 @@ export struct TaskEditor {
   async beginBlock(block: CoreContentBlock): Promise<boolean> {
     if (this.readOnly || this.snapshotBlocked || this.working || this.draggingCheck) return false
     const version = this.value().fileVersion
-    if (!await this.prepare() || !await this.saveText() || !await this.saveCheck(false) || version !== this.value().fileVersion) return false
-    return this.value().editContent.blocks.some((current: CoreContentBlock): boolean => current.id === block.id && current.source === block.source)
+    const ready = await this.prepare() && await this.saveText() && await this.saveCheck(false) &&
+      version === this.value().fileVersion &&
+      this.value().editContent.blocks.some((current: CoreContentBlock): boolean => current.id === block.id && current.source === block.source)
+    if (!ready) this.releaseBodySession()
+    return ready
   }
 
   async saveBlock(block: CoreContentBlock, source: string): Promise<boolean> {
+    return await this.saveBlockChange({ field: 'CONTENT_BLOCK', value: { type: 'replace', id: block.id, source } })
+  }
+
+  private async saveBlockChange(change: CoreTaskModification): Promise<boolean> {
     if (this.readOnly || this.snapshotBlocked) return false
     this.blockSaving = true
-    try { return await this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'replace', id: block.id, source } }], this.value().fileVersion) && !this.snapshotBlocked }
+    try { return await this.persist([change], this.value().fileVersion) && !this.snapshotBlocked }
     finally { this.blockSaving = false }
   }
 
   async changeBlockLink(block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
     if (!this.linksEditable()) throw new Error('请展开可编辑任务后再修改链接')
+    const version = this.value().fileVersion
+    if (this.bodyOnly && !TaskInlineSession.owns(this.ownerKey) && !await this.prepare()) throw new Error('请先结束当前编辑')
     this.linkSaving = true
     try {
-      if (!await this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'link', id: block.id, link, value } }]) || this.snapshotBlocked) {
+      if (!await this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'link', id: block.id, link, value } }],
+        this.bodyOnly ? version : undefined) || this.snapshotBlocked) {
         throw new Error(this.message || '修改链接失败，请重试')
       }
     } finally { this.linkSaving = false }
@@ -1667,24 +1719,27 @@ export struct TaskEditor {
   @Builder
   bodyBlocks() {
     TaskContentEditor({ internalLinkProcessor: this.contentLinks(), blocks: this.value().editContent.blocks, contentTree: this.tree(),
+      showEmptyPrompt: !this.documentContent, addMenuRequest: this.bodyOnly ? this.addContentRequest : this.contentMenuRequest,
+      addMenuOpened: (): void => { this.contentMenuRequest = 0 },
+      saveFirstChecklist: (text: string): Promise<boolean> => this.saveBlockChange({ field: 'CHECKLIST', value: { type: 'add', text } }),
       writeNode: change => this.writeContentNode(change), toggle: change => { this.changeCheck(change) },
       addChecklistItem: (after: string): void => { this.addCheck(after) },
       beginEmpty: async (): Promise<boolean> => await this.prepare() && await this.saveText() && await this.saveCheck(false)
-        && this.value().editContent.blocks.length === 0, readonly: this.readOnly, interactiveLists: true,
-      projectReading: this.bodyOnly,
+        && this.value().editContent.blocks.length === 0, readonly: this.readOnly, horizontalParentFirst: !this.bodyOnly,
       checklistEditing: this.checkId !== '' || this.addingCheck,
       disabled: this.working || this.snapshotBlocked || this.draggingCheck,
       revision: this.value().fileVersion, moveVersion: this.value().fileVersion, ownerKey: this.ownerKey,
       scrollHost: this.scrollHost, scrollHostId: this.scrollHostId,
       moveContent: (id: string, beforeId: string | null, version: string): Promise<boolean> =>
         this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'move', id, beforeId } }], version),
+      moveEnded: (): void => { this.releaseBodySession() },
       contentBackground: '#00000000',
       editor: this.blockEditor, linkEditor: this.linkEditor,
       checklist: (index: () => number): void => { this.checklistBlock(index) },
       begin: (block: CoreContentBlock): Promise<boolean> => this.beginBlock(block),
       save: (block: CoreContentBlock, source: string): Promise<boolean> => this.saveBlock(block, source),
       changeLink: (block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeBlockLink(block, link, value),
-      editingChanged: (editing: boolean): void => { this.blockEditing = editing; if (editing) this.inputFocus() },
+      editingChanged: (editing: boolean): void => { this.bodyEditingChanged(editing) },
       linkEditingChanged: (editing: boolean): void => { this.linkEditingChanged(editing) } }).width('100%')
     if (!this.readOnly && this.addingCheck && !this.checkAfter && this.value().editContent.checklist.length === 0) {
       this.checklistBlock((): number => -1)
@@ -1775,7 +1830,7 @@ export struct TaskEditor {
       }
       this.logbookNotes()
       this.bodyError()
-    }.width('100%').padding({ left: 27 })
+    }.width('100%').padding({ left: UiSize.taskBodyIndent })
   }
 
   @Builder
@@ -1804,8 +1859,7 @@ export struct TaskEditor {
       items: this.moreItems() })
   }
   moreItems(): PopupMenuItem[] {
-    const items: PopupMenuItem[] = this.includeStructureActions ?
-      this.structureActions(this.canOrderChildren).filter(item => item.title !== '重构') : []
+    const items = this.structureMenuItems()
     if (!this.readOnly) {
       items.push({ title: this.shortActionLabels ? '备注' : '备注…', icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
         { title: this.shortActionLabels ? '优先' : '优先级…', icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })
@@ -1820,6 +1874,10 @@ export struct TaskEditor {
         action: () => { this.logbookExpanded = !this.logbookExpanded } })
     }
     return items
+  }
+  private structureMenuItems(): PopupMenuItem[] {
+    return this.includeStructureActions ? this.structureActions(this.canOrderChildren)
+      .filter(item => item.title === '移动' || item.title === '排序') : []
   }
   @Builder
   reminderLine() {
@@ -1923,7 +1981,7 @@ export struct TaskEditor {
         }.width('100%')
       }
       this.logbookNotes()
-    }.width('100%').padding({ left: 27 })
+    }.width('100%').padding({ left: UiSize.taskBodyIndent })
   }
 
   @Builder
@@ -1942,7 +2000,8 @@ export struct TaskEditor {
         Row({ space: 6 }) {
           this.stateIndicator()
           this.compactTitle()
-        }.width('100%').padding({ left: 8 }).hitTestBehavior(HitTestMode.None)
+        }.width('100%').padding({ left: 8 })
+          .hitTestBehavior(this.previewTitleLinks ? HitTestMode.Default : HitTestMode.None)
       } else if (this.expanded) {
         Column() {
           Column({ space: 8 }) {

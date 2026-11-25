@@ -17,13 +17,15 @@ export struct TaskBlockView {
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
   @Prop block: CoreContentBlock
   @Prop @Watch('readonlyChanged') readonly: boolean = false
-  @Prop projectReading: boolean = false
+  @Prop horizontalParentFirst: boolean = true
   @Prop disabled: boolean = false
   @Prop revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
   @Prop ownerKey: string = ''
   @Prop placeholder: string = '文本'
   @Prop emptyBody: boolean = false
+  @Prop showEmptyPrompt: boolean = true
+  @Prop @Watch('addMenuRequested') addMenuRequest: number = 0
   @Prop @Watch('followRequested') followRequest: number = 0
   @Prop nativeChecklist: boolean = false
   @Prop checklistEditing: boolean = false
@@ -42,6 +44,8 @@ export struct TaskBlockView {
   changeLink: ((block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   editingChanged: (editing: boolean) => void = () => {}
   linkEditingChanged: (editing: boolean) => void = () => {}
+  openAddMenu: (request: number, y: number) => boolean = () => false
+  saveFirstChecklist: (text: string) => Promise<boolean> = async () => false
   @State editing: boolean = false
   @State draft: string = ''
   @State saving: boolean = false
@@ -53,6 +57,7 @@ export struct TaskBlockView {
   @State menuWidth: number = 320
   private menuBlock: CoreContentBlock | undefined = undefined
   private menuRevision: string = ''
+  private menuAddsContent: boolean = false
   private preparing: boolean = false
   private original: CoreContentBlock | undefined = undefined
   private editRevision: string = ''
@@ -70,6 +75,7 @@ export struct TaskBlockView {
     this.alive = true
     this.inputKey = `block_${this.ownerKey}_${this.getUniqueId()}`
     this.followRequested()
+    this.addMenuRequested()
   }
   aboutToDisappear() {
     this.alive = false
@@ -119,10 +125,23 @@ export struct TaskBlockView {
     await this.edit()
   }
 
-  openMenu(x: number) {
+  addMenuRequested(): void {
+    const request = this.addMenuRequest
+    if (!request || this.readonly || this.disabled) return
+    const context = this.getUIContext()
+    context.postFrameCallback(new ChecklistFocusFrame((): void => {
+      if (!this.alive || this.addMenuRequest !== request || this.readonly || this.disabled ||
+        this.editing || this.checklistEditing || this.saving || this.preparing) return
+      const anchor = context.getFrameNodeById(`${this.inputKey}_block`)
+      if (anchor && this.openAddMenu(request, anchor.getPositionToWindow().y)) this.openMenu(0, true)
+    }))
+  }
+
+  openMenu(x: number, addingContent: boolean = false) {
     if (!this.alive || this.disabled || this.editing || this.checklistEditing || this.saving || this.preparing) return
     LinkEditController.protectInteraction()
     this.menuBlock = this.block; this.menuRevision = this.revision
+    this.menuAddsContent = addingContent
     this.menuX = Math.max(0, x)
     this.menuTopSpace = 0
     try {
@@ -179,6 +198,7 @@ export struct TaskBlockView {
   }
 
   menuItems(): TaskActionItem[] {
+    if (this.emptyBody) return this.addItems()
     const items: TaskActionItem[] = [{ id: 'copy', title: '拷贝', label: '拷贝区块',
       icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected() } }]
     if (!this.readonly) {
@@ -189,24 +209,31 @@ export struct TaskBlockView {
         items.push({ id: 'move', title: '移动', label: '移动区块',
           icon: $r('app.media.ui_move_to'), action: (): void => { this.moveSelected() } })
       }
-      if (this.insertBelow) {
-        items.push({ id: 'add_paragraph', title: '段落', label: '在下方添加段落', icon: $r('app.media.ui_body'), action: (): void => {
-          if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision, 'paragraph')
-        } })
-        items.push({ id: 'add_list', title: '列表', label: '在下方添加列表', icon: $r('app.media.ui_task_list'), action: (): void => {
-          if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision, 'list')
-        } })
-      }
+      if (this.insertBelow || this.menuAddsContent) items.push(...this.addItems())
       items.push({ id: 'delete', title: '删除', label: '删除区块', icon: $r('app.media.ui_delete'),
         style: 'danger', action: (): void => { this.deleteSelected() } })
     }
     return items
   }
 
+  private addItems(): TaskActionItem[] {
+    return [
+      { id: 'add_paragraph', title: '段落', label: this.emptyBody ? '添加段落' : '在下方添加段落',
+        icon: $r('app.media.ui_body'), action: (): void => {
+          if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision, 'paragraph')
+        } },
+      { id: 'add_list', title: '列表', label: this.emptyBody ? '添加列表' : '在下方添加列表',
+        icon: $r('app.media.ui_task_list'), action: (): void => {
+          if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision, 'list')
+        } }
+    ]
+  }
+
   private editedSource(block: CoreContentBlock): string {
     if (!this.adding) return this.draft
     const draft = this.addingList ? this.draft.replace(/[\r\n]+/g, ' ').trim() : this.draft.replace(/[\r\n]+$/, '')
     if (!draft.trim()) return block.source
+    if (this.emptyBody) return draft
     const afterList = block.kind === 'list' || block.kind === 'checklist'
     const separator = this.addingList && afterList ? '\n\n\n' : '\n\n'
     const next = this.nextBlock
@@ -224,7 +251,8 @@ export struct TaskBlockView {
     const block = this.original
     const source = this.editedSource(block)
     this.saving = true
-    this.pending = source === block.source ? Promise.resolve(true) : this.save(block, source)
+    this.pending = source === block.source ? Promise.resolve(true) :
+      this.emptyBody && this.addingList ? this.saveFirstChecklist(source) : this.save(block, source)
     try {
       if (!await this.pending) return false
       if (this.alive) { this.editing = false; this.editingChanged(false) }
@@ -299,7 +327,7 @@ export struct TaskBlockView {
         }))
     } else {
       OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: this.block.html, revision: this.revision, reloadOnRevision: false, embedded: true, embeddedPadding: 0,
-        projectReading: this.projectReading, horizontalParentFirst: !this.projectReading,
+        bodyBlock: true, horizontalParentFirst: this.horizontalParentFirst,
         editable: !this.readonly && !this.disabled && this.changeLink !== undefined,
         linkEditor: this.linkEditor, linkEditingChanged: this.linkEditingChanged,
         changeLink: this.changeLink ? (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink!(this.block, link, value) : undefined,
@@ -314,7 +342,10 @@ export struct TaskBlockView {
       TextArea({ text: this.draft, controller: this.inputController,
         placeholder: this.adding ? '段落' : this.placeholder })
         .id(this.inputKey).defaultFocus(true)
-        .width('100%').height('auto').minLines(1).maxLines(1000).fontSize(14).fontColor(UiColor.text)
+        .width('100%').height('auto').minLines(1).maxLines(1000)
+        .fontSize(this.emptyBody || this.adding || this.block.paragraph ? UiSize.paragraphFont : 14)
+        .lineHeight(this.emptyBody || this.adding || this.block.paragraph ? UiSize.paragraphLineHeight : 0)
+        .fontColor(UiColor.text)
         .backgroundColor(Color.Transparent).padding(0).borderRadius(0).enabled(!this.readonly && !this.saving && !this.disabled)
         .enterKeyType(this.emptyBody || this.adding || this.block.paragraph ? EnterKeyType.Next : EnterKeyType.NEW_LINE)
         .onSubmit((key: EnterKeyType, event: SubmitEvent): void => {
@@ -341,11 +372,11 @@ export struct TaskBlockView {
     Column({ space: 4 }) {
       if (this.editing && !this.adding) {
         this.input()
-      } else if (this.emptyBody) {
+      } else if (this.emptyBody && this.showEmptyPrompt) {
         Text('添加正文').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
           .enabled(!this.readonly && !this.disabled)
           .onClick((): void => { this.editCurrent() })
-      } else {
+      } else if (!this.emptyBody) {
         this.reading()
       }
       if (this.editing && this.adding) {

@@ -1,4 +1,4 @@
-import { TaskContentSlot, contentDragScrollSpeed, reconcileTaskContent } from '../../ui/TaskContentPresentation'
+import { TaskContentSlot, contentDragScrollSpeed, reconcileTaskContent, taskContentGap } from '../../ui/TaskContentPresentation'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTextLink, CoreLinkValue, CoreContentNode, CoreContentBlockChange, CoreTaskChecklistChange } from '../../services/NativeCoreService'
 import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
@@ -7,7 +7,6 @@ import { TaskBlockView } from './TaskBlockView'
 import { TaskBlockController } from '../../ui/TaskBlockController'
 import { LinkEditController } from '../LinkView'
 import { UiColor, UiSize } from '../../ui/Theme'
-import { projectContentGap } from '../../ui/OrgFileReadingPresentation'
 
 @Component
 export struct TaskContentEditor {
@@ -24,13 +23,16 @@ export struct TaskContentEditor {
   @Prop contentTree: CoreContentNode[] | undefined = undefined
   @State private followKey: string = ''
   @State private followRequest: number = 0
-  @Prop interactiveLists: boolean = false
   beginEmpty: () => Promise<boolean> = async () => false
+  @Prop showEmptyPrompt: boolean = true
+  @Prop addMenuRequest: number = 0
+  addMenuOpened: () => void = () => {}
+  saveFirstChecklist: (text: string) => Promise<boolean> = async () => false
   writeNode: (change: CoreContentBlockChange) => Promise<void> = async () => {}
   addChecklistItem: (after: string) => void = () => {}
   toggle: (change: CoreTaskChecklistChange) => void = () => {}
   @Prop @Watch('moveContextChanged') readonly: boolean = false
-  @Prop projectReading: boolean = false
+  @Prop horizontalParentFirst: boolean = true
   @Prop checklistEditing: boolean = false
   @Prop @Watch('moveContextChanged') disabled: boolean = false
   @Prop revision: string = ''
@@ -43,6 +45,7 @@ export struct TaskContentEditor {
   begin: (block: CoreContentBlock) => Promise<boolean> = async () => true
   save: (block: CoreContentBlock, source: string) => Promise<boolean> = async () => false
   moveContent: ((id: string, beforeId: string | null, version: string) => Promise<boolean>) | undefined = undefined
+  moveEnded: () => void = () => {}
   changeLink: ((block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   editingChanged: (editing: boolean) => void = () => {}
   linkEditingChanged: (editing: boolean) => void = () => {}
@@ -56,6 +59,7 @@ export struct TaskContentEditor {
   private dragY: number = 0
   private dragScrollTimer: number = -1
   private lastDragScroll: number = 0
+  private handledAddMenu: number = 0
   private emptyBlock: CoreContentBlock = { id: 'root', kind: 'text', paragraph: true, blankLinesBefore: 0, source: '', html: '', items: [] }
 
   aboutToAppear(): void {
@@ -103,10 +107,12 @@ export struct TaskContentEditor {
   }
 
   private cancelMove(): void {
+    const wasMoving = this.movingId !== ''
     this.resetDrag()
     this.movingId = ''
     this.selectedVersion = ''
     this.editor.release(this.moveOwner)
+    if (wasMoving) this.moveEnded()
   }
 
   private canDragBlock(slot: TaskContentSlot): boolean {
@@ -266,6 +272,22 @@ export struct TaskContentEditor {
     } catch (_) { return false }
   }
 
+  private openAddMenu(request: number, y: number): boolean {
+    if (request === this.handledAddMenu || request !== this.addMenuRequest) return false
+    this.handledAddMenu = request
+    const host = this.scrollHostId ? this.getUIContext().getFrameNodeById(this.scrollHostId) : null
+    if (host && this.scrollHost) {
+      const bottom = host.getPositionToWindow().y + this.getUIContext().px2vp(host.getMeasuredSize().height)
+      if (y > bottom - 60) this.scrollHost.scrollBy(0, y - bottom + 60)
+    }
+    this.addMenuOpened()
+    return true
+  }
+
+  private addMenuFor(slot: TaskContentSlot): number {
+    return this.slots[this.slots.length - 1]?.key === slot.key ? this.addMenuRequest : 0
+  }
+
   private validMoveGap(index: number): boolean {
     return !!this.movingId && index >= 0 && index <= this.blocks.length &&
       this.blocks[index]?.id !== this.movingId && this.blocks[index - 1]?.id !== this.movingId
@@ -329,7 +351,7 @@ export struct TaskContentEditor {
   }
 
   build() {
-    Column({ space: this.projectReading ? 0 : 12 }) {
+    Column() {
       if (this.movingId) {
         Row({ space: 8 }) {
           Text(this.savingMove ? '正在移动…' : '拖到目标位置，或点按圆点').fontSize(14).fontColor(UiColor.text).layoutWeight(1)
@@ -339,10 +361,14 @@ export struct TaskContentEditor {
       }
       if (!this.readonly && this.blocks.length === 0) {
         TaskBlockView({ block: this.emptyBlock, emptyBody: true, placeholder: '段落', disabled: this.disabled,
+          showEmptyPrompt: this.showEmptyPrompt, addMenuRequest: this.addMenuRequest,
+          openAddMenu: (request: number, y: number): boolean => this.openAddMenu(request, y),
+          saveFirstChecklist: this.saveFirstChecklist,
           revision: this.revision, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
           begin: (_block: CoreContentBlock): Promise<boolean> => this.beginEmpty(),
           save: (_block: CoreContentBlock, source: string): Promise<boolean> => this.saveFirstParagraph(source),
           followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph('', finish),
+          followChecklist: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingChecklistItem('', finish),
           editingChanged: this.editingChanged }).width('100%')
       }
       ForEach(this.slots, (slot: TaskContentSlot) => {
@@ -351,10 +377,11 @@ export struct TaskContentEditor {
           Row({ space: 8 }) {
             Column() {
               if (this.blockFor(slot).kind === 'checklist' ||
-                (this.interactiveLists && this.blockFor(slot).kind === 'list' && this.blockFor(slot).items.length > 0 &&
+                (this.blockFor(slot).kind === 'list' && this.blockFor(slot).items.length > 0 &&
                   this.treeFor(this.blockFor(slot).id))) {
                 TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled,
-                  revision: this.revision, projectReading: this.projectReading, nativeChecklist: true, checklistEditing: this.checklistEditing,
+                  addMenuRequest: this.addMenuFor(slot), openAddMenu: (request: number, y: number): boolean => this.openAddMenu(request, y),
+                  revision: this.revision, nativeChecklist: true, checklistEditing: this.checklistEditing,
                   contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
                   insertBelow: true, nextBlock: this.blocks[this.indexFor(slot.key) + 1],
                   allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1,
@@ -366,6 +393,7 @@ export struct TaskContentEditor {
                   editingChanged: this.editingChanged }).width('100%')
               } else if (this.treeFor(this.blockFor(slot).id)) {
                 TaskBlockView({ block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled,
+                  addMenuRequest: this.addMenuFor(slot), openAddMenu: (request: number, y: number): boolean => this.openAddMenu(request, y),
                   revision: this.revision, nativeChecklist: true, contentBackground: this.contentBackground, ownerKey: this.ownerKey,
                   insertBelow: this.blockFor(slot).paragraph || this.blockFor(slot).kind === 'list',
                   allowMove: !!this.moveContent && !!this.moveVersion && this.blocks.length > 1 &&
@@ -379,7 +407,8 @@ export struct TaskContentEditor {
                   editor: this.editor, linkEditor: this.linkEditor, nativeContent: (edit: () => void): void => { this.nativeBlock(slot, edit) },
                   begin: this.begin, save: this.save, editingChanged: this.editingChanged }).width('100%')
               } else {
-                TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled, revision: this.revision, projectReading: this.projectReading,
+                TaskBlockView({ internalLinkProcessor: this.internalLinkProcessor, block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled, revision: this.revision, horizontalParentFirst: this.horizontalParentFirst,
+                  addMenuRequest: this.addMenuFor(slot), openAddMenu: (request: number, y: number): boolean => this.openAddMenu(request, y),
                   contentBackground: this.contentBackground, ownerKey: this.ownerKey, editor: this.editor, linkEditor: this.linkEditor,
                   followRequest: this.followKey === slot.key ? this.followRequest : 0,
                   followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
@@ -402,9 +431,8 @@ export struct TaskContentEditor {
             .translate({ y: this.dragSlot === slot.key ? this.dragOffset : 0 })
         }.width('100%').id(`${this.moveOwner}_${slot.key}`).zIndex(this.selectedForMove(slot) ? 1 : 0)
           // 拖动时用负间距腾出原位置，保留区块原有的高度和手势节点。
-          .margin({ top: this.projectReading && !this.movingId ? projectContentGap(this.blocks, this.indexFor(slot.key)) : 0,
-            bottom: this.dragSlot === slot.key ? -this.dragHeight -
-              (this.projectReading || this.indexFor(slot.key) === this.slots.length - 1 ? 0 : 12) : 0 })
+          .margin({ top: this.movingId ? 0 : taskContentGap(this.blocks, this.indexFor(slot.key)),
+            bottom: this.dragSlot === slot.key ? -this.dragHeight : 0 })
           .priorityGesture(PanGesture({ direction: PanDirection.All, distance: 4 }).tag('content_block_drag')
             .onActionStart((event: GestureEvent): void => { this.startBlockDrag(slot, event) })
             .onActionUpdate((event: GestureEvent): void => { this.updateBlockDrag(event) })

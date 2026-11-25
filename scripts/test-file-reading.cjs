@@ -34,6 +34,7 @@ const tagFilter = load(base + 'ui/TaskTagFilterPresentation.ets', {
   './TaskStatePresentation': load(base + 'ui/TaskStatePresentation.ets')
 });
 const projectReading = load(base + 'ui/OrgFileReadingPresentation.ets');
+const taskContent = load(base + 'ui/TaskContentPresentation.ets');
 const projectStructure = load(base + 'ui/OrgFileStructurePresentation.ets');
 const swipeMenus = load(base + 'components/controls/RightSwipe.ets', {}, source => source.split('@Component')[0]);
 const taskActions = load(base + 'ui/TaskActionPresentation.ets');
@@ -41,7 +42,7 @@ const internalLinkProcessors = load(base + 'ui/InternalLinkProcessor.ets');
 const theme = load(base + 'ui/Theme.ets');
 const presentation = load(base + 'ui/OrgDocumentPresentation.ets', { './Theme': theme });
 
-test('项目普通段落区分单空行与多空行，首段和结构区块保持各自间距', () => {
+test('共享正文区分单空行与多空行，首段和结构区块保持各自间距', () => {
   const blocks = [
     { paragraph: true, blankLinesBefore: 3 },
     { paragraph: true, blankLinesBefore: 0 },
@@ -51,7 +52,7 @@ test('项目普通段落区分单空行与多空行，首段和结构区块保�
     { paragraph: false, blankLinesBefore: 1 },
     { paragraph: true, blankLinesBefore: 1 }
   ];
-  assert.deepEqual(blocks.map((_, index) => projectReading.projectContentGap(blocks, index)), [0, 0, 0, 12, 12, 12, 12]);
+  assert.deepEqual(blocks.map((_, index) => taskContent.taskContentGap(blocks, index)), [0, 0, 0, 12, 12, 12, 12]);
 });
 test('项目归档只隐藏后代，保留同级标题；叶任务和父任务正确区分', () => {
   const section = (id, level, archived = false) => ({ key: id, node: {
@@ -482,6 +483,18 @@ test('项目刷新保留同文件阅读位置，新文件版本更新文档与�
   assert.ok(f.page.renderRevision > revision);
 });
 
+test('历史备份有任务节点时仍可在没有编辑数据集的情况下打开', async () => {
+  const { page, file } = projectPageFixture();
+  const path = { repoId: 'core', file: 'project.org', titles: ['备份任务'], occurrence: 1 };
+  const task = { id: 'history-task', fullPath: path, heading: '备份任务', state: { name: 'TODO' } };
+  const backup = { ...file(), nodes: () => [task], documentSections: () => [{ path, blocks: [], linkTargets: [] }] };
+  page.historyLabel = '历史备份';
+  await page.applyFileState({ snapshot: { file: backup, tasks: [task] }, message: '' });
+  assert.equal(page.message, '');
+  assert.equal(page.sections[0].node, task);
+  assert.deepEqual(page.structureOrderParents, []);
+});
+
 test('项目原文切换保留文档状态，刷新失败保留上次全文与错误', async () => {
   const f = projectPageFixture(); await f.page.loadFile(); await new Promise(resolve=>setImmediate(resolve));
   await f.page.toggleSource(); assert.equal(f.page.sourceMode, true);
@@ -901,23 +914,23 @@ test('项目属性变化保留文档结构，新增删除与移动仅更新成�
  const replaced=projectReading.reconcileProjectSections(sections,[a,task('c')],t=>t.id);assert.equal(replaced[1],sections[1]);assert.equal(replaced[2].key,'c');
 });
 
-test('项目章节按稳定任务身份订阅，属性修改保留正文修订，正文变化仅更新当前章节', () => {
- const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);let active=false,listener,stopped=false;
+test('项目章节按稳定任务身份订阅，章节外壳在编辑结束后应用变化', () => {
+ let active=false,listener,stopped=false;
  const {Section}=load(base+'components/OrgFileTaskSection.ets',{
   './TitleText': {},
   './editors/TaskEditor': {},
   './controls/PopupMenuButton': {},
   './TaskSelectionRow': {},
-  '../services/PageDataEquality':{samePageValue:equal},'../services/TaskInlineService':{TaskInlineSession:{active:()=>active}},
+  '../services/TaskInlineService':{TaskInlineSession:{active:()=>active}},
   '../ui/TaskActionPresentation':taskActions,
   '../ui/Theme':theme
  },source=>source.split('  build()')[0].replace(/@Component\n|@Builder\n|@State |@Prop |@StorageLink\('[^']+'\) |@Watch\('[^']+'\) /g,'').replace('export struct OrgFileTaskSection','class Section')+'}\nmodule.exports={Section};');
  const value=(body='正文',extra={})=>({id:'a',heading:'标题',modifiedAt:null,fileVersion:'v1',editContent:{blocks:[{id:'10',kind:'text',source:body,html:'<p>'+body+'</p>',paragraph:true,blankLinesBefore:0,items:[]}]},...extra});
  const source={task:value(),monitor(fn){listener=change=>{source.task=change.task;fn(change)};fn({task:source.task});return()=>stopped=true}};
  const section=new Section();section.taskId='stable-a';section.dataSet={taskSource(id){assert.equal(id,'stable-a');return source}};
- section.aboutToAppear();const revision=section.bodyRevision;
- listener({task:value('正文',{fileVersion:'v2',priority:{name:'A'}})});assert.equal(section.bodyRevision,revision);assert.equal(section.node.fileVersion,'v2');
- listener({task:value('新正文',{fileVersion:'v3'})});assert.equal(section.bodyRevision,revision+1);
+ section.aboutToAppear();
+ listener({task:value('正文',{fileVersion:'v2',priority:{name:'A'}})});assert.equal(section.node.fileVersion,'v2');
+ listener({task:value('新正文',{fileVersion:'v3'})});assert.equal(section.node.editContent.blocks[0].source,'新正文');
  active=true;listener({task:value('编辑中外部修改',{fileVersion:'v4'})});assert.equal(section.node.fileVersion,'v3');active=false;section.inlineChanged();assert.equal(section.node.fileVersion,'v4');
  section.aboutToDisappear();assert.equal(stopped,true);
 });

@@ -4,7 +4,7 @@ import { CoreContentBlockChange, CoreContentNode, CoreContentInline, CoreTaskChe
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { LinkEditController, LinkView } from '../LinkView'
 import { TaskBlockController } from '../../ui/TaskBlockController'
-import { UiColor } from '../../ui/Theme'
+import { UiColor, UiSize } from '../../ui/Theme'
 
 @Component
 export struct TaskNativeContent {
@@ -140,7 +140,10 @@ export struct TaskNativeContent {
   editorContent(node: CoreContentNode, itemId: string) {
     Column({ space: 4 }) {
       TextArea({ text: this.draft, placeholder: node.kind === 'cell' ? '单元格' : '段落' }).id(this.editKey).defaultFocus(true)
-        .width('100%').height('auto').fontSize(14).fontColor(UiColor.text).minLines(1)
+        .width('100%').height('auto').minLines(1)
+        .fontSize(node.kind === 'cell' ? 14 : itemId ? UiSize.listItemFont : UiSize.paragraphFont)
+        .lineHeight(node.kind === 'cell' ? 0 : itemId ? UiSize.listItemLineHeight : UiSize.paragraphLineHeight)
+        .fontColor(UiColor.text)
         .backgroundColor(UiColor.field).enabled(!this.saving && !this.inserting)
         .onChange((value: string): void => { this.draft = value })
         .onBlur((): void => { if (!this.insertion && !this.inserting) this.finish() })
@@ -178,7 +181,9 @@ export struct TaskNativeContent {
     if (this.editNode?.id === node.id) {
       this.editorContent(node, itemId)
     } else {
-      LinkView({ text: node.kind === 'cell' ? ' ' : node.source, parts: this.parts(node), textSize: 14, cancelled: checked,
+      LinkView({ text: node.kind === 'cell' ? ' ' : node.source, parts: this.parts(node), cancelled: checked,
+        textSize: node.kind === 'cell' ? 14 : itemId ? UiSize.listItemFont : UiSize.paragraphFont,
+        lineHeight: node.kind === 'cell' ? undefined : itemId ? UiSize.listItemLineHeight : UiSize.paragraphLineHeight,
         revision: this.revision, editable: !this.readonly && !this.disabled, internalLinkProcessor: this.processor,
         editor: this.linkEditor, editingChanged: this.linkEditingChanged,
         activate: !this.readonly && (!this.disabled || (this.activateParagraph && node.id === this.nodes[0]?.id)) ?
@@ -222,17 +227,17 @@ export struct TaskNativeContent {
 
   @Builder
   item(node: CoreContentNode) {
-    Row({ space: 4 }) {
+    Row({ space: UiSize.listMarkerGap }) {
       if (node.checkbox) {
         Button(node.checkbox === 'checked' ? '✓' : node.checkbox === 'partial' ? '−' : '○')
-          .width(28).height(44).padding(0).fontSize(19).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+          .width(UiSize.listMarkerWidth).height(44).padding(0).fontSize(19).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .enabled(!this.readonly && !this.disabled)
           .onClick((): void => { this.toggle({ type: 'setChecked', id: node.id, checked: node.checkbox !== 'checked' }) })
       } else {
-        Text(node.marker ?? '•').width(28).padding({ top: 4 }).fontSize(14).fontColor(UiColor.secondary)
+        Text(node.marker ?? '•').width(UiSize.listMarkerWidth).padding({ top: 4 }).fontSize(UiSize.listItemFont).lineHeight(UiSize.listItemLineHeight).fontColor(UiColor.secondary)
       }
       Column() {
-        this.blocks(node.children ?? [], node.checkbox === 'checked', node.id)
+        this.blocks((): CoreContentNode[] => node.children ?? [], node.checkbox === 'checked', node.id)
         if (this.editNode?.id === node.id) { this.editorContent(node, node.id) }
       }.layoutWeight(1).padding({ top: node.checkbox ? 11 : 4 }).alignItems(HorizontalAlign.Start)
     }.width('100%').alignItems(VerticalAlign.Top)
@@ -249,8 +254,8 @@ export struct TaskNativeContent {
   }
 
   @Builder
-  blocks(nodes: CoreContentNode[], checked: boolean = false, itemId: string = '') {
-    ForEach(nodes, (node: CoreContentNode, index: number) => {
+  blocks(nodes: () => CoreContentNode[], checked: boolean = false, itemId: string = '') {
+    ForEach(nodes(), (node: CoreContentNode, index: number) => {
       Column() {
         if (node.kind === 'paragraph') {
           this.inline(node, index === 0 && checked, itemId)
@@ -262,7 +267,7 @@ export struct TaskNativeContent {
           this.table(node)
         } else if (node.kind === 'quote') {
           Column() {
-            this.blocks(node.children ?? [])
+            this.blocks((): CoreContentNode[] => node.children ?? [])
             this.appendTo(node, '添加段落')
           }.padding({ left: 8 })
             .border({ width: { left: 1 }, color: UiColor.secondary }).width('100%')
@@ -275,7 +280,8 @@ export struct TaskNativeContent {
 
   build() {
     Column() {
-      this.blocks(this.nodes, this.completed, this.itemId)
+      // 在 ForEach 刷新时读取订阅送达的节点，避免 Builder 保存初次渲染的数组。
+      this.blocks((): CoreContentNode[] => this.nodes, this.completed, this.itemId)
       if (this.itemId && this.editNode?.id === this.itemId) { this.editorContent(this.editNode, this.itemId) }
     }.width('100%').alignItems(HorizontalAlign.Start)
   }

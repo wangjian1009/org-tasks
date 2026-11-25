@@ -515,7 +515,12 @@ struct OrgFileDetail {
   }
 
   private updateStructureOrderParents(tasks: CoreTask[]): void {
-    const nodes = projectStructureNodes(tasks, (task: CoreTask): string => this.fileDataSet!.taskKey(task.id), null)
+    const dataSet = this.fileDataSet
+    if (!dataSet) {
+      this.structureOrderParents = []
+      return
+    }
+    const nodes = projectStructureNodes(tasks, (task: CoreTask): string => dataSet.taskKey(task.id), null)
     const counts = new Map<string | null, number>()
     for (const node of nodes) counts.set(node.parent, (counts.get(node.parent) ?? 0) + 1)
     const parents = nodes.filter(node => (counts.get(node.id) ?? 0) > 1).map(node => node.row)
@@ -530,10 +535,6 @@ struct OrgFileDetail {
 
   private projectMenu(): PopupMenuItem[] {
     const actions: PopupMenuItem[] = []
-    if (this.renderReady && !this.sourceMode && !this.historyLabel) {
-      actions.push(...this.addStructureActions(''),
-        { title: '重构', icon: $r('app.media.ui_move_to'), action: (): void => { this.beginStructureEdit() } })
-    }
     const refresh: PopupMenuItem = { title: '刷新', icon: $r('app.media.ui_sync'), action: (): void => { this.refreshFile() } }
     if (this.sourceMode) {
       actions.push({ title: '文档', icon: $r('app.media.ui_document_outline'), action: (): void => { this.toggleSource() } }, refresh)

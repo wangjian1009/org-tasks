@@ -18,7 +18,6 @@ export struct OrgHeadingView {
   @Prop specialTags: string[] = []
 
   modify: (changes: CoreTaskModification[]) => Promise<void> = async (): Promise<void> => {}
-  structureActions: () => PopupMenuItem[] = () => []
   @Prop swipeEnabled: boolean = true
   swipeActions: (close: () => void) => TaskActionItem[] = () => []
   menuCoordinator: SwipeMenuCoordinator | undefined = undefined
@@ -52,12 +51,12 @@ export struct OrgHeadingView {
   menuItems(): PopupMenuItem[] {
     const folded = this.node.property('VISIBILITY') === 'folded'
     const archived = this.archived()
-    return this.structureActions().concat([
+    return [
       { title: folded ? '展开' : '收起', icon: folded ? $r('app.media.ui_visibility') : $r('app.media.ui_visibility_off'),
         disabled: archived, action: (): void => { this.toggleSubtree() } },
       { title: archived ? '恢复' : '归档', icon: archived ? $r('app.media.ui_restore') : $r('app.media.ui_folder'),
         action: (): void => { this.archive() } }
-    ])
+    ]
   }
 
   @Builder

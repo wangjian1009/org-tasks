@@ -20,7 +20,7 @@ export struct OrgContentView {
   @Prop embeddedPadding: number = 16
   @Prop compactLogs: boolean = false
   @Prop fileReading: boolean = false
-  @Prop projectReading: boolean = false
+  @Prop bodyBlock: boolean = false
   @Prop editable: boolean = false
   changeLink: ((link: CoreTextLink, value: CoreLinkValue | null) => Promise<void>) | undefined = undefined
   linkEditingChanged: (editing: boolean) => void = () => {}
@@ -109,7 +109,7 @@ export struct OrgContentView {
       const result = await this.controller.runJavaScript('document.body.getBoundingClientRect().height / window.innerWidth')
       if (generation !== this.documentGeneration || !this.active || !this.loaded) return
       const ratio = Number(result)
-      const height = Number.isFinite(ratio) && ratio > 0 ? Math.max(this.compactLogs || this.projectReading ? 1 : 40, Math.ceil(ratio * this.widthVp)) : this.contentHeight
+      const height = Number.isFinite(ratio) && ratio > 0 ? Math.max(this.compactLogs || this.bodyBlock ? 1 : 40, Math.ceil(ratio * this.widthVp)) : this.contentHeight
       if (height !== this.contentHeight) this.contentHeight = height
     } catch (e) {
       // 页面已离开时不再更新嵌入内容的尺寸。
@@ -140,7 +140,7 @@ export struct OrgContentView {
     this.requestedGeneration = this.documentGeneration
     try {
       this.controller.loadData(encodeURIComponent(orgDocumentPage(this.fragment, this.empty, this.embedded,
-        this.contentBackground, this.embeddedPadding, this.fileReading, this.compactLogs, this.projectReading)), 'text/html', 'UTF-8')
+        this.contentBackground, this.embeddedPadding, this.fileReading, this.compactLogs, this.bodyBlock)), 'text/html', 'UTF-8')
     } catch (e) { this.reportError(e as CoreBridgeError) }
   }
 

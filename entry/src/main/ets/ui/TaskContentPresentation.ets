@@ -5,6 +5,14 @@ import { samePageValue } from '../services/PageDataEquality'
 export interface TaskContentSlot { key: string; block: CoreContentBlock }
 let contentSequence: number = 0
 
+// 原文边界由 Core 提供；首段无外留白，普通段落之间只在多空行时增加固定段距。
+export function taskContentGap(blocks: CoreContentBlock[], index: number): number {
+  if (index === 0) return 0
+  const previous = blocks[index - 1]
+  const current = blocks[index]
+  return previous.paragraph && current.paragraph ? (current.blankLinesBefore >= 2 ? 12 : 0) : 12
+}
+
 export function contentDragScrollSpeed(pointer: number, top: number, bottom: number): number {
   if (pointer < top || pointer > bottom || bottom <= top) return 0
   const edge = Math.min(96, (bottom - top) / 2)

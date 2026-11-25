@@ -1,6 +1,5 @@
-import { CoreTask, CoreTaskModification, CoreContentBlock, CoreTaskChecklistItem } from '../services/NativeCoreService'
+import { CoreTask, CoreTaskModification } from '../services/NativeCoreService'
 import { DataSet, TaskDataSource } from '../services/DataSet'
-import { samePageValue } from '../services/PageDataEquality'
 import { TaskInlineSession } from '../services/TaskInlineService'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { TaskDateDisplay, RegionAreaPolicy } from '../ui/TaskListPresentation'
@@ -14,9 +13,6 @@ import { TaskEditor } from './editors/TaskEditor'
 import { SwipeMenuCoordinator } from './controls/RightSwipe'
 import { PopupMenuItem } from './controls/PopupMenu'
 import { OrgFileEditRow } from '../ui/OrgFileStructurePresentation'
-
-interface ProjectBlockItemValue { text: string; checked: boolean; partial: boolean; depth: number }
-interface ProjectBlockValue { kind: string; source: string; html: string; paragraph: boolean; blankLinesBefore: number; items: ProjectBlockItemValue[] }
 
 // 章节按稳定行身份订阅 Task，属性变化不重建文档容器或其他章节。
 @Component
@@ -48,7 +44,7 @@ export struct OrgFileTaskSection {
   cancelDrag: () => void = () => {}
   private actionPolicy = taskPageActionPolicy('today')
   @State node: CoreTask | undefined = undefined
-  @State bodyRevision: number = 1
+  @State addContentRequest: number = 0
   @StorageLink('taskInlineActive') @Watch('inlineChanged') inlineActive: string = ''
   private source: TaskDataSource | undefined = undefined
   private pending: boolean = false
@@ -68,29 +64,13 @@ export struct OrgFileTaskSection {
 
   applyTask(): void {
     this.pending = false
-    const task = this.source?.task
-    if (!task) { this.node = undefined; return }
-    if (!this.node || !samePageValue(this.bodyValues(this.node.editContent.blocks), this.bodyValues(task.editContent.blocks))) this.bodyRevision++
-    this.node = task
+    this.node = this.source?.task
   }
 
-  async modify(changes: CoreTaskModification[], sourceVersion?: string): Promise<CoreTask> {
+  async modify(changes: CoreTaskModification[]): Promise<void> {
     const task = this.source?.task
     if (!task) throw new Error('当前章节已移除')
-    const version = sourceVersion ?? task.fileVersion
-    if (sourceVersion !== undefined || changes.some(change => change.field === 'CHECKLIST')) {
-      return await this.dataSet!.commitTaskFields(this.taskId, changes, version)
-    }
-    return await this.dataSet!.updateTask(this.taskId, changes, version)
-  }
-
-  // 位置 ID 和文件版本是编辑上下文；只在可见正文改变时更新 HTML 修订号。
-  bodyValues(blocks: CoreContentBlock[]): ProjectBlockValue[] {
-    return blocks.map((block: CoreContentBlock): ProjectBlockValue => ({
-      kind: block.kind, source: block.source, html: block.html,
-      paragraph: block.paragraph, blankLinesBefore: block.blankLinesBefore,
-      items: block.items.map((item: CoreTaskChecklistItem): ProjectBlockItemValue => ({ text: item.text, checked: item.checked, partial: item.partial, depth: item.depth }))
-    }))
+    await this.dataSet!.updateTask(this.taskId, changes, task.fileVersion)
   }
 
   private highlightChanged(): void {
@@ -107,12 +87,26 @@ export struct OrgFileTaskSection {
   }
 
   private chapterActions(close: () => void): TaskActionItem[] {
-    return this.structureActions(false)
+    const items = this.structureActions(false)
       .map((item): TaskActionItem => ({
         id: item.title === '任务' ? TaskOperation.Project : item.title === '章节' ? TaskOperation.Memo : TaskOperation.Refactor,
         title: item.title, label: item.title === '任务' ? '添加任务' : item.title === '章节' ? '添加章节' : '重构章节',
         icon: item.icon!, action: (): void => { close(); item.action() }
       }))
+    if (this.canAddContent()) {
+      items.unshift({ id: 'addContent', title: '添加内容', label: '添加章节内容', icon: $r('app.media.ui_add'),
+        action: (): void => { close(); this.addContent() } })
+    }
+    return items
+  }
+
+  private canAddContent(): boolean {
+    return !!this.node && this.interactionEnabled && !this.contextOnly &&
+      this.node.property('VISIBILITY') !== 'folded' && !this.node.editContent.ownTags.includes('ARCHIVE')
+  }
+
+  private addContent(): void {
+    if (this.canAddContent()) this.addContentRequest++
   }
 
   @Builder
@@ -165,13 +159,14 @@ export struct OrgFileTaskSection {
             singleOperations: this.actionPolicy.singleOperations, rightSwipeAction: this.actionPolicy.rightSwipeAction,
             menuIdPrefix: 'project_swipe', dataSet: this.dataSet!, taskId: this.taskId, internalLinkProcessor: this.internalLinkProcessor,
             contentHidden: this.hasChildren || this.contextOnly, hiddenTags: this.specialTags, instanceKey: `project:${this.taskId}`,
+            canAddContent: this.canAddContent(), addContent: (): void => { this.addContent() },
+            addContentRequest: !this.hasChildren ? this.addContentRequest : 0,
             structureActions: this.structureActions, canOrderChildren: this.canOrderChildren,
             includeStructureActions: true, shortActionLabels: true,
             dateDisplay: TaskDateDisplay.Schedule, regionAreaPolicy: RegionAreaPolicy.None,
             scrollHost: this.scrollHost, scrollHostId: 'project_document_scroll' }).width('100%')
         } else {
           OrgHeadingView({ internalLinkProcessor: this.internalLinkProcessor, node: this.node, specialTags: this.specialTags,
-            structureActions: (): PopupMenuItem[] => this.structureActions(false),
             menuCoordinator: this.menuCoordinator, swipeEnabled: this.interactionEnabled,
             swipeActions: (close: () => void): TaskActionItem[] => this.chapterActions(close),
             modify: async (changes: CoreTaskModification[]): Promise<void> => {
@@ -179,13 +174,10 @@ export struct OrgFileTaskSection {
             } }).width('100%')
         }
         if (!this.editRow && (!this.node.state || this.hasChildren)) {
-          OrgFileSectionBody({ dataSet: this.node.state ? this.dataSet : undefined, taskId: this.taskId,
+          OrgFileSectionBody({ dataSet: this.dataSet, taskId: this.taskId,
+            documentContent: true, addContentRequest: this.addContentRequest,
             scrollHost: this.scrollHost, scrollHostId: 'project_document_scroll',
-            modify: async (task: CoreTask, changes: CoreTaskModification[]): Promise<CoreTask> => {
-            return await this.modify(changes, task.fileVersion)
-          }, readTask: (): CoreTask | undefined => this.source?.task,
-            internalLinkProcessor: this.internalLinkProcessor, task: this.node, blocks: this.node.editContent.blocks,
-            contentRevision: `${this.bodyRevision}`, contentBackground: UiColor.surface }).width('100%')
+            internalLinkProcessor: this.internalLinkProcessor, task: this.node }).width('100%')
             .margin({ bottom: this.hasChildren && this.node.editContent.blocks.length > 0 ? 24 : 8 })
             .visibility(this.contextOnly || this.node.property('VISIBILITY') === 'folded' || this.node.editContent.ownTags.includes('ARCHIVE') ? Visibility.None : Visibility.Visible)
         }

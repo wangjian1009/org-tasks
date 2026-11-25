@@ -43,6 +43,14 @@ export class UiSize {
   static readonly taskFont: number = 16
   static readonly taskRow: number = 44
   static readonly taskTitleLineHeight: number = 24
+  static readonly taskBodyIndent: number = 28
+  static readonly paragraphFont: number = 16
+  static readonly paragraphLineHeight: number = 26
+  static readonly listItemFont: number = 15
+  static readonly listItemLineHeight: number = 22
+  static readonly listMarkerWidth: number = 28
+  static readonly listMarkerGap: number = 4
+  static readonly listIndent: number = 12
   static readonly drawerFont: number = 16
   static readonly drawerRow: number = 44
   static readonly drawerIcon: number = 22
