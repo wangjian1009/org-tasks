@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { APP_CONFIG_PREFERENCES } from './AppConfigService'
 import { PreferencesStore } from './PreferencesStore'
@@ -35,10 +36,10 @@ export class RegionOrderService {
     try {
       const order = JSON.parse(raw) as RegionOrder
       if (!validRegionOrder(order)) {
-        throw new Error('无效排序配置')
+        throw new Error(localizedText($r('app.string.text_invalid_sort_configuration')))
       }
       return order
-    } catch (_) { throw new Error('分区与项目顺序配置无法读取，请恢复默认顺序后重新保存') }
+    } catch (_) { throw new Error(localizedText($r('app.string.text_partition_and_item_sequence_configuration_not_readable'))) }
   }
 
   static save(context: Context, order: RegionOrder | null): Promise<void> {

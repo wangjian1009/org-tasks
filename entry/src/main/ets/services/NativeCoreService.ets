@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import {
   Repo as NativeRepo,
   ConflictPreview as NativeConflictPreview,
@@ -240,7 +241,7 @@ export function coreErrorMessage(error: CoreBridgeError): string {
   if (typeof error.message === 'string' && error.message.length > 0) {
     return error.message
   }
-  return '操作未完成，请重试'
+  return localizedText($r('app.string.text_operation_not_completed_please_try_again'))
 }
 
 export type RepositorySyncSource = 'repositoryCreated' | 'repositoryReset'
@@ -414,7 +415,7 @@ export class NativeCoreService {
     const workspace = await NativeCoreService.workspaceFor(repositories, todoDefaults, coreSettings)
     const repos = await workspace.repos()
     const repo = repos.find((item: CoreRepo) => item.rootDirectory === repository.rootDirectory)
-    if (!repo) throw new Error('目标仓库不可用')
+    if (!repo) throw new Error(localizedText($r('app.string.text_target_repository_not_available')))
     return repo
   }
 
@@ -489,7 +490,7 @@ export class NativeCoreService {
         enabledIds.push(repo.id)
       }
     }
-    if (repositoryId && enabledIds.length === 0) throw new Error('目标仓库不存在或未启用 WebDAV')
+    if (repositoryId && enabledIds.length === 0) throw new Error(localizedText($r('app.string.text_target_repository_does_not_exist_or_is')))
     let selectedIds: string[] = enabledIds
     let failure = ''
     if (source === 'startup') {
@@ -497,7 +498,7 @@ export class NativeCoreService {
       selectedIds = []
       for (const id of enabledIds) {
         const check = checks.find((item: CoreRepoRemoteChange) => item.repoId === id)
-        if (!check) { failure = failure || '仓库远端检查结果缺失'; continue }
+        if (!check) { failure = failure || localizedText($r('app.string.text_long_range_inspection_of_repository_is_missing')); continue }
         if (check.error) { failure = failure || coreErrorMessage(check.error); continue }
         if (check.state !== 'unchanged') selectedIds.push(id)
       }
@@ -507,13 +508,13 @@ export class NativeCoreService {
         : source === 'background' ? 'localChanged' : source
       const system = repositories.find((item: RepoConfig): boolean => item.id === SYSTEM_REPOSITORY_ID)
       const trashRepo = repos.find(repo => repo.rootDirectory === system?.rootDirectory)
-      if (system && !trashRepo) throw new Error('系统仓库不可用，无法保护首次同步的本地任务')
+      if (system && !trashRepo) throw new Error(localizedText($r('app.string.text_system_repository_is_not_available_to_protect')))
       const trashFile: CoreOrgFileRef | undefined = trashRepo ? { repoId: trashRepo.id, path: TRASH_FILE } : undefined
       const results = await workspace.syncRepos(selectedIds, reason, trashFile)
       for (const result of results) {
         if (result.error) failure = failure || coreErrorMessage(result.error)
         else if (!result.record || result.record.result !== 'succeeded') {
-          failure = failure || result.record?.errorMessage || 'WebDAV 同步未完成，请重试'
+          failure = failure || result.record?.errorMessage || localizedText($r('app.string.text_webdav_sync_not_completed_please_try_again'))
         }
       }
     }
@@ -523,10 +524,10 @@ export class NativeCoreService {
 }
 
 export function taskResult(result: CoreQueryResult): CoreTaskQueryResult {
-  if (result.type !== 'task') throw new Error('查询结果不是任务结果')
+  if (result.type !== 'task') throw new Error(localizedText($r('app.string.text_query_results_are_not_the_result_of')))
   return result.result
 }
 export function fileResult(result: CoreQueryResult): CoreOrgFileMetadata[] {
-  if (result.type !== 'file') throw new Error('查询结果不是文件结果')
+  if (result.type !== 'file') throw new Error(localizedText($r('app.string.text_the_query_result_is_not_a_file')))
   return result.result
 }

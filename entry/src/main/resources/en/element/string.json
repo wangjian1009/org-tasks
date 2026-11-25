@@ -1,0 +1,5164 @@
+{
+  "string": [
+    {
+      "name": "EntryAbility_desc",
+      "value": "Org Tasks"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Org Tasks"
+    },
+    {
+      "name": "app_link_bound",
+      "value": "Linked"
+    },
+    {
+      "name": "background_permission_reason",
+      "value": "Sync local changes after the app moves to the background."
+    },
+    {
+      "name": "block_copied",
+      "value": "Block copied"
+    },
+    {
+      "name": "calendar_duplicate_task_id",
+      "value": "Duplicate task reminder ID"
+    },
+    {
+      "name": "calendar_event_description",
+      "value": "Task reminder created by Org Tasks"
+    },
+    {
+      "name": "calendar_permission_reason",
+      "value": "Create, update, and remove task reminders in the Org Tasks calendar."
+    },
+    {
+      "name": "capture_card_description",
+      "value": "Type or dictate a title to save to the inbox."
+    },
+    {
+      "name": "capture_description",
+      "value": "Save a title to the Org Tasks inbox."
+    },
+    {
+      "name": "capture_label",
+      "value": "Quick Capture"
+    },
+    {
+      "name": "capture_microphone_reason",
+      "value": "Turn speech into a task title."
+    },
+    {
+      "name": "capture_share_label",
+      "value": "Save to Inbox"
+    },
+    {
+      "name": "capture_text_shortcut",
+      "value": "Add a task"
+    },
+    {
+      "name": "capture_voice_shortcut",
+      "value": "Dictate a task"
+    },
+    {
+      "name": "config_import_description",
+      "value": "Preview and import Org Tasks settings."
+    },
+    {
+      "name": "config_import_local_folder",
+      "value": "The local folder for “%1$s” is unavailable. Select it again in repository settings."
+    },
+    {
+      "name": "config_import_webdav_password",
+      "value": "Enter the password for “%1$s” and enable WebDAV in repository settings."
+    },
+    {
+      "name": "conflict_apply",
+      "value": "Apply"
+    },
+    {
+      "name": "conflict_candidate_unavailable",
+      "value": "The candidate is unavailable. You can discard this conflict."
+    },
+    {
+      "name": "conflict_discard",
+      "value": "Discard"
+    },
+    {
+      "name": "conflict_untitled",
+      "value": "Untitled node"
+    },
+    {
+      "name": "date_with_weekday",
+      "value": "%2$s, %1$s"
+    },
+    {
+      "name": "document_empty",
+      "value": "Empty Org file"
+    },
+    {
+      "name": "document_untitled",
+      "value": "Untitled"
+    },
+    {
+      "name": "file_permission_reason",
+      "value": "Read Org files synced by Nutstore."
+    },
+    {
+      "name": "heading_collapsed",
+      "value": "Collapsed"
+    },
+    {
+      "name": "link_editor_display_text",
+      "value": "Display text"
+    },
+    {
+      "name": "link_editor_link_title",
+      "value": "Link title"
+    },
+    {
+      "name": "link_editor_other_protocol",
+      "value": "Other link type"
+    },
+    {
+      "name": "link_editor_protocol_picker",
+      "value": "Choose link type. Current type: %1$s"
+    },
+    {
+      "name": "link_editor_title",
+      "value": "Title"
+    },
+    {
+      "name": "link_editor_title_placeholder",
+      "value": "The URL is shown when the title is blank"
+    },
+    {
+      "name": "link_editor_url",
+      "value": "Link"
+    },
+    {
+      "name": "link_editor_url_placeholder",
+      "value": "Link URL"
+    },
+    {
+      "name": "logbook_time_not_recorded",
+      "value": "Time not recorded"
+    },
+    {
+      "name": "memo_card_config_description",
+      "value": "Choose the tag shown on the Notes widget."
+    },
+    {
+      "name": "memo_card_description",
+      "value": "See recent notes on the home screen."
+    },
+    {
+      "name": "memo_card_label",
+      "value": "Notes"
+    },
+    {
+      "name": "missing_task_snapshot",
+      "value": "The update is missing the task snapshot."
+    },
+    {
+      "name": "module_desc",
+      "value": "Org Tasks and WebDAV sync"
+    },
+    {
+      "name": "move_destination_search",
+      "value": "Search destinations"
+    },
+    {
+      "name": "no_tagged_tasks",
+      "value": "No tasks match the selected tags"
+    },
+    {
+      "name": "note_create",
+      "value": "New note"
+    },
+    {
+      "name": "note_deleted_return_failed",
+      "value": "Note deleted. Couldn’t go back."
+    },
+    {
+      "name": "note_file_unavailable_reselect",
+      "value": "The notes file is unavailable. Select it again in the app."
+    },
+    {
+      "name": "note_saved_return_failed",
+      "value": "Note saved. Couldn't go back."
+    },
+    {
+      "name": "notes_back_to_list",
+      "value": "Back to notes"
+    },
+    {
+      "name": "reminder_log_cleanup",
+      "value": "Expired reminders cleared"
+    },
+    {
+      "name": "reminder_log_resume",
+      "value": "Sync resumed"
+    },
+    {
+      "name": "reminder_log_settings_change",
+      "value": "Settings changed"
+    },
+    {
+      "name": "reminder_log_startup",
+      "value": "Startup sync"
+    },
+    {
+      "name": "reminder_log_task_change",
+      "value": "Task changed"
+    },
+    {
+      "name": "reminder_menu",
+      "value": "Reminder…"
+    },
+    {
+      "name": "reminder_set",
+      "value": "Reminder set"
+    },
+    {
+      "name": "reminder_task_list",
+      "value": "Tasks with reminders"
+    },
+    {
+      "name": "reminder_time",
+      "value": "Reminder time"
+    },
+    {
+      "name": "repeat_after_completion",
+      "value": "Repeat %1$s after completion"
+    },
+    {
+      "name": "repeat_day",
+      "value": "Day"
+    },
+    {
+      "name": "repeat_days_interval",
+      "value": "%1$s d"
+    },
+    {
+      "name": "repeat_every",
+      "value": "Every %1$s"
+    },
+    {
+      "name": "repeat_hour",
+      "value": "Hour"
+    },
+    {
+      "name": "repeat_hours_interval",
+      "value": "%1$s hr"
+    },
+    {
+      "name": "repeat_month",
+      "value": "Month"
+    },
+    {
+      "name": "repeat_months_interval",
+      "value": "%1$s mo"
+    },
+    {
+      "name": "repeat_none",
+      "value": "Does not repeat"
+    },
+    {
+      "name": "repeat_skip_past",
+      "value": "Skip missed dates"
+    },
+    {
+      "name": "repeat_week",
+      "value": "Week"
+    },
+    {
+      "name": "repeat_weeks_interval",
+      "value": "%1$s wk"
+    },
+    {
+      "name": "repeat_year",
+      "value": "Year"
+    },
+    {
+      "name": "repeat_years_interval",
+      "value": "%1$s yr"
+    },
+    {
+      "name": "share_location_description",
+      "value": "Create or update a task with a location shared from Maps."
+    },
+    {
+      "name": "task_clock",
+      "value": "Clock"
+    },
+    {
+      "name": "task_collapse",
+      "value": "Collapse task"
+    },
+    {
+      "name": "task_edit_tags",
+      "value": "Edit tags"
+    },
+    {
+      "name": "text_a_has_the_text",
+      "value": "(a) Has the text;"
+    },
+    {
+      "name": "text_a_new_version_of_the_document_is",
+      "value": "A new version of the document is available and the current change is retained; please cancel and re-edit."
+    },
+    {
+      "name": "text_abandon",
+      "value": "Abandon"
+    },
+    {
+      "name": "text_about_org_tasks",
+      "value": "About Org Tasks"
+    },
+    {
+      "name": "text_add",
+      "value": "Add"
+    },
+    {
+      "name": "text_add_2",
+      "value": "Add"
+    },
+    {
+      "name": "text_add_3",
+      "value": "Add"
+    },
+    {
+      "name": "text_add_body",
+      "value": "Add Body"
+    },
+    {
+      "name": "text_add_category",
+      "value": "Add Category"
+    },
+    {
+      "name": "text_add_chapter",
+      "value": "Add Chapter"
+    },
+    {
+      "name": "text_add_chapter_2",
+      "value": "Add Chapter"
+    },
+    {
+      "name": "text_add_end_time",
+      "value": "+ Add End Time"
+    },
+    {
+      "name": "text_add_entry",
+      "value": "+ Add Entry"
+    },
+    {
+      "name": "text_add_entry_2",
+      "value": "Add Entry"
+    },
+    {
+      "name": "text_add_label",
+      "value": "Add %1$s tag"
+    },
+    {
+      "name": "text_add_list",
+      "value": "Add List"
+    },
+    {
+      "name": "text_add_list_below",
+      "value": "Add list below"
+    },
+    {
+      "name": "text_add_list_item",
+      "value": "+ Add List Item"
+    },
+    {
+      "name": "text_add_notes",
+      "value": "Add Notes"
+    },
+    {
+      "name": "text_add_paragraph",
+      "value": "Add Paragraph"
+    },
+    {
+      "name": "text_add_paragraph_below",
+      "value": "Add Paragraph Below"
+    },
+    {
+      "name": "text_add_remarks",
+      "value": "Add Remarks"
+    },
+    {
+      "name": "text_add_remote_repository",
+      "value": "Add Remote Repository"
+    },
+    {
+      "name": "text_add_repository",
+      "value": "Add repository"
+    },
+    {
+      "name": "text_add_repository_2",
+      "value": "Add repository"
+    },
+    {
+      "name": "text_add_repository_first_please",
+      "value": "Add repository first, please"
+    },
+    {
+      "name": "text_add_status_to",
+      "value": "Add status to %1$s"
+    },
+    {
+      "name": "text_add_task",
+      "value": "Add Task"
+    },
+    {
+      "name": "text_add_task_2",
+      "value": "Add Task"
+    },
+    {
+      "name": "text_add_time",
+      "value": "+ Add Time"
+    },
+    {
+      "name": "text_add_to_current_task_after_creation",
+      "value": "Add to current task after creation"
+    },
+    {
+      "name": "text_added",
+      "value": "Added"
+    },
+    {
+      "name": "text_address",
+      "value": "Address"
+    },
+    {
+      "name": "text_address_identified",
+      "value": "Address identified"
+    },
+    {
+      "name": "text_address_link_missing_q_search_parameters",
+      "value": "Address Link Missing q Search Parameters"
+    },
+    {
+      "name": "text_address_search_is_unavailable",
+      "value": "Address search is unavailable."
+    },
+    {
+      "name": "text_address_updated_failed_to_open_inbox_try",
+      "value": "Address updated. Failed to open inbox. Try again."
+    },
+    {
+      "name": "text_adjusting_deadlines",
+      "value": "Adjusting deadlines"
+    },
+    {
+      "name": "text_adjustment_plan",
+      "value": "Adjustment plan"
+    },
+    {
+      "name": "text_adjusts_the_filter_conditions_or_tap_all",
+      "value": "Adjusts the filter conditions, or tap \" All \" to view all jobs on the current page."
+    },
+    {
+      "name": "text_after",
+      "value": "After %1$s"
+    },
+    {
+      "name": "text_after_completion",
+      "value": "After completion"
+    },
+    {
+      "name": "text_after_completion_move_forward_to_the_next",
+      "value": "Completing the task advances it to the first date in the series after today."
+    },
+    {
+      "name": "text_alarm_manager_registered_other_data_sets",
+      "value": "Alarm Manager Registered Other Data Sets"
+    },
+    {
+      "name": "text_all",
+      "value": "All"
+    },
+    {
+      "name": "text_all_locations",
+      "value": "All Locations"
+    },
+    {
+      "name": "text_all_notes",
+      "value": "All notes"
+    },
+    {
+      "name": "text_all_tags",
+      "value": "All tags"
+    },
+    {
+      "name": "text_all_title_records_in_the_configuration_file",
+      "value": "All title records in the configuration file are shown here."
+    },
+    {
+      "name": "text_allocation",
+      "value": "Allocation"
+    },
+    {
+      "name": "text_amap",
+      "value": "AMap"
+    },
+    {
+      "name": "text_anytime",
+      "value": "Anytime"
+    },
+    {
+      "name": "text_app",
+      "value": "App"
+    },
+    {
+      "name": "text_app_links",
+      "value": "App links"
+    },
+    {
+      "name": "text_application_cannot_be_opened",
+      "value": "Application cannot be opened"
+    },
+    {
+      "name": "text_application_connection_manager_not_started",
+      "value": "Application connection manager not started"
+    },
+    {
+      "name": "text_application_directory_does_not_have_a_startup",
+      "value": "Application directory does not have a startup profile for this application"
+    },
+    {
+      "name": "text_application_failed",
+      "value": "Couldn't apply the change"
+    },
+    {
+      "name": "text_application_preferences_for_backup_are_invalid",
+      "value": "Application preferences for backup are invalid"
+    },
+    {
+      "name": "text_apply",
+      "value": "Apply"
+    },
+    {
+      "name": "text_apply_a_special_directory",
+      "value": "App folder"
+    },
+    {
+      "name": "text_apply_configuration",
+      "value": "Apply Configuration"
+    },
+    {
+      "name": "text_apply_file",
+      "value": "Apply File"
+    },
+    {
+      "name": "text_apply_startup",
+      "value": "Apply startup"
+    },
+    {
+      "name": "text_applyd_reread_failed",
+      "value": "Applyd, Reread Failed"
+    },
+    {
+      "name": "text_applying_links_cannot_be_empty",
+      "value": "Applying links cannot be empty"
+    },
+    {
+      "name": "text_applying_the_list_to_read_failed_try",
+      "value": "Applying the list to read failed, try again."
+    },
+    {
+      "name": "text_archive",
+      "value": "Archive"
+    },
+    {
+      "name": "text_archive_operation_failed",
+      "value": "Archive operation failed: %1$s"
+    },
+    {
+      "name": "text_archived",
+      "value": "Archived"
+    },
+    {
+      "name": "text_authentication_failed",
+      "value": "Authentication Failed"
+    },
+    {
+      "name": "text_automatically_check_events_on_start_up_and",
+      "value": "Automatically check events on start-up, and then automatically maintain the new, modified, completed, cancelled and synchronized results with the task; closing the switch removes the created calendar event from this application and does not change the original task."
+    },
+    {
+      "name": "text_back",
+      "value": "Back"
+    },
+    {
+      "name": "text_back_to_org_tasks",
+      "value": "Back to Org Tasks"
+    },
+    {
+      "name": "text_backstage",
+      "value": "Backstage."
+    },
+    {
+      "name": "text_backup",
+      "value": "Backup"
+    },
+    {
+      "name": "text_backup_configuration_failed_please_try_again",
+      "value": "Backup configuration failed, please try again"
+    },
+    {
+      "name": "text_basic_information",
+      "value": "Basic information"
+    },
+    {
+      "name": "text_be_a_child",
+      "value": "Be a child."
+    },
+    {
+      "name": "text_before_moving_to_block",
+      "value": "Before moving to block: %1$s"
+    },
+    {
+      "name": "text_bind",
+      "value": "Bind %1$s"
+    },
+    {
+      "name": "text_blank_org_file",
+      "value": "Blank Org File"
+    },
+    {
+      "name": "text_bottom_connection_not_available",
+      "value": "Bottom connection not available"
+    },
+    {
+      "name": "text_bottom_connection_not_established",
+      "value": "Bottom connection not established"
+    },
+    {
+      "name": "text_browse_the_org_notebook_view_the_tasks",
+      "value": "Browse the Org notebook, view the tasks by date, and support WebDAV sync and quick capture."
+    },
+    {
+      "name": "text_by_default_use_the_application_directory_or",
+      "value": "By default, use the application directory, or you can also choose to apply other directories that are accessible."
+    },
+    {
+      "name": "text_calendar_access_was_denied",
+      "value": "Calendar access was denied."
+    },
+    {
+      "name": "text_calendar_access_was_denied_reminders_are_off",
+      "value": "Calendar access was denied. Reminders are off."
+    },
+    {
+      "name": "text_calendar_alarm_set",
+      "value": "Calendar reminders set: %1$s"
+    },
+    {
+      "name": "text_calendar_event_not_completed_initial_sync",
+      "value": "Calendar event not completed initial sync"
+    },
+    {
+      "name": "text_calendar_is_not_authorized_for_reading_and",
+      "value": "Calendar is not authorized for reading and writing, please authorize in settings"
+    },
+    {
+      "name": "text_calendar_reading_and_writing_is_allowed",
+      "value": "Calendar reading and writing is allowed"
+    },
+    {
+      "name": "text_can_t_handle_the_conflict",
+      "value": "Can't handle the conflict"
+    },
+    {
+      "name": "text_cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "text_cancel_date_time_changes",
+      "value": "Cancel Date & Time Changes"
+    },
+    {
+      "name": "text_cancel_edit",
+      "value": "Cancel Edit"
+    },
+    {
+      "name": "text_cancel_new_tab",
+      "value": "Cancel new tag"
+    },
+    {
+      "name": "text_cancel_task",
+      "value": "Cancel Task"
+    },
+    {
+      "name": "text_canceled",
+      "value": "Canceled"
+    },
+    {
+      "name": "text_candidate_is_incomplete_only_the_current_one",
+      "value": "Candidate is incomplete, only the current one can be maintained"
+    },
+    {
+      "name": "text_cannot_open_repository_settings",
+      "value": "Cannot open repository settings"
+    },
+    {
+      "name": "text_cannot_read_repository_configuration",
+      "value": "Cannot read repository configuration"
+    },
+    {
+      "name": "text_cannot_read_shared_content_please_return_map",
+      "value": "Cannot read shared content, please return map to share again"
+    },
+    {
+      "name": "text_cannot_select_profile_please_try_again",
+      "value": "Cannot select profile, please try again"
+    },
+    {
+      "name": "text_card_preview",
+      "value": "Card Preview"
+    },
+    {
+      "name": "text_catalogue_name",
+      "value": "Catalogue Name"
+    },
+    {
+      "name": "text_catalogue_name_separated_by_comma",
+      "value": "Catalogue name separated by comma"
+    },
+    {
+      "name": "text_catalogues_are_separated_by_commas_to_match",
+      "value": "Catalogues are separated by commas to match any level. Filter directories do not participate in sync and downloaded files are kept."
+    },
+    {
+      "name": "text_categories_are_still_loading_try_again_shortly",
+      "value": "Categories are still loading. Try again shortly."
+    },
+    {
+      "name": "text_categorization_of_items",
+      "value": "Categorization of items, %1$s"
+    },
+    {
+      "name": "text_category_5",
+      "value": "5 categories"
+    },
+    {
+      "name": "text_category_name_cannot_contain_line_breaks_or",
+      "value": "Category name cannot contain line breaks or control characters"
+    },
+    {
+      "name": "text_cells",
+      "value": "Cells"
+    },
+    {
+      "name": "text_change_body_failed_please_try_again",
+      "value": "Change body failed, please try again"
+    },
+    {
+      "name": "text_change_file_name",
+      "value": "Change File Name"
+    },
+    {
+      "name": "text_change_group_versions_of_the_same_document",
+      "value": "Change group versions of the same document are not consistent. Please refresh and try again"
+    },
+    {
+      "name": "text_change_name",
+      "value": "Change name"
+    },
+    {
+      "name": "text_changed_content_please_cancel_editing_and_reload",
+      "value": "Changed content, please cancel editing and reload and try again."
+    },
+    {
+      "name": "text_changes_in_the_configuration_or_directory_please",
+      "value": "Changes in the configuration or directory, please preview"
+    },
+    {
+      "name": "text_chapter_operations",
+      "value": "Chapter Operations: %1$s"
+    },
+    {
+      "name": "text_chapter_title",
+      "value": "Chapter title"
+    },
+    {
+      "name": "text_chapters",
+      "value": "%1$s . %2$s Chapters"
+    },
+    {
+      "name": "text_check_and_sync_local_changes",
+      "value": "Check and sync local changes"
+    },
+    {
+      "name": "text_check_failed",
+      "value": "Check failed"
+    },
+    {
+      "name": "text_checked_tap_to_confirm_application",
+      "value": ", checked, tap to confirm application"
+    },
+    {
+      "name": "text_checking",
+      "value": "Checking..."
+    },
+    {
+      "name": "text_checking_system_alarms",
+      "value": "Checking system alarms"
+    },
+    {
+      "name": "text_class_title",
+      "value": "Level %1$s, %2$s %3$s"
+    },
+    {
+      "name": "text_class_title_2",
+      "value": "%1$s class title, %2$s"
+    },
+    {
+      "name": "text_classes_and_items_are_not_yet_read",
+      "value": "Classes and items are not yet read out, please try again later"
+    },
+    {
+      "name": "text_classification",
+      "value": "Classification:"
+    },
+    {
+      "name": "text_classification_2",
+      "value": "Classification"
+    },
+    {
+      "name": "text_clear",
+      "value": "Clear"
+    },
+    {
+      "name": "text_clear_date",
+      "value": "Clear date"
+    },
+    {
+      "name": "text_clear_filter_and_locate",
+      "value": "Clear filter and locate"
+    },
+    {
+      "name": "text_clear_search",
+      "value": "Clear Search"
+    },
+    {
+      "name": "text_clear_time",
+      "value": "Clear Time"
+    },
+    {
+      "name": "text_clearing",
+      "value": "Clearing..."
+    },
+    {
+      "name": "text_clears_all_local_files_sync_history_and",
+      "value": "Clears all local files, sync history and unuppered changes from \"%1$s\". %2$s cannot undo this operation. %3$s"
+    },
+    {
+      "name": "text_close",
+      "value": "Close"
+    },
+    {
+      "name": "text_close_and_retain_the_draft",
+      "value": "Close and retain the draft"
+    },
+    {
+      "name": "text_close_file_details",
+      "value": "Close File Details"
+    },
+    {
+      "name": "text_close_mobile_window",
+      "value": "Close Mobile Window"
+    },
+    {
+      "name": "text_close_remarks_window",
+      "value": "Close Remarks Window"
+    },
+    {
+      "name": "text_close_tab_window",
+      "value": "Close tag picker"
+    },
+    {
+      "name": "text_closed",
+      "value": "Off"
+    },
+    {
+      "name": "text_closing_the_shared_window_failed_please_try",
+      "value": "Closing the shared window failed, please try again"
+    },
+    {
+      "name": "text_collapse",
+      "value": "Collapse"
+    },
+    {
+      "name": "text_collapse_all_tab_filters",
+      "value": "Collapse tag filters"
+    },
+    {
+      "name": "text_collapse_classification_and_filter_items",
+      "value": "Collapse classification and filter items"
+    },
+    {
+      "name": "text_collapse_operation_failed",
+      "value": "Collapse operation failed: %1$s"
+    },
+    {
+      "name": "text_collapse_subnodes",
+      "value": "Collapse subnodes"
+    },
+    {
+      "name": "text_collating",
+      "value": "Collating..."
+    },
+    {
+      "name": "text_completed",
+      "value": "Completed"
+    },
+    {
+      "name": "text_completed_2",
+      "value": "Completed: %1$s"
+    },
+    {
+      "name": "text_completed_item_total_item",
+      "value": "Completed %1$s Item, total %2$s Item"
+    },
+    {
+      "name": "text_completed_total_tasks",
+      "value": "%1$s, completed/total tasks %2$s"
+    },
+    {
+      "name": "text_completion_date",
+      "value": "Completion date %1$s"
+    },
+    {
+      "name": "text_configure_applied_cannot_return_org_tasks_for",
+      "value": "Configure applied, cannot return Org Tasks for the time being"
+    },
+    {
+      "name": "text_configure_cannot_temporarily_import",
+      "value": "Configure cannot temporarily import"
+    },
+    {
+      "name": "text_configure_imported",
+      "value": "Configure Imported"
+    },
+    {
+      "name": "text_configured_repository",
+      "value": "Configured repository"
+    },
+    {
+      "name": "text_confirm",
+      "value": "Confirm"
+    },
+    {
+      "name": "text_conflict",
+      "value": "Conflict"
+    },
+    {
+      "name": "text_conflict_2",
+      "value": "Conflict %1$s"
+    },
+    {
+      "name": "text_conflict_point_has_changed_read_again",
+      "value": "Conflict point has changed, read again"
+    },
+    {
+      "name": "text_conflict_tap_to_open_the_conflict_resolution",
+      "value": "%1$s, %2$s conflict. tap to open the conflict resolution interface"
+    },
+    {
+      "name": "text_connection_test_failed",
+      "value": "Connection test failed: %1$s"
+    },
+    {
+      "name": "text_content_has_changed_please_reload_and_edit",
+      "value": "Content has changed, please reload and edit"
+    },
+    {
+      "name": "text_continue_changing_status_without_adding_notes",
+      "value": "Continue changing status without adding notes"
+    },
+    {
+      "name": "text_continue_editing",
+      "value": "Continue editing"
+    },
+    {
+      "name": "text_continue_sorting",
+      "value": "Continue Sorting"
+    },
+    {
+      "name": "text_convert_to_item",
+      "value": "Convert to Item"
+    },
+    {
+      "name": "text_convert_to_note",
+      "value": "Convert to note"
+    },
+    {
+      "name": "text_converting",
+      "value": "Converting..."
+    },
+    {
+      "name": "text_coordinate",
+      "value": "Coordinate: %1$s, %2$s"
+    },
+    {
+      "name": "text_coordinate_2",
+      "value": "Coordinate %1$s, %2$s"
+    },
+    {
+      "name": "text_coordinate_identified",
+      "value": "Coordinate identified."
+    },
+    {
+      "name": "text_coordinates",
+      "value": "Coordinates"
+    },
+    {
+      "name": "text_copy",
+      "value": "Copy"
+    },
+    {
+      "name": "text_copy_blocks",
+      "value": "Copy Blocks"
+    },
+    {
+      "name": "text_copy_failed_try_again",
+      "value": "Copy failed. Try again."
+    },
+    {
+      "name": "text_copy_link",
+      "value": "Copy Link"
+    },
+    {
+      "name": "text_copy_title",
+      "value": "Copy Title"
+    },
+    {
+      "name": "text_could_not_browse_this_directory",
+      "value": "Could not browse this directory: %1$s"
+    },
+    {
+      "name": "text_could_not_open_file",
+      "value": "Could not open file"
+    },
+    {
+      "name": "text_could_not_open_org_tasks_capture_window",
+      "value": "Could not open Org Tasks capture window, please try again"
+    },
+    {
+      "name": "text_could_not_open_please_confirm_that_the",
+      "value": "Could not open \"%1$s\". Please confirm that the target application has been installed or that the binding has been modified in the application connection settings."
+    },
+    {
+      "name": "text_could_not_open_repository_configuration_please_try",
+      "value": "Could not open repository configuration, please try again"
+    },
+    {
+      "name": "text_could_not_open_the_map_please_confirm",
+      "value": "Could not open the map, please confirm that the corresponding application has been installed and try again."
+    },
+    {
+      "name": "text_could_not_open_this_configuration_please_check",
+      "value": "Could not open this configuration, please check the file and reopen it"
+    },
+    {
+      "name": "text_could_not_read_the_template_please_try",
+      "value": "Could not read the %1$s template, please try again"
+    },
+    {
+      "name": "text_could_not_recognize_this_card_please_press",
+      "value": "Could not recognize this card, please press the card from the desktop long to edit"
+    },
+    {
+      "name": "text_could_not_recognize_this_configuration",
+      "value": "Could not recognize this configuration"
+    },
+    {
+      "name": "text_couldn_t_apply_to_this_target",
+      "value": "Couldn't apply to this target."
+    },
+    {
+      "name": "text_couldn_t_change_the_link_type_try",
+      "value": "Couldn't change the link type. Try again."
+    },
+    {
+      "name": "text_couldn_t_create_the_folder",
+      "value": "Couldn't create the folder: %1$s"
+    },
+    {
+      "name": "text_couldn_t_delete_check_the_file_version",
+      "value": "Couldn't delete. Check the file version and try again."
+    },
+    {
+      "name": "text_couldn_t_delete_the_note",
+      "value": "Couldn't delete the note."
+    },
+    {
+      "name": "text_couldn_t_keep_the_draft_try_closing",
+      "value": "Couldn't keep the draft. Try closing again."
+    },
+    {
+      "name": "text_couldn_t_load_log_details",
+      "value": "Couldn't load log details: %1$s"
+    },
+    {
+      "name": "text_couldn_t_load_notes",
+      "value": "Couldn't load notes."
+    },
+    {
+      "name": "text_couldn_t_load_notes_tap_to_open",
+      "value": "Couldn't load notes. Tap to open Org Tasks."
+    },
+    {
+      "name": "text_couldn_t_load_tap_to_retry",
+      "value": "Couldn't load. Tap to retry."
+    },
+    {
+      "name": "text_couldn_t_load_the_note_return_to",
+      "value": "Couldn't load the note. Return to the list and try again."
+    },
+    {
+      "name": "text_couldn_t_open_app_links_settings_try",
+      "value": "Couldn't open App links settings. Try again."
+    },
+    {
+      "name": "text_couldn_t_open_quick_capture_try_again",
+      "value": "Couldn't open Quick Capture. Try again."
+    },
+    {
+      "name": "text_couldn_t_open_the_conflicting_file",
+      "value": "Couldn't open the conflicting file: %1$s"
+    },
+    {
+      "name": "text_couldn_t_open_the_link_check_the",
+      "value": "Couldn't open the link. Check the address and make sure the required app is installed."
+    },
+    {
+      "name": "text_couldn_t_open_the_link_editor_try",
+      "value": "Couldn't open the link editor. Try again."
+    },
+    {
+      "name": "text_couldn_t_open_the_link_make_sure",
+      "value": "Couldn't open the link. Make sure the required app is installed."
+    },
+    {
+      "name": "text_couldn_t_open_the_link_type_menu",
+      "value": "Couldn't open the link type menu. Try again."
+    },
+    {
+      "name": "text_couldn_t_open_the_page_try_again",
+      "value": "Couldn't open the page. Try again."
+    },
+    {
+      "name": "text_couldn_t_open_the_project_try_again",
+      "value": "Couldn't open the project. Try again."
+    },
+    {
+      "name": "text_couldn_t_open_this_note",
+      "value": "Couldn't open this note."
+    },
+    {
+      "name": "text_couldn_t_read_the_link_reload_the",
+      "value": "Couldn't read the link. Reload the content."
+    },
+    {
+      "name": "text_couldn_t_read_the_settings_file_check",
+      "value": "Couldn't read the settings file. Check that it is still accessible."
+    },
+    {
+      "name": "text_couldn_t_save_the_note",
+      "value": "Couldn't save the note."
+    },
+    {
+      "name": "text_couldn_t_save_the_notebook_shortcut",
+      "value": "Couldn't save the notebook shortcut: %1$s"
+    },
+    {
+      "name": "text_couldn_t_save_the_task_try_again",
+      "value": "Couldn't save the task. Try again."
+    },
+    {
+      "name": "text_couldn_t_schedule_the_calendar_reminder",
+      "value": "Couldn't schedule the calendar reminder: %1$s"
+    },
+    {
+      "name": "text_couldn_t_update_calendar_permissions",
+      "value": "Couldn't update calendar permissions: %1$s"
+    },
+    {
+      "name": "text_couldn_t_update_tags",
+      "value": "Couldn't update tags."
+    },
+    {
+      "name": "text_create",
+      "value": "Create"
+    },
+    {
+      "name": "text_create_and_add_labels",
+      "value": "Create and add labels"
+    },
+    {
+      "name": "text_create_file",
+      "value": "Create File"
+    },
+    {
+      "name": "text_create_item",
+      "value": "Create Item"
+    },
+    {
+      "name": "text_create_needs_to_include_target_file_metadata",
+      "value": "Create needs to include target file metadata in the page data set"
+    },
+    {
+      "name": "text_create_target_is_not_a_task_data",
+      "value": "Create target is not a task data set"
+    },
+    {
+      "name": "text_create_task",
+      "value": "Create Task"
+    },
+    {
+      "name": "text_create_tasks_and_save_original_links",
+      "value": "Create tasks and save original links"
+    },
+    {
+      "name": "text_creating",
+      "value": "Creating"
+    },
+    {
+      "name": "text_creating_2",
+      "value": "Creating..."
+    },
+    {
+      "name": "text_creating_3",
+      "value": "Creating..."
+    },
+    {
+      "name": "text_current",
+      "value": ",Current"
+    },
+    {
+      "name": "text_current_2",
+      "value": "Current: %1$s"
+    },
+    {
+      "name": "text_current_binding",
+      "value": "Current binding"
+    },
+    {
+      "name": "text_current_binding_2",
+      "value": "%1$s, current binding"
+    },
+    {
+      "name": "text_current_chapter_removed",
+      "value": "Current chapter removed"
+    },
+    {
+      "name": "text_current_directory",
+      "value": "Current Directory"
+    },
+    {
+      "name": "text_current_file_properties",
+      "value": "Current File Properties"
+    },
+    {
+      "name": "text_current_run",
+      "value": "Current run"
+    },
+    {
+      "name": "text_current_status",
+      "value": "Current status: %1$s"
+    },
+    {
+      "name": "text_customary_missions",
+      "value": "Habits"
+    },
+    {
+      "name": "text_customised_task_status",
+      "value": "Customised Task Status"
+    },
+    {
+      "name": "text_cut_off",
+      "value": "Cut-off"
+    },
+    {
+      "name": "text_data_event_missing_files_to_display_snapshots",
+      "value": "Data event missing files to display snapshots"
+    },
+    {
+      "name": "text_data_event_missing_snapshot_and_recovering",
+      "value": "Data event missing snapshot and recovering"
+    },
+    {
+      "name": "text_data_set_manager_closed",
+      "value": "Data set manager closed"
+    },
+    {
+      "name": "text_data_set_unconfigured_query",
+      "value": "Data set unconfigured query: %1$s"
+    },
+    {
+      "name": "text_data_set_without_subscription_manager",
+      "value": "Data set without subscription manager"
+    },
+    {
+      "name": "text_data_subscription_is_invalid_refreshing_page",
+      "value": "Data subscription is invalid, refreshing page"
+    },
+    {
+      "name": "text_data_sync",
+      "value": "Data & sync"
+    },
+    {
+      "name": "text_dataset_is_not_yet_configured",
+      "value": "Dataset is not yet configured"
+    },
+    {
+      "name": "text_dataset_query_changed",
+      "value": "Dataset query changed"
+    },
+    {
+      "name": "text_date_not_available",
+      "value": "Date not available"
+    },
+    {
+      "name": "text_day",
+      "value": "%1$s day"
+    },
+    {
+      "name": "text_day_2",
+      "value": "%1$s days"
+    },
+    {
+      "name": "text_days_left",
+      "value": "%1$s Days left"
+    },
+    {
+      "name": "text_deadline",
+      "value": "Deadline"
+    },
+    {
+      "name": "text_deadline_2",
+      "value": "Deadline %1$s"
+    },
+    {
+      "name": "text_default_read_only",
+      "value": "%1$s, default, read-only"
+    },
+    {
+      "name": "text_default_same_title",
+      "value": "Default Same Title"
+    },
+    {
+      "name": "text_default_status_fixes_custom_state_with_x",
+      "value": "Default status fixes; custom state with x can be clicked to remove. tap + to add the status to be enabled in the Notebook TODO statement."
+    },
+    {
+      "name": "text_delete",
+      "value": "Delete"
+    },
+    {
+      "name": "text_delete_file",
+      "value": "Delete File"
+    },
+    {
+      "name": "text_delete_files",
+      "value": "Delete files?"
+    },
+    {
+      "name": "text_delete_intent_locally_to_select_target",
+      "value": "Delete intent locally, to select target"
+    },
+    {
+      "name": "text_delete_list_entry",
+      "value": "Delete list entry: %1$s"
+    },
+    {
+      "name": "text_delete_note",
+      "value": "Delete note"
+    },
+    {
+      "name": "text_delete_permanently",
+      "value": "Delete permanently"
+    },
+    {
+      "name": "text_delete_record",
+      "value": "Move %1$s selected to Trash?"
+    },
+    {
+      "name": "text_delete_the_repository",
+      "value": "Delete the repository?"
+    },
+    {
+      "name": "text_delete_this_note",
+      "value": "Delete this note?"
+    },
+    {
+      "name": "text_delete_this_record",
+      "value": "Delete this record?"
+    },
+    {
+      "name": "text_deleting",
+      "value": "Deleting..."
+    },
+    {
+      "name": "text_deleting_2",
+      "value": "Deleting..."
+    },
+    {
+      "name": "text_disabled",
+      "value": "Disabled"
+    },
+    {
+      "name": "text_discard_all",
+      "value": "Discard All"
+    },
+    {
+      "name": "text_discard_changes",
+      "value": "Discard Changes"
+    },
+    {
+      "name": "text_discard_changes_and_return",
+      "value": "Discard changes and return"
+    },
+    {
+      "name": "text_discard_failed",
+      "value": "Discard Failed"
+    },
+    {
+      "name": "text_discarding_all_conflicts",
+      "value": "Discarding all conflicts?"
+    },
+    {
+      "name": "text_discarding_attribute_modifications",
+      "value": "Discarding attribute modifications?"
+    },
+    {
+      "name": "text_discards_the_trade_offs_and_manual_adjustments",
+      "value": "Discards the trade-offs and manual adjustments that are not applied to this item and rereads the current file."
+    },
+    {
+      "name": "text_discrepancies_have_lapsed_please_try_again",
+      "value": "Discrepancies have lapsed, please try again"
+    },
+    {
+      "name": "text_discrepancies_read_failed_please_try_again",
+      "value": "Discrepancies read failed, please try again"
+    },
+    {
+      "name": "text_displays_the_new_modified_and_deleted_records",
+      "value": "Displays the new, modified and deleted records of the system ' s alarm before the latest operation, including the triggers, the results of the execution and the reasons for the failure. Only the most recent 500 records of the current operation are kept, and the application is emptied once restarted."
+    },
+    {
+      "name": "text_distributing",
+      "value": "Distributing..."
+    },
+    {
+      "name": "text_distribution_plan_date",
+      "value": "Distribution plan date"
+    },
+    {
+      "name": "text_do_not_set_this_entry",
+      "value": "Leave this shortcut unset"
+    },
+    {
+      "name": "text_do_not_sync",
+      "value": "Do Not Sync"
+    },
+    {
+      "name": "text_document",
+      "value": "Document"
+    },
+    {
+      "name": "text_document_changed_list_entered_retained_reload_and",
+      "value": "Document changed, list entered retained, reload and continue editing"
+    },
+    {
+      "name": "text_document_directory",
+      "value": "Document Directory"
+    },
+    {
+      "name": "text_document_has_changed_please_reconfirm_deletion",
+      "value": "Document has changed, please reconfirm deletion"
+    },
+    {
+      "name": "text_document_updated_please_reload_structure",
+      "value": "Document updated, please reload structure"
+    },
+    {
+      "name": "text_documentation",
+      "value": "Documentation"
+    },
+    {
+      "name": "text_done",
+      "value": "Done"
+    },
+    {
+      "name": "text_download",
+      "value": "Download %1$s"
+    },
+    {
+      "name": "text_download_files",
+      "value": "Download %1$s files"
+    },
+    {
+      "name": "text_draft_cannot_be_saved_please_keep_the",
+      "value": "Draft cannot be saved, please keep the current window and try again"
+    },
+    {
+      "name": "text_draft_text_changed_please_try_again_after",
+      "value": "Draft text changed, please try again after canceling"
+    },
+    {
+      "name": "text_drag_list",
+      "value": "Drag List"
+    },
+    {
+      "name": "text_drag_paragraph",
+      "value": "Drag Paragraph"
+    },
+    {
+      "name": "text_drag_to_target_position_or_dot_by",
+      "value": "Drag to target position, or dot by dot"
+    },
+    {
+      "name": "text_drag_to_the_middle_of_the_line",
+      "value": "Drag to the middle of the line to be a child and drag to the top-down order"
+    },
+    {
+      "name": "text_drop_all_conflicts",
+      "value": "Drop All Conflicts..."
+    },
+    {
+      "name": "text_duration_of_events_minutes",
+      "value": "Duration of events (minutes)"
+    },
+    {
+      "name": "text_edit",
+      "value": "Edit"
+    },
+    {
+      "name": "text_edit_2",
+      "value": "Edit"
+    },
+    {
+      "name": "text_edit_blocks",
+      "value": "Edit Blocks"
+    },
+    {
+      "name": "text_edit_checklist",
+      "value": "Edit Checklist"
+    },
+    {
+      "name": "text_edit_file",
+      "value": "Edit File"
+    },
+    {
+      "name": "text_edit_note",
+      "value": "Edit Note: %1$s"
+    },
+    {
+      "name": "text_edit_repeat_rules",
+      "value": "Edit %1$s Repeat Rules"
+    },
+    {
+      "name": "text_editing",
+      "value": "Editing"
+    },
+    {
+      "name": "text_enable_synchronization",
+      "value": "Enable Synchronization"
+    },
+    {
+      "name": "text_enable_task_alarm",
+      "value": "Enable Task Alarm"
+    },
+    {
+      "name": "text_enable_webdav_sync",
+      "value": "Enable WebDAV Sync?"
+    },
+    {
+      "name": "text_enabled",
+      "value": "On"
+    },
+    {
+      "name": "text_end_edit",
+      "value": "End Edit"
+    },
+    {
+      "name": "text_end_time",
+      "value": "End Time"
+    },
+    {
+      "name": "text_enter_batch_edit",
+      "value": "Enter Batch Edit"
+    },
+    {
+      "name": "text_enter_remarks",
+      "value": "Enter Remarks"
+    },
+    {
+      "name": "text_enter_status_value",
+      "value": "Enter Status Value"
+    },
+    {
+      "name": "text_enter_the_number_of_days_to_keep",
+      "value": "Enter the number of days to keep between 1 and 3650"
+    },
+    {
+      "name": "text_entry",
+      "value": "Entry"
+    },
+    {
+      "name": "text_entry_notebook",
+      "value": "Entry notebook."
+    },
+    {
+      "name": "text_error_code",
+      "value": "(Error code %1$s)"
+    },
+    {
+      "name": "text_error_code_2",
+      "value": "%1$s (Error code %2$s)"
+    },
+    {
+      "name": "text_event_time",
+      "value": "Event time: %1$s → %2$s"
+    },
+    {
+      "name": "text_every",
+      "value": "Every"
+    },
+    {
+      "name": "text_expand",
+      "value": "Expand"
+    },
+    {
+      "name": "text_expand_all",
+      "value": "Expand All"
+    },
+    {
+      "name": "text_expand_all_categories_and_project_filters",
+      "value": "Expand all categories and project filters"
+    },
+    {
+      "name": "text_expand_all_tab_filters",
+      "value": "Expand tag filters"
+    },
+    {
+      "name": "text_expand_file_details",
+      "value": "Expand File Details"
+    },
+    {
+      "name": "text_expand_parent_and_position",
+      "value": "Expand parent and position"
+    },
+    {
+      "name": "text_expand_parent_node_tap_on_the_title",
+      "value": "Expand parent node, tap on the title to select location"
+    },
+    {
+      "name": "text_expand_subpoints",
+      "value": "Expand subpoints"
+    },
+    {
+      "name": "text_expired",
+      "value": "Expired"
+    },
+    {
+      "name": "text_failed",
+      "value": "Failed"
+    },
+    {
+      "name": "text_failed_to_close_import_page_please_try",
+      "value": "Failed to close import page, please try again"
+    },
+    {
+      "name": "text_failed_to_close_profile",
+      "value": "Failed to close profile"
+    },
+    {
+      "name": "text_failed_to_create_preview",
+      "value": "Failed to create preview"
+    },
+    {
+      "name": "text_failed_to_create_task",
+      "value": "Failed to create task"
+    },
+    {
+      "name": "text_failed_to_delete_application_connection",
+      "value": "Failed to delete application connection: %1$s"
+    },
+    {
+      "name": "text_failed_to_delete_file",
+      "value": "Failed to delete file: %1$s"
+    },
+    {
+      "name": "text_failed_to_delete_repository",
+      "value": "Failed to delete repository: %1$s"
+    },
+    {
+      "name": "text_failed_to_delete_webdav_password",
+      "value": "Failed to delete WebDAV password"
+    },
+    {
+      "name": "text_failed_to_open_local_storage",
+      "value": "Failed to open local storage"
+    },
+    {
+      "name": "text_failed_to_open_system_share",
+      "value": "Failed to open system share"
+    },
+    {
+      "name": "text_failed_to_read_conflict_file",
+      "value": "Failed to read conflict file: %1$s"
+    },
+    {
+      "name": "text_failed_to_read_difference",
+      "value": "Failed to read difference"
+    },
+    {
+      "name": "text_failed_to_read_draft_still_enter_and",
+      "value": "Failed to read draft, still enter and try to save"
+    },
+    {
+      "name": "text_failed_to_read_file",
+      "value": "Failed to read file: %1$s"
+    },
+    {
+      "name": "text_failed_to_read_notification_status",
+      "value": "Failed to read notification status"
+    },
+    {
+      "name": "text_failed_to_read_notification_status_error_code",
+      "value": "Failed to read notification status (Error code %1$s)"
+    },
+    {
+      "name": "text_failed_to_read_webdav_password",
+      "value": "Failed to read WebDAV password"
+    },
+    {
+      "name": "text_failed_to_remove_local_storage",
+      "value": "Failed to remove local storage"
+    },
+    {
+      "name": "text_failed_to_return",
+      "value": "Failed to return"
+    },
+    {
+      "name": "text_failed_to_return_try_again",
+      "value": "Failed to return, try again"
+    },
+    {
+      "name": "text_failed_to_save_application_connection",
+      "value": "Failed to save application connection: %1$s"
+    },
+    {
+      "name": "text_failed_to_save_webdav_password",
+      "value": "Failed to save WebDAV password"
+    },
+    {
+      "name": "text_failed_to_submit",
+      "value": "Failed to submit"
+    },
+    {
+      "name": "text_failed_to_update_address",
+      "value": "Failed to update address"
+    },
+    {
+      "name": "text_failure_to_address_conflict",
+      "value": "Failure to address conflict"
+    },
+    {
+      "name": "text_file_contains_protected_sync_conflicts",
+      "value": "File contains protected sync conflicts"
+    },
+    {
+      "name": "text_file_deleted",
+      "value": "File deleted"
+    },
+    {
+      "name": "text_file_does_not_have_available_cancellation_status",
+      "value": "File does not have available cancellation status, please check TODO process"
+    },
+    {
+      "name": "text_file_has_changed_please_re_select",
+      "value": "File has changed, please re-select"
+    },
+    {
+      "name": "text_file_has_changed_please_refresh_and_reorder",
+      "value": "File has changed. Please refresh and reorder."
+    },
+    {
+      "name": "text_file_has_changed_please_refresh_the_move",
+      "value": "File has changed. Please refresh the move position and try again."
+    },
+    {
+      "name": "text_file_has_changed_re_select_move_position",
+      "value": "File has changed, re-select move position"
+    },
+    {
+      "name": "text_file_name_cannot_contain_directory_separator_or",
+      "value": "File name cannot contain directory separator or line break"
+    },
+    {
+      "name": "text_file_path_unknown",
+      "value": "File path unknown"
+    },
+    {
+      "name": "text_file_template_reading_failed_please_try_again",
+      "value": "File template reading failed, please try again"
+    },
+    {
+      "name": "text_file_unchanged",
+      "value": "%1$s file unchanged"
+    },
+    {
+      "name": "text_file_version_for_creation_location",
+      "value": "File version for creation location"
+    },
+    {
+      "name": "text_file_version_not_continuous_recovering",
+      "value": "File version not continuous, recovering"
+    },
+    {
+      "name": "text_file_view",
+      "value": "File view"
+    },
+    {
+      "name": "text_filename",
+      "value": "Filename"
+    },
+    {
+      "name": "text_filter_directory",
+      "value": "Filter Directory"
+    },
+    {
+      "name": "text_filter_failed_tap_to_try_again",
+      "value": "Filter failed: %1$s, tap to try again"
+    },
+    {
+      "name": "text_filter_hidden",
+      "value": "Filter Hidden"
+    },
+    {
+      "name": "text_filtering",
+      "value": "Filtering"
+    },
+    {
+      "name": "text_finishing_sync",
+      "value": "Finishing sync…"
+    },
+    {
+      "name": "text_first_at_this_node",
+      "value": "First at this node."
+    },
+    {
+      "name": "text_first_of_the_child_node",
+      "value": "First of the child node."
+    },
+    {
+      "name": "text_first_title_in_the_file",
+      "value": "First title in the file"
+    },
+    {
+      "name": "text_folder_name",
+      "value": "Folder Name"
+    },
+    {
+      "name": "text_for_the_time_being_last_read",
+      "value": "%1$s. For the time being, last read."
+    },
+    {
+      "name": "text_fri",
+      "value": "Fri"
+    },
+    {
+      "name": "text_from_shared_content",
+      "value": "From shared content"
+    },
+    {
+      "name": "text_from_the_actual_date_of_completion_arrangements",
+      "value": "Schedule the next occurrence one interval after the day the task is completed."
+    },
+    {
+      "name": "text_from_the_parent_title",
+      "value": ", from the parent title"
+    },
+    {
+      "name": "text_full_main_tree",
+      "value": "Full main tree"
+    },
+    {
+      "name": "text_give_up_the_sequence",
+      "value": "Give up the sequence?"
+    },
+    {
+      "name": "text_giving_up_unapplied_adjustments",
+      "value": "Giving up unapplied adjustments?"
+    },
+    {
+      "name": "text_go_to_settings",
+      "value": "Go to Settings"
+    },
+    {
+      "name": "text_go_to_system_settings",
+      "value": "Go to System Settings"
+    },
+    {
+      "name": "text_go_to_task_alarm_settings",
+      "value": "Go to Task Alarm Settings"
+    },
+    {
+      "name": "text_got_it",
+      "value": "Got it."
+    },
+    {
+      "name": "text_has_not_been_bound_for_application_select",
+      "value": "%1$s has not been bound for application. Select the target in the application settings."
+    },
+    {
+      "name": "text_here_we_go",
+      "value": "Here we go."
+    },
+    {
+      "name": "text_hide_no_change_log",
+      "value": "Hide No Change Log"
+    },
+    {
+      "name": "text_hide_the_hidden_file_of_the_configuration",
+      "value": "Hide the hidden file of the configuration"
+    },
+    {
+      "name": "text_historical_backup",
+      "value": "Historical Backup . %1$s"
+    },
+    {
+      "name": "text_history",
+      "value": "History"
+    },
+    {
+      "name": "text_http_web_page",
+      "value": "HTTP page"
+    },
+    {
+      "name": "text_https_web_page",
+      "value": "HTTPS page"
+    },
+    {
+      "name": "text_if_you_do_not_have_microphone_permission",
+      "value": "If you do not have microphone permission, you can continue with the title."
+    },
+    {
+      "name": "text_implementation_failed",
+      "value": "Failed"
+    },
+    {
+      "name": "text_implementation_success",
+      "value": "Implementation Success"
+    },
+    {
+      "name": "text_import_backup_configuration",
+      "value": "Import Backup Configuration"
+    },
+    {
+      "name": "text_import_configuration",
+      "value": "Import Configuration"
+    },
+    {
+      "name": "text_in_the_future_perhaps_the_file_is",
+      "value": "In the future, perhaps the file is invalid, re-select in settings"
+    },
+    {
+      "name": "text_inbox",
+      "value": "Inbox"
+    },
+    {
+      "name": "text_inbox_configuration_changed_please_refresh_and_reselect",
+      "value": "Inbox configuration changed. Please refresh and reselect"
+    },
+    {
+      "name": "text_inbox_file_not_selected_or_expired_re",
+      "value": "Inbox file not selected or expired, re-select in settings"
+    },
+    {
+      "name": "text_inbox_files_are_not_selected_or_are",
+      "value": "Inbox files are not selected or are invalid. Select in settings first"
+    },
+    {
+      "name": "text_inbox_identity_changed_please_refresh_and_recheck",
+      "value": "Inbox identity changed. Please refresh and recheck."
+    },
+    {
+      "name": "text_inboxes_one_day_and_memo_files_must",
+      "value": "Inboxes, one day and memo files must be secure relative .org paths in the repository and leave empty if not configured"
+    },
+    {
+      "name": "text_inconsistent_number_of_batch_subscriptions",
+      "value": "Inconsistent number of batch subscriptions"
+    },
+    {
+      "name": "text_individual",
+      "value": "%1$s"
+    },
+    {
+      "name": "text_initialization_failed_try_saving_again",
+      "value": "Initialization failed, try saving again"
+    },
+    {
+      "name": "text_initialize_a_new_repository",
+      "value": "Initialize a new repository"
+    },
+    {
+      "name": "text_insert",
+      "value": "Insert"
+    },
+    {
+      "name": "text_insert_link",
+      "value": "Insert Link"
+    },
+    {
+      "name": "text_internal_document",
+      "value": "In this document"
+    },
+    {
+      "name": "text_internal_link_index_not_confirmed_please_try",
+      "value": "Internal link index not confirmed, please try again later"
+    },
+    {
+      "name": "text_internal_link_jump_failed_please_confirm_that",
+      "value": "Internal link jump failed, please confirm that the target remains and completes the current editing"
+    },
+    {
+      "name": "text_internal_link_target_changed_or_current_edit",
+      "value": "Internal link target changed or current edit not saved"
+    },
+    {
+      "name": "text_internal_link_target_does_not_exist",
+      "value": "Internal link target does not exist"
+    },
+    {
+      "name": "text_internal_link_target_does_not_exist_or",
+      "value": "Internal link target does not exist or the current view cannot jump"
+    },
+    {
+      "name": "text_internal_link_target_does_not_exist_or_2",
+      "value": "Internal link target does not exist or the project document is hidden"
+    },
+    {
+      "name": "text_internal_link_target_does_not_exist_or_3",
+      "value": "Internal link target does not exist or the document is not yet loaded"
+    },
+    {
+      "name": "text_interrupted",
+      "value": "Interrupted"
+    },
+    {
+      "name": "text_introduction",
+      "value": "Introduction"
+    },
+    {
+      "name": "text_invalid_cache_of_page_file",
+      "value": "Invalid cache of page file"
+    },
+    {
+      "name": "text_invalid_page_cache_data_set_type",
+      "value": "Invalid page cache data set type"
+    },
+    {
+      "name": "text_invalid_page_cache_name",
+      "value": "Invalid page cache name"
+    },
+    {
+      "name": "text_invalid_page_data_set_definition",
+      "value": "Invalid Page Data Set Definition"
+    },
+    {
+      "name": "text_invalid_page_data_set_name",
+      "value": "Invalid Page Data Set Name"
+    },
+    {
+      "name": "text_invalid_page_data_set_type",
+      "value": "Invalid Page Data Set Type"
+    },
+    {
+      "name": "text_invalid_sort_configuration",
+      "value": "Invalid Sort Configuration"
+    },
+    {
+      "name": "text_invalid_task_reminder_time",
+      "value": "Invalid Task Reminder Time"
+    },
+    {
+      "name": "text_invalid_webdav_password_format_in_secure_storage",
+      "value": "Invalid WebDAV password format in secure storage"
+    },
+    {
+      "name": "text_is_in_conflict",
+      "value": "%1$s %2$s is in conflict."
+    },
+    {
+      "name": "text_it_s_closed_today",
+      "value": "It's closed today."
+    },
+    {
+      "name": "text_it_s_downloaded",
+      "value": "It's downloaded."
+    },
+    {
+      "name": "text_it_s_important",
+      "value": "It's important."
+    },
+    {
+      "name": "text_it_s_uploaded",
+      "value": "It's uploaded."
+    },
+    {
+      "name": "text_item_name_cannot_contain_line_breaks_or",
+      "value": "Item name cannot contain line breaks or control characters"
+    },
+    {
+      "name": "text_item_page_left",
+      "value": "Item page left"
+    },
+    {
+      "name": "text_job_created_inbox_opened_failed_tap_open",
+      "value": "Job created, inbox opened failed, tap Open Inbox to try again"
+    },
+    {
+      "name": "text_job_reading_failed",
+      "value": "Couldn't load tasks"
+    },
+    {
+      "name": "text_job_removed_please_refresh_and_try_again",
+      "value": "Job removed, please refresh and try again"
+    },
+    {
+      "name": "text_jump_to_the_future",
+      "value": "Skip missed dates"
+    },
+    {
+      "name": "text_just_write_down_one_thing",
+      "value": "Just write down one thing..."
+    },
+    {
+      "name": "text_keep_the_contents_of_the_current_document",
+      "value": "Keep the contents of the current document"
+    },
+    {
+      "name": "text_label",
+      "value": ", %1$s items"
+    },
+    {
+      "name": "text_label_2",
+      "value": "Tag: %1$s"
+    },
+    {
+      "name": "text_last_month",
+      "value": "Last month."
+    },
+    {
+      "name": "text_level_chapter_tap_on_the_location_body",
+      "value": "%1$s level chapter, tap on the location body"
+    },
+    {
+      "name": "text_link",
+      "value": "Link"
+    },
+    {
+      "name": "text_link_cannot_be_empty",
+      "value": "Link cannot be empty"
+    },
+    {
+      "name": "text_link_control_has_failed_to_load_please",
+      "value": "Link control has failed to load. Please reload the body."
+    },
+    {
+      "name": "text_link_copied",
+      "value": "Link copied"
+    },
+    {
+      "name": "text_link_url",
+      "value": "Link URL"
+    },
+    {
+      "name": "text_list",
+      "value": "List"
+    },
+    {
+      "name": "text_list_entry_cannot_be_empty",
+      "value": "List entry cannot be empty"
+    },
+    {
+      "name": "text_list_entry_changed_reload",
+      "value": "List entry changed, reload"
+    },
+    {
+      "name": "text_listed",
+      "value": "Listed"
+    },
+    {
+      "name": "text_listening",
+      "value": "Listening..."
+    },
+    {
+      "name": "text_load_remaining_tasks_in_the_area",
+      "value": "Load remaining %3$s tasks in the %1$s %2$s area"
+    },
+    {
+      "name": "text_local_changes",
+      "value": "Local changes"
+    },
+    {
+      "name": "text_local_directories_for_do_not_exist",
+      "value": "Local directories for %1$s do not exist"
+    },
+    {
+      "name": "text_local_directory",
+      "value": "Local Directory"
+    },
+    {
+      "name": "text_local_directory_has_been_reset_sync_is",
+      "value": "Local directory has been reset, sync is not complete: %1$s"
+    },
+    {
+      "name": "text_local_directory_modified_tap_ok_before_resetting",
+      "value": "Local directory modified, tap OK before resetting"
+    },
+    {
+      "name": "text_local_directory_resetd",
+      "value": "Local Directory Resetd"
+    },
+    {
+      "name": "text_local_org_files_of_the_same_path",
+      "value": "Local Org files of the same path will be covered by remote versions at the time of the first sync, and local tasks that are not kept in the remote version will be moved to Trash after the sync. Local unique files will be kept and uploaded."
+    },
+    {
+      "name": "text_local_repository",
+      "value": "Local repository"
+    },
+    {
+      "name": "text_local_storage_failed",
+      "value": "Local storage failed"
+    },
+    {
+      "name": "text_local_upload",
+      "value": "Local Upload"
+    },
+    {
+      "name": "text_local_warehouses_use_only_their_own_machine",
+      "value": "Local warehouses use only their own machine files. The WebDAV repository needs to confirm the cleanup sync information when switching to unsynchronous."
+    },
+    {
+      "name": "text_locally_add_this_node_select_the_place",
+      "value": "Locally add this node, select the place to insert it."
+    },
+    {
+      "name": "text_locally_and_at_the_same_time_the",
+      "value": "Locally and at the same time, the content has been modified, and please confirm which version to use."
+    },
+    {
+      "name": "text_locally_modified_tap_sync",
+      "value": "Locally modified, tap sync"
+    },
+    {
+      "name": "text_locally_modified_tap_to_sync_all_repositories",
+      "value": "Locally modified. tap to sync all repositories"
+    },
+    {
+      "name": "text_location",
+      "value": "Location"
+    },
+    {
+      "name": "text_log",
+      "value": "Log"
+    },
+    {
+      "name": "text_log_records_are_incomplete",
+      "value": "Log records are incomplete"
+    },
+    {
+      "name": "text_logbook",
+      "value": "Logbook"
+    },
+    {
+      "name": "text_long_grouping_and_items_by_drag_agenda",
+      "value": "Long grouping and items by drag; agenda fixed to the top, general tasks fixed to the project."
+    },
+    {
+      "name": "text_long_press_drag",
+      "value": "Long press drag, %1$s"
+    },
+    {
+      "name": "text_long_press_drag_2",
+      "value": "Long press drag %1$s"
+    },
+    {
+      "name": "text_long_range_inspection_of_repository_is_missing",
+      "value": "Long-range inspection of repository is missing"
+    },
+    {
+      "name": "text_loop_tasks",
+      "value": "Loop Tasks"
+    },
+    {
+      "name": "text_lower",
+      "value": "Lower"
+    },
+    {
+      "name": "text_mail",
+      "value": "Email"
+    },
+    {
+      "name": "text_manages_local_file_directories_and_webdav_connections",
+      "value": "Manages local file directories and webDAV connections. Browse files by using the \" Notebook \" in the sidebar."
+    },
+    {
+      "name": "text_mandate_closed",
+      "value": "Mandate closed."
+    },
+    {
+      "name": "text_medium",
+      "value": "Medium"
+    },
+    {
+      "name": "text_merge",
+      "value": "Merge"
+    },
+    {
+      "name": "text_merge_records_in_the_order_of_selection",
+      "value": "Merge records in the order of selection"
+    },
+    {
+      "name": "text_merged",
+      "value": "Merged..."
+    },
+    {
+      "name": "text_merged_entry_records",
+      "value": "Merged %1$s entry records"
+    },
+    {
+      "name": "text_missing_date",
+      "value": "Missed dates"
+    },
+    {
+      "name": "text_missing_or_misdirected_repository_fields",
+      "value": "Missing or misdirected repository fields"
+    },
+    {
+      "name": "text_mission_planning_time_is_invalid",
+      "value": "The task's scheduled time is invalid."
+    },
+    {
+      "name": "text_modified_date_only",
+      "value": "Modified date only"
+    },
+    {
+      "name": "text_modified_on",
+      "value": "Modified on %1$s - %2$s - %3$s %4$s: %5$s"
+    },
+    {
+      "name": "text_modify_saved_to_read_latest_content_failed",
+      "value": "Modify saved to read latest content failed: %1$s"
+    },
+    {
+      "name": "text_modifying_configuration_please_try_again_later",
+      "value": "Modifying configuration, please try again later"
+    },
+    {
+      "name": "text_modifying_the_link_failed_please_try_again",
+      "value": "Modifying the link failed, please try again"
+    },
+    {
+      "name": "text_mon",
+      "value": "Mon"
+    },
+    {
+      "name": "text_more",
+      "value": "%1$s: More"
+    },
+    {
+      "name": "text_more_2",
+      "value": "More"
+    },
+    {
+      "name": "text_more_document_operations",
+      "value": "More Document Operations"
+    },
+    {
+      "name": "text_more_operations",
+      "value": "More Operations"
+    },
+    {
+      "name": "text_more_operations_today",
+      "value": "More Today options"
+    },
+    {
+      "name": "text_more_project_operations",
+      "value": "More Project Operations"
+    },
+    {
+      "name": "text_more_task_operations",
+      "value": "More Task Operations"
+    },
+    {
+      "name": "text_most_important",
+      "value": "Most important."
+    },
+    {
+      "name": "text_move",
+      "value": "Move"
+    },
+    {
+      "name": "text_move_back",
+      "value": "Move back"
+    },
+    {
+      "name": "text_move_blocks",
+      "value": "Move blocks"
+    },
+    {
+      "name": "text_move_down",
+      "value": "Move Down"
+    },
+    {
+      "name": "text_move_front",
+      "value": "Move front"
+    },
+    {
+      "name": "text_move_tasks",
+      "value": "Move Tasks"
+    },
+    {
+      "name": "text_move_to",
+      "value": "Move to %1$s, %2$s"
+    },
+    {
+      "name": "text_move_to_2",
+      "value": "Move To"
+    },
+    {
+      "name": "text_move_to_a_day",
+      "value": "Move to a day"
+    },
+    {
+      "name": "text_move_to_subpoint",
+      "value": "Move to Subpoint"
+    },
+    {
+      "name": "text_move_to_target",
+      "value": "Move to Target"
+    },
+    {
+      "name": "text_move_to_the_beginning",
+      "value": "Move to the beginning"
+    },
+    {
+      "name": "text_move_to_the_end",
+      "value": "Move to the end"
+    },
+    {
+      "name": "text_move_to_the_end_of_the_body",
+      "value": "Move to the end of the body"
+    },
+    {
+      "name": "text_move_up",
+      "value": "Move Up"
+    },
+    {
+      "name": "text_moving",
+      "value": "Moving..."
+    },
+    {
+      "name": "text_moving_2",
+      "value": "Moving..."
+    },
+    {
+      "name": "text_moving_target_is_not_available_re_select",
+      "value": "Moving target is not available, re-select"
+    },
+    {
+      "name": "text_name",
+      "value": "Name"
+    },
+    {
+      "name": "text_needs_processing_after_import",
+      "value": "Needs processing after import"
+    },
+    {
+      "name": "text_network_failure",
+      "value": "Network failure"
+    },
+    {
+      "name": "text_new_category",
+      "value": "New Category"
+    },
+    {
+      "name": "text_new_document",
+      "value": "New Document"
+    },
+    {
+      "name": "text_new_folder",
+      "value": "+ New Folder"
+    },
+    {
+      "name": "text_new_repository",
+      "value": "New repository"
+    },
+    {
+      "name": "text_new_tab",
+      "value": "New tag"
+    },
+    {
+      "name": "text_new_tab_2",
+      "value": "New tag…"
+    },
+    {
+      "name": "text_next",
+      "value": "%1$s Next"
+    },
+    {
+      "name": "text_next_conflict",
+      "value": "Next conflict"
+    },
+    {
+      "name": "text_next_date",
+      "value": "Next Date"
+    },
+    {
+      "name": "text_next_month",
+      "value": "Next month"
+    },
+    {
+      "name": "text_no_application_available",
+      "value": "No application available"
+    },
+    {
+      "name": "text_no_cause_of_trigger_recorded",
+      "value": "No cause of trigger recorded"
+    },
+    {
+      "name": "text_no_change",
+      "value": "No change"
+    },
+    {
+      "name": "text_no_connection_applied_yet",
+      "value": "No connection applied yet"
+    },
+    {
+      "name": "text_no_corresponding_alarm_was_found_in_the",
+      "value": "No corresponding alarm was found in the system calendar and may have been deleted"
+    },
+    {
+      "name": "text_no_directory_set",
+      "value": "No directory set"
+    },
+    {
+      "name": "text_no_eligible_tasks",
+      "value": "No eligible tasks"
+    },
+    {
+      "name": "text_no_label",
+      "value": "No tags"
+    },
+    {
+      "name": "text_no_match_locations",
+      "value": "No Match Locations"
+    },
+    {
+      "name": "text_no_memo_record",
+      "value": "No memo record"
+    },
+    {
+      "name": "text_no_mission_objective_for_now",
+      "value": "No task destinations"
+    },
+    {
+      "name": "text_no_modification_operation_reception_interface_provided",
+      "value": "No modification operation reception interface provided"
+    },
+    {
+      "name": "text_no_note",
+      "value": "No note."
+    },
+    {
+      "name": "text_no_note_under_this_tab",
+      "value": "No notes with this tag"
+    },
+    {
+      "name": "text_no_ongoing_tasks_eligible_for_screening",
+      "value": "No in-progress tasks match these filters"
+    },
+    {
+      "name": "text_no_optional_file_please_configure_the_repository",
+      "value": "No optional file, please configure the repository in settings first."
+    },
+    {
+      "name": "text_no_org_file_available",
+      "value": "No Org file available"
+    },
+    {
+      "name": "text_no_org_tasks_recognized_yaml_configuration",
+      "value": "No Org Tasks recognized YAML configuration"
+    },
+    {
+      "name": "text_no_page_data_management_objects_provided",
+      "value": "No page data management objects provided"
+    },
+    {
+      "name": "text_no_priority",
+      "value": "No priority"
+    },
+    {
+      "name": "text_no_repository_in_file",
+      "value": "No repository in file"
+    },
+    {
+      "name": "text_no_repository_yet",
+      "value": "No repository yet."
+    },
+    {
+      "name": "text_no_selection",
+      "value": "No Selection"
+    },
+    {
+      "name": "text_no_selection_2",
+      "value": ",no selection"
+    },
+    {
+      "name": "text_no_status",
+      "value": "No status"
+    },
+    {
+      "name": "text_no_such_application_in_directory",
+      "value": "No such application in directory"
+    },
+    {
+      "name": "text_no_tasks",
+      "value": "No tasks"
+    },
+    {
+      "name": "text_no_text",
+      "value": "No text"
+    },
+    {
+      "name": "text_no_uploads_or_downloads_at_this_time",
+      "value": "No uploads or downloads at this time"
+    },
+    {
+      "name": "text_no_valid_count_yet",
+      "value": "No valid count yet."
+    },
+    {
+      "name": "text_node_operations",
+      "value": "Node Operations"
+    },
+    {
+      "name": "text_node_removed_please_recheck",
+      "value": "Node removed, please recheck"
+    },
+    {
+      "name": "text_none",
+      "value": "None"
+    },
+    {
+      "name": "text_not_completed",
+      "value": "Not completed"
+    },
+    {
+      "name": "text_not_installed",
+      "value": "Not installed"
+    },
+    {
+      "name": "text_not_seen_org_file",
+      "value": "Not seen. Org file."
+    },
+    {
+      "name": "text_not_selected",
+      "value": "Not Selected"
+    },
+    {
+      "name": "text_not_selected_2",
+      "value": ", not selected"
+    },
+    {
+      "name": "text_note_no_task",
+      "value": "Note, no task"
+    },
+    {
+      "name": "text_notebook_reading_failed",
+      "value": "Notebook reading failed"
+    },
+    {
+      "name": "text_notebook_shortcuts",
+      "value": "Notebook shortcuts"
+    },
+    {
+      "name": "text_notebooks",
+      "value": "Notebooks"
+    },
+    {
+      "name": "text_notes",
+      "value": "Notes"
+    },
+    {
+      "name": "text_notification_authorization_and_type_of_notification_can",
+      "value": "Notification authorization and type of notification can be managed in the system settings; a digital corner sign is also required to open the desktop corner in the system settings."
+    },
+    {
+      "name": "text_notification_is_open_management_systems_notification_settings",
+      "value": "Notification is open. Management Systems Notification Settings"
+    },
+    {
+      "name": "text_notifications_and_corner_signs",
+      "value": "Notifications and badges"
+    },
+    {
+      "name": "text_notifier_not_started_go_to_system_settings",
+      "value": "Notifier not started. Go to system settings."
+    },
+    {
+      "name": "text_number_of_days_retained",
+      "value": "Number of days retained"
+    },
+    {
+      "name": "text_obsolete_records_not_read_yet_completed",
+      "value": "Obsolete records not read yet completed"
+    },
+    {
+      "name": "text_ok",
+      "value": "OK"
+    },
+    {
+      "name": "text_once_a_file_is_synchronized_the_records",
+      "value": "Once a file is synchronized, the records will be shown here."
+    },
+    {
+      "name": "text_one",
+      "value": "One."
+    },
+    {
+      "name": "text_one_extension",
+      "value": "Advance once"
+    },
+    {
+      "name": "text_ongoing",
+      "value": "Ongoing"
+    },
+    {
+      "name": "text_ongoing_days",
+      "value": "Ongoing %1$s Days"
+    },
+    {
+      "name": "text_only_one_interval_will_be_moved_forward",
+      "value": "Completing the task advances its date by one interval, even if the next date is in the past."
+    },
+    {
+      "name": "text_only_the_same_version_of_the_same",
+      "value": "Only the same version of the same document can be merged. Please refresh and re-select"
+    },
+    {
+      "name": "text_only_when_the_date_is_changed_each",
+      "value": "Only when the date is changed, each task retains the original time; the addition or removal time will be applied to all selected tasks."
+    },
+    {
+      "name": "text_open_coordinates_on_the_map",
+      "value": "Open coordinates on the map"
+    },
+    {
+      "name": "text_open_inbox",
+      "value": "Open inbox."
+    },
+    {
+      "name": "text_open_navigator",
+      "value": "Open Navigator, %1$s"
+    },
+    {
+      "name": "text_open_notification",
+      "value": "Open Notification"
+    },
+    {
+      "name": "text_open_scrap",
+      "value": "Open Trash"
+    },
+    {
+      "name": "text_opening_file",
+      "value": "Opening file"
+    },
+    {
+      "name": "text_opening_quick_capture",
+      "value": "Opening quick capture..."
+    },
+    {
+      "name": "text_operation_cancelled",
+      "value": "Operation cancelled"
+    },
+    {
+      "name": "text_operation_not_completed_please_try_again",
+      "value": "Operation not completed, please try again"
+    },
+    {
+      "name": "text_order_saved_reading_the_latest_content_failed",
+      "value": "Order saved, reading the latest content failed, reload"
+    },
+    {
+      "name": "text_org_tasks_configuration_file",
+      "value": "Org Tasks Configuration File ⁇ %1$s"
+    },
+    {
+      "name": "text_org_tasks_configuration_not_recognized",
+      "value": "Org Tasks Configuration Not Recognized"
+    },
+    {
+      "name": "text_org_tasks_settings",
+      "value": "Org Tasks settings-"
+    },
+    {
+      "name": "text_organisation",
+      "value": "Organisation"
+    },
+    {
+      "name": "text_organisation_2",
+      "value": "Organisation"
+    },
+    {
+      "name": "text_organisation_3",
+      "value": "Organisation"
+    },
+    {
+      "name": "text_original_cut_off",
+      "value": "Original cut-off %1$s"
+    },
+    {
+      "name": "text_original_plan",
+      "value": "Original plan %1$s"
+    },
+    {
+      "name": "text_original_repository_removed",
+      "value": "Original repository removed. %1$s"
+    },
+    {
+      "name": "text_other_agreements",
+      "value": "Other link type"
+    },
+    {
+      "name": "text_other_configurations",
+      "value": "Other configurations"
+    },
+    {
+      "name": "text_overdue_days",
+      "value": "Overdue %1$s days"
+    },
+    {
+      "name": "text_page_cache_exceeding_size_limit",
+      "value": "Page cache exceeding size limit"
+    },
+    {
+      "name": "text_page_cache_not_fully_written",
+      "value": "Page cache not fully written"
+    },
+    {
+      "name": "text_page_data_range_changed",
+      "value": "Page Data Range Changed"
+    },
+    {
+      "name": "text_page_data_range_changed_please_reopen_the",
+      "value": "Page data range changed, please reopen the page"
+    },
+    {
+      "name": "text_page_data_set_closed",
+      "value": "Page data set closed"
+    },
+    {
+      "name": "text_page_dataset_is_currently_unedited",
+      "value": "Page dataset is currently unedited"
+    },
+    {
+      "name": "text_page_path_invalid",
+      "value": "Page path invalid"
+    },
+    {
+      "name": "text_paragraph",
+      "value": "Paragraph"
+    },
+    {
+      "name": "text_parent_has_been_removed_re_select",
+      "value": "Parent has been removed, re-select"
+    },
+    {
+      "name": "text_parent_node_removed_please_reselect_after_closing",
+      "value": "Parent node removed, please reselect after closing the panel"
+    },
+    {
+      "name": "text_partially_completed",
+      "value": "Partially completed"
+    },
+    {
+      "name": "text_partition_and_item_sequence_configuration_not_readable",
+      "value": "Partition and item sequence configuration not readable. Save after restoring the default order"
+    },
+    {
+      "name": "text_password_or_application_of_a_specific_password",
+      "value": "Password or application of a specific password"
+    },
+    {
+      "name": "text_pause",
+      "value": "Pause"
+    },
+    {
+      "name": "text_pause_task",
+      "value": "Pause Task"
+    },
+    {
+      "name": "text_periodic",
+      "value": "Fixed interval"
+    },
+    {
+      "name": "text_permanent_clearance_of_entry_records",
+      "value": "Permanently delete %1$s selected?"
+    },
+    {
+      "name": "text_petal_maps",
+      "value": "Petal Maps"
+    },
+    {
+      "name": "text_placement",
+      "value": "Placement"
+    },
+    {
+      "name": "text_planned",
+      "value": "Planned"
+    },
+    {
+      "name": "text_planned_date",
+      "value": "Planned date %1$s"
+    },
+    {
+      "name": "text_please_complete_the_hotsync_info_cleanup_and",
+      "value": "Please complete the HotSync Info Cleanup and then modify the local directory"
+    },
+    {
+      "name": "text_please_complete_the_sync_message_first",
+      "value": "Please complete the sync message first."
+    },
+    {
+      "name": "text_please_confirm_the_title_and_save_it",
+      "value": "Please confirm the title and save it to the Org Tasks."
+    },
+    {
+      "name": "text_please_enter_a_filename",
+      "value": "Please enter a filename."
+    },
+    {
+      "name": "text_please_enter_a_status_value",
+      "value": "Please enter a status value"
+    },
+    {
+      "name": "text_please_enter_a_valid_filename_which_does",
+      "value": "Please enter a valid filename, which does not contain a directory separator"
+    },
+    {
+      "name": "text_please_enter_a_valid_folder_name_without",
+      "value": "Please enter a valid folder name without a path separator"
+    },
+    {
+      "name": "text_please_enter_a_valid_repeat_interval_greater",
+      "value": "Please enter a valid repeat interval greater than zero"
+    },
+    {
+      "name": "text_please_enter_an_absolute_path_to_the",
+      "value": "Please enter an absolute path to the local Org file directory"
+    },
+    {
+      "name": "text_please_enter_from_the_memoranda_list",
+      "value": "Open this note from the Notes list."
+    },
+    {
+      "name": "text_please_enter_the_classification_name",
+      "value": "Please enter the classification name"
+    },
+    {
+      "name": "text_please_enter_the_full_number_of_days",
+      "value": "Please enter the full number of days"
+    },
+    {
+      "name": "text_please_enter_the_title",
+      "value": "Please enter the title"
+    },
+    {
+      "name": "text_please_expand_the_editable_task_before_changing",
+      "value": "Please expand the editable task before changing the link"
+    },
+    {
+      "name": "text_please_fill_in_https_webdav_address_username",
+      "value": "Please fill in HTTPS WebDAV address, username and password"
+    },
+    {
+      "name": "text_please_finish_first",
+      "value": "Please finish first.\""
+    },
+    {
+      "name": "text_please_finish_the_current_editing_first",
+      "value": "Please finish the current editing first"
+    },
+    {
+      "name": "text_please_finish_the_current_editing_first_2",
+      "value": "Please finish the current editing first."
+    },
+    {
+      "name": "text_please_handle_this_first_in_the_repository",
+      "value": "Please handle this first in the repository settings."
+    },
+    {
+      "name": "text_please_save_or_cancel_the_attribute_changes",
+      "value": "Please save or cancel the attribute changes first"
+    },
+    {
+      "name": "text_please_select_a_memo_file_for_application",
+      "value": "Please select a memo file for application first"
+    },
+    {
+      "name": "text_please_select_a_mission_target",
+      "value": "Choose a destination for the task."
+    },
+    {
+      "name": "text_please_select_a_text_or_link_for",
+      "value": "Please select a text or link for sharing"
+    },
+    {
+      "name": "text_please_select_a_valid_individual_reminder_time",
+      "value": "Please select a valid individual reminder time"
+    },
+    {
+      "name": "text_please_select_at_least_two_records",
+      "value": "Please select at least two records."
+    },
+    {
+      "name": "text_please_select_the_date",
+      "value": "Please select the date"
+    },
+    {
+      "name": "text_please_select_the_record",
+      "value": "Please select the record"
+    },
+    {
+      "name": "text_please_select_the_repository",
+      "value": "Please select the repository"
+    },
+    {
+      "name": "text_please_try_again",
+      "value": "Please try again."
+    },
+    {
+      "name": "text_preparing_synchronization",
+      "value": "Preparing synchronization..."
+    },
+    {
+      "name": "text_preparing_voice",
+      "value": "Preparing voice..."
+    },
+    {
+      "name": "text_preview_is_changing_read_again",
+      "value": "Preview is changing, read again"
+    },
+    {
+      "name": "text_previous_conflict",
+      "value": "Previous Conflict"
+    },
+    {
+      "name": "text_priority",
+      "value": "Priority"
+    },
+    {
+      "name": "text_priority_2",
+      "value": "Priority..."
+    },
+    {
+      "name": "text_priority_3",
+      "value": "Priority %1$s, %2$s"
+    },
+    {
+      "name": "text_processed",
+      "value": "Processed %1$s"
+    },
+    {
+      "name": "text_processing",
+      "value": "Processing..."
+    },
+    {
+      "name": "text_processing_2",
+      "value": "Processing..."
+    },
+    {
+      "name": "text_processing_of",
+      "value": "Processing of %1$s"
+    },
+    {
+      "name": "text_profile_cannot_exceed_64_kb",
+      "value": "Profile cannot exceed 64 KB"
+    },
+    {
+      "name": "text_profile_saved",
+      "value": "Profile saved"
+    },
+    {
+      "name": "text_project",
+      "value": "Project"
+    },
+    {
+      "name": "text_project_document_not_loaded",
+      "value": "Project document not loaded"
+    },
+    {
+      "name": "text_project_document_not_yet_loaded",
+      "value": "Project document not yet loaded"
+    },
+    {
+      "name": "text_project_document_version_not_confirmed",
+      "value": "Project document version not confirmed"
+    },
+    {
+      "name": "text_project_file_data_set_not_yet_loaded",
+      "value": "Project file data set not yet loaded"
+    },
+    {
+      "name": "text_project_file_path_is_empty",
+      "value": "Project file path is empty"
+    },
+    {
+      "name": "text_project_name",
+      "value": "Project name"
+    },
+    {
+      "name": "text_projects",
+      "value": "Projects:"
+    },
+    {
+      "name": "text_protocol_or_data_error",
+      "value": "Protocol or Data Error"
+    },
+    {
+      "name": "text_put_away_the_rest_of_the_job",
+      "value": "Put away the rest of the job."
+    },
+    {
+      "name": "text_put_it_all_away",
+      "value": "Put it all away."
+    },
+    {
+      "name": "text_put_it_in",
+      "value": "Put it in."
+    },
+    {
+      "name": "text_query_results_are_not_the_result_of",
+      "value": "Query results are not the result of the task"
+    },
+    {
+      "name": "text_quit_multiple_selection",
+      "value": "Quit Multiple Selection"
+    },
+    {
+      "name": "text_re_select_applications_when_you_tap_the",
+      "value": "Re-select applications when you tap the link \"%1$s\" later."
+    },
+    {
+      "name": "text_re_select_from_the_memo_list",
+      "value": "Re-select from the Memo List."
+    },
+    {
+      "name": "text_read_task_failed_re_shared_and_try",
+      "value": "Read Task failed, re-shared and try again"
+    },
+    {
+      "name": "text_reading",
+      "value": "Reading..."
+    },
+    {
+      "name": "text_reading_2",
+      "value": "Loading…"
+    },
+    {
+      "name": "text_reading_alarms",
+      "value": "Loading reminders…"
+    },
+    {
+      "name": "text_reading_application_list",
+      "value": "Reading application list"
+    },
+    {
+      "name": "text_reading_candidate_failed",
+      "value": "Reading candidate failed"
+    },
+    {
+      "name": "text_reading_configuration",
+      "value": "Reading configuration"
+    },
+    {
+      "name": "text_reading_configuration_failed",
+      "value": "Reading configuration failed: %1$s"
+    },
+    {
+      "name": "text_reading_conflict_document_failed",
+      "value": "Reading conflict document failed: %1$s"
+    },
+    {
+      "name": "text_reading_conflict_files",
+      "value": "Reading conflict files"
+    },
+    {
+      "name": "text_reading_default_filter_directory_failed",
+      "value": "Reading default filter directory failed: %1$s"
+    },
+    {
+      "name": "text_reading_failed_reload",
+      "value": ";reading failed, reload"
+    },
+    {
+      "name": "text_reading_failed_tap_to_try_again",
+      "value": "Reading failed . tap to try again"
+    },
+    {
+      "name": "text_reading_file_list_failed",
+      "value": "Reading file list failed: %1$s"
+    },
+    {
+      "name": "text_reading_file_state",
+      "value": "Reading file state..."
+    },
+    {
+      "name": "text_reading_files",
+      "value": "Reading files"
+    },
+    {
+      "name": "text_reading_inbox",
+      "value": "Reading inbox"
+    },
+    {
+      "name": "text_reading_local_files",
+      "value": "Reading local files..."
+    },
+    {
+      "name": "text_reading_local_storage_failed",
+      "value": "Reading local storage failed"
+    },
+    {
+      "name": "text_reading_memo",
+      "value": "Loading notes…"
+    },
+    {
+      "name": "text_reading_memo_2",
+      "value": "Reading Memo"
+    },
+    {
+      "name": "text_reading_notebook_failed",
+      "value": "Reading notebook failed: %1$s"
+    },
+    {
+      "name": "text_reading_notebooks",
+      "value": "Reading notebooks"
+    },
+    {
+      "name": "text_reading_operation_failed",
+      "value": "Reading operation failed: %1$s"
+    },
+    {
+      "name": "text_reading_preview_failed",
+      "value": "Reading preview failed"
+    },
+    {
+      "name": "text_reading_repository_configuration",
+      "value": "Reading repository configuration"
+    },
+    {
+      "name": "text_reading_settings_failed",
+      "value": "Reading settings failed: %1$s"
+    },
+    {
+      "name": "text_reading_shared_content",
+      "value": "Reading shared content..."
+    },
+    {
+      "name": "text_reading_sync_log_failed",
+      "value": "Reading sync log failed: %1$s"
+    },
+    {
+      "name": "text_reading_synchronization_log",
+      "value": "Reading Synchronization Log"
+    },
+    {
+      "name": "text_reading_task_targets",
+      "value": "Reading Task Targets..."
+    },
+    {
+      "name": "text_reading_tasks",
+      "value": "Reading Tasks"
+    },
+    {
+      "name": "text_reading_view_loading_failed",
+      "value": "Reading view loading failed: %1$s"
+    },
+    {
+      "name": "text_reading_waste_paper",
+      "value": "Loading Trash…"
+    },
+    {
+      "name": "text_reading_webdav_file_list",
+      "value": "Reading WebDAV file list..."
+    },
+    {
+      "name": "text_recent_new",
+      "value": "Recent New"
+    },
+    {
+      "name": "text_recent_position_reading_failed_tap_to_try",
+      "value": "Recent position reading failed, tap to try again"
+    },
+    {
+      "name": "text_recent_use",
+      "value": "Recent Use"
+    },
+    {
+      "name": "text_reconstruct",
+      "value": "Reconstruct"
+    },
+    {
+      "name": "text_reconstruct_chapter",
+      "value": "Reconstruct Chapter"
+    },
+    {
+      "name": "text_reconstruct_task",
+      "value": "Reconstruct Task"
+    },
+    {
+      "name": "text_records_the_original_location_which_is_not",
+      "value": "%1$s records the original location, which is not available, and has been retained at the current location"
+    },
+    {
+      "name": "text_recreate",
+      "value": "Recreate"
+    },
+    {
+      "name": "text_recreate_preview",
+      "value": "Recreate Preview?"
+    },
+    {
+      "name": "text_refresh",
+      "value": "Refresh"
+    },
+    {
+      "name": "text_refresh_and_try_again",
+      "value": "Refresh and try again"
+    },
+    {
+      "name": "text_refresh_reselect",
+      "value": "Refresh Reselect"
+    },
+    {
+      "name": "text_refreshing_files",
+      "value": "Refreshing files"
+    },
+    {
+      "name": "text_registered",
+      "value": "⁇ Registered"
+    },
+    {
+      "name": "text_reload",
+      "value": "Reload"
+    },
+    {
+      "name": "text_reload_structure",
+      "value": "Reload Structure"
+    },
+    {
+      "name": "text_reload_the_mission",
+      "value": "Reload the task?"
+    },
+    {
+      "name": "text_remarks",
+      "value": "Remarks"
+    },
+    {
+      "name": "text_remarks_2",
+      "value": "Remarks..."
+    },
+    {
+      "name": "text_reminder",
+      "value": "Reminder: %1$s"
+    },
+    {
+      "name": "text_reminder_2",
+      "value": "Reminder"
+    },
+    {
+      "name": "text_reminder_activity",
+      "value": "Reminder activity"
+    },
+    {
+      "name": "text_reminders_are_available_for_tasks",
+      "value": "Reminders are available for tasks."
+    },
+    {
+      "name": "text_reminders_are_turned_off_for_the_org",
+      "value": "Reminders are turned off for the Org Tasks calendar."
+    },
+    {
+      "name": "text_remote_change",
+      "value": "Remote change"
+    },
+    {
+      "name": "text_remote_files_found",
+      "value": "Remote files found: %1$s"
+    },
+    {
+      "name": "text_remove",
+      "value": "Remove"
+    },
+    {
+      "name": "text_remove_blocks",
+      "value": "Remove Blocks"
+    },
+    {
+      "name": "text_remove_custom_status",
+      "value": "Remove Custom Status %1$s"
+    },
+    {
+      "name": "text_remove_due_date",
+      "value": "Remove due date"
+    },
+    {
+      "name": "text_remove_label",
+      "value": "Remove tag %1$s"
+    },
+    {
+      "name": "text_remove_repository",
+      "value": "Remove repository"
+    },
+    {
+      "name": "text_remove_schedule",
+      "value": "Remove Schedule"
+    },
+    {
+      "name": "text_remove_this_memo",
+      "value": "Remove this memo?"
+    },
+    {
+      "name": "text_rendered",
+      "value": "Rendered"
+    },
+    {
+      "name": "text_reopen_repository_configuration_please",
+      "value": "Reopen repository configuration, please."
+    },
+    {
+      "name": "text_reopen_repository_sync_mode_changed",
+      "value": "Reopen repository sync mode changed."
+    },
+    {
+      "name": "text_reorder_subpoints",
+      "value": "Reorder Subpoints"
+    },
+    {
+      "name": "text_reordering",
+      "value": "Reordering: %1$s"
+    },
+    {
+      "name": "text_repeat",
+      "value": "Repeat"
+    },
+    {
+      "name": "text_repeat_2",
+      "value": "Repeat..."
+    },
+    {
+      "name": "text_repeat_interval",
+      "value": "Repeat interval"
+    },
+    {
+      "name": "text_repeats_the_rules",
+      "value": "%1$s Repeats the rules"
+    },
+    {
+      "name": "text_replace_main_tree",
+      "value": "Replace main tree"
+    },
+    {
+      "name": "text_replace_the_main_tree_with_local_content",
+      "value": "Replace the main tree with local content?"
+    },
+    {
+      "name": "text_reposition",
+      "value": "Reposition"
+    },
+    {
+      "name": "text_repositories",
+      "value": "Repositories"
+    },
+    {
+      "name": "text_repository",
+      "value": "Repository, %1$s"
+    },
+    {
+      "name": "text_repository_2",
+      "value": "Repository"
+    },
+    {
+      "name": "text_repository_3",
+      "value": "Repository %1$s"
+    },
+    {
+      "name": "text_repository_and_file_in_configuration_must_be",
+      "value": "Repository and file in configuration must be referenced"
+    },
+    {
+      "name": "text_repository_created_sync_not_completed",
+      "value": "Repository created, sync not completed: %1$s"
+    },
+    {
+      "name": "text_repository_id_cannot_be_empty",
+      "value": "Repository ID cannot be empty"
+    },
+    {
+      "name": "text_repository_management",
+      "value": "Repository management"
+    },
+    {
+      "name": "text_repository_not_configured_yet",
+      "value": "Repository not configured yet"
+    },
+    {
+      "name": "text_repository_sync_not_completed",
+      "value": "Repository sync not completed: %1$s"
+    },
+    {
+      "name": "text_repository_synchronized",
+      "value": "Repository synchronized"
+    },
+    {
+      "name": "text_repository_to_import",
+      "value": "Repository to import"
+    },
+    {
+      "name": "text_request_for_notification_of_authorization_failed",
+      "value": "Request for notification of authorization failed"
+    },
+    {
+      "name": "text_request_for_notification_of_authorization_failed_error",
+      "value": "Request for notification of authorization failed (Error code %1$s)"
+    },
+    {
+      "name": "text_reread",
+      "value": "Reread"
+    },
+    {
+      "name": "text_reread_failed",
+      "value": "Reread Failed"
+    },
+    {
+      "name": "text_reread_repository_directory_change",
+      "value": "Reread Repository Directory Change"
+    },
+    {
+      "name": "text_reread_settings",
+      "value": "Reread Settings"
+    },
+    {
+      "name": "text_reset",
+      "value": "Reset"
+    },
+    {
+      "name": "text_reset_and_synchronized_repository",
+      "value": "Reset and synchronized repository"
+    },
+    {
+      "name": "text_reset_failed",
+      "value": "Reset failed: %1$s"
+    },
+    {
+      "name": "text_reset_local_directories",
+      "value": "Reset local directories?"
+    },
+    {
+      "name": "text_reset_local_directory",
+      "value": "Reset Local Directory"
+    },
+    {
+      "name": "text_reset_repository",
+      "value": "Reset repository"
+    },
+    {
+      "name": "text_reset_settings",
+      "value": "Reset Settings?"
+    },
+    {
+      "name": "text_reset_will_empty_local_files_deleting_the",
+      "value": "Reset will empty local files; deleting the repository only removes configurations and passwords. Both must be confirmed before operation."
+    },
+    {
+      "name": "text_reseting",
+      "value": "Reseting..."
+    },
+    {
+      "name": "text_restore",
+      "value": "Restore"
+    },
+    {
+      "name": "text_restore_2",
+      "value": "Restore"
+    },
+    {
+      "name": "text_restore_default_filter_directory",
+      "value": "Restore Default Filter Directory"
+    },
+    {
+      "name": "text_restore_default_order",
+      "value": "Restore Default Order"
+    },
+    {
+      "name": "text_restore_incomplete",
+      "value": "Restore incomplete: %1$s"
+    },
+    {
+      "name": "text_restore_to_original_position",
+      "value": "Restore to original position"
+    },
+    {
+      "name": "text_restore_to_to_do",
+      "value": "Restore to To-do"
+    },
+    {
+      "name": "text_retry",
+      "value": "Retry"
+    },
+    {
+      "name": "text_retry_application",
+      "value": "Retry Application"
+    },
+    {
+      "name": "text_retry_clearing_sync_data",
+      "value": "Retry clearing sync data"
+    },
+    {
+      "name": "text_retry_initializing_entry_files",
+      "value": "Retry initializing entry files"
+    },
+    {
+      "name": "text_retry_preview",
+      "value": "Retry Preview"
+    },
+    {
+      "name": "text_retry_repository_sync",
+      "value": "Retry repository sync"
+    },
+    {
+      "name": "text_returning",
+      "value": "Returning..."
+    },
+    {
+      "name": "text_same_as_current_content",
+      "value": "Same as current content"
+    },
+    {
+      "name": "text_sat",
+      "value": "Sat"
+    },
+    {
+      "name": "text_save",
+      "value": "Save"
+    },
+    {
+      "name": "text_save_changes_to_local_directories_and_switch",
+      "value": "Save changes to local directories and switch to local repository"
+    },
+    {
+      "name": "text_save_configuration_failed_re_prefer",
+      "value": "Save configuration failed, re-prefer"
+    },
+    {
+      "name": "text_save_failed",
+      "value": "Save failed: %1$s"
+    },
+    {
+      "name": "text_save_failed_2",
+      "value": "Save Failed"
+    },
+    {
+      "name": "text_save_failed_please_try_again",
+      "value": "Save failed, please try again"
+    },
+    {
+      "name": "text_save_link_failed_please_try_again",
+      "value": "Save link failed, please try again."
+    },
+    {
+      "name": "text_save_note",
+      "value": "Save note"
+    },
+    {
+      "name": "text_saved",
+      "value": "Saved"
+    },
+    {
+      "name": "text_saved_but_page_update_failed_please_finish",
+      "value": "Saved, but page update failed. Please finish editing and refresh your view."
+    },
+    {
+      "name": "text_saving",
+      "value": "Saving"
+    },
+    {
+      "name": "text_saving_2",
+      "value": "Saving"
+    },
+    {
+      "name": "text_saving_3",
+      "value": "Saving..."
+    },
+    {
+      "name": "text_saving_4",
+      "value": "Saving..."
+    },
+    {
+      "name": "text_saving_local_storage_failed",
+      "value": "Saving local storage failed"
+    },
+    {
+      "name": "text_saving_order",
+      "value": "Saving order"
+    },
+    {
+      "name": "text_schedule",
+      "value": "Schedule"
+    },
+    {
+      "name": "text_scheduled_date",
+      "value": "Scheduled date"
+    },
+    {
+      "name": "text_search",
+      "value": "Search: %1$s"
+    },
+    {
+      "name": "text_search_for_addresses_in_maps",
+      "value": "Search for addresses in maps"
+    },
+    {
+      "name": "text_search_location_item_or_category",
+      "value": "Search location, item or category"
+    },
+    {
+      "name": "text_search_results_location",
+      "value": "Search results . %1$s location"
+    },
+    {
+      "name": "text_search_tasks_or_sections",
+      "value": "Search tasks or sections"
+    },
+    {
+      "name": "text_section",
+      "value": "Section"
+    },
+    {
+      "name": "text_secure_connection_failed",
+      "value": "Secure connection failed"
+    },
+    {
+      "name": "text_select_an_existing_category",
+      "value": "Select an existing category"
+    },
+    {
+      "name": "text_select_another_tab_or_tap_all_to",
+      "value": "Select another tab, or tap \" All \" to view all jobs on the current page."
+    },
+    {
+      "name": "text_select_application",
+      "value": "Select Application"
+    },
+    {
+      "name": "text_select_category",
+      "value": "Select Category"
+    },
+    {
+      "name": "text_select_directory",
+      "value": "Select Directory"
+    },
+    {
+      "name": "text_select_file",
+      "value": "Select %1$s File"
+    },
+    {
+      "name": "text_select_fill",
+      "value": "Select Fill"
+    },
+    {
+      "name": "text_select_link_protocol_currently",
+      "value": "Select Link Protocol, currently %1$s"
+    },
+    {
+      "name": "text_select_map",
+      "value": "Select Map"
+    },
+    {
+      "name": "text_select_multiple",
+      "value": "Select multiple"
+    },
+    {
+      "name": "text_select_placement",
+      "value": "Select placement"
+    },
+    {
+      "name": "text_select_repository",
+      "value": "Select repository"
+    },
+    {
+      "name": "text_select_tab_set_the_memos_to_display",
+      "value": "Choose a tag to filter notes on the widget"
+    },
+    {
+      "name": "text_select_the_configuration_text_file_in_64",
+      "value": "Select the configuration text file in 64 KB"
+    },
+    {
+      "name": "text_select_the_corresponding_node",
+      "value": "Select the corresponding node"
+    },
+    {
+      "name": "text_select_the_day_file_in_the_settings",
+      "value": "Select the \" Day \" file in the settings as a future, perhaps target"
+    },
+    {
+      "name": "text_select_the_direction_to_move",
+      "value": "Select the direction to move"
+    },
+    {
+      "name": "text_select_the_item_root_position",
+      "value": "Select the item %1$s root position"
+    },
+    {
+      "name": "text_select_the_utf_8_configuration_text_file",
+      "value": "Select the UTF-8 configuration text file within 64 KB"
+    },
+    {
+      "name": "text_select_this_target",
+      "value": "Select this target"
+    },
+    {
+      "name": "text_select_to_move_up_or_down_after",
+      "value": "Select to move up or down after active"
+    },
+    {
+      "name": "text_selected",
+      "value": "Selected"
+    },
+    {
+      "name": "text_selected_2",
+      "value": ", Selected"
+    },
+    {
+      "name": "text_selected_3",
+      "value": "Selected: %1$s"
+    },
+    {
+      "name": "text_selected_art",
+      "value": "Selected, Art. %1$s"
+    },
+    {
+      "name": "text_selected_article",
+      "value": "Selected %1$s Article"
+    },
+    {
+      "name": "text_selected_tap_to_remove_filter",
+      "value": "Selected. Tap to remove filter."
+    },
+    {
+      "name": "text_server_address",
+      "value": "Server Address"
+    },
+    {
+      "name": "text_set_as_waiting",
+      "value": "Set as Waiting"
+    },
+    {
+      "name": "text_set_deadline",
+      "value": "Set deadline"
+    },
+    {
+      "name": "text_set_fields_missing_or_wrong_type",
+      "value": "Set Fields Missing or Wrong Type"
+    },
+    {
+      "name": "text_set_or_modify_the_deadline",
+      "value": "Set or modify the deadline"
+    },
+    {
+      "name": "text_set_or_modify_the_planned_date",
+      "value": "Set or modify the planned date"
+    },
+    {
+      "name": "text_setting",
+      "value": "Setting..."
+    },
+    {
+      "name": "text_settings",
+      "value": "Settings"
+    },
+    {
+      "name": "text_settings_saved_cards_updated_or_returned_failed",
+      "value": "Settings saved, cards updated or returned failed"
+    },
+    {
+      "name": "text_share",
+      "value": "Share"
+    },
+    {
+      "name": "text_share_location",
+      "value": "Share Location"
+    },
+    {
+      "name": "text_shared_from_amap",
+      "value": "Shared from AMap"
+    },
+    {
+      "name": "text_shared_from_petal_maps",
+      "value": "Shared from Petal Maps"
+    },
+    {
+      "name": "text_shares_the_same_task_data_set_with",
+      "value": "Shares the same task data set with the global event manager, displays the uncompleted tasks for which the reminder time is set, keeps records that have passed the reminder time, excludes completion and cancellation; and clicks to modify or remove in order of the reminder time."
+    },
+    {
+      "name": "text_show_all",
+      "value": "Show All"
+    },
+    {
+      "name": "text_show_all_logs",
+      "value": "Show All Logs"
+    },
+    {
+      "name": "text_show_all_logs_by_tap_on_the",
+      "value": "Show all logs by tap on the top right corner"
+    },
+    {
+      "name": "text_show_also",
+      "value": "Show %1$s also"
+    },
+    {
+      "name": "text_show_link_address_untitled",
+      "value": "Show Link Address Untitled"
+    },
+    {
+      "name": "text_show_remaining",
+      "value": "Show remaining (%1$s)"
+    },
+    {
+      "name": "text_show_text",
+      "value": "Show text"
+    },
+    {
+      "name": "text_show_the_hidden_files_of_the_configuration",
+      "value": "Show the hidden files of the configuration"
+    },
+    {
+      "name": "text_skipped",
+      "value": "Skipped"
+    },
+    {
+      "name": "text_someday",
+      "value": "Someday"
+    },
+    {
+      "name": "text_sort",
+      "value": "Sort"
+    },
+    {
+      "name": "text_sort_unsaved_please_try_again",
+      "value": "Sort unsaved, please try again"
+    },
+    {
+      "name": "text_source",
+      "value": "Source"
+    },
+    {
+      "name": "text_source_not_recorded",
+      "value": "Source not recorded"
+    },
+    {
+      "name": "text_start_the_mission",
+      "value": "Start task"
+    },
+    {
+      "name": "text_start_time",
+      "value": "Start Time"
+    },
+    {
+      "name": "text_status_classification",
+      "value": "Status Classification"
+    },
+    {
+      "name": "text_status_reading_failed_tap_to_try_again",
+      "value": "Status reading failed. tap to try again"
+    },
+    {
+      "name": "text_status_unknown",
+      "value": "Status unknown"
+    },
+    {
+      "name": "text_stop_repeating",
+      "value": "Stop Repeating"
+    },
+    {
+      "name": "text_stores_files_using_an_application_directory",
+      "value": "Stores files using an application directory."
+    },
+    {
+      "name": "text_subsequent_sync_may_delete_the_corresponding_file",
+      "value": "Subsequent sync may delete the corresponding file on WebDAV."
+    },
+    {
+      "name": "text_success",
+      "value": "Success"
+    },
+    {
+      "name": "text_succession",
+      "value": "Succession"
+    },
+    {
+      "name": "text_sun",
+      "value": "Sun"
+    },
+    {
+      "name": "text_switch_to_local",
+      "value": "Switch to Local"
+    },
+    {
+      "name": "text_switch_to_local_repository",
+      "value": "Switch to local repository?"
+    },
+    {
+      "name": "text_switch_to_local_repository_not_completed",
+      "value": "Switch to local repository not completed: %1$s"
+    },
+    {
+      "name": "text_sync",
+      "value": "Sync"
+    },
+    {
+      "name": "text_sync_corrected_by_elderman_elder_man",
+      "value": "== sync, corrected by elderman == @elder_man"
+    },
+    {
+      "name": "text_sync_corrected_by_elderman_elder_man_2",
+      "value": "== sync, corrected by elderman == @elder_man"
+    },
+    {
+      "name": "text_sync_log_reading_failed",
+      "value": "Sync Log Reading Failed"
+    },
+    {
+      "name": "text_sync_progress",
+      "value": "Sync progress: %1$s"
+    },
+    {
+      "name": "text_synchronisable_repository_is_not_yet_configured",
+      "value": "Synchronisable repository is not yet configured."
+    },
+    {
+      "name": "text_synchronisation_log_not_available",
+      "value": "Synchronisation log not available"
+    },
+    {
+      "name": "text_synchronisation_method",
+      "value": "Synchronisation Method"
+    },
+    {
+      "name": "text_synchronise_filter_directory",
+      "value": "Synchronise Filter Directory"
+    },
+    {
+      "name": "text_synchronise_manually",
+      "value": "Synchronise Manually"
+    },
+    {
+      "name": "text_synchronise_message_cleanup",
+      "value": "Synchronise Message Cleanup"
+    },
+    {
+      "name": "text_synchronising",
+      "value": "Syncing…"
+    },
+    {
+      "name": "text_synchronising_failed",
+      "value": "Sync failed"
+    },
+    {
+      "name": "text_synchronising_failed_2",
+      "value": "Sync failed: %1$s"
+    },
+    {
+      "name": "text_synchronization_baseline_abnormal_not_yet_possible",
+      "value": "%1$s Synchronization baseline abnormal, not yet possible"
+    },
+    {
+      "name": "text_synchronization_complete",
+      "value": "Synchronization complete"
+    },
+    {
+      "name": "text_synchronization_information_cleanup_not_completed",
+      "value": "Synchronization information cleanup not completed"
+    },
+    {
+      "name": "text_synchronization_log",
+      "value": "%1$s . Synchronization Log"
+    },
+    {
+      "name": "text_synchronization_log_2",
+      "value": "Synchronization Log"
+    },
+    {
+      "name": "text_synchronization_not_accepted_please_try_again",
+      "value": "Synchronization not accepted, please try again"
+    },
+    {
+      "name": "text_synchronization_not_completed",
+      "value": "Synchronization not completed"
+    },
+    {
+      "name": "text_syncing",
+      "value": "Syncing %1$s"
+    },
+    {
+      "name": "text_syncing_2",
+      "value": "Syncing %1$s/%2$s: %3$s"
+    },
+    {
+      "name": "text_syncing_webdav",
+      "value": "Syncing WebDAV..."
+    },
+    {
+      "name": "text_system_alarm_query_failed",
+      "value": "System Alarm query failed"
+    },
+    {
+      "name": "text_system_calendar_writing_failed",
+      "value": "System Calendar Writing Failed"
+    },
+    {
+      "name": "text_system_repository",
+      "value": "System repository"
+    },
+    {
+      "name": "text_system_repository_cannot_add_files",
+      "value": "System repository cannot add files"
+    },
+    {
+      "name": "text_system_repository_cannot_be_deleted",
+      "value": "System repository cannot be deleted"
+    },
+    {
+      "name": "text_system_repository_initialization_failed_try_again",
+      "value": "System repository initialization failed. Try again"
+    },
+    {
+      "name": "text_system_repository_is_managed_by_application",
+      "value": "System repository is managed by application"
+    },
+    {
+      "name": "text_system_repository_is_not_available_to_protect",
+      "value": "System repository is not available to protect local tasks for first sync"
+    },
+    {
+      "name": "text_system_repository_not_yet_initialized",
+      "value": "System repository not yet initialized"
+    },
+    {
+      "name": "text_tab_name",
+      "value": "Tag name"
+    },
+    {
+      "name": "text_tags",
+      "value": "Tags"
+    },
+    {
+      "name": "text_tap",
+      "value": "%1$s, tap %2$s"
+    },
+    {
+      "name": "text_tap_on_selection",
+      "value": ", tap on selection"
+    },
+    {
+      "name": "text_tap_to_change_alarm_time",
+      "value": "%1$s, %2$s, tap to change alarm time"
+    },
+    {
+      "name": "text_tap_to_close_file_details",
+      "value": "Tap to close file details"
+    },
+    {
+      "name": "text_tap_to_expand",
+      "value": "%1$s, tap to expand"
+    },
+    {
+      "name": "text_tap_to_expand_file_details",
+      "value": "Tap to expand file details"
+    },
+    {
+      "name": "text_tap_to_filter_by_this_tag",
+      "value": "Tap to filter by this tag."
+    },
+    {
+      "name": "text_tap_to_finish_the_job",
+      "value": "Tap to finish the job"
+    },
+    {
+      "name": "text_tap_to_open_repository_settings",
+      "value": "%1$s, tap to open repository settings"
+    },
+    {
+      "name": "text_tap_to_restart_the_task",
+      "value": "Tap to restart the task"
+    },
+    {
+      "name": "text_tap_to_see_delete_backup",
+      "value": ", tap to see delete backup"
+    },
+    {
+      "name": "text_tap_to_try_again",
+      "value": ", tap to try again"
+    },
+    {
+      "name": "text_tap_to_try_again_2",
+      "value": "%1$s tap to try again"
+    },
+    {
+      "name": "text_target_file_is_not_available_for_uncompleted",
+      "value": "Target file is not available for uncompleted status. Check TODO settings"
+    },
+    {
+      "name": "text_target_file_not_available_uncompleted",
+      "value": "Target file not available uncompleted"
+    },
+    {
+      "name": "text_target_repository_does_not_exist",
+      "value": "Target repository does not exist."
+    },
+    {
+      "name": "text_target_repository_does_not_exist_or_is",
+      "value": "Target repository does not exist or is not enabled"
+    },
+    {
+      "name": "text_target_repository_is_dead_please_re_select",
+      "value": "Target repository is dead, please re-select"
+    },
+    {
+      "name": "text_target_repository_not_available",
+      "value": "Target repository not available"
+    },
+    {
+      "name": "text_task_alarm_settings_invalid_save",
+      "value": "Task Alarm Settings Invalid, save"
+    },
+    {
+      "name": "text_task_data_management_objects_not_provided",
+      "value": "Task data management objects not provided"
+    },
+    {
+      "name": "text_task_deleted_or_renamed_please_return_list",
+      "value": "Task deleted or renamed, please return list to open again"
+    },
+    {
+      "name": "text_task_does_not_set_alarm_time",
+      "value": "Task does not set alarm time"
+    },
+    {
+      "name": "text_task_has_left_the_current_data_set",
+      "value": "Task has left the current data set"
+    },
+    {
+      "name": "text_task_reminders",
+      "value": "Task reminders"
+    },
+    {
+      "name": "text_task_reminders_are_off_on_this_device",
+      "value": "Task reminders are off on this device."
+    },
+    {
+      "name": "text_task_reminders_on_this_device",
+      "value": "Task reminders on this device"
+    },
+    {
+      "name": "text_task_saved_tap_outside_the_panel_again",
+      "value": "Task saved, tap outside the panel again to close"
+    },
+    {
+      "name": "text_task_status_categories",
+      "value": "Task statuses"
+    },
+    {
+      "name": "text_task_title",
+      "value": "Task Title"
+    },
+    {
+      "name": "text_tasks",
+      "value": "Tasks: %1$s · %2$s"
+    },
+    {
+      "name": "text_tasks_2",
+      "value": "Task"
+    },
+    {
+      "name": "text_tasks_and_notes",
+      "value": "Tasks & notes"
+    },
+    {
+      "name": "text_tasks_are_not_currently_in_data_collection",
+      "value": "Tasks are not currently in data collection"
+    },
+    {
+      "name": "text_tasks_to_be_moved",
+      "value": "Tasks to be moved"
+    },
+    {
+      "name": "text_telephone",
+      "value": "Phone"
+    },
+    {
+      "name": "text_test_connection",
+      "value": "Test Connection"
+    },
+    {
+      "name": "text_testing_connection",
+      "value": "Testing connection..."
+    },
+    {
+      "name": "text_testing_connection_2",
+      "value": "Testing connection..."
+    },
+    {
+      "name": "text_tests_the_connection_to_verify_authentication_and",
+      "value": "Tests the connection to verify authentication and directory access without saving configuration or sync files; uploading permissions are verified when actually synchronized."
+    },
+    {
+      "name": "text_text",
+      "value": "Text"
+    },
+    {
+      "name": "text_text_2",
+      "value": "Text"
+    },
+    {
+      "name": "text_text_and_sub_entry_will_be_saved",
+      "value": "Text and sub-entry will be saved to a new item."
+    },
+    {
+      "name": "text_the_alarm_calendar_is_not_available",
+      "value": "The alarm calendar is not available"
+    },
+    {
+      "name": "text_the_alarm_manager_is_not_registered_yet",
+      "value": "The alarm manager is not registered yet"
+    },
+    {
+      "name": "text_the_alarm_time_or_content_in_the",
+      "value": "The alarm time or content in the system calendar is not consistent with the task"
+    },
+    {
+      "name": "text_the_application_association_has_not_been_configured",
+      "value": "The application association has not been configured"
+    },
+    {
+      "name": "text_the_application_link_is_missing_the_application",
+      "value": "The application link is missing the application name."
+    },
+    {
+      "name": "text_the_application_settings_and_repository_configuration_will",
+      "value": "The application settings and repository configuration will be emptied. Local directories and files will be kept to open the previous backup to reload the repository."
+    },
+    {
+      "name": "text_the_calendar_event_marker_is_invalid_existing",
+      "value": "The calendar event marker is invalid. Existing events were kept."
+    },
+    {
+      "name": "text_the_card_tag_setting_is_invalid_please",
+      "value": "The card tag setting is invalid, please re-select"
+    },
+    {
+      "name": "text_the_change_time_is_unknown",
+      "value": "The change time is unknown"
+    },
+    {
+      "name": "text_the_conflict_of_this_document_has_been",
+      "value": "The conflict of this document has been fully resolved"
+    },
+    {
+      "name": "text_the_conflict_point_in_will_be_removed",
+      "value": "The %2$s conflict point in \"%1$s\" will be removed, the current main tree content will be preserved and the preview adjustment that has not been applied will be abandoned."
+    },
+    {
+      "name": "text_the_contents_have_changed_please_reload_the",
+      "value": "The contents have changed. Please reload the draft in a copy."
+    },
+    {
+      "name": "text_the_current_link_cannot_be_modified_please",
+      "value": "The current link cannot be modified. Please cancel the editing and reload."
+    },
+    {
+      "name": "text_the_current_page_cannot_execute_internal_jumps",
+      "value": "The current page cannot execute internal jumps"
+    },
+    {
+      "name": "text_the_date_of_the_mandate_is_used",
+      "value": "Repeat at a fixed interval from the scheduled date or deadline."
+    },
+    {
+      "name": "text_the_default_saves_30_days_setting_1",
+      "value": "Records are kept for 30 days by default. Choose 1 to 3650 days. Opening Trash or Notebooks permanently deletes expired records. Records without a deletion date are kept."
+    },
+    {
+      "name": "text_the_deleted_records_are_stored_here_left",
+      "value": "Deleted records appear here. Swipe left to restore, permanently delete, or select multiple records."
+    },
+    {
+      "name": "text_the_directory_is_invalid_please_reopen_the",
+      "value": "The outline is unavailable. Reopen the document."
+    },
+    {
+      "name": "text_the_document_has_been_changed_and_the",
+      "value": "The document has been changed and the draft block has been retained."
+    },
+    {
+      "name": "text_the_document_has_been_renamed_and_the",
+      "value": "The document has been renamed and the update of the entry has failed."
+    },
+    {
+      "name": "text_the_document_has_been_updated_and_please",
+      "value": "The document has been updated, and please drop this adjustment and reorder."
+    },
+    {
+      "name": "text_the_document_node_does_not_match_the",
+      "value": "The document node does not match the text version. Please refresh the item."
+    },
+    {
+      "name": "text_the_document_structure_is_in_conflict_and",
+      "value": "The document structure is in conflict and please confirm whether to replace the main tree."
+    },
+    {
+      "name": "text_the_document_version_has_changed_please_refresh",
+      "value": "The document version has changed. Please refresh and re-select"
+    },
+    {
+      "name": "text_the_duration_of_the_event_must_be",
+      "value": "The duration of the event must be from 1 to 1440 minutes integer"
+    },
+    {
+      "name": "text_the_editor_did_not_access_the_modify",
+      "value": "The editor did not access the modify operation receiver interface"
+    },
+    {
+      "name": "text_the_end_must_be_later_than_the",
+      "value": "The end must be later than the beginning."
+    },
+    {
+      "name": "text_the_event_is_preferred_to_scheduled_followed",
+      "value": "The event is preferred to SCHEDULED, followed by DEADLINE; there is no reminder time. Dates are processed at zero points at no time, and both are given priority. The highest priority is marked in the calendar title as [important]."
+    },
+    {
+      "name": "text_the_event_lasts_for_5_minutes_with",
+      "value": "The event lasts for 5 minutes with a default of 1 to 1440 minutes, and is automatically saved after modification. The alarm is saved at least until after the alarm is configured, later than the start of the event; the clean-up is also waiting for the reminder to last 30 minutes and the event to end."
+    },
+    {
+      "name": "text_the_execution_result_is_unknown",
+      "value": "The execution result is unknown"
+    },
+    {
+      "name": "text_the_file_has_been_updated_and_entered",
+      "value": "The file has been updated and entered to be kept. Please cancel and re-edit."
+    },
+    {
+      "name": "text_the_file_has_changed_the_draft_link",
+      "value": "The file has changed, the draft link has been retained, please cancel editing and reload and continue"
+    },
+    {
+      "name": "text_the_file_has_no_available_waiting_status",
+      "value": "The file has no available waiting status. Please check TODO process"
+    },
+    {
+      "name": "text_the_file_has_no_status_available_check",
+      "value": "The \"%1$s\" file has no %2$s status available. Check TODO process"
+    },
+    {
+      "name": "text_the_file_is_not_available",
+      "value": "The file is not available."
+    },
+    {
+      "name": "text_the_files_or_records_involved_in_the",
+      "value": "The files or records involved in the operation have been removed"
+    },
+    {
+      "name": "text_the_full_local_content_of_the_preview",
+      "value": "The full local content of the preview will be used to replace the preface and all normal nodes of the document, while the other conflict points will remain."
+    },
+    {
+      "name": "text_the_gothic_map_does_not_support_an",
+      "value": "The Gothic map does not support an address search. Please choose the petal map."
+    },
+    {
+      "name": "text_the_in_and_all_its_contents_will",
+      "value": "“%2$s” and all its contents will be deleted from “%1$s”. Files deleted here cannot be restored from Trash. %3$s"
+    },
+    {
+      "name": "text_the_inbox_one_day_memo_and_my",
+      "value": "The inbox, one day, memo and my task file were then recreated from the template."
+    },
+    {
+      "name": "text_the_item_has_been_updated_and_please",
+      "value": "The item has been updated and please abandon this adjustment and reorder."
+    },
+    {
+      "name": "text_the_label_has_been_inherited_from_the",
+      "value": "This tag is inherited from the parent heading."
+    },
+    {
+      "name": "text_the_manual_adjustments_are_kept_in_the",
+      "value": "The manual adjustments are kept in the preview only and continue to be abandoned. The results that have been applied are not affected."
+    },
+    {
+      "name": "text_the_memo_file_is_not_selected_or",
+      "value": "The memo file is not selected or is invalid. Please re-select in settings"
+    },
+    {
+      "name": "text_the_microphone_is_not_available_for_the",
+      "value": "The microphone is not available for the time being, so you can continue with the title."
+    },
+    {
+      "name": "text_the_mission_s_repository_is_not_available",
+      "value": "The task's repository is unavailable."
+    },
+    {
+      "name": "text_the_order_of_nodes_has_been_adjusted",
+      "value": "The order of nodes has been adjusted at both ends, and please confirm the structure used."
+    },
+    {
+      "name": "text_the_org_tasks_of_this_version_cannot",
+      "value": "The Org Tasks of this version cannot read the configuration version"
+    },
+    {
+      "name": "text_the_original_file_has_changed_and_the",
+      "value": "The original file has changed and the current preview cannot be applied"
+    },
+    {
+      "name": "text_the_original_folder_is_unavailable_select_a",
+      "value": "The original folder is unavailable. Select a folder again."
+    },
+    {
+      "name": "text_the_original_node_has_disappeared_and_local",
+      "value": "The original node has disappeared and local changes need to be repositioned."
+    },
+    {
+      "name": "text_the_original_record_is_invalid_please_reopen",
+      "value": "The original record is invalid, please reopen"
+    },
+    {
+      "name": "text_the_page_job_cache_is_invalid",
+      "value": "The page job cache is invalid"
+    },
+    {
+      "name": "text_the_parent_node_has_disappeared_select_the",
+      "value": "The parent node has disappeared. Select the location for the local content."
+    },
+    {
+      "name": "text_the_plan_is_today",
+      "value": "The plan is today"
+    },
+    {
+      "name": "text_the_previous_selection_is_unavailable_select_it",
+      "value": "The previous selection is unavailable. Select it again or retry."
+    },
+    {
+      "name": "text_the_priority_classification_is_invalid",
+      "value": "The priority classification is invalid"
+    },
+    {
+      "name": "text_the_query_result_is_not_a_file",
+      "value": "The query result is not a file result"
+    },
+    {
+      "name": "text_the_reminder_service_stopped_reopen_the_task",
+      "value": "The reminder service stopped. Reopen the task."
+    },
+    {
+      "name": "text_the_repository_directory_must_be_the_absolute",
+      "value": "The repository directory must be the absolute path of the machine."
+    },
+    {
+      "name": "text_the_repository_has_changed_read_it_again",
+      "value": "The repository has changed. Read it again."
+    },
+    {
+      "name": "text_the_repository_has_changed_reopen_it",
+      "value": "The repository has changed. Reopen it."
+    },
+    {
+      "name": "text_the_repository_has_not_been_configured",
+      "value": "The repository has not been configured"
+    },
+    {
+      "name": "text_the_repository_identification_and_directory_in_the",
+      "value": "The repository identification and directory in the configuration must be valid and unique"
+    },
+    {
+      "name": "text_the_repository_is_synchronized_please_try_again",
+      "value": "The repository is synchronized. Please try again."
+    },
+    {
+      "name": "text_the_selected_file_is_invalid_please_re",
+      "value": "The selected %1$s file is invalid, please re-select"
+    },
+    {
+      "name": "text_the_selected_task_will_be_moved_to",
+      "value": "Selected tasks will move to Trash. You can restore them from Trash. Handle any child records first."
+    },
+    {
+      "name": "text_the_shared_content_does_not_confirm_the",
+      "value": "The shared content does not confirm the address, saves the original link or returns the map for re-sharing."
+    },
+    {
+      "name": "text_the_simultaneous_log_for_notification_no_longer",
+      "value": "The simultaneous log for notification no longer exists"
+    },
+    {
+      "name": "text_the_status_classification_is_invalid",
+      "value": "The status classification is invalid"
+    },
+    {
+      "name": "text_the_system_repository_is_managed_by_application",
+      "value": "The system repository is managed by application and cannot be modified"
+    },
+    {
+      "name": "text_the_system_repository_is_not_a_file",
+      "value": "The system repository is not a file entry."
+    },
+    {
+      "name": "text_the_system_repository_is_not_available_please",
+      "value": "The system repository is not available. Please restart the application and try again."
+    },
+    {
+      "name": "text_the_text_has_changed_re_select_the",
+      "value": "The text has changed, re-select the moving position"
+    },
+    {
+      "name": "text_the_text_remains_unchanged",
+      "value": "The text remains unchanged."
+    },
+    {
+      "name": "text_the_unsaved_input_in_the_card_will",
+      "value": "The unsaved input in the card will be abandoned, and the latest contents of the document will be read."
+    },
+    {
+      "name": "text_the_webdav_address_account_numbers_passwords_sync",
+      "value": "The WebDAV address, account numbers, passwords, sync history and logs to be uploaded will be removed from this machine. This machine and remote files will be kept. When you restart the sync, the same path file will be in a remote version."
+    },
+    {
+      "name": "text_then_re_sync_from_webdav",
+      "value": "Then re-sync from WebDAV."
+    },
+    {
+      "name": "text_there_are_different_changes_to_the_document",
+      "value": "There are different changes to the document properties. Please choose to use local or keep the current file after a comparison; if there is any ambiguity in repeating a statement, edit it on a case-by-case basis."
+    },
+    {
+      "name": "text_there_are_no_expired_or_expired_mandates",
+      "value": "There are no expired or expired mandates today."
+    },
+    {
+      "name": "text_there_are_no_subfolders_in_this_directory",
+      "value": "There are no subfolders in this directory"
+    },
+    {
+      "name": "text_there_is_a_conflict_of_content_here",
+      "value": "There is a conflict of content here. Please check the pre- and post-application content."
+    },
+    {
+      "name": "text_there_is_no_org_tasks_alarm_calendar",
+      "value": "There is no Org Tasks alarm calendar in the system"
+    },
+    {
+      "name": "text_there_is_no_readable_delete_backup_for",
+      "value": "There is no readable delete backup for this record"
+    },
+    {
+      "name": "text_there_is_no_record_of_alarm_operations",
+      "value": "There is no record of alarm operations for this operation"
+    },
+    {
+      "name": "text_there_s_no_record_in_the_inbox",
+      "value": "There's no record in the inbox."
+    },
+    {
+      "name": "text_there_s_no_record_of_this",
+      "value": "There's no record of this."
+    },
+    {
+      "name": "text_there_s_nothing_here",
+      "value": "There's nothing here."
+    },
+    {
+      "name": "text_this_adjustment_has_not_been_saved",
+      "value": "This adjustment has not been saved."
+    },
+    {
+      "name": "text_this_document_does_not_exist_please_return",
+      "value": "This document does not exist, please return."
+    },
+    {
+      "name": "text_this_document_does_not_have_a_chapter",
+      "value": "This document does not have a chapter title"
+    },
+    {
+      "name": "text_this_group_has_inherited_please_change_under",
+      "value": "This group has inherited '%1$s', please change under parent heading"
+    },
+    {
+      "name": "text_this_is_the_location_please_select_another",
+      "value": "This is the location, please select another location"
+    },
+    {
+      "name": "text_this_label_is_managed_by_the_system",
+      "value": "This tag is managed by the system."
+    },
+    {
+      "name": "text_this_link_is_not_supported_for_opening",
+      "value": "This link is not supported for opening"
+    },
+    {
+      "name": "text_this_local_directory_belongs_to_another_repository",
+      "value": "This local directory belongs to another repository"
+    },
+    {
+      "name": "text_this_node_has_been_deleted_locally_and",
+      "value": "This node has been deleted locally and is currently subject to change. Please confirm whether to delete it."
+    },
+    {
+      "name": "text_this_note_has_been_changed_or_deleted",
+      "value": "This note has been changed or deleted, please re-select from the list"
+    },
+    {
+      "name": "text_this_operation_does_not_support_batch_planning",
+      "value": "This operation does not support batch planning"
+    },
+    {
+      "name": "text_this_removes_settings_the_password_and_notebook",
+      "value": "This removes settings, the password, and notebook shortcuts for “%1$s”. Local Org files and remote files are kept."
+    },
+    {
+      "name": "text_this_repository_does_not_exist",
+      "value": "This repository does not exist"
+    },
+    {
+      "name": "text_this_repository_does_not_exist_please_give",
+      "value": "This repository does not exist, please give up changes and return"
+    },
+    {
+      "name": "text_this_repository_does_not_exist_please_return",
+      "value": "This repository does not exist, please return the repository list"
+    },
+    {
+      "name": "text_this_repository_does_not_exist_please_try",
+      "value": "This repository does not exist, please try again"
+    },
+    {
+      "name": "text_this_status_sets_a_note_alert_closes",
+      "value": "This status sets a note alert, closes the window without adding a comment and continues to modify the status"
+    },
+    {
+      "name": "text_this_unsaved_change_will_be_discarded",
+      "value": "This unsaved change will be discarded."
+    },
+    {
+      "name": "text_this_view_cannot_open_links_within_the",
+      "value": "This view cannot open links within the document."
+    },
+    {
+      "name": "text_this_will_be_deleted",
+      "value": "This will be deleted."
+    },
+    {
+      "name": "text_thu",
+      "value": "Thu"
+    },
+    {
+      "name": "text_time",
+      "value": "Time"
+    },
+    {
+      "name": "text_time_unknown",
+      "value": "Time unknown"
+    },
+    {
+      "name": "text_timing",
+      "value": ":: Timing"
+    },
+    {
+      "name": "text_title",
+      "value": "Title"
+    },
+    {
+      "name": "text_title_cannot_be_empty",
+      "value": "Title cannot be empty"
+    },
+    {
+      "name": "text_title_cannot_contain_line_breaks_or_control",
+      "value": "Title cannot contain line breaks or control characters"
+    },
+    {
+      "name": "text_title_copied",
+      "value": "Title copied"
+    },
+    {
+      "name": "text_to",
+      "value": "Go to %1$s"
+    },
+    {
+      "name": "text_to_be_compared_after_selection_of_target",
+      "value": "To be compared after selection of target"
+    },
+    {
+      "name": "text_to_be_moved",
+      "value": "To be moved . %1$s"
+    },
+    {
+      "name": "text_to_do",
+      "value": "To do"
+    },
+    {
+      "name": "text_today",
+      "value": "Today"
+    },
+    {
+      "name": "text_today_2",
+      "value": "Today"
+    },
+    {
+      "name": "text_toggle_page_failed_please_try_again",
+      "value": "Toggle page failed, please try again"
+    },
+    {
+      "name": "text_tomorrow",
+      "value": "Tomorrow"
+    },
+    {
+      "name": "text_top_level_first",
+      "value": "Top Level First"
+    },
+    {
+      "name": "text_top_level_of_document",
+      "value": "Top Level of Document"
+    },
+    {
+      "name": "text_total_words",
+      "value": "Total %1$s Words"
+    },
+    {
+      "name": "text_transfer_information_is_unknown",
+      "value": "Transfer information is unknown"
+    },
+    {
+      "name": "text_trash",
+      "value": "Trash"
+    },
+    {
+      "name": "text_try_again_to_update_the_portal",
+      "value": "Try again to update the portal"
+    },
+    {
+      "name": "text_tue",
+      "value": "Tue"
+    },
+    {
+      "name": "text_turn_on_reminders_for_the_org_tasks",
+      "value": "Turn on reminders for the Org Tasks calendar in Calendar."
+    },
+    {
+      "name": "text_unable_to_confirm_address",
+      "value": "Unable to confirm address"
+    },
+    {
+      "name": "text_unable_to_locate_internal_links_please_finish",
+      "value": "Unable to locate internal links. Please finish the current editing and try again"
+    },
+    {
+      "name": "text_unable_to_locate_repository_pending_cleanup_try",
+      "value": "Unable to locate repository pending cleanup. Try again."
+    },
+    {
+      "name": "text_unable_to_modify_duplicate_settings",
+      "value": "Unable to modify duplicate settings"
+    },
+    {
+      "name": "text_unable_to_read_shared_content_try_again",
+      "value": "Unable to read shared content. Try again after selecting text or links"
+    },
+    {
+      "name": "text_unable_to_recover_after_removal_determines_to",
+      "value": "Permanently deleted records cannot be restored."
+    },
+    {
+      "name": "text_unable_to_request_microphone_permission_continue_with",
+      "value": "Unable to request microphone permission, continue with the title"
+    },
+    {
+      "name": "text_unable_to_save_changes",
+      "value": "Unable to save changes"
+    },
+    {
+      "name": "text_unauthorized_tap_authorization",
+      "value": "Unauthorized . tap Authorization"
+    },
+    {
+      "name": "text_unbound",
+      "value": "Unbound"
+    },
+    {
+      "name": "text_uncategorized",
+      "value": "Uncategorized"
+    },
+    {
+      "name": "text_unconfigured",
+      "value": "Unconfigured"
+    },
+    {
+      "name": "text_undefined_data_set",
+      "value": "Undefined data set: %1$s"
+    },
+    {
+      "name": "text_unfinished_without_alarm_time",
+      "value": "Unfinished without alarm time"
+    },
+    {
+      "name": "text_unidentified_address",
+      "value": "Unidentified Address"
+    },
+    {
+      "name": "text_unknown_number_of_conflicts",
+      "value": "Unknown number of conflicts"
+    },
+    {
+      "name": "text_unknown_number_of_files",
+      "value": "Unknown number of files"
+    },
+    {
+      "name": "text_unknown_trigger_cause",
+      "value": "Unknown trigger cause"
+    },
+    {
+      "name": "text_unlabeled_tap_to_add_a_new_tab",
+      "value": "No tags yet. Tap New tag to add one."
+    },
+    {
+      "name": "text_unnamed_alarm",
+      "value": "Unnamed alarm"
+    },
+    {
+      "name": "text_unnamed_location",
+      "value": "Unnamed Location"
+    },
+    {
+      "name": "text_unnamed_repository",
+      "value": "Unnamed repository"
+    },
+    {
+      "name": "text_unopened",
+      "value": "Off"
+    },
+    {
+      "name": "text_unremovable",
+      "value": "%1$s, Unremovable"
+    },
+    {
+      "name": "text_untie",
+      "value": "Untie."
+    },
+    {
+      "name": "text_untie_the_application",
+      "value": "Untie the application?"
+    },
+    {
+      "name": "text_untitled_project",
+      "value": "Untitled project"
+    },
+    {
+      "name": "text_update",
+      "value": "Update"
+    },
+    {
+      "name": "text_update_address",
+      "value": "Update Address"
+    },
+    {
+      "name": "text_update_of_notification_settings_failed",
+      "value": "Update of notification settings failed: %1$s"
+    },
+    {
+      "name": "text_update_selected_addresses",
+      "value": "Update Selected Addresses"
+    },
+    {
+      "name": "text_update_status_classification_failed",
+      "value": "Update status classification failed: %1$s"
+    },
+    {
+      "name": "text_upload",
+      "value": "Upload %1$s"
+    },
+    {
+      "name": "text_uploading_files",
+      "value": "Uploading %1$s files"
+    },
+    {
+      "name": "text_upon_opening_write_uncompleted_alarms_into_a",
+      "value": "Upon opening, write uncompleted alarms into a Org Tasks alarm calendar dedicated to a system calendar, with notification by the system calendar at point, and the event registered after the application has been withdrawn is still handled by the system."
+    },
+    {
+      "name": "text_upper_directory",
+      "value": "Upper Directory"
+    },
+    {
+      "name": "text_use_file_properties",
+      "value": "Use File Properties"
+    },
+    {
+      "name": "text_use_this_directory",
+      "value": "Use this directory"
+    },
+    {
+      "name": "text_username",
+      "value": "Username"
+    },
+    {
+      "name": "text_view_notes",
+      "value": "%1$s: View Notes"
+    },
+    {
+      "name": "text_voice_is_temporarily_unavailable_so_you_can",
+      "value": "Voice is temporarily unavailable, so you can continue with the title."
+    },
+    {
+      "name": "text_voice_recognition_interrupted_to_continue_editing_recognized",
+      "value": "Voice recognition interrupted to continue editing recognized titles"
+    },
+    {
+      "name": "text_voice_recognition_is_over_please_check_the",
+      "value": "Voice recognition is over. Please check the title and save it."
+    },
+    {
+      "name": "text_voice_recognition_is_temporarily_unavailable_so_you",
+      "value": "Voice recognition is temporarily unavailable, so you can continue with the title."
+    },
+    {
+      "name": "text_voice_services_are_not_available_for_the",
+      "value": "Voice services are not available for the time being, so you can continue with the title."
+    },
+    {
+      "name": "text_waiting",
+      "value": "Waiting"
+    },
+    {
+      "name": "text_waiver_of_adjustment",
+      "value": "Waiver of adjustment"
+    },
+    {
+      "name": "text_waste_paper_expiry_cleanup_failed_to_open",
+      "value": "Couldn’t empty expired records. Open Trash to retry."
+    },
+    {
+      "name": "text_waste_paper_is_empty",
+      "value": "Trash is empty"
+    },
+    {
+      "name": "text_waste_paper_retention_days_must_be_between",
+      "value": "Trash retention must be between 1 and 3650 days."
+    },
+    {
+      "name": "text_we_ve_got_a_specific_moment_to",
+      "value": "We've got a specific moment to repeat the task in an hour."
+    },
+    {
+      "name": "text_webdav_configuration_requires_https_directory_address_and",
+      "value": "WebDAV configuration requires HTTPS directory address and valid account number"
+    },
+    {
+      "name": "text_webdav_connection",
+      "value": "WebDAV Connection"
+    },
+    {
+      "name": "text_webdav_connection_changes",
+      "value": "WebDAV connection changes"
+    },
+    {
+      "name": "text_webdav_password",
+      "value": "WebDAV password"
+    },
+    {
+      "name": "text_webdav_repository",
+      "value": "WebDAV repository"
+    },
+    {
+      "name": "text_webdav_sync_not_completed_please_try_again",
+      "value": "WebDAV sync not completed, please try again"
+    },
+    {
+      "name": "text_webdav_username",
+      "value": "WebDAV Username"
+    },
+    {
+      "name": "text_wed",
+      "value": "Wed"
+    },
+    {
+      "name": "text_when_applied_the_file_entry_task_status",
+      "value": "When applied, the file entry, task status and presentation are updated, and the repository is updated or added to the local directory."
+    },
+    {
+      "name": "text_when_you_select_a_notebook_the_records",
+      "value": "When you select a notebook, the records are displayed at the corresponding entry point."
+    },
+    {
+      "name": "text_will_be_moved_to_the_waste_paper",
+      "value": "“%1$s” will move to Trash. You can restore it from Trash. Handle any child records first."
+    },
+    {
+      "name": "text_workspace_expired",
+      "value": "Workspace expired."
+    },
+    {
+      "name": "text_writing_profile_failed",
+      "value": "Writing profile failed"
+    },
+    {
+      "name": "text_writing_to_local_storage_failed",
+      "value": "Writing to local storage failed"
+    },
+    {
+      "name": "text_yesterday",
+      "value": "Yesterday."
+    },
+    {
+      "name": "text_you_can_access_the_directory",
+      "value": ", you can access the directory."
+    },
+    {
+      "name": "text_you_can_leave_a_name_empty_and",
+      "value": "You can leave a name empty and use the directory name by default. tap to save it at the bottom after the change."
+    },
+    {
+      "name": "text_you_can_refresh_this_list_by_synchronizing",
+      "value": "Pull down to sync and refresh the list."
+    },
+    {
+      "name": "text_you_need_to_give_calendar_reading_and",
+      "value": "You need to give calendar reading and writing permission. Open the system calendar for the first time and allow the system calendar to send a notification; the Org Tasks ' s own notification switch cannot replace it. Sound and ringing bells are controlled by the system calendar."
+    }
+  ]
+}

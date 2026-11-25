@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
 import { TrashService } from './TrashService'
@@ -7,10 +8,10 @@ import { CoreTask, CoreTaskModification, CoreTaskOperation, NativeCoreService } 
 // 宿主仅组装操作与版本约束；标题定位、保真写入和上传意图均由 Core 处理。
 export class NoteService {
   static async createMemo(context: Context, title: string, body: string): Promise<void> {
-    if (!title.trim()) throw new Error('标题不能为空')
+    if (!title.trim()) throw new Error(localizedText($r('app.string.text_title_cannot_be_empty')))
     const config = await AppConfigService.load(context, false)
     const target = await FileTargetService.resolve(config, 'memo')
-    if (!target) throw new Error('备忘文件未选择或已失效，请在设置中重新选择')
+    if (!target) throw new Error(localizedText($r('app.string.text_the_memo_file_is_not_selected_or')))
     const file = await target.repo.file(target.path)
     await NativeCoreService.executeTaskOperations(config.repos, {
       operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title, body,
@@ -20,7 +21,7 @@ export class NoteService {
   }
 
   static async update(context: Context, note: CoreTask, title: string, body: string): Promise<void> {
-    if (!title.trim()) throw new Error('标题不能为空')
+    if (!title.trim()) throw new Error(localizedText($r('app.string.text_title_cannot_be_empty')))
     const modifications: CoreTaskModification[] = []
     if (title !== note.heading) modifications.push({ field: 'TITLE', value: title })
     if (body !== note.body) modifications.push({ field: 'BODY', value: body })
@@ -47,7 +48,7 @@ export class NoteService {
     }
     const repo = (await workspace.repos()).find(item => item.id === note.repoId)
     const repository = config.repos.find(item => item.rootDirectory === repo?.rootDirectory)
-    if (!repository) throw new Error('目标仓库不可用')
+    if (!repository) throw new Error(localizedText($r('app.string.text_target_repository_not_available')))
     await workspace.executeTaskOperations({
       operations: [operation],
       fileVersions: [{ repoId: note.repoId, file: note.filePath, version: note.fileVersion }]

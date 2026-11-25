@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { common, wantAgent } from '@kit.AbilityKit'
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit'
 import { notificationManager } from '@kit.NotificationKit'
@@ -73,9 +74,9 @@ export class BackgroundSyncPresentation {
     // 系统通知创建或查询可能稍晚于长时任务，后续进度允许重新取得通知。
     await this.loadNotification(task.notificationId)
     const original = this.notification
-    const title = state.running ? '正在同步' : state.error ? '同步失败' : '同步完成'
+    const title = state.running ? localizedText($r('app.string.text_synchronising')) : state.error ? localizedText($r('app.string.text_synchronising_failed')) : localizedText($r('app.string.text_synchronization_complete'))
     const text = state.message || title
-    const capsule = state.running && state.determinate ? `同步 ${state.progress}%` : title
+    const capsule = state.running && state.determinate ? localizedText($r('app.string.text_syncing'), `${state.progress}%`) : title
     const content: notificationManager.NotificationContent = task.contentType ===
       notificationManager.ContentType.NOTIFICATION_CONTENT_SYSTEM_LIVE_VIEW
       ? { notificationContentType: task.contentType, systemLiveView: {

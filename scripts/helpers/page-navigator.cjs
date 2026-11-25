@@ -1,3 +1,4 @@
+const { transpileFixture } = require('./localized-resources.cjs');
 // 页面行为测试沿用原 Router 替身；路径与返回规则由 PageNavigator 专项测试覆盖。
 exports.pageNavigatorMock = {
   primaryPage: view => view === 'inbox' ? { url: 'pages/Inbox' } : { url: 'pages/' + view[0].toUpperCase() + view.slice(1) },
@@ -19,7 +20,7 @@ const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openhar
 function loadNavigationModule(name, dependencies = {}) {
   const file = path.resolve(__dirname, '../../entry/src/main/ets/services', name + '.ets');
   const module = { exports: {} };
-  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: {
+  const code = transpileFixture(ts, fs.readFileSync(file, 'utf8'), { compilerOptions: {
     target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS
   } }).outputText;
   vm.runInThisContext('(function(require,module,exports){' + code + '\n})', { filename: file })(key => {

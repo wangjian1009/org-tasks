@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreSyncRecord } from '../services/NativeCoreService'
 import { syncLogConflictLabel, syncLogErrorLabel, syncLogResultLabel, syncLogTimeLabel,
   syncLogTitle } from '../ui/SyncLogPresentation'
@@ -47,7 +48,7 @@ export struct SyncLogItem {
         .width(68).maxLines(1).textAlign(TextAlign.End).flexShrink(0)
     }.width('100%').height(48).padding({ left: 8, right: 8 })
       .alignItems(VerticalAlign.Center).accessibilityGroup(true)
-      .accessibilityText(`${syncLogResultLabel(this.record)}，${syncLogTitle(this.record)}，${syncLogConflictLabel(this.record)}，${syncLogTimeLabel(this.record.started_at)}，${this.expanded ? '点击收起文件详情' : '点击展开文件详情'}`)
+      .accessibilityText(`${syncLogResultLabel(this.record)}，${syncLogTitle(this.record)}，${syncLogConflictLabel(this.record)}，${syncLogTimeLabel(this.record.started_at)}，${this.expanded ? localizedText($r('app.string.text_tap_to_close_file_details')) : localizedText($r('app.string.text_tap_to_expand_file_details'))}`)
       .onClick((): void => { this.open() })
   }
 }

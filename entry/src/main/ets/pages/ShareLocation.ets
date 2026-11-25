@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { isSystemRepository } from '../models/SystemRepository'
 import { common } from '@kit.AbilityKit'
 import { CoreAddressLink, CoreOrgFileRef, CoreQuery, CoreTask, NativeCoreService, taskResult } from '../services/NativeCoreService'
@@ -62,26 +63,26 @@ struct ShareLocation {
       this.config = config
       if (value.kind !== 'unknown') this.loadTasks(config, request)
     } catch (e) {
-      if (request === this.loadRequest) this.message = '无法读取分享内容，请返回地图重新分享'
+      if (request === this.loadRequest) this.message = localizedText($r('app.string.text_cannot_read_shared_content_please_return_map'))
     } finally { if (request === this.loadRequest) this.loading = false }
   }
 
   async close(): Promise<void> {
     try { await (this.getUIContext().getHostContext()! as common.UIAbilityContext).terminateSelf() }
-    catch (error) { this.message = '关闭分享窗口失败，请重试' }
+    catch (error) { this.message = localizedText($r('app.string.text_closing_the_shared_window_failed_please_try')) }
   }
 
   sourceName(): string {
-    if (this.location?.source === 'amap') return '来自高德地图'
-    if (this.location?.source === 'petal') return '来自花瓣地图'
-    return '来自分享内容'
+    if (this.location?.source === 'amap') return localizedText($r('app.string.text_shared_from_amap'))
+    if (this.location?.source === 'petal') return localizedText($r('app.string.text_shared_from_petal_maps'))
+    return localizedText($r('app.string.text_from_shared_content'))
   }
 
   locationText(): string {
     if (!this.location) return ''
     if (this.location.address) return this.location.address
-    if (this.location.latitude) return `坐标 ${this.location.latitude}, ${this.location.longitude}`
-    return this.location.rawUrl || '未识别地址'
+    if (this.location.latitude) return localizedText($r('app.string.text_coordinate_2'), String(this.location.latitude), String(this.location.longitude))
+    return this.location.rawUrl || localizedText($r('app.string.text_unidentified_address'))
   }
 
   async loadTasks(config: AppConfig, request: number) {
@@ -102,7 +103,7 @@ struct ShareLocation {
       if (request !== this.loadRequest) return
       this.taskRepositories = repositories
       this.tasks = results
-    } catch (e) { if (request === this.loadRequest) this.taskMessage = '读取任务失败，请重新分享后重试' }
+    } catch (e) { if (request === this.loadRequest) this.taskMessage = localizedText($r('app.string.text_read_task_failed_re_shared_and_try')) }
     finally { if (request === this.loadRequest) this.loadingTasks = false }
   }
 
@@ -112,14 +113,14 @@ struct ShareLocation {
     try {
       if (!this.created) {
         const target = await FileTargetService.resolve(this.config, 'inbox')
-        if (!target) throw new Error('收件箱文件未选择或已失效，请先在设置中选择')
-        const label = this.location.label || this.location.address || '分享地点'
+        if (!target) throw new Error(localizedText($r('app.string.text_inbox_files_are_not_selected_or_are')))
+        const label = this.location.label || this.location.address || localizedText($r('app.string.text_share_location'))
         const body = `[[${this.location.uri}][${label}]]`
         const file = await target.repo.file(target.path)
-        if (!file.todo.initialState) throw new Error('目标文件没有可用的未完成状态')
+        if (!file.todo.initialState) throw new Error(localizedText($r('app.string.text_target_file_not_available_uncompleted')))
         await NativeCoreService.executeTaskOperations(this.config.repos, {
           operations: [{ type: 'Creation', data: { position: { parent: file.fullPath },
-            title: `到${this.request.title || label}`, body, state: file.todo.initialState } }],
+            title: localizedText($r('app.string.text_to'), String(this.request.title || label)), body, state: file.todo.initialState } }],
           fileVersions: [{ repoId: target.repo.id, file: target.path, version: file.fileVersion }]
         }, this.config.todoDefaults, this.config.coreSettings)
         this.created = true
@@ -129,7 +130,7 @@ struct ShareLocation {
       await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'EntryAbility',
         parameters: { page: 'inbox' } })
       await this.close()
-    } catch (e) { this.message = this.created ? '任务已创建，打开收件箱失败，请点击“打开收件箱”重试' : (e as Error).message || '创建任务失败' }
+    } catch (e) { this.message = this.created ? localizedText($r('app.string.text_job_created_inbox_opened_failed_tap_open')) : (e as Error).message || localizedText($r('app.string.text_failed_to_create_task')) }
     finally { this.saving = false }
   }
 
@@ -139,7 +140,7 @@ struct ShareLocation {
     const oldUri = this.selectedUri
     const uri = this.location.uri
     const repository = this.taskRepositories.get(task.id)
-    if (!repository) { this.message = '任务所属仓库不可用'; return }
+    if (!repository) { this.message = localizedText($r('app.string.text_the_mission_s_repository_is_not_available')); return }
     this.saving = true; this.message = ''
     try {
       if (!this.updated) {
@@ -154,7 +155,7 @@ struct ShareLocation {
       await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'EntryAbility',
         parameters: { page: 'inbox' } })
       await this.close()
-    } catch (e) { this.message = this.updated ? '地址已更新，打开收件箱失败，请重试' : (e as Error).message || '更新地址失败' }
+    } catch (e) { this.message = this.updated ? localizedText($r('app.string.text_address_updated_failed_to_open_inbox_try')) : (e as Error).message || localizedText($r('app.string.text_failed_to_update_address')) }
     finally { this.saving = false }
   }
 
@@ -166,11 +167,11 @@ struct ShareLocation {
           Image(this.location.source === 'amap' ? $r('app.media.map_app_amap') : $r('app.media.map_app_petal'))
             .width(36).height(36).borderRadius(8)
           Column({ space: 4 }) {
-            Text(this.location.label || '分享地点').fontSize(19).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+            Text(this.location.label || localizedText($r('app.string.text_share_location'))).fontSize(19).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
             Text(this.locationText()).fontSize(14).fontColor(UiColor.secondary).maxLines(2)
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }
-        Text(this.location.kind === 'unknown' ? '无法确认地址' : this.location.kind === 'coordinates' ? '坐标已识别' : '地址已识别')
+        Text(this.location.kind === 'unknown' ? localizedText($r('app.string.text_unable_to_confirm_address')) : this.location.kind === 'coordinates' ? localizedText($r('app.string.text_coordinate_identified')) : localizedText($r('app.string.text_address_identified')))
           .fontSize(13).fontColor(this.location.kind === 'unknown' ? UiColor.error : UiColor.primary).width('100%')
       }.width('100%').padding(16).backgroundColor(UiColor.field).borderRadius(16)
     }
@@ -179,7 +180,7 @@ struct ShareLocation {
   @Builder
   updateView() {
     Column({ space: 12 }) {
-      ListSectionHeader({ title: '更新地址' })
+      ListSectionHeader({ title: localizedText($r('app.string.text_update_address')) })
       ForEach(this.tasks, (task: CoreTask) => {
         Column({ space: 6 }) {
           Column({ space: 3 }) {
@@ -202,7 +203,7 @@ struct ShareLocation {
           .backgroundColor(UiColor.field).borderRadius(12)
       })
       if (!this.loadingTasks && this.selectedTask) {
-        Button(this.saving ? '保存中…' : this.updated ? '打开收件箱' : '更新选中的地址').width('100%').height(52).backgroundColor(UiColor.primary)
+        Button(this.saving ? localizedText($r('app.string.text_saving_3')) : this.updated ? localizedText($r('app.string.text_open_inbox')) : localizedText($r('app.string.text_update_selected_addresses'))).width('100%').height(52).backgroundColor(UiColor.primary)
           .fontColor(UiColor.onPrimary)
           .enabled(!this.saving).onClick(() => { this.updateTask() })
       }
@@ -212,8 +213,8 @@ struct ShareLocation {
   build() {
     Column() {
       Row() {
-        Text('取消').fontSize(16).fontColor(UiColor.secondary).onClick(() => { this.close() })
-        Text('分享地点')
+        Text($r('app.string.text_cancel')).fontSize(16).fontColor(UiColor.secondary).onClick(() => { this.close() })
+        Text($r('app.string.text_share_location'))
           .fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1).textAlign(TextAlign.Center)
         Blank().width(42)
       }.width('100%').height(64).padding({ left: 20, right: 20 })
@@ -221,16 +222,16 @@ struct ShareLocation {
       Scroll() {
         Column({ space: 16 }) {
           if (this.loading) {
-            Text('正在读取分享内容…').fontSize(18).fontColor(UiColor.text).padding(24)
+            Text($r('app.string.text_reading_shared_content')).fontSize(18).fontColor(UiColor.text).padding(24)
           } else {
             Text(this.sourceName()).fontSize(14).fontColor(UiColor.primary).width('100%').padding({ top: 18 })
             this.locationCard()
             if (this.location?.kind === 'unknown') {
-              Text('分享内容无法确认地址，可保存原始链接或返回地图重新分享。').fontSize(14).fontColor(UiColor.warning).width('100%')
-              Button(this.saving ? '保存中…' : this.created ? '打开收件箱' : '创建任务并保存原始链接').width('100%').height(50)
+              Text($r('app.string.text_the_shared_content_does_not_confirm_the')).fontSize(14).fontColor(UiColor.warning).width('100%')
+              Button(this.saving ? localizedText($r('app.string.text_saving_3')) : this.created ? localizedText($r('app.string.text_open_inbox')) : localizedText($r('app.string.text_create_tasks_and_save_original_links'))).width('100%').height(50)
                 .backgroundColor(UiColor.field).fontColor(UiColor.text).enabled(!this.saving).onClick(() => { this.createTask() })
             } else {
-              Button(this.saving ? '保存中…' : this.created ? '打开收件箱' : '创建任务').width('100%').height(52).backgroundColor(UiColor.primary)
+              Button(this.saving ? localizedText($r('app.string.text_saving_3')) : this.created ? localizedText($r('app.string.text_open_inbox')) : localizedText($r('app.string.text_create_task'))).width('100%').height(52).backgroundColor(UiColor.primary)
                 .fontColor(UiColor.onPrimary).enabled(!this.saving).onClick(() => { this.createTask() })
               if (!this.loadingTasks && this.tasks.length > 0) {
                 this.updateView()

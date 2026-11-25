@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { DataSet } from '../services/DataSetManager'
 import { CoreTask, CoreTaskModification, CoreTaskPlanningEdit, coreErrorMessage, CoreBridgeError } from '../services/NativeCoreService'
 import { ReminderManager } from '../services/ReminderManager'
@@ -57,7 +58,7 @@ export struct TaskReminderList {
     if (this.busy || !this.dataSet?.isReady()) return
     const rowId = this.dataSet.taskKey(task.id)
     this.dialog = new CustomDialogController({
-      builder: TaskDateDialog({ title: '提醒时间', selected: reminderPlanning(task)?.date ?? '',
+      builder: TaskDateDialog({ title: localizedText($r('app.string.reminder_time')), selected: reminderPlanning(task)?.date ?? '',
         planning: reminderPlanning(task), allowTimeRange: false,
         confirmed: (change: CoreTaskModification): void => {
           if (!this.active) return
@@ -78,15 +79,15 @@ export struct TaskReminderList {
       if (this.loading) {
         Row({ space: 8 }) {
           LoadingProgress().width(24).height(24).color(UiColor.primary)
-          Text('正在读取提醒任务…').fontSize(14).fontColor(UiColor.secondary)
+          Text($r('app.string.text_reading_alarms')).fontSize(14).fontColor(UiColor.secondary)
         }.width('100%').padding(16)
       }
       if (this.message) {
         Text(this.message).fontSize(14).fontColor(UiColor.error).width('100%').padding(16)
-        Button('重新读取').onClick((): void => { this.load() }).enabled(!this.loading && !this.busy).margin(12)
+        Button($r('app.string.text_reread')).onClick((): void => { this.load() }).enabled(!this.loading && !this.busy).margin(12)
       }
       if (!this.loading && !this.message && !this.tasks.length) {
-        Text('暂无设置提醒时间的未完成任务').id('reminder_list_empty').fontSize(14).fontColor(UiColor.secondary).padding(20)
+        Text($r('app.string.text_unfinished_without_alarm_time')).id('reminder_list_empty').fontSize(14).fontColor(UiColor.secondary).padding(20)
       }
       ForEach(this.tasks, (task: CoreTask) => {
         Column({ space: 6 }) {
@@ -95,7 +96,7 @@ export struct TaskReminderList {
           Text(this.status(task)).fontSize(12).fontColor(UiColor.secondary).width('100%')
         }.id(`reminder_list_${task.id}`).width('100%').padding(16)
           .border({ width: { bottom: 0.5 }, color: UiColor.divider }).enabled(!this.busy)
-          .accessibilityText(`${task.heading}，${this.label(task)}，点击修改提醒时间`)
+          .accessibilityText(localizedText($r('app.string.text_tap_to_change_alarm_time'), String(task.heading), String(this.label(task))))
           .onClick((): void => { this.edit(task) })
       // 行内没有草稿；版本变化时同步替换显示值及点击回调使用的编辑快照。
       }, (task: CoreTask): string => JSON.stringify([this.dataSet!.taskKey(task.id), task.fileVersion]))

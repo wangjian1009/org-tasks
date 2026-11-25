@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { CoreTaskPriority } from '../../services/NativeCoreService'
 import { priorityColor, priorityBackground, priorityLabel } from '../../ui/TaskPriorityPresentation'
 import { UiColor } from '../../ui/Theme'
@@ -18,11 +19,11 @@ export struct TaskPriorityChoices {
   @Builder
   chip(value: CoreTaskPriority | null, index: number) {
     Column() {
-      ChoiceChip({ label: value?.name ?? '无', controlId: `task_priority_${index}`,
+      ChoiceChip({ label: value?.name ?? localizedText($r('app.string.text_none')), controlId: `task_priority_${index}`,
         textColor: value ? priorityColor(value.category) : UiColor.secondary,
         fill: value ? priorityBackground(value.category) : UiColor.field,
         selected: this.selected(value), disabled: this.disabled,
-        accessibilityLabel: `${priorityLabel(value)}，${this.selected(value) ? '已选中' : '未选中'}`,
+        accessibilityLabel: `${priorityLabel(value)}，${this.selected(value) ? localizedText($r('app.string.text_selected')) : localizedText($r('app.string.text_not_selected'))}`,
         choose: (): void => { this.choose(value?.name ?? null) } })
     }.margin({ right: (index + 1) % this.columns() === 0 ? 0 : 6 })
   }

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { bundleManager, common, Context, Want, wantConstant } from '@kit.AbilityKit'
 import { BusinessError } from '@kit.BasicServicesKit'
 import { util } from '@kit.ArkTS'
@@ -31,7 +32,7 @@ export class AppLinkManager {
   }
   private use(context?: Context): Context {
     if (context) this.context = context
-    if (!this.context) throw new Error('应用关联管理器尚未启动')
+    if (!this.context) throw new Error(localizedText($r('app.string.text_application_connection_manager_not_started')))
     return this.context
   }
 
@@ -94,9 +95,9 @@ export class AppLinkManager {
 
   async bind(context: Context, name: string, bundleName: string): Promise<void> {
     const value = normalizeAssociation({ name, bundleName })
-    if (!value) throw new Error('应用链接关联不能为空')
+    if (!value) throw new Error(localizedText($r('app.string.text_applying_links_cannot_be_empty')))
     if (!(await this.catalog(context)).some((item: AppLinkCatalogEntry): boolean => item.id === value.bundleName && item.launch !== undefined)) {
-      throw new Error('应用目录中没有此应用的启动配置')
+      throw new Error(localizedText($r('app.string.text_application_directory_does_not_have_a_startup')))
     }
     const values = await this.load(context)
     const index = values.findIndex((item: AppLinkAssociation): boolean => item.name === value.name)
@@ -130,7 +131,7 @@ export class AppLinkManager {
 export async function openAppLink(context: common.UIAbilityContext, association: AppLinkAssociation, href: string): Promise<void> {
   const catalog = await AppLinkManager.shared.catalog(context)
   const app = catalog.find((item: AppLinkCatalogEntry): boolean => item.id === association.bundleName)
-  if (!app?.launch) throw new Error('应用目录中没有此应用的启动配置')
+  if (!app?.launch) throw new Error(localizedText($r('app.string.text_application_directory_does_not_have_a_startup')))
   const want: Want = { bundleName: app.id, moduleName: app.launch.moduleName, abilityName: app.launch.abilityName }
   if (app.launch.forwardLink) {
     want.uri = href

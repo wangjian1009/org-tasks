@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
 import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
@@ -10,15 +11,15 @@ export type TrashAction = 'trash' | 'restore' | 'clear'
 export class TrashService {
   static async target(config: AppConfig, workspace: CoreWorkspace): Promise<CoreOrgFileRef> {
     const system = config.repos.find(repo => repo.id === SYSTEM_REPOSITORY_ID)
-    if (!system) throw new Error('系统仓库尚未初始化')
+    if (!system) throw new Error(localizedText($r('app.string.text_system_repository_not_yet_initialized')))
     const repo = (await workspace.repos()).find(repo => repo.rootDirectory === system.rootDirectory)
-    if (!repo) throw new Error('系统仓库不可用，请重启应用后重试')
+    if (!repo) throw new Error(localizedText($r('app.string.text_the_system_repository_is_not_available_please')))
     return { repoId: repo.id, path: TRASH_FILE }
   }
 
   static async group(config: AppConfig, workspace: CoreWorkspace, tasks: CoreTask[], action: TrashAction,
     operationId?: string): Promise<CoreTaskOperationGroup> {
-    if (tasks.length === 0) throw new Error('请选择记录')
+    if (tasks.length === 0) throw new Error(localizedText($r('app.string.text_please_select_the_record')))
     const target = action === 'trash' ? await TrashService.target(config, workspace) : undefined
     const versions = new Map<string, CoreTaskFileVersion>()
     const unique: CoreTask[] = []
@@ -26,7 +27,7 @@ export class TrashService {
       if (unique.some(value => value.repoId === task.repoId && value.id === task.id)) continue
       const key = JSON.stringify([task.repoId, task.filePath])
       const previous = versions.get(key)
-      if (previous && previous.version !== task.fileVersion) throw new Error('文件版本已变化，请刷新后重新选择')
+      if (previous && previous.version !== task.fileVersion) throw new Error(localizedText($r('app.string.text_the_document_version_has_changed_please_refresh')))
       versions.set(key, { repoId: task.repoId, file: task.filePath, version: task.fileVersion })
       unique.push(task)
     }

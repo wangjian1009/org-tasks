@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { TaskActionItem } from '../ui/TaskActionPresentation'
 import { TaskActionMenu } from './TaskActionMenu'
 import { UiColor } from '../ui/Theme'
@@ -17,15 +18,15 @@ export struct TaskBatchToolbar {
   build() {
     Column({ space: 8 }) {
       Row() {
-        Text(`已选 ${this.count} 条`).id(`${this.idPrefix}_count`).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
+        Text(localizedText($r('app.string.text_selected_article'), String(this.count))).id(`${this.idPrefix}_count`).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
         Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_close')).width(20).height(20) }
           .id(`${this.idPrefix}_close`).width(44).height(44).backgroundColor(Color.Transparent)
-          .accessibilityText('退出多选').enabled(!this.busy).onClick(() => { this.cancel() })
+          .accessibilityText($r('app.string.text_quit_multiple_selection')).enabled(!this.busy).onClick(() => { this.cancel() })
       }.width('100%')
       if (this.message) { Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%') }
       if (this.invalid) {
         Row() {
-          Button('刷新重选').height(44).fontColor(UiColor.selection).backgroundColor(Color.Transparent)
+          Button($r('app.string.text_refresh_reselect')).height(44).fontColor(UiColor.selection).backgroundColor(Color.Transparent)
             .enabled(!this.busy).onClick(this.retry)
         }.width('100%').justifyContent(FlexAlign.End)
       }

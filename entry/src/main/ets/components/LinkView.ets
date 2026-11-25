@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { pasteboard } from '@kit.BasicServicesKit'
 import { display } from '@kit.ArkUI'
 import { PopupMenu, PopupMenuItem } from './controls/PopupMenu'
@@ -167,7 +168,7 @@ export struct LinkView {
       try { this.menuWidth = this.getUIContext().px2vp(display.getDefaultDisplaySync().width) - 32 } catch (_) {}
       this.menuVisible = true
     } else if (hit.href) { await this.open(hit.href) }
-    else { this.notify('此链接暂不支持打开') }
+    else { this.notify(localizedText($r('app.string.text_this_link_is_not_supported_for_opening'))) }
   }
 
   selectPart(part: CoreTitlePart, event: ClickEvent) {
@@ -182,7 +183,7 @@ export struct LinkView {
     try {
       const hit = JSON.parse(payload) as LinkHit
       this.select(hit)
-    } catch (_) { this.notify('无法读取链接，请重新载入正文。') }
+    } catch (_) { this.notify(localizedText($r('app.string.text_couldn_t_read_the_link_reload_the'))) }
   }
 
   async installDocument() {
@@ -192,7 +193,7 @@ export struct LinkView {
       await this.webController.runJavaScript(linkDocumentScript())
       if (this.active && generation === this.generation) this.remeasure()
     }
-    catch (_) { this.notify('链接控件加载失败，请重新载入正文。') }
+    catch (_) { this.notify(localizedText($r('app.string.text_link_control_has_failed_to_load_please'))) }
   }
 
   insertionChanged(): void {
@@ -223,7 +224,7 @@ export struct LinkView {
     if (this.document && this.webController) {
       this.webController.runJavaScript(`window.orgLinkEdit?.(${JSON.stringify(link)}, ${JSON.stringify(this.titleDraft)}, ${JSON.stringify(this.urlDraft)})`)
         .then((): void => { if (this.active && generation === this.generation) this.remeasure() })
-        .catch((): void => { if (this.active && generation === this.generation) this.editError = '无法展开链接编辑，请重试。' })
+        .catch((): void => { if (this.active && generation === this.generation) this.editError = localizedText($r('app.string.text_couldn_t_open_the_link_editor_try')) })
     }
   }
 
@@ -240,9 +241,9 @@ export struct LinkView {
     const selected = this.selected
     if (!value && !await this.editor.finish(this.owner)) return false
     if (!this.active || generation !== this.generation || selected !== this.selected) return false
-    if (!this.editable || !this.change) { this.editError = '当前链接无法修改，请取消编辑并重新载入。'; this.notify(this.editError); this.documentStatus(this.editError, false); return false }
-    if (this.revision !== this.selectedRevision) { this.editError = '内容已变化，请取消编辑并重新载入后重试。'; this.notify(this.editError); this.documentStatus(this.editError, false); return false }
-    if (value && !value.url.trim()) { this.editError = '链接不能为空'; this.notify(this.editError); this.documentStatus(this.editError, false); return false }
+    if (!this.editable || !this.change) { this.editError = localizedText($r('app.string.text_the_current_link_cannot_be_modified_please')); this.notify(this.editError); this.documentStatus(this.editError, false); return false }
+    if (this.revision !== this.selectedRevision) { this.editError = localizedText($r('app.string.text_changed_content_please_cancel_editing_and_reload')); this.notify(this.editError); this.documentStatus(this.editError, false); return false }
+    if (value && !value.url.trim()) { this.editError = localizedText($r('app.string.text_link_cannot_be_empty')); this.notify(this.editError); this.documentStatus(this.editError, false); return false }
     this.saving = true; this.menuVisible = false; this.editError = ''
     this.documentStatus('', true)
     try {
@@ -252,7 +253,7 @@ export struct LinkView {
       return true
     } catch (error) {
       if (this.active && generation === this.generation) {
-        this.editError = (error as Error).message || '保存链接失败，请重试。'
+        this.editError = (error as Error).message || localizedText($r('app.string.text_save_link_failed_please_try_again'))
         this.notify(this.editError)
         this.documentStatus(this.editError, false)
       }
@@ -279,18 +280,18 @@ export struct LinkView {
     const value = title ? this.selected.label : this.selected.link?.url || this.selected.url || this.selected.href
     try {
       await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, value))
-      this.notify(title ? '标题已拷贝' : '链接已拷贝')
-    } catch (_) { this.notify('拷贝失败，请重试') }
+      this.notify(title ? localizedText($r('app.string.text_title_copied')) : localizedText($r('app.string.text_link_copied')))
+    } catch (_) { this.notify(localizedText($r('app.string.text_copy_failed_try_again'))) }
   }
 
   menuItems(): PopupMenuItem[] {
     const items: PopupMenuItem[] = [
-      { title: '拷贝链接', icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected(false) } },
-      { title: '拷贝标题', icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected(true) } }
+      { title: localizedText($r('app.string.text_copy_link')), icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected(false) } },
+      { title: localizedText($r('app.string.text_copy_title')), icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected(true) } }
     ]
     if (this.editable && this.selected?.link && this.change) {
-      items.push({ title: '编辑', icon: $r('app.media.ui_link_edit'), action: (): void => { this.beginEdit() } })
-      items.push({ title: '删除', icon: $r('app.media.ui_delete'), dangerous: true, action: (): void => { this.commit(null) } })
+      items.push({ title: localizedText($r('app.string.text_edit')), icon: $r('app.media.ui_link_edit'), action: (): void => { this.beginEdit() } })
+      items.push({ title: localizedText($r('app.string.text_delete')), icon: $r('app.media.ui_delete'), dangerous: true, action: (): void => { this.commit(null) } })
     }
     return items
   }
@@ -311,7 +312,7 @@ export struct LinkView {
     if (this.document && this.webController) {
       const generation = this.generation
       this.webController.runJavaScript(`window.orgLinkProtocol?.(${JSON.stringify(this.urlDraft)})`)
-        .catch((): void => { if (this.active && generation === this.generation) this.notify('无法切换链接协议，请重试。') })
+        .catch((): void => { if (this.active && generation === this.generation) this.notify(localizedText($r('app.string.text_couldn_t_change_the_link_type_try'))) })
     }
   }
 
@@ -327,7 +328,7 @@ export struct LinkView {
       this.protocolY = Math.max(0, hit.y * scale)
       this.protocolHeight = Math.max(88, Math.min(320, hit.height * scale - 32))
       this.openProtocolMenu()
-    } catch (_) { this.notify('无法打开协议菜单，请重试。') }
+    } catch (_) { this.notify(localizedText($r('app.string.text_couldn_t_open_the_link_type_menu'))) }
   }
 
   openProtocolMenu() {
@@ -346,7 +347,7 @@ export struct LinkView {
 
   protocolItems(): PopupMenuItem[] {
     return LINK_PROTOCOLS.map((choice: LinkProtocolChoice): PopupMenuItem => ({
-      title: choice.title, icon: choice.icon, checked: linkProtocol(this.urlDraft).kind === choice.kind,
+      title: localizedText(choice.title), icon: choice.icon, checked: linkProtocol(this.urlDraft).kind === choice.kind,
       action: (): void => { this.changeProtocol(choice.kind) }
     }))
   }
@@ -387,9 +388,9 @@ export struct LinkView {
   @Builder
   linkFormActions() {
     Row({ space: 8 }) {
-      Button('取消').height(40).fontSize(14).fontColor(UiColor.text).backgroundColor(UiColor.field)
+      Button($r('app.string.text_cancel')).height(40).fontSize(14).fontColor(UiColor.text).backgroundColor(UiColor.field)
         .enabled(!this.saving).onClick((): void => { this.cancelEdit() })
-      Button(this.insertionTitle === undefined ? '保存' : '插入').height(40).fontSize(14)
+      Button(this.insertionTitle === undefined ? localizedText($r('app.string.text_save')) : localizedText($r('app.string.text_insert'))).height(40).fontSize(14)
         .fontColor(this.insertionTitle === undefined ? UiColor.text : UiColor.onPrimary)
         .backgroundColor(this.insertionTitle === undefined ? UiColor.field : UiColor.primary)
         .enabled(!this.saving).onClick((): void => { this.saveEdit() })
@@ -400,15 +401,15 @@ export struct LinkView {
   linkEditor() {
     Column({ space: 8 }) {
       if (this.insertionTitle === undefined) {
-        Text('标题').fontSize(12).fontColor(UiColor.secondary).width('100%')
+        Text($r('app.string.text_title')).fontSize(12).fontColor(UiColor.secondary).width('100%')
       } else {
         Row({ space: 8 }) {
-          Text('显示文字').fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
+          Text($r('app.string.text_show_text')).fontSize(12).fontColor(UiColor.secondary).layoutWeight(1)
           this.linkFormActions()
         }.width('100%')
       }
-      TextInput({ text: this.titleDraft, placeholder: '无标题时显示链接地址' }).fontSize(14).fontColor(UiColor.text)
-        .id(`link_title_${this.owner}`).accessibilityText(this.insertionTitle === undefined ? '链接标题' : '显示文字')
+      TextInput({ text: this.titleDraft, placeholder: localizedText($r('app.string.text_show_link_address_untitled')) }).fontSize(14).fontColor(UiColor.text)
+        .id(`link_title_${this.owner}`).accessibilityText(this.insertionTitle === undefined ? $r('app.string.link_editor_link_title') : $r('app.string.link_editor_display_text'))
         .enterKeyType(EnterKeyType.Next)
         .onSubmit((_key: EnterKeyType, event: SubmitEvent): void => {
           event.keepEditableState()
@@ -418,21 +419,21 @@ export struct LinkView {
         .onDisAppear((): void => { this.inputFocus.disappeared(`link_title_${this.owner}`) })
         .onVisibleAreaChange([0, 1], (visible: boolean): void => { if (visible) this.inputFocus.visible(`link_title_${this.owner}`) })
         .backgroundColor(UiColor.field).enabled(!this.saving).onChange((value: string): void => { this.titleDraft = value })
-      Text(this.insertionTitle === undefined ? '链接' : '链接地址').fontSize(12).fontColor(UiColor.secondary).width('100%')
+      Text(this.insertionTitle === undefined ? localizedText($r('app.string.text_link')) : localizedText($r('app.string.text_link_url'))).fontSize(12).fontColor(UiColor.secondary).width('100%')
       Row({ space: 8 }) {
         Button({ type: ButtonType.Normal }) {
           Row() {
             Image(linkProtocol(this.urlDraft).icon).width(16).height(16).fillColor(UiColor.primary)
           }.width(32).height(32).justifyContent(FlexAlign.Center).borderRadius(6).backgroundColor(UiColor.field)
         }.width(44).height(44).padding(0).backgroundColor(Color.Transparent)
-          .enabled(!this.saving).accessibilityText(`选择链接协议，当前为${linkProtocol(this.urlDraft).title}`)
+          .enabled(!this.saving).accessibilityText(localizedText($r('app.string.text_select_link_protocol_currently'), String(linkProtocol(this.urlDraft).title)))
           .onClick((event: ClickEvent): void => { this.protocolHeight = 320; this.openProtocolMenu() })
           .bindPopup(this.protocolVisible, { builder: this.protocolChoices(), placement: Placement.Bottom,
             targetSpace: 6, enableArrow: false, popupColor: UiColor.menu, backgroundBlurStyle: BlurStyle.NONE,
             mask: { color: Color.Transparent }, focusable: true, autoCancel: true,
             onStateChange: (event): void => { this.protocolState(event.isVisible) } })
-        TextInput({ text: this.urlDraft, placeholder: '链接地址' }).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
-          .id(`link_url_${this.owner}`).accessibilityText('链接地址').enterKeyType(EnterKeyType.Done)
+        TextInput({ text: this.urlDraft, placeholder: localizedText($r('app.string.text_link_url')) }).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
+          .id(`link_url_${this.owner}`).accessibilityText($r('app.string.link_editor_url_placeholder')).enterKeyType(EnterKeyType.Done)
           .onSubmit((_key: EnterKeyType, event: SubmitEvent): void => { event.keepEditableState(); this.saveEdit() })
           .onAppear((): void => { this.inputFocus.appeared(`link_url_${this.owner}`) })
           .onDisAppear((): void => { this.inputFocus.disappeared(`link_url_${this.owner}`) })
@@ -456,10 +457,10 @@ export struct LinkView {
       const target = internalLinkTarget(href)
       if (target !== undefined) {
         const processor = this.internalLinkProcessor
-        if (!processor) { this.notify('当前视图无法跳转到文档内部目标'); return }
+        if (!processor) { this.notify(localizedText($r('app.string.text_this_view_cannot_open_links_within_the'))); return }
         const valid = await processor.isValid(target)
         if (!this.active || generation !== this.generation || processor !== this.internalLinkProcessor) return
-        if (!valid) { this.notify('内部链接目标不存在或当前视图无法跳转'); return }
+        if (!valid) { this.notify(localizedText($r('app.string.text_internal_link_target_does_not_exist_or'))); return }
         await processor.process(target)
         return
       }
@@ -473,7 +474,7 @@ export struct LinkView {
       })
     } catch (_) {
       if (generation === this.generation) this.notify(internalLinkTarget(href) !== undefined
-        ? '内部链接跳转失败，请确认目标仍然存在并完成当前编辑' : '无法打开链接，请确认地址有效且已安装对应应用。')
+        ? localizedText($r('app.string.text_internal_link_jump_failed_please_confirm_that')) : localizedText($r('app.string.text_couldn_t_open_the_link_check_the')))
     } finally {
       if (this.active && generation === this.generation) this.launching = false
     }
@@ -489,7 +490,7 @@ export struct LinkView {
     if (!this.active || this.launching) return
     const generation = this.generation
     if (!choice.supported) {
-      this.notify('高德地图暂不支持地址搜索，请选择花瓣地图。')
+      this.notify(localizedText($r('app.string.text_the_gothic_map_does_not_support_an')))
       return
     }
     this.launching = true
@@ -497,7 +498,7 @@ export struct LinkView {
       await choice.select()
       if (this.active && generation === this.generation) this.chooserVisible = false
     } catch (_) {
-      if (generation === this.generation) this.notify('无法打开地图，请确认已安装对应应用后重试。')
+      if (generation === this.generation) this.notify(localizedText($r('app.string.text_could_not_open_the_map_please_confirm')))
     } finally {
       if (this.active && generation === this.generation) this.launching = false
     }
@@ -505,27 +506,27 @@ export struct LinkView {
 
   private async activateAppLink(context: common.UIAbilityContext, href: string, generation: number): Promise<void> {
     const name = appLinkName(href)
-    if (!name) { this.notify('应用链接缺少应用名称。'); return }
+    if (!name) { this.notify(localizedText($r('app.string.text_the_application_link_is_missing_the_application'))); return }
     const association = await AppLinkManager.shared.find(context, name)
     if (!this.active || generation !== this.generation) return
-    let message = `“${name}”还没有绑定应用。请在应用关联设置中选择目标。`
+    let message = localizedText($r('app.string.text_has_not_been_bound_for_application_select'), String(name))
     if (association) {
       try {
         await openAppLink(context, association, href)
         return
       } catch (_) {
-        message = `无法打开“${name}”。请确认目标应用已安装，或在应用关联设置中修改绑定。`
+        message = localizedText($r('app.string.text_could_not_open_please_confirm_that_the'), String(name))
       }
     }
     if (!this.active || generation !== this.generation) return
     this.getUIContext().showAlertDialog({
-      title: association ? '应用无法打开' : '尚未配置应用关联',
+      title: association ? localizedText($r('app.string.text_application_cannot_be_opened')) : localizedText($r('app.string.text_the_application_association_has_not_been_configured')),
       message,
-      primaryButton: { value: '取消', action: (): void => {} },
-      secondaryButton: { value: '前往设置', action: (): void => {
+      primaryButton: { value: localizedText($r('app.string.text_cancel')), action: (): void => {} },
+      secondaryButton: { value: localizedText($r('app.string.text_go_to_settings')), action: (): void => {
         if (!this.active || generation !== this.generation) return
         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '应用关联' } })
-          .then((opened: boolean): void => { if (!opened) this.notify('无法打开应用关联设置，请重试。') })
+          .then((opened: boolean): void => { if (!opened) this.notify(localizedText($r('app.string.text_couldn_t_open_app_links_settings_try'))) })
       } }
     })
   }
@@ -536,7 +537,7 @@ export struct LinkView {
   @Builder
   mapAppSheet() {
     Column() {
-      Text('选择地图').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+      Text($r('app.string.text_select_map')).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
         .width('100%').padding({ left: 24, top: 8, bottom: 4 }).textAlign(TextAlign.Start)
       if (this.mapChoices.length > 0) {
         Text(this.mapChoices[0].contextLabel).fontSize(14).fontColor(UiColor.secondary)
@@ -662,10 +663,20 @@ interface GeoCoordinates {
 // 只操作 Core 提供的安全投影与展示 DOM，不在这里识别、拼接或写回 Org。
 export function linkDocumentScript(): string {
   const protocols = LINK_PROTOCOLS.map((choice: LinkProtocolChoice): DocumentLinkProtocol => ({
-    kind: choice.kind, title: choice.title, prefix: choice.prefix, path: choice.path
+    kind: choice.kind, title: localizedText(choice.title), prefix: choice.prefix, path: choice.path
   }))
   return `(() => {
     const protocols = ${JSON.stringify(protocols)};
+    const labels = ${JSON.stringify({
+      title: localizedText($r('app.string.link_editor_title')),
+      url: localizedText($r('app.string.link_editor_url')),
+      titlePlaceholder: localizedText($r('app.string.link_editor_title_placeholder')),
+      urlPlaceholder: localizedText($r('app.string.link_editor_url_placeholder')),
+      protocol: localizedText($r('app.string.link_editor_protocol_picker'), '{protocol}'),
+      other: localizedText($r('app.string.link_editor_other_protocol')),
+      cancel: localizedText($r('app.string.text_cancel')),
+      save: localizedText($r('app.string.text_save'))
+    })};
     const makeIcon = choice => {
       const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
       icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('width','1em');icon.setAttribute('height','1em');
@@ -747,15 +758,15 @@ export function linkDocumentScript(): string {
       window.orgLinkCancel();
       const form = document.createElement('span'); form.className = 'org-link-editor';
       form.style.cssText = 'display:block;margin:8px 0;padding:12px;border-radius:10px;background:${UiColor.surface};color:${UiColor.text};font:14px/1.6 sans-serif;';
-      const field = (label, value, placeholder) => {
+      const field = (id, label, value, placeholder) => {
         const name = document.createElement('label'); name.textContent = label; name.style.cssText='display:block;font-size:12px;margin:4px 0;color:${UiColor.secondary}';
         const input = document.createElement('input'); input.value = value; input.placeholder = placeholder;
-        input.id = label === '标题' ? 'org-link-title' : 'org-link-url'; name.htmlFor = input.id;
+        input.id = id; name.htmlFor = input.id;
         input.style.cssText='display:block;width:100%;box-sizing:border-box;padding:10px;border:0;border-radius:8px;background:${UiColor.field};color:${UiColor.text};font:14px sans-serif;';
         form.append(name,input); return input;
       };
-      const titleInput = field('标题',title,'无标题时显示链接地址');
-      const urlInput = field('链接',url,'链接地址');
+      const titleInput = field('org-link-title',labels.title,title,labels.titlePlaceholder);
+      const urlInput = field('org-link-url',labels.url,url,labels.urlPlaceholder);
       const urlRow=document.createElement('span');urlRow.style.cssText='display:flex;align-items:center;gap:8px;position:relative';
       const protocolButton=document.createElement('button');protocolButton.type='button';
       protocolButton.style.cssText='display:flex;align-items:center;justify-content:center;box-sizing:border-box;flex:0 0 44px;height:44px;padding:6px;border:0;background:transparent;color:${UiColor.primary};font-size:16px';
@@ -763,7 +774,7 @@ export function linkDocumentScript(): string {
       const symbol=document.createElement('span');symbol.style.cssText='display:flex;align-items:center;justify-content:center;box-sizing:border-box;flex:0 0 32px;width:32px;height:32px;padding:8px;border-radius:6px;background:${UiColor.field}';protocolButton.append(symbol);
       const updateProtocol=()=>{
         const current=protocol(urlInput.value);symbol.replaceChildren(makeIcon(current));
-        protocolButton.setAttribute('aria-label','选择链接协议，当前为'+(current?.title || '其他协议'));
+        protocolButton.setAttribute('aria-label',labels.protocol.replace('{protocol}', () => current?.title || labels.other));
       };
       window.orgLinkProtocolState=visible=>protocolButton.setAttribute('aria-expanded',String(visible));
       window.orgLinkProtocol=value=>{
@@ -791,10 +802,10 @@ export function linkDocumentScript(): string {
           else { draft(); bridge.save(titleInput.value,urlInput.value); }
         });
       }
-      for (const label of ['取消','保存']) {
-        const button = document.createElement('button');button.type='button';button.textContent=label;
+      for (const action of ['cancel','save']) {
+        const button = document.createElement('button');button.type='button';button.textContent=labels[action];
         button.style.cssText='min-height:40px;padding:6px 16px;border:0;border-radius:8px;background:${UiColor.field};color:${UiColor.text};font:14px sans-serif;';
-        button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();draft();label==='保存'?bridge.save(titleInput.value,urlInput.value):bridge.cancel();});controls.append(button);
+        button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();draft();action==='save'?bridge.save(titleInput.value,urlInput.value):bridge.cancel();});controls.append(button);
       }
       anchor.after(form);anchor.hidden=true;titleInput.focus();return true;
     };
@@ -813,13 +824,13 @@ async function openExternalLink(context: common.UIAbilityContext, href: string, 
     await context.openLink(href, { appLinkingOnly: false })
   } else if (scheme === 'mailto' || scheme === 'tel') {
     try { await context.startAbility({ action: 'ohos.want.action.viewData', uri: href }) }
-    catch (error) { throw new Error('无法打开链接，请确认已安装对应应用。') }
+    catch (error) { throw new Error(localizedText($r('app.string.text_couldn_t_open_the_link_make_sure'))) }
   } else if (scheme === 'geo') {
     const search = geoSearchAddress(href)
     if (search) {
       await openMapChooser(context, `geo:0,0?q=${encodeURIComponent(search)}`, chooser)
     } else if (geoIsZero(href)) {
-      throw new Error('地址链接缺少 q 搜索参数')
+      throw new Error(localizedText($r('app.string.text_address_link_missing_q_search_parameters')))
     } else {
       await openMapChooser(context, href, chooser)
     }
@@ -828,14 +839,14 @@ async function openExternalLink(context: common.UIAbilityContext, href: string, 
     const address = decodeURIComponent(href.substring(href.indexOf(':') + 1))
     await openMapChooser(context, `geo:0,0?q=${encodeURIComponent(address)}`, chooser)
   } else {
-    throw new Error('此链接暂不支持打开')
+    throw new Error(localizedText($r('app.string.text_this_link_is_not_supported_for_opening')))
   }
 }
 
 async function openMapChooser(context: common.UIAbilityContext, uri: string, chooser: (choices: MapAppChoice[]) => void): Promise<void> {
   const choices: MapAppChoice[] = [
-    mapChoice(context, '高德地图', $r('app.media.map_app_amap'), 'com.amap.hmapp', uri),
-    mapChoice(context, '花瓣地图', $r('app.media.map_app_petal'), 'com.huawei.hmos.maps.app', uri)
+    mapChoice(context, localizedText($r('app.string.text_amap')), $r('app.media.map_app_amap'), 'com.amap.hmapp', uri),
+    mapChoice(context, localizedText($r('app.string.text_petal_maps')), $r('app.media.map_app_petal'), 'com.huawei.hmos.maps.app', uri)
   ]
   chooser(choices)
 }
@@ -851,13 +862,13 @@ function mapChoice(context: common.UIAbilityContext, title: string, icon: Resour
   uri: string): MapAppChoice {
   const search = geoSearchAddress(uri)
   const coordinates = geoCoordinates(uri)
-  const contextLabel = search ? `搜索：${search}` : coordinates ? `坐标：${coordinates.latitude}, ${coordinates.longitude}` : '地址'
+  const contextLabel = search ? localizedText($r('app.string.text_search'), String(search)) : coordinates ? localizedText($r('app.string.text_coordinate'), String(coordinates.latitude), String(coordinates.longitude)) : localizedText($r('app.string.text_address'))
   const supported = !(bundleName === 'com.amap.hmapp' && Boolean(search))
   return {
     title,
     icon,
     contextLabel,
-    description: search ? (supported ? '在地图中搜索地址' : '暂不支持地址搜索') : '在地图中打开坐标',
+    description: search ? (supported ? localizedText($r('app.string.text_search_for_addresses_in_maps')) : localizedText($r('app.string.text_address_search_is_unavailable'))) : localizedText($r('app.string.text_open_coordinates_on_the_map')),
     supported,
     select: async (): Promise<void> => {
       if (bundleName === 'com.huawei.hmos.maps.app' && search) {

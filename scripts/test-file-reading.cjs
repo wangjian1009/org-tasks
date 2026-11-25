@@ -1,4 +1,5 @@
 // 验证文件阅读目录在刷新、原文模式和导航失败时不会作用于错误快照。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +13,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
 const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function load(filename, mocks = {}, transform = source => source) {
-  const source = ts.transpileModule(transform(fs.readFileSync(filename, 'utf8')), {
+  const source = transpileFixture(ts, transform(fs.readFileSync(filename, 'utf8')), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };

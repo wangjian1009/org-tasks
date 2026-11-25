@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { CoreTask } from '../../services/NativeCoreService'
 import { EmptyState } from '../controls/EmptyState'
 import { OrgContentView } from '../OrgContentView'
@@ -15,23 +16,23 @@ export struct MemoEditor {
   build() {
     if (this.editable) {
       Stack({ alignContent: Alignment.BottomEnd }) {
-        TextArea({ text: this.bodyValue, placeholder: '正文' })
+        TextArea({ text: this.bodyValue, placeholder: localizedText($r('app.string.text_text')) })
           .width('100%').height('100%').fontSize(19).lineHeight(28)
           .fontColor(UiColor.text).placeholderColor(UiColor.secondary)
           .backgroundColor(Color.Transparent).padding({ left: 28, right: 28, top: 20, bottom: 64 })
           .enabled(!this.disabled).onChange((value: string): void => { this.bodyChanged(value) })
-        Text(`共 ${this.bodyValue.length} 字`).fontSize(16).fontColor(UiColor.secondary)
+        Text(localizedText($r('app.string.text_total_words'), String(this.bodyValue.length))).fontSize(16).fontColor(UiColor.secondary)
           .padding({ right: 28, bottom: 24 })
       }.width('100%').layoutWeight(1).alignContent(Alignment.BottomEnd)
     } else if (!this.task) {
-      EmptyState({ title: '无法打开此备忘', detail: '请从备忘列表进入。' })
+      EmptyState({ title: localizedText($r('app.string.text_couldn_t_open_this_note')), detail: localizedText($r('app.string.text_please_enter_from_the_memoranda_list')) })
     } else {
       Scroll() {
         Column() {
           if (this.task!.bodyHtml) {
             OrgContentView({ fragment: this.task!.bodyHtml, embedded: true }).width('100%')
           } else {
-            Text('没有正文内容').width('100%').fontSize(16).fontColor(UiColor.secondary)
+            Text($r('app.string.text_no_text')).width('100%').fontSize(16).fontColor(UiColor.secondary)
               .padding({ left: 16, right: 16, top: 20, bottom: 24 })
           }
         }.width('100%').padding({ bottom: 24 })

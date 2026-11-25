@@ -1,3 +1,4 @@
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -23,7 +24,7 @@ function fixture(){
   '@kit.NotificationKit':{notificationManager:{async setBadgeNumber(value){if(failWrite)throw new Error('系统服务不可用');writes.push(value);}}}
  };
  const module={exports:{}};const filename='entry/src/main/ets/services/DeviceBadgeService.ets';
- const source=ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const source=transpileFixture(ts, fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  vm.runInNewContext(source,{module,exports:module.exports,console:{error(){}},require:name=>{assert.ok(name in mocks,'角标不能访问查询或配置服务: '+name);return mocks[name];}});
  return{closeShared(){active=false;},service:module.exports.DeviceBadgeService,writes,listeners,notices,loads:()=>loads,
   count(value){count=value;},conflicts(value){conflicts=value;for(const fn of notices)fn({notifications:Array.from({length:conflicts},()=>({type:'syncConflict'}))});},ready(value){ready=value;},fail(value){failWrite=value;},

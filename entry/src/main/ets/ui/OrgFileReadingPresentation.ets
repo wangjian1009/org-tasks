@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreOrgFile, CoreTask, CoreDocumentSection, CoreContentBlock, CoreContentNode, CoreDocumentLinkTarget } from '../services/NativeCoreService'
 
 export interface OrgFileReadingSection {
@@ -16,7 +17,7 @@ export function projectReadingSections(file: CoreOrgFile, tasks: CoreTask[] = fi
   return file.documentSections().map((section: CoreDocumentSection): OrgFileReadingSection => {
     const key = section.path ? JSON.stringify(section.path) : 'preamble'
     const node = section.path ? nodes.get(key) : null
-    if (section.path && !node) throw new Error('文档节点与正文版本不一致，请刷新项目。')
+    if (section.path && !node) throw new Error(localizedText($r('app.string.text_the_document_node_does_not_match_the')))
     return { key, node: node ?? null, html: section.html, blocks: section.blocks, contentTree: section.contentTree, linkTargets: section.linkTargets }
   })
 }

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { TaskOperation } from '../ui/TaskActionPresentation'
 import { AppShell } from '../components/AppShell'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
@@ -54,11 +55,11 @@ struct Trash {
   }
   build() {
     Column() {
-    AppShell({ title: '废纸篓', titleIcon: $r('app.media.ui_delete'), activeRoute: 'pages/Trash', drawerOpen: $drawerOpen,
+    AppShell({ title: localizedText($r('app.string.text_trash')), titleIcon: $r('app.media.ui_delete'), activeRoute: 'pages/Trash', drawerOpen: $drawerOpen,
       back: this.hasParent, backAction: (): void => { this.onBackPress() } }) {
       Column() {
         if (this.message) {
-          Text(`${this.message} · 点击重试`).fontSize(14).fontColor('#FFB4AB').padding(16).width('100%')
+          Text(localizedText($r('app.string.text_tap_to_try_again_2'), String(this.message))).fontSize(14).fontColor('#FFB4AB').padding(16).width('100%')
             .onClick((): void => { this.load(true) })
         }
         if (this.groups.length > 0 && this.dataManager) {
@@ -66,8 +67,8 @@ struct Trash {
             bulkOperations: [TaskOperation.Restore, TaskOperation.Clear], ready: this.ready, dataSet: this.dataManager.tasks,
             groups: this.groups, referenceTime: this.referenceTime })
         } else {
-          NotificationEmptyState({ title: this.loading ? '正在读取废纸篓' : '废纸篓为空',
-            detail: '删除的记录会暂存于此。左滑可归位、永久清除或多选。', busy: this.loading })
+          NotificationEmptyState({ title: this.loading ? localizedText($r('app.string.text_reading_waste_paper')) : localizedText($r('app.string.text_waste_paper_is_empty')),
+            detail: localizedText($r('app.string.text_the_deleted_records_are_stored_here_left')), busy: this.loading })
         }
       }.width('100%').height('100%')
     }

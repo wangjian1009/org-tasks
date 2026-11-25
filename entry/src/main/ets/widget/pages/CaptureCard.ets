@@ -9,11 +9,11 @@ struct CaptureCard {
   build() {
     Column() {
       Row({ space: 8 }) {
-        Button('记一条', { type: ButtonType.Capsule }).layoutWeight(1).height(44)
+        Button($r('app.string.capture_text_shortcut'), { type: ButtonType.Capsule }).layoutWeight(1).height(44)
           .padding({ left: 4, right: 4 }).fontSize(14).fontWeight(FontWeight.Medium)
           .fontColor('#123D37').backgroundColor('#5AC4B9')
           .onClick((): void => { this.capture(false) })
-        Button('说一句', { type: ButtonType.Capsule }).layoutWeight(1).height(44)
+        Button($r('app.string.capture_voice_shortcut'), { type: ButtonType.Capsule }).layoutWeight(1).height(44)
           .padding({ left: 4, right: 4 }).fontSize(14).fontWeight(FontWeight.Medium)
           .fontColor('#D8D8D8').backgroundColor('#3A3E3F')
           .onClick((): void => { this.capture(true) })

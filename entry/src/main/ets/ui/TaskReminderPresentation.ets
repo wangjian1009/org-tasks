@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreTask, CoreTaskModification, CoreTaskPlanningEdit, CoreTaskPlanningInfo } from '../services/NativeCoreService'
 import { inlineDate } from './TaskInlinePresentation'
 
@@ -19,6 +20,6 @@ export function reminderModification(task: CoreTask, edit: CoreTaskPlanningEdit 
   if (!edit) return { field: 'SET_REMINDER', value: null }
   const time = edit.time === undefined ? reminderPlanning(task)?.time?.start ?? '00:00' : edit.time?.start ?? '00:00'
   const value = new Date(`${edit.date}T${time}:00`).getTime()
-  if (!Number.isFinite(value) || edit.time?.end) throw new Error('请选择单个有效的提醒时间')
+  if (!Number.isFinite(value) || edit.time?.end) throw new Error(localizedText($r('app.string.text_please_select_a_valid_individual_reminder_time')))
   return { field: 'SET_REMINDER', value }
 }

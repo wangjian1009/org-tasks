@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreTaskLog } from '../services/NativeCoreService'
 
 function escapeLogText(value: string): string {
@@ -38,7 +39,7 @@ export function taskNoteTime(log: CoreTaskLog, year: number = new Date().getFull
 export function taskNoteHtml(log: CoreTaskLog): string {
   if (log.type === 'other' || log.type === 'taskClock') return ''
   const body = log.type === 'taskStateChange'
-    ? `<div class="task-state-note"><span class="task-log-state" title="${escapeLogText(log.from || '无状态')} → ${escapeLogText(log.to || '无状态')}">${escapeLogText(log.to || '无状态')}</span><span>:</span><div class="task-state-note-body">${log.noteHtml}</div></div>`
+    ? `<div class="task-state-note"><span class="task-log-state" title="${escapeLogText(log.from || localizedText($r('app.string.text_no_status')))} → ${escapeLogText(log.to || localizedText($r('app.string.text_no_status')))}">${escapeLogText(log.to || localizedText($r('app.string.text_no_status')))}</span><span>:</span><div class="task-state-note-body">${log.noteHtml}</div></div>`
     : log.noteHtml
   return `<article class="task-log task-note"><time class="task-note-time">${escapeLogText(taskNoteTime(log))}</time><div class="task-note-body">${body}</div></article>`
 }
@@ -48,18 +49,18 @@ export function taskLogHtml(log: CoreTaskLog): string {
   if (log.type === 'taskNote' || log.type === 'taskClosingNote') return ''
   if (log.type === 'other') return `<article class="task-log other">${log.html}</article>`
   if (log.type === 'taskClock') {
-    const range = `${log.start}${log.end ? ` – ${log.end}` : ' · 计时中'}`
-    return `<article class="task-log clock"><div class="task-log-heading"><span>计时${log.duration ? ` · ${escapeLogText(log.duration)}` : ''}</span><span class="task-log-time">${escapeLogText(range)}</span></div></article>`
+    const range = `${log.start}${log.end ? ` – ${log.end}` : localizedText($r('app.string.text_timing'))}`
+    return `<article class="task-log clock"><div class="task-log-heading"><span>${escapeLogText(localizedText($r('app.string.task_clock')))}${log.duration ? ` · ${escapeLogText(log.duration)}` : ''}</span><span class="task-log-time">${escapeLogText(range)}</span></div></article>`
   }
   let label = ''
   let detail = ''
   switch (log.type) {
-    case 'taskStateChange': label = `${log.from || '无状态'} → ${log.to || '无状态'}`; break
-    case 'taskReschedule': label = '调整计划'; detail = `原计划 ${log.previous}`; break
-    case 'taskScheduleRemoval': label = '移除计划'; detail = `原计划 ${log.previous}`; break
-    case 'taskDeadlineChange': label = '调整截止日期'; detail = `原截止 ${log.previous}`; break
-    case 'taskDeadlineRemoval': label = '移除截止日期'; detail = `原截止 ${log.previous}`; break
-    case 'taskRefile': label = '移动任务'; break
+    case 'taskStateChange': label = `${log.from || localizedText($r('app.string.text_no_status'))} → ${log.to || localizedText($r('app.string.text_no_status'))}`; break
+    case 'taskReschedule': label = localizedText($r('app.string.text_adjustment_plan')); detail = localizedText($r('app.string.text_original_plan'), String(log.previous)); break
+    case 'taskScheduleRemoval': label = localizedText($r('app.string.text_remove_schedule')); detail = localizedText($r('app.string.text_original_plan'), String(log.previous)); break
+    case 'taskDeadlineChange': label = localizedText($r('app.string.text_adjusting_deadlines')); detail = localizedText($r('app.string.text_original_cut_off'), String(log.previous)); break
+    case 'taskDeadlineRemoval': label = localizedText($r('app.string.text_remove_due_date')); detail = localizedText($r('app.string.text_original_cut_off'), String(log.previous)); break
+    case 'taskRefile': label = localizedText($r('app.string.text_move_tasks')); break
   }
   return `<article class="task-log ${log.type}"><div class="task-log-heading"><span>${escapeLogText(label)}</span><span class="task-log-time">${escapeLogText(log.timestamp)}</span></div>${detail ? `<div class="task-log-detail">${escapeLogText(detail)}</div>` : ''}</article>`
 }

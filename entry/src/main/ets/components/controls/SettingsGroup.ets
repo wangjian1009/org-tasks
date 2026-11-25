@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { UiColor } from '../../ui/Theme'
 
 @Component
@@ -14,10 +15,10 @@ export struct SettingsGroup {
         if (this.detail) {
           Button('?').width(32).height(32).padding(0).fontSize(16).borderRadius(16)
             .backgroundColor(Color.Transparent).fontColor(UiColor.secondary)
-            .accessibilityText(`${this.title}：查看说明`)
+            .accessibilityText(localizedText($r('app.string.text_view_notes'), String(this.title)))
             .onClick((): void => {
               this.getUIContext().showAlertDialog({ title: this.title, message: this.detail,
-                confirm: { value: '知道了', action: () => {} } })
+                confirm: { value: localizedText($r('app.string.text_got_it')), action: () => {} } })
             })
         }
       }.width('100%').constraintSize({ minHeight: 32 }).padding({ left: 12, right: 4 })

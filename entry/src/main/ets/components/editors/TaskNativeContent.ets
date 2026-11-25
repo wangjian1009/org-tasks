@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { DraftInputFrame, DraftLinkAction, DraftLinkSelection } from './DraftLinkAction'
 import { CoreContentBlockChange, CoreContentNode, CoreContentInline, CoreTaskChecklistChange, CoreTitlePart,
   CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
@@ -72,7 +73,7 @@ export struct TaskNativeContent {
     if (!node) return true
     if (this.saving || this.linkSelection.busy) return false
     if (this.editVersion !== this.revision) {
-      this.error = '内容已变化，请把草稿拷贝后重新载入'
+      this.error = localizedText($r('app.string.text_the_contents_have_changed_please_reload_the'))
       return false
     }
     if ((!this.addingParagraph && this.draft === node.source) || (this.addingParagraph && !this.draft.trim())) {
@@ -92,7 +93,7 @@ export struct TaskNativeContent {
       this.cancel()
       return true
     } catch (error) {
-      this.error = (error as Error).message || '保存失败，请重试'
+      this.error = (error as Error).message || localizedText($r('app.string.text_save_failed_please_try_again'))
       return false
     }
   }
@@ -101,7 +102,7 @@ export struct TaskNativeContent {
 
   private async changeLink(node: CoreContentNode, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
     const version = this.revision
-    if (!await this.begin() || version !== this.revision) throw new Error('内容已变化，请重新载入后编辑')
+    if (!await this.begin() || version !== this.revision) throw new Error(localizedText($r('app.string.text_content_has_changed_please_reload_and_edit')))
     await this.write({ type: 'treeLink', id: node.id, link, value })
   }
 
@@ -131,7 +132,7 @@ export struct TaskNativeContent {
   editorContent(node: CoreContentNode, itemId: string) {
     Column({ space: 4 }) {
       TextArea({ text: this.draft, controller: this.inputController,
-        placeholder: node.kind === 'cell' ? '单元格' : '段落' }).id(this.editKey).defaultFocus(true)
+        placeholder: node.kind === 'cell' ? localizedText($r('app.string.text_cells')) : localizedText($r('app.string.text_paragraph')) }).id(this.editKey).defaultFocus(true)
         .width('100%').height('auto').minLines(1)
         .fontSize(node.kind === 'cell' ? 14 : itemId ? UiSize.listItemFont : UiSize.paragraphFont)
         .lineHeight(node.kind === 'cell' ? 0 : itemId ? UiSize.listItemLineHeight : UiSize.paragraphLineHeight)
@@ -152,7 +153,7 @@ export struct TaskNativeContent {
         } })
       if (!this.addingParagraph && itemId) {
         Row() {
-            Button('添加说明').height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent).focusable(false)
+            Button($r('app.string.text_add_notes')).height(36).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent).focusable(false)
               .enabled(!this.saving && this.draft === node.source)
               .onClick((): void => {
                 if (this.linkSelection.busy) return
@@ -252,13 +253,13 @@ export struct TaskNativeContent {
         } else if (node.kind === 'list') {
           ForEach(node.children ?? [], (item: CoreContentNode) => { this.item(item) },
             (item: CoreContentNode): string => item.id)
-          this.appendTo(node, '添加条目')
+          this.appendTo(node, localizedText($r('app.string.text_add_entry_2')))
         } else if (node.kind === 'table') {
           this.table(node)
         } else if (node.kind === 'quote') {
           Column() {
             this.blocks((): CoreContentNode[] => node.children ?? [])
-            this.appendTo(node, '添加段落')
+            this.appendTo(node, localizedText($r('app.string.text_add_paragraph')))
           }.padding({ left: 8 })
             .border({ width: { left: 1 }, color: UiColor.secondary }).width('100%')
         } else if (node.kind === 'literal') {

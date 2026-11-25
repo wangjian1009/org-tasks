@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
@@ -26,11 +27,16 @@ function templateName(kind: RepositoryTemplateKind): string {
   return kind === 'memo' ? 'note' : kind
 }
 
+// 识别随包 Org 模板的原始标题，语言切换不影响已有文件的匹配。
+function entryTemplateTitle(kind: FileTargetKind): string {
+  return kind === 'inbox' ? '收件箱' : kind === 'someday' ? '某天' : '备忘'
+}
+
 function entryFile(files: EntryFile[], kind: FileTargetKind): EntryFile | undefined {
   const name = templateName(kind)
   const matches = files.filter((file: EntryFile): boolean => {
     const title = file.title?.trim() || ''
-    return !file.isIgnore && (title === fileTargetName(kind) || title.toLowerCase() === name)
+    return !file.isIgnore && (title === entryTemplateTitle(kind) || title.toLowerCase() === name)
   })
   return matches.find(file => file.path === `${name}.org`) ?? (matches.length === 1 ? matches[0] : undefined)
 }
@@ -45,11 +51,11 @@ export class RepositorySetupService {
       try {
         const resource = await context.resourceManager.getRawFileContent(`templates/${name}.org`)
         templates.push({ kind, name, content: decoder.decodeToString(resource) })
-      } catch (_) { throw new Error(`无法读取${kind === 'task' ? '任务' : fileTargetName(kind)}模板，请重试`) }
+      } catch (_) { throw new Error(localizedText($r('app.string.text_could_not_read_the_template_please_try'), String(kind === 'task' ? localizedText($r('app.string.text_tasks_2')) : fileTargetName(kind)))) }
     }
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repo = (await workspace.repos()).find(item => item.rootDirectory === repository.rootDirectory)
-    if (!repo) throw new Error('目标仓库不可用')
+    if (!repo) throw new Error(localizedText($r('app.string.text_target_repository_not_available')))
     if (reset) await repo.reset()
     const files = reset ? [] : await RepositorySetupService.files(workspace, repo.id)
     const operations: CoreTaskOperation[] = []
@@ -70,7 +76,7 @@ export class RepositorySetupService {
     if (operations.length === 0) return files
     await workspace.executeTaskOperations({ operations })
     if (reset) return templates.map((template: RepositoryTemplate): EntryFile => ({
-      path: `${template.name}.org`, title: template.kind === 'task' ? DEFAULT_TASK_CATEGORY : fileTargetName(template.kind), isIgnore: false
+      path: `${template.name}.org`, title: template.kind === 'task' ? DEFAULT_TASK_CATEGORY : entryTemplateTitle(template.kind), isIgnore: false
     }))
     return await RepositorySetupService.files(workspace, repo.id)
   }
@@ -95,7 +101,7 @@ export class RepositorySetupService {
   static async listEntries(config: AppConfig, repository: RepoConfig): Promise<CoreOrgFileMetadata[]> {
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const repo = (await workspace.repos()).find(item => item.rootDirectory === repository.rootDirectory)
-    if (!repo) throw new Error('目标仓库不可用')
+    if (!repo) throw new Error(localizedText($r('app.string.text_target_repository_not_available')))
     return await RepositorySetupService.files(workspace, repo.id)
   }
 

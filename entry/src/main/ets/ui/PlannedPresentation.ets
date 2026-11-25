@@ -1,3 +1,4 @@
+import { localizedDate, localizedText } from './LocalizedText'
 import { CoreTask } from '../services/NativeCoreService'
 import { TaskTimeDisplay, taskDisplayDate } from './TaskListPresentation'
 import { localDate } from './Theme'
@@ -11,7 +12,7 @@ export function plannedRegionOptions(tasks: CoreTask[]): TaskRegionData[] {
     const source = taskRegion(task)
     const key = JSON.stringify(['category', source.category])
     if (!categories.has(key)) {
-      categories.set(key, { key, kind: 'category', title: source.category || '未分类',
+      categories.set(key, { key, kind: 'category', title: source.category || localizedText($r('app.string.text_uncategorized')),
         category: source.category, repoId: '', filePath: '' })
     }
     if (source.kind === 'project' && !projects.has(source.key)) projects.set(source.key, source)
@@ -71,10 +72,6 @@ export function samePlannedGroups(left: PlannedGroup[], right: PlannedGroup[], k
   })
 }
 
-const monthNames: string[] = ['一月', '二月', '三月', '四月', '五月', '六月',
-  '七月', '八月', '九月', '十月', '十一月', '十二月']
-const weekdays: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-
 function dateValue(value: string): number {
   const date = value.slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NaN
@@ -106,20 +103,20 @@ function monthEnd(value: string): string {
 
 function monthTitle(value: string): string {
   const date = dateFromValue(dateValue(value))
-  return monthNames[date.getUTCMonth()]
+  return localizedDate(date, { month: 'long', timeZone: 'UTC' })
 }
 
 function yearTitle(value: string): string {
-  return `${dateFromValue(dateValue(value)).getUTCFullYear()}年`
+  return localizedDate(dateFromValue(dateValue(value)), { year: 'numeric', timeZone: 'UTC' })
 }
 
 function dateTitle(value: string): string {
   const date = dateFromValue(dateValue(value))
-  return `${date.getUTCDate()}日`
+  return localizedDate(date, { day: 'numeric', timeZone: 'UTC' })
 }
 
 function dateSubtitle(value: string, tomorrow: string): string {
-  return value === tomorrow ? '明天' : weekdays[dateFromValue(dateValue(value)).getUTCDay()]
+  return value === tomorrow ? localizedText($r('app.string.text_tomorrow')) : localizedDate(dateFromValue(dateValue(value)), { weekday: 'long', timeZone: 'UTC' })
 }
 
 export function plannedTaskDate(task: CoreTask): string {
@@ -185,7 +182,7 @@ export function plannedGroups(tasks: CoreTask[]): PlannedGroup[] {
     const date = plannedTaskDate(task)
     const item: PlannedTaskItem = { task }
     if (date.length === 0) {
-      groupFor(groups, 'unknown', 'unknown', '', '日期不可用').items.push(item)
+      groupFor(groups, 'unknown', 'unknown', '', localizedText($r('app.string.text_date_not_available'))).items.push(item)
     } else if (dateValue(date) <= dateValue(dailyEnd)) {
       groupFor(groups, `day:${date}`, 'day', date, dateTitle(date), dateSubtitle(date, tomorrow)).items.push(item)
     } else if (dateValue(date) <= dateValue(recentEnd)) {
@@ -219,5 +216,5 @@ export function plannedDateText(value: string): string {
   const ordinal = dateValue(value)
   if (!Number.isFinite(ordinal)) return ''
   const date = dateFromValue(ordinal)
-  return `${date.getUTCMonth() + 1}月${date.getUTCDate()}日`
+  return localizedDate(date, { month: 'long', day: 'numeric', timeZone: 'UTC' })
 }

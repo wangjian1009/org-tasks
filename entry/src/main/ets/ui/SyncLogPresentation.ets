@@ -1,53 +1,54 @@
+import { localizedText } from './LocalizedText'
 import { CoreSyncRecord, CoreSyncFileRecord } from '../services/NativeCoreService'
 
 export function syncLogTransferLabel(record: CoreSyncRecord): string {
   switch (record.transfer) {
-    case 'download': return (record.downloadedFiles ?? 0) > 0 ? `下载${record.downloadedFiles}个文件` : '有下载'
-    case 'upload': return (record.uploadedFiles ?? 0) > 0 ? `上传${record.uploadedFiles}个文件` : '有上传'
+    case 'download': return (record.downloadedFiles ?? 0) > 0 ? localizedText($r('app.string.text_download_files'), String(record.downloadedFiles)) : localizedText($r('app.string.text_it_s_downloaded'))
+    case 'upload': return (record.uploadedFiles ?? 0) > 0 ? localizedText($r('app.string.text_uploading_files'), String(record.uploadedFiles)) : localizedText($r('app.string.text_it_s_uploaded'))
     case 'bidirectional': {
-      const download = (record.downloadedFiles ?? 0) > 0 ? `下载${record.downloadedFiles}` : '有下载'
-      const upload = (record.uploadedFiles ?? 0) > 0 ? `上传${record.uploadedFiles}` : '有上传'
+      const download = (record.downloadedFiles ?? 0) > 0 ? localizedText($r('app.string.text_download'), String(record.downloadedFiles)) : localizedText($r('app.string.text_it_s_downloaded'))
+      const upload = (record.uploadedFiles ?? 0) > 0 ? localizedText($r('app.string.text_upload'), String(record.uploadedFiles)) : localizedText($r('app.string.text_it_s_uploaded'))
       return `${download}/${upload}`
     }
-    case 'unchanged': return record.files === null ? '文件数量未知' : record.files > 0 ? `${record.files}个文件无变化` : '无变化'
-    default: return '传输信息未知'
+    case 'unchanged': return record.files === null ? localizedText($r('app.string.text_unknown_number_of_files')) : record.files > 0 ? localizedText($r('app.string.text_file_unchanged'), String(record.files)) : localizedText($r('app.string.text_no_change'))
+    default: return localizedText($r('app.string.text_transfer_information_is_unknown'))
   }
 }
 
 export function syncLogResultLabel(record: CoreSyncRecord): string {
   switch (record.executionResult) {
-    case 'succeeded': return '执行成功'
-    case 'failed': return '执行失败'
-    case 'cancelled': return '已取消'
-    case 'interrupted': return '已中断'
-    default: return '执行结果未知'
+    case 'succeeded': return localizedText($r('app.string.text_implementation_success'))
+    case 'failed': return localizedText($r('app.string.text_implementation_failed'))
+    case 'cancelled': return localizedText($r('app.string.text_canceled'))
+    case 'interrupted': return localizedText($r('app.string.text_interrupted'))
+    default: return localizedText($r('app.string.text_the_execution_result_is_unknown'))
   }
 }
 
 export function syncLogConflictLabel(record: CoreSyncRecord): string {
   const count = record.conflictCount ?? record.conflicts.length
-  if (count > 0) return `冲突 ${count}`
-  return record.conflictCount === null ? '冲突数量未知' : ''
+  if (count > 0) return localizedText($r('app.string.text_conflict_2'), String(count))
+  return record.conflictCount === null ? localizedText($r('app.string.text_unknown_number_of_conflicts')) : ''
 }
 
 export function syncLogErrorLabel(record: CoreSyncRecord): string {
   if (record.errorMessage && record.errorMessage.trim().length > 0) return record.errorMessage.trim()
-  if (record.incomplete) return '日志记录不完整'
+  if (record.incomplete) return localizedText($r('app.string.text_log_records_are_incomplete'))
   if (record.executionResult !== 'failed') return ''
   switch (record.errorCategory) {
-    case 'Network': return '网络失败'
-    case 'Authentication': return '认证失败'
-    case 'Tls': return '安全连接失败'
-    case 'Validation': return '协议或数据错误'
-    case 'LocalStorage': return '本地存储失败'
-    default: return '执行失败'
+    case 'Network': return localizedText($r('app.string.text_network_failure'))
+    case 'Authentication': return localizedText($r('app.string.text_authentication_failed'))
+    case 'Tls': return localizedText($r('app.string.text_secure_connection_failed'))
+    case 'Validation': return localizedText($r('app.string.text_protocol_or_data_error'))
+    case 'LocalStorage': return localizedText($r('app.string.text_local_storage_failed'))
+    default: return localizedText($r('app.string.text_implementation_failed'))
   }
 }
 
 export function syncLogTimeLabel(timestamp: number | null, compact: boolean = false): string {
-  if (timestamp === null || timestamp === undefined) return '时间未知'
+  if (timestamp === null || timestamp === undefined) return localizedText($r('app.string.text_time_unknown'))
   const date = new Date(timestamp)
-  if (isNaN(date.getTime())) return '时间未知'
+  if (isNaN(date.getTime())) return localizedText($r('app.string.text_time_unknown'))
   const pad = (value: number): string => value.toString().padStart(2, '0')
   if (compact) return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
@@ -65,14 +66,14 @@ export function syncLogRenderKey(record: CoreSyncRecord): string {
 
 export function syncLogTriggerLabel(record: CoreSyncRecord): string {
   switch (record.triggerReason) {
-    case 'remoteChanged': return '远端变化'
-    case 'localChanged': return '本地变化'
-    case 'manual': return '手动同步'
-    case 'repositoryCreated': return '新建仓库'
-    case 'repositoryReset': return '重置仓库'
-    case 'appStartup': return '应用启动'
-    case 'appBackground': return '退到后台'
-    default: return record.triggerReason ? '未知触发原因' : '未记录触发原因'
+    case 'remoteChanged': return localizedText($r('app.string.text_remote_change'))
+    case 'localChanged': return localizedText($r('app.string.text_local_changes'))
+    case 'manual': return localizedText($r('app.string.text_synchronise_manually'))
+    case 'repositoryCreated': return localizedText($r('app.string.text_new_repository'))
+    case 'repositoryReset': return localizedText($r('app.string.text_reset_repository'))
+    case 'appStartup': return localizedText($r('app.string.text_apply_startup'))
+    case 'appBackground': return localizedText($r('app.string.text_backstage'))
+    default: return record.triggerReason ? localizedText($r('app.string.text_unknown_trigger_cause')) : localizedText($r('app.string.text_no_cause_of_trigger_recorded'))
   }
 }
 
@@ -85,16 +86,16 @@ export function syncLogTitle(record: CoreSyncRecord): string {
 
 export function syncLogFileOutcomeLabel(file: CoreSyncFileRecord): string {
   switch (file.outcome) {
-    case 'downloaded': return '更新'
-    case 'uploaded': return '本地上传'
-    case 'created': return '新增'
-    case 'deleted': return '删除'
-    case 'updated': return '更新'
-    case 'merged': return '合并'
-    case 'conflict': return '冲突'
-    case 'failed': return '执行失败'
-    case 'skipped': return '已跳过'
-    case 'unchanged': return '无变化'
-    default: return '状态未知'
+    case 'downloaded': return localizedText($r('app.string.text_update'))
+    case 'uploaded': return localizedText($r('app.string.text_local_upload'))
+    case 'created': return localizedText($r('app.string.text_add_3'))
+    case 'deleted': return localizedText($r('app.string.text_delete'))
+    case 'updated': return localizedText($r('app.string.text_update'))
+    case 'merged': return localizedText($r('app.string.text_merge'))
+    case 'conflict': return localizedText($r('app.string.text_conflict'))
+    case 'failed': return localizedText($r('app.string.text_implementation_failed'))
+    case 'skipped': return localizedText($r('app.string.text_skipped'))
+    case 'unchanged': return localizedText($r('app.string.text_no_change'))
+    default: return localizedText($r('app.string.text_status_unknown'))
   }
 }

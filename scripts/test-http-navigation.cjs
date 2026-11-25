@@ -1,3 +1,4 @@
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -10,7 +11,7 @@ const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openhar
 function load(name, mocks) {
   const file = path.resolve('entry/src/main/ets/services', name+'.ets');
   const module = {exports:{}};
-  const code = ts.transpileModule(fs.readFileSync(file,'utf8'), {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code = transpileFixture(ts, fs.readFileSync(file,'utf8'), {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInThisContext('(function(require,module,exports){'+code+'\n})',{filename:file})(name=>{assert.ok(name in mocks,name);return mocks[name]},module,module.exports);
   return module.exports;
 }

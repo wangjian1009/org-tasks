@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { ReminderOperationList } from '../components/ReminderOperationList'
 import { SettingsAutoSave } from '../services/SettingsAutoSave'
@@ -142,12 +143,12 @@ struct Settings {
   }
 
   notificationDetail(): string {
-    if (this.notificationBusy) return '正在处理…'
-    if (this.notificationState === 'enabled') return '通知已开启 · 管理系统通知设置'
-    if (this.notificationState === 'disabled') return '通知未开启 · 前往系统设置'
-    if (this.notificationState === 'unrequested') return '开启通知'
-    if (this.notificationState === 'error') return '状态读取失败 · 点击重试'
-    return '正在读取…'
+    if (this.notificationBusy) return localizedText($r('app.string.text_processing'))
+    if (this.notificationState === 'enabled') return localizedText($r('app.string.text_notification_is_open_management_systems_notification_settings'))
+    if (this.notificationState === 'disabled') return localizedText($r('app.string.text_notifier_not_started_go_to_system_settings'))
+    if (this.notificationState === 'unrequested') return localizedText($r('app.string.text_open_notification'))
+    if (this.notificationState === 'error') return localizedText($r('app.string.text_status_reading_failed_tap_to_try_again'))
+    return localizedText($r('app.string.text_reading'))
   }
 
   async manageNotifications(): Promise<void> {
@@ -160,14 +161,14 @@ struct Settings {
       }
       await this.loadNotificationState()
     } catch (error) {
-      this.message = `更新通知设置失败：${coreErrorMessage(error as CoreBridgeError)}`
+      this.message = localizedText($r('app.string.text_update_of_notification_settings_failed'), String(coreErrorMessage(error as CoreBridgeError)))
       await this.loadNotificationState()
     } finally { this.notificationBusy = false }
   }
   notificationActionTitle(): string {
-    if (this.notificationState === 'unrequested') return '开启通知'
-    if (this.notificationState === 'error') return '重试'
-    return '前往系统设置'
+    if (this.notificationState === 'unrequested') return localizedText($r('app.string.text_open_notification'))
+    if (this.notificationState === 'error') return localizedText($r('app.string.text_retry'))
+    return localizedText($r('app.string.text_go_to_system_settings'))
   }
   async loadCalendarState(refreshEvents: boolean = false): Promise<void> {
     const revision = ++this.calendarRevision
@@ -180,11 +181,11 @@ struct Settings {
     } catch (_) { if (revision === this.calendarRevision) this.calendarState = 'error' }
   }
   calendarDetail(): string {
-    if (this.calendarBusy) return '正在处理…'
-    if (this.calendarState === 'enabled') return '日历读写已允许'
-    if (this.calendarState === 'error') return '读取失败 · 点击重试'
-    if (this.calendarState === 'loading') return '正在读取…'
-    return '未授权 · 点击授权'
+    if (this.calendarBusy) return localizedText($r('app.string.text_processing'))
+    if (this.calendarState === 'enabled') return localizedText($r('app.string.text_calendar_reading_and_writing_is_allowed'))
+    if (this.calendarState === 'error') return localizedText($r('app.string.text_reading_failed_tap_to_try_again'))
+    if (this.calendarState === 'loading') return localizedText($r('app.string.text_reading'))
+    return localizedText($r('app.string.text_unauthorized_tap_authorization'))
   }
   async manageCalendar(): Promise<void> {
     if (this.calendarBusy || this.calendarState === 'loading') return
@@ -193,16 +194,16 @@ struct Settings {
       if (this.calendarState !== 'error') await ReminderManager.managePermission()
       await this.loadCalendarState()
       if (this.notificationVisible) await ReminderManager.refresh()
-    } catch (error) { this.message = `更新日历授权失败：${coreErrorMessage(error as CoreBridgeError)}` }
+    } catch (error) { this.message = localizedText($r('app.string.text_couldn_t_update_calendar_permissions'), String(coreErrorMessage(error as CoreBridgeError))) }
     finally { this.calendarBusy = false }
   }
   reminderHelpDetail(): string {
-    return '开启后，把未完成任务的提醒时间写入“小清单提醒”专用日历，由系统日历在到点时通知，应用退出后已登记事件仍由系统处理。' +
-      '\n\n需要授予日历读写权限。首次使用请打开系统日历完成初始化，并允许系统日历发送通知；小清单自身的通知开关不能替代它。声音和响铃时长由系统日历控制。' +
-      '\n\n事件优先采用 SCHEDULED，其次 DEADLINE；都没有时使用提醒时间。日期没有时刻时按零点处理，两项都有时优先 SCHEDULED。最高优先级在日历标题标记为【重要】。' +
-      '\n\n事件持续时长默认 5 分钟，可设为 1 至 1440 分钟，修改后自动保存。提醒晚于事件开始时，结束时间至少保留到提醒后的配置时长；清理同时等待提醒过去 30 分钟和事件结束。' +
-      '\n\n启动时自动核对事件，之后随任务新增、修改、完成、取消和同步结果自动维护；关闭开关会删除本应用创建的日历事件，不修改任务原文。' +
-      `\n\n当前状态：${this.reminderSummary}`
+    return localizedText($r('app.string.text_upon_opening_write_uncompleted_alarms_into_a')) +
+      localizedText($r('app.string.text_you_need_to_give_calendar_reading_and')) +
+      localizedText($r('app.string.text_the_event_is_preferred_to_scheduled_followed')) +
+      localizedText($r('app.string.text_the_event_lasts_for_5_minutes_with')) +
+      localizedText($r('app.string.text_automatically_check_events_on_start_up_and')) +
+      localizedText($r('app.string.text_current_status'), String(this.reminderSummary))
   }
   onBackPress(): boolean {
     if (this.appLinkPickerOpen) { if (!this.appLinkBusy && !this.appLinkPickerBusy) this.appLinkPickerOpen = false; return true }
@@ -240,12 +241,27 @@ struct Settings {
       this.watchAppLinkTasks()
       if (this.section === '文件入口') await this.loadNotebookNames()
       if (this.section === '应用关联') await this.refreshAppLinkTargets()
-    } catch (e) { this.message = `读取设置失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { this.message = localizedText($r('app.string.text_reading_settings_failed'), String(coreErrorMessage(e as CoreBridgeError))) }
   }
 
   async loadNotebookNames() {
     try { this.notebooks = await NotebookService.list(this.config) }
     catch (_) { this.notebooks = [] }
+  }
+
+  private sectionTitle(): string {
+    switch (this.section) {
+      case '废纸篓': return localizedText($r('app.string.text_trash'))
+      case '存储库': return localizedText($r('app.string.text_repositories'))
+      case '文件入口': return localizedText($r('app.string.text_notebook_shortcuts'))
+      case '任务状态分类': return localizedText($r('app.string.text_task_status_categories'))
+      case '应用程序': return localizedText($r('app.string.text_app'))
+      case '应用关联': return localizedText($r('app.string.text_app_links'))
+      case '任务提醒': return localizedText($r('app.string.text_task_reminders'))
+      case '提醒操作日志': return localizedText($r('app.string.text_reminder_activity'))
+      case '关于小清单': return localizedText($r('app.string.text_about_org_tasks'))
+      default: return localizedText($r('app.string.text_settings'))
+    }
   }
 
   openSection(section: string) {
@@ -258,8 +274,8 @@ struct Settings {
 
   deleteAppLink(name: string): void {
     if (this.appLinkBusy || this.appLinkPickerBusy) return
-    showDangerousConfirmation(this.getUIContext(), { title: '解除应用绑定？', message: `以后点击“${name}”的链接时需要重新选择应用。`,
-      confirmLabel: '解除绑定', onConfirm: (): void => { this.removeAppLink(name) } })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_untie_the_application')), message: localizedText($r('app.string.text_re_select_applications_when_you_tap_the'), String(name)),
+      confirmLabel: localizedText($r('app.string.text_untie')), onConfirm: (): void => { this.removeAppLink(name) } })
   }
 
   private async removeAppLink(name: string): Promise<void> {
@@ -268,7 +284,7 @@ struct Settings {
       await AppLinkManager.shared.remove(this.getUIContext().getHostContext()!, name)
       await this.refreshAppLinks()
       this.appLinkPickerOpen = false
-    } catch (error) { this.message = `删除应用关联失败：${(error as Error).message || '请重试'}` }
+    } catch (error) { this.message = localizedText($r('app.string.text_failed_to_delete_application_connection'), String((error as Error).message || localizedText($r('app.string.text_please_try_again')))) }
     finally { this.appLinkBusy = false }
   }
 
@@ -307,10 +323,10 @@ struct Settings {
 
   private appLinkTargetLabel(bundleName: string): string {
     const status = this.appLinkTargets.get(bundleName)?.availability
-    if (status === 'missing') return '未安装'
-    if (status === 'disabled') return '已停用'
-    if (!this.appLinkCatalog) return '已绑定'
-    return this.appLinkCatalog.find((app: AppLinkCatalogEntry): boolean => app.id === bundleName)?.name ?? '目录中无此应用'
+    if (status === 'missing') return localizedText($r('app.string.text_not_installed'))
+    if (status === 'disabled') return localizedText($r('app.string.text_disabled'))
+    if (!this.appLinkCatalog) return localizedText($r('app.string.app_link_bound'))
+    return this.appLinkCatalog.find((app: AppLinkCatalogEntry): boolean => app.id === bundleName)?.name ?? localizedText($r('app.string.text_no_such_application_in_directory'))
   }
 
   private appLinkIcon(bundleName: string): Resource | undefined {
@@ -359,7 +375,7 @@ struct Settings {
     try {
       const context = this.getUIContext().getHostContext()!
       this.appLinkCandidates = await AppLinkManager.shared.bindingCandidates(context, this.appLinkPickerName)
-    } catch (_) { this.appLinkCandidateError = '应用列表读取失败，请重试。' }
+    } catch (_) { this.appLinkCandidateError = localizedText($r('app.string.text_applying_the_list_to_read_failed_try')) }
     finally { this.appLinkPickerBusy = false }
   }
 
@@ -372,13 +388,13 @@ struct Settings {
       await AppLinkManager.shared.bind(context, this.appLinkPickerName, app.id)
       this.appLinkPickerOpen = false
       await this.refreshAppLinks()
-    } catch (error) { this.appLinkCandidateError = `保存应用关联失败：${(error as Error).message || '请重试'}` }
+    } catch (error) { this.appLinkCandidateError = localizedText($r('app.string.text_failed_to_save_application_connection'), String((error as Error).message || localizedText($r('app.string.text_please_try_again')))) }
     finally { this.appLinkPickerBusy = false }
   }
 
   fileTargetTitle(kind: FileTargetKind): string {
     const target = configuredFileTarget(this.config, kind)
-    if (!target.path) return '未选择'
+    if (!target.path) return localizedText($r('app.string.text_no_selection'))
     const group = this.notebooks.find((item: NotebookGroup) => item.configId === target.repoId)
     return group?.files.find(file => file.path === target.path)?.title || target.path
   }
@@ -387,7 +403,7 @@ struct Settings {
     const target = configuredFileTarget(this.config, kind)
     if (!target.path) return ''
     const repo = this.config.repos.find((item: RepoConfig) => item.id === target.repoId)
-    return repo ? `${repositoryLabel(repo)} · ${target.path}` : `原存储库已移除 · ${target.path}`
+    return repo ? `${repositoryLabel(repo)} · ${target.path}` : localizedText($r('app.string.text_original_repository_removed'), String(target.path))
   }
 
   openFilePicker(kind: FileTargetKind) {
@@ -405,14 +421,14 @@ struct Settings {
       await AppConfigService.save(this.getUIContext().getHostContext()!, current)
       this.config = current
       this.fileDisplayMode = mode
-    } catch (e) { this.message = `保存失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { this.message = localizedText($r('app.string.text_save_failed'), String(coreErrorMessage(e as CoreBridgeError))) }
     finally { this.saving = false }
   }
 
   displayModeChoices(): PopupMenuItem[] {
     return [
-      { title: '渲染', checked: this.fileDisplayMode === 'rendered', action: (): void => { this.changeDisplayMode('rendered') } },
-      { title: '原文', checked: this.fileDisplayMode === 'source', action: (): void => { this.changeDisplayMode('source') } }
+      { title: localizedText($r('app.string.text_rendered')), checked: this.fileDisplayMode === 'rendered', action: (): void => { this.changeDisplayMode('rendered') } },
+      { title: localizedText($r('app.string.text_source')), checked: this.fileDisplayMode === 'source', action: (): void => { this.changeDisplayMode('source') } }
     ]
   }
 
@@ -424,7 +440,7 @@ struct Settings {
   async changeCategory(index: number, remove?: string): Promise<void> {
     if (this.categoryBusy) return
     const name = this.categoryDraft.trim()
-    if (!remove && !name) { this.message = '请输入状态值'; return }
+    if (!remove && !name) { this.message = localizedText($r('app.string.text_please_enter_a_status_value')); return }
     this.categoryBusy = true
     this.message = ''
     try {
@@ -438,7 +454,7 @@ struct Settings {
       this.editingCategory = -1
       this.categoryDraft = ''
       await NativeCoreService.workspaceFor(current.repos, current.todoDefaults, current.coreSettings)
-    } catch (e) { this.message = `更新状态分类失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { this.message = localizedText($r('app.string.text_update_status_classification_failed'), String(coreErrorMessage(e as CoreBridgeError))) }
     finally { this.categoryBusy = false }
   }
 
@@ -450,40 +466,40 @@ struct Settings {
 
   @Builder
   homepage() {
-    SettingsGroup({ title: '数据与同步' }) {
-      SettingsRow({ title: '存储库', value: `${this.config.repos.filter(repo => !isSystemRepository(repo)).length} 个`, icon: $r('app.media.nav_repository'), divider: false,
+    SettingsGroup({ title: localizedText($r('app.string.text_data_sync')) }) {
+      SettingsRow({ title: localizedText($r('app.string.text_repositories')), value: localizedText($r('app.string.text_individual'), String(this.config.repos.filter(repo => !isSystemRepository(repo)).length)), icon: $r('app.media.nav_repository'), divider: false,
         action: (): void => { this.openSection('存储库') } })
     }
-    SettingsGroup({ title: '任务与笔记' }) {
-      SettingsRow({ title: '文件入口', icon: $r('app.media.ui_folder'), action: (): void => { this.openSection('文件入口') } })
-      SettingsRow({ title: '废纸篓', value: `${this.savedRetentionDays} 天`, icon: $r('app.media.ui_trash'), action: (): void => { this.openSection('废纸篓') } })
-      SettingsRow({ title: '任务状态分类', value: '5 类', icon: $r('app.media.ui_state'), action: (): void => { this.openSection('任务状态分类') } })
-      SettingsChoiceRow({ title: '文件展示方式', value: this.fileDisplayMode === 'source' ? '原文' : '渲染',
+    SettingsGroup({ title: localizedText($r('app.string.text_tasks_and_notes')) }) {
+      SettingsRow({ title: localizedText($r('app.string.text_notebook_shortcuts')), icon: $r('app.media.ui_folder'), action: (): void => { this.openSection('文件入口') } })
+      SettingsRow({ title: localizedText($r('app.string.text_trash')), value: localizedText($r('app.string.text_day_2'), String(this.savedRetentionDays)), icon: $r('app.media.ui_trash'), action: (): void => { this.openSection('废纸篓') } })
+      SettingsRow({ title: localizedText($r('app.string.text_task_status_categories')), value: localizedText($r('app.string.text_category_5')), icon: $r('app.media.ui_state'), action: (): void => { this.openSection('任务状态分类') } })
+      SettingsChoiceRow({ title: localizedText($r('app.string.text_file_view')), value: this.fileDisplayMode === 'source' ? localizedText($r('app.string.text_source')) : localizedText($r('app.string.text_rendered')),
         icon: $r('app.media.ui_body'), divider: false, disabled: this.saving, items: this.displayModeChoices() })
-      SettingsRow({ title: '应用关联', value: `${this.appLinks.length} 个`, icon: $r('app.media.ui_link_app'), divider: false,
+      SettingsRow({ title: localizedText($r('app.string.text_app_links')), value: localizedText($r('app.string.text_individual'), String(this.appLinks.length)), icon: $r('app.media.ui_link_app'), divider: false,
         action: (): void => { this.openSection('应用关联') } })
     }
-    SettingsGroup({ title: '应用程序', detail: '通知授权和通知类型可在系统设置中管理；数字角标还需在系统设置中开启桌面角标。' }) {
-      SettingsRow({ title: '通知与角标', value: this.notificationState === 'enabled' ? '已开启' : this.notificationState === 'loading' ? '读取中' : '未开启',
-        detail: this.notificationState === 'error' ? '读取失败，点击重试' : '', icon: $r('app.media.ui_info'),
+    SettingsGroup({ title: localizedText($r('app.string.text_app')), detail: localizedText($r('app.string.text_notification_authorization_and_type_of_notification_can')) }) {
+      SettingsRow({ title: localizedText($r('app.string.text_notifications_and_corner_signs')), value: this.notificationState === 'enabled' ? localizedText($r('app.string.text_enabled')) : this.notificationState === 'loading' ? localizedText($r('app.string.text_reading_2')) : localizedText($r('app.string.text_unopened')),
+        detail: this.notificationState === 'error' ? localizedText($r('app.string.text_couldn_t_load_tap_to_retry')) : '', icon: $r('app.media.ui_info'),
         action: (): void => { this.manageNotifications() } })
-      SettingsRow({ title: '任务提醒', value: this.reminderEnabled ? '已开启' : '已关闭', icon: $r('app.media.ui_reminder'),
+      SettingsRow({ title: localizedText($r('app.string.text_task_reminders')), value: this.reminderEnabled ? localizedText($r('app.string.text_enabled')) : localizedText($r('app.string.text_closed')), icon: $r('app.media.ui_reminder'),
         action: (): void => { this.openSection('任务提醒') } })
-      SettingsRow({ title: '关于小清单', icon: $r('app.media.ui_info'), divider: false, action: (): void => { this.openSection('关于小清单') } })
+      SettingsRow({ title: localizedText($r('app.string.text_about_org_tasks')), icon: $r('app.media.ui_info'), divider: false, action: (): void => { this.openSection('关于小清单') } })
     }
   }
 
   private settingsMenu(): PopupMenuItem[] {
     return [
-      { title: '备份', action: (): void => { this.backupConfiguration() } },
-      { title: '重置', dangerous: true, action: (): void => { this.confirmReset() } }
+      { title: localizedText($r('app.string.text_backup')), action: (): void => { this.backupConfiguration() } },
+      { title: localizedText($r('app.string.text_reset')), dangerous: true, action: (): void => { this.confirmReset() } }
     ]
   }
 
   private confirmReset(): void {
-    showDangerousConfirmation(this.getUIContext(), { title: '重置设置？',
-      message: '应用设置和存储库配置将被清空。本地目录和文件将保留，可打开之前的备份重新加载存储库。',
-      confirmLabel: '重置', onConfirm: (): void => { this.resetConfiguration() } })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_reset_settings')),
+      message: localizedText($r('app.string.text_the_application_settings_and_repository_configuration_will')),
+      confirmLabel: localizedText($r('app.string.text_reset')), onConfirm: (): void => { this.resetConfiguration() } })
   }
 
   private async resetConfiguration(): Promise<void> {
@@ -494,7 +510,7 @@ struct Settings {
       await this.preferenceSave.flush()
       await ConfigTransfer.reset(this.getUIContext().getHostContext()!)
       if (!await PageNavigator.shared.openPrimary(this.getUIContext(), primaryPage('today'))) await this.load()
-    } catch (error) { this.message = `重置失败：${coreErrorMessage(error as CoreBridgeError)}` }
+    } catch (error) { this.message = localizedText($r('app.string.text_reset_failed'), String(coreErrorMessage(error as CoreBridgeError))) }
     finally { this.saving = false }
   }
 
@@ -506,9 +522,9 @@ struct Settings {
       let destination: number
       try {
         const choice = await this.getUIContext().getPromptAction().showActionMenu({
-          title: '备份', buttons: [
-            { text: '文件', color: UiColor.text },
-            { text: '分享', color: UiColor.text }
+          title: localizedText($r('app.string.text_backup')), buttons: [
+            { text: localizedText($r('app.string.text_documentation')), color: UiColor.text },
+            { text: localizedText($r('app.string.text_share')), color: UiColor.text }
           ]
         })
         destination = choice.index
@@ -522,12 +538,12 @@ struct Settings {
         const result = await new picker.DocumentViewPicker(context).save(options)
         if (result.length > 0) {
           await ConfigTransfer.writeFile(result[0], text)
-          this.getUIContext().getPromptAction().showToast({ message: '配置文件已保存' })
+          this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_profile_saved')) })
         }
       } else if (destination === 1) {
         await ConfigTransfer.shareBackup(context, title, text)
       }
-    } catch (_) { this.message = '备份配置失败，请重试' }
+    } catch (_) { this.message = localizedText($r('app.string.text_backup_configuration_failed_please_try_again')) }
     finally { this.saving = false }
   }
 
@@ -541,7 +557,7 @@ struct Settings {
     this.preferenceSave.schedule('reminderDuration', (): Promise<void> => this.saveEventDuration(value))
   }
   private async saveEventDuration(value: string): Promise<void> {
-    if (!/^\d+$/.test(value)) throw new Error('事件持续时长须为 1 至 1440 分钟的整数')
+    if (!/^\d+$/.test(value)) throw new Error(localizedText($r('app.string.text_the_duration_of_the_event_must_be')))
     const minutes = Number(value)
     await ReminderManager.setEventDurationMinutes(minutes)
     this.reminderSaved = { enabled: this.reminderSaved.enabled, eventDurationMinutes: minutes }
@@ -564,15 +580,15 @@ struct Settings {
     }
   }
   private async saveRetention(value: string): Promise<void> {
-    if (!/^\d+$/.test(value)) throw new Error('请输入整数天数')
+    if (!/^\d+$/.test(value)) throw new Error(localizedText($r('app.string.text_please_enter_the_full_number_of_days')))
     await TrashSettingsService.saveRetentionDays(this.getUIContext().getHostContext()!, Number(value))
     this.savedRetentionDays = Number(value)
   }
   @Builder
   taskReminderSettings() {
-    SettingsGroup({ title: '本机任务提醒', detail: this.reminderHelpDetail() }) {
+    SettingsGroup({ title: localizedText($r('app.string.text_task_reminders_on_this_device')), detail: this.reminderHelpDetail() }) {
       Row() {
-        Text('启用任务提醒').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
+        Text($r('app.string.text_enable_task_alarm')).fontSize(16).fontColor(UiColor.text).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.reminderEnabled }).id('reminder_global_enabled')
           .enabled(!this.calendarBusy)
           .onChange((value: boolean): void => { if (value !== this.reminderEnabled) this.changeReminder(value) })
@@ -580,24 +596,24 @@ struct Settings {
       Text(this.reminderSummary).id('reminder_service_status').fontSize(13).fontColor(UiColor.secondary)
         .width('100%').padding({ left: 16, right: 16, top: 4, bottom: 12 })
       Row({ space: 12 }) {
-        Text('事件持续时长（分钟）').fontSize(16).fontColor(UiColor.text).layoutWeight(1)
+        Text($r('app.string.text_duration_of_events_minutes')).fontSize(16).fontColor(UiColor.text).layoutWeight(1)
         TextInput({ text: this.eventDurationDraft, placeholder: '5' }).type(InputType.Number).width(96)
           .id('reminder_event_duration').fontSize(16).fontColor(UiColor.text).backgroundColor(UiColor.field)
           .onChange((value: string): void => { if (value !== this.eventDurationDraft) this.changeEventDuration(value) })
           .onBlur((): void => { this.preferenceSave.flush() })
       }.width('100%').padding(16)
-      SettingsRow({ title: '日历授权', value: this.calendarDetail(), action: (): void => { this.manageCalendar() } })
-      SettingsRow({ title: '提醒操作日志', icon: $r('app.media.nav_logbook'), divider: false,
+      SettingsRow({ title: localizedText($r('app.string.text_organisation_2')), value: this.calendarDetail(), action: (): void => { this.manageCalendar() } })
+      SettingsRow({ title: localizedText($r('app.string.text_reminder_activity')), icon: $r('app.media.nav_logbook'), divider: false,
         action: (): void => { this.openSection('提醒操作日志') } }).id('reminder_operation_entry')
     }
-    SettingsGroup({ title: '有提醒的任务', detail: '与全局事件管理器共用同一任务数据集，展示设置了提醒时间的未完成任务，保留提醒时间已过的记录，排除完成和取消状态；按提醒时间排序，点击可修改或清除。' }) {
+    SettingsGroup({ title: localizedText($r('app.string.reminder_task_list')), detail: localizedText($r('app.string.text_shares_the_same_task_data_set_with')) }) {
       TaskReminderList()
     }
   }
   @Builder
   trashSettings() {
-    SettingsGroup({ title: '保留天数', detail: '默认保留 30 天，可设置 1 至 3650 天。打开废纸篓或笔记本时，按删除时间自动永久清除过期记录。删除时间缺失的记录会保留。' }) {
-      TextInput({ text: this.retentionDraft, placeholder: '保留天数' }).type(InputType.Number)
+    SettingsGroup({ title: localizedText($r('app.string.text_number_of_days_retained')), detail: localizedText($r('app.string.text_the_default_saves_30_days_setting_1')) }) {
+      TextInput({ text: this.retentionDraft, placeholder: localizedText($r('app.string.text_number_of_days_retained')) }).type(InputType.Number)
         .id('trash_retention_days').onChange((value: string): void => { if (value !== this.retentionDraft) this.changeRetention(value) })
         .onBlur((): void => { this.preferenceSave.flush() })
     }
@@ -605,10 +621,10 @@ struct Settings {
 
   @Builder
   fileEntries() {
-    SettingsGroup({ title: '入口笔记本', detail: '选择笔记本后，对应入口展示其中的记录。点选文件并确认后生效。' }) {
-      SettingsRow({ title: '收件箱', value: this.fileTargetTitle('inbox'), detail: this.fileTargetDetail('inbox'), icon: $r('app.media.nav_inbox'), action: (): void => { this.openFilePicker('inbox') } })
-      SettingsRow({ title: '某天', value: this.fileTargetTitle('someday'), detail: this.fileTargetDetail('someday'), icon: $r('app.media.nav_someday'), action: (): void => { this.openFilePicker('someday') } })
-      SettingsRow({ title: '备忘', value: this.fileTargetTitle('memo'), detail: this.fileTargetDetail('memo'), icon: $r('app.media.nav_memo'), divider: false, action: (): void => { this.openFilePicker('memo') } })
+    SettingsGroup({ title: localizedText($r('app.string.text_entry_notebook')), detail: localizedText($r('app.string.text_when_you_select_a_notebook_the_records')) }) {
+      SettingsRow({ title: localizedText($r('app.string.text_inbox')), value: this.fileTargetTitle('inbox'), detail: this.fileTargetDetail('inbox'), icon: $r('app.media.nav_inbox'), action: (): void => { this.openFilePicker('inbox') } })
+      SettingsRow({ title: localizedText($r('app.string.text_someday')), value: this.fileTargetTitle('someday'), detail: this.fileTargetDetail('someday'), icon: $r('app.media.nav_someday'), action: (): void => { this.openFilePicker('someday') } })
+      SettingsRow({ title: localizedText($r('app.string.text_notes')), value: this.fileTargetTitle('memo'), detail: this.fileTargetDetail('memo'), icon: $r('app.media.nav_memo'), divider: false, action: (): void => { this.openFilePicker('memo') } })
     }
   }
 
@@ -616,7 +632,7 @@ struct Settings {
   appLinksSettings() {
     Column() {
       if (this.appLinkNames().length === 0) {
-        EmptyState({ title: '还没有应用关联' }).id('app_link_empty')
+        EmptyState({ title: localizedText($r('app.string.text_no_connection_applied_yet')) }).id('app_link_empty')
       } else {
         Scroll() {
           Column() {
@@ -633,7 +649,7 @@ struct Settings {
 
   @Builder
   appLinkRow(name: string, bundleName: string) {
-    SettingsRow({ title: name, value: bundleName ? this.appLinkTargetLabel(bundleName) : '未绑定',
+    SettingsRow({ title: name, value: bundleName ? this.appLinkTargetLabel(bundleName) : localizedText($r('app.string.text_unbound')),
       appIcon: this.appLinkIcon(bundleName) ?? $r('app.media.ui_link_app'),
       action: (): void => { this.chooseAppLink(name) }, disabled: this.appLinkBusy })
   }
@@ -641,17 +657,17 @@ struct Settings {
   @Builder
   appLinkPickerSheet() {
     Column() {
-      Text('选择应用').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+      Text($r('app.string.text_select_application')).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
         .width('100%').padding({ left: 24, top: 8, bottom: 4 }).textAlign(TextAlign.Start)
       Text(this.appLinkPickerName).fontSize(14).fontColor(UiColor.secondary)
         .width('100%').padding({ left: 24, bottom: 10 }).textAlign(TextAlign.Start)
       if (this.appLinkPickerBusy) {
-        EmptyState({ title: '正在读取应用列表', busy: true })
+        EmptyState({ title: localizedText($r('app.string.text_reading_application_list')), busy: true })
       } else if (this.appLinkCandidateError && this.appLinkCandidates.length === 0) {
-        EmptyState({ title: this.appLinkCandidateError, actionLabel: '重试',
+        EmptyState({ title: this.appLinkCandidateError, actionLabel: localizedText($r('app.string.text_retry')),
           action: (): void => { this.loadAppLinkCandidates() } })
       } else if (this.appLinkCandidates.length === 0) {
-        EmptyState({ title: '没有可用的应用' })
+        EmptyState({ title: localizedText($r('app.string.text_no_application_available')) })
       } else {
         MessageBar({ message: this.appLinkCandidateError, error: true })
         Scroll() {
@@ -663,13 +679,13 @@ struct Settings {
                   .borderRadius(8).accessibilityLevel('no')
                 Text(candidate.name).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
                 if (candidate.id === this.appLinkPickerBundle) {
-                  Text('当前绑定').fontSize(13).fontColor(UiColor.primary)
+                  Text($r('app.string.text_current_binding')).fontSize(13).fontColor(UiColor.primary)
                 } else {
                   Image($r('app.media.ui_next')).width(24).height(24).fillColor(UiColor.primary).accessibilityLevel('no')
                 }
               }.width('100%').padding({ left: 24, right: 24, top: 10, bottom: 10 })
                 .accessibilityGroup(true)
-                .accessibilityText(candidate.id === this.appLinkPickerBundle ? `${candidate.name}，当前绑定` : `绑定${candidate.name}`)
+                .accessibilityText(candidate.id === this.appLinkPickerBundle ? localizedText($r('app.string.text_current_binding_2'), String(candidate.name)) : localizedText($r('app.string.text_bind'), String(candidate.name)))
                 .onClick((): void => { this.bindAppLink(candidate) })
             }, (candidate: AppLinkCatalogEntry) => candidate.id)
           }
@@ -677,7 +693,7 @@ struct Settings {
       }
       if (this.appLinkPickerBundle && !this.appLinkPickerBusy) {
         Row() {
-          Button('解除绑定').height(44).fontSize(14).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+          Button($r('app.string.text_untie')).height(44).fontSize(14).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
             .enabled(!this.appLinkBusy).onClick((): void => { this.deleteAppLink(this.appLinkPickerName) })
         }.width('100%').justifyContent(FlexAlign.End).padding({ left: 24, right: 24, bottom: 8 })
       }
@@ -686,7 +702,7 @@ struct Settings {
 
   @Builder
   categories() {
-    SettingsGroup({ title: '状态分类', detail: '默认状态固定；带 × 的自定义状态可点击移除。点击 + 添加状态，新增状态还需在笔记本的 TODO 声明中启用。' }) {
+    SettingsGroup({ title: localizedText($r('app.string.text_status_classification')), detail: localizedText($r('app.string.text_default_status_fixes_custom_state_with_x')) }) {
       ForEach(this.stateCategories, (category: TaskStateCategory, index: number) => {
         Column({ space: 8 }) {
           Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center,
@@ -695,25 +711,25 @@ struct Settings {
             ForEach(this.categoryStates(index, true), (state: CoreTaskState) => {
               Text(state.name).fontFamily('monospace').fontSize(13).fontColor(UiColor.text)
                 .padding({ left: 8, right: 8, top: 5, bottom: 5 }).borderRadius(6)
-                .border({ width: 0.5, color: UiColor.outline }).accessibilityText(`${state.name}，默认，只读`)
+                .border({ width: 0.5, color: UiColor.outline }).accessibilityText(localizedText($r('app.string.text_default_read_only'), String(state.name)))
             }, (state: CoreTaskState) => state.name)
             ForEach(this.categoryStates(index, false), (state: CoreTaskState) => {
               Button(`${state.name}  ×`).fontSize(13).fontFamily('monospace').height(32).borderRadius(6)
                 .padding({ left: 8, right: 8 }).constraintSize({ maxWidth: '100%' })
-                .fontColor(UiColor.text).backgroundColor(UiColor.field).accessibilityText(`移除自定义状态 ${state.name}`)
+                .fontColor(UiColor.text).backgroundColor(UiColor.field).accessibilityText(localizedText($r('app.string.text_remove_custom_status'), String(state.name)))
                 .onClick((): void => { this.changeCategory(index, state.name) })
             }, (state: CoreTaskState) => state.name)
             Button('+').fontSize(22).width(36).height(36).padding(0)
               .backgroundColor(Color.Transparent).fontColor(UiColor.primary)
-              .accessibilityText(`为${taskStateCategoryLabel(category)}添加状态`)
+              .accessibilityText(localizedText($r('app.string.text_add_status_to'), String(taskStateCategoryLabel(category))))
               .onClick((): void => { this.editingCategory = index; this.categoryDraft = ''; this.message = '' })
           }.width('100%')
           if (this.editingCategory === index) {
             Row({ space: 8 }) {
-              TextInput({ text: this.categoryDraft, placeholder: '输入状态值' }).layoutWeight(1).height(44)
+              TextInput({ text: this.categoryDraft, placeholder: localizedText($r('app.string.text_enter_status_value')) }).layoutWeight(1).height(44)
                 .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
                 .onChange((value: string): void => { this.categoryDraft = value })
-              Button('添加').height(44).fontSize(14).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
+              Button($r('app.string.text_add_2')).height(44).fontSize(14).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
                 .onClick((): void => { this.changeCategory(index) })
             }.width('100%')
           }
@@ -725,25 +741,25 @@ struct Settings {
 
   @Builder
   repositories() {
-    SettingsGroup({ title: '已配置的存储库', detail: '管理本地文件目录和 WebDAV 连接。浏览文件请使用侧边栏的“笔记本”。' }) {
+    SettingsGroup({ title: localizedText($r('app.string.text_configured_repository')), detail: localizedText($r('app.string.text_manages_local_file_directories_and_webdav_connections')) }) {
       if (this.config.repos.filter(repo => !isSystemRepository(repo)).length === 0) {
-        Text('尚未配置存储库').fontSize(14).fontColor(UiColor.secondary).width('100%').padding(16)
+        Text($r('app.string.text_the_repository_has_not_been_configured')).fontSize(14).fontColor(UiColor.secondary).width('100%').padding(16)
       }
       ForEach(this.config.repos.filter(repo => !isSystemRepository(repo)), (repo: RepoConfig) => {
-        SettingsRow({ title: repositoryLabel(repo), value: repo.webdavEnabled ? 'WebDAV' : '不同步', detail: repo.rootDirectory,
+        SettingsRow({ title: repositoryLabel(repo), value: repo.webdavEnabled ? 'WebDAV' : localizedText($r('app.string.text_do_not_sync')), detail: repo.rootDirectory,
           icon: $r('app.media.nav_repository'),
           action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: repo.id } }) } })
       }, (repo: RepoConfig) => repo.id)
-      SettingsRow({ title: '添加存储库', icon: $r('app.media.ui_add'), divider: false,
+      SettingsRow({ title: localizedText($r('app.string.text_add_repository')), icon: $r('app.media.ui_add'), divider: false,
         action: (): void => { addRepository(this.getUIContext()) } })
     }
   }
 
   build() {
     Column() {
-      AppShell({ title: this.section || '设置', activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
+      AppShell({ title: this.sectionTitle(), activeRoute: 'pages/Settings', drawerOpen: $drawerOpen,
         back: this.section.length > 0 || PageNavigator.shared.path.depth > 1, busy: this.saving || this.categoryBusy || this.filePickerBusy || this.appLinkBusy || this.appLinkPickerBusy,
-        actionLabel: this.loaded && !this.section ? '更多' : '', actionMenuItems: this.settingsMenu(),
+        actionLabel: this.loaded && !this.section ? localizedText($r('app.string.text_more_2')) : '', actionMenuItems: this.settingsMenu(),
         backAction: (): void => { this.onBackPress() }, titleIcon: $r('app.media.nav_settings') }) {
         Column() {
           MessageBar({ message: this.message, error: true })
@@ -753,14 +769,14 @@ struct Settings {
             Scroll() {
               Column() {
                 if (!this.loaded && this.message) {
-                  Button('重新读取设置').height(44).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected).margin(24)
+                  Button($r('app.string.text_reread_settings')).height(44).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected).margin(24)
                     .onClick((): void => { this.message = ''; this.load() })
                 } else if (!this.loaded) {
                   LoadingProgress().width(32).height(32).color(UiColor.primary).margin(24)
                 } else if (!this.section) { this.homepage() }
                 else if (this.section === '任务提醒') { this.taskReminderSettings() }
                 else if (this.section === '提醒操作日志') {
-                  SettingsGroup({ title: '本次运行', detail: '按最新操作在前显示系统提醒的新增、修改和删除记录，包括触发原因、执行结果和失败原因。仅保留本次运行的最近 500 条记录，重启应用后清空。' }) {
+                  SettingsGroup({ title: localizedText($r('app.string.text_current_run')), detail: localizedText($r('app.string.text_displays_the_new_modified_and_deleted_records')) }) {
                     ReminderOperationList()
                   }
                 }
@@ -769,8 +785,8 @@ struct Settings {
                 else if (this.section === '任务状态分类') { this.categories() }
                 else if (this.section === '存储库') { this.repositories() }
                 else {
-                  SettingsGroup({ title: '小清单' }) {
-                    Text('浏览 Org 笔记本、按日期查看任务，支持 WebDAV 同步和快速捕捉。')
+                  SettingsGroup({ title: localizedText($r('app.string.EntryAbility_label')) }) {
+                    Text($r('app.string.text_browse_the_org_notebook_view_the_tasks'))
                       .fontSize(16).fontColor(UiColor.secondary).lineHeight(26).width('100%').padding(16)
                   }
                 }

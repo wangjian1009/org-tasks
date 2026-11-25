@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { TrashDataManager } from '../services/TrashDataManager'
 import { PageNavigator } from '../services/PageNavigator'
@@ -94,13 +95,13 @@ struct Files {
       repository.id === SYSTEM_REPOSITORY_ID || !file.fileVersion) return
     const pagePath = PageNavigator.shared.path
     const allowed = (): boolean => this.active && PageNavigator.shared.path === pagePath
-    const remote = repository.webdavEnabled ? '后续同步可能删除 WebDAV 上的对应文件。' : ''
+    const remote = repository.webdavEnabled ? localizedText($r('app.string.text_subsequent_sync_may_delete_the_corresponding_file')) : ''
     this.deletePending = true
     try {
       showDangerousConfirmation(this.getUIContext(), {
-        title: '删除文件？',
-        message: `将删除“${group.name}”中的“${file.path}”及其全部内容。整份文件无法通过废纸篓恢复。${remote}`,
-        confirmLabel: '删除文件',
+        title: localizedText($r('app.string.text_delete_files')),
+        message: localizedText($r('app.string.text_the_in_and_all_its_contents_will'), String(group.name), String(file.path), String(remote)),
+        confirmLabel: localizedText($r('app.string.text_delete_file')),
         onCancel: (): void => { this.deletePending = false },
         onConfirm: (): void => {
           if (!allowed()) { this.deletePending = false; return }
@@ -118,7 +119,7 @@ struct Files {
   }
 
   private reportFileDeletionError(error: CoreBridgeError): void {
-    try { this.getUIContext().getPromptAction().showToast({ message: `删除文件失败：${coreErrorMessage(error)}` }) }
+    try { this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_failed_to_delete_file'), String(coreErrorMessage(error))) }) }
     catch (_) { /* 离开页面后不再显示提示。 */ }
   }
 
@@ -154,7 +155,7 @@ struct Files {
     const name = this.renameName.trim()
     if (!this.renamedPath) {
       if (!name || name === '.' || name === '..' || /[\/\\\x00-\x1f\x7f]/.test(name) || orgFileName(name) === '.org') {
-        this.renameMessage = '请输入有效的文件名，文件名不能包含目录分隔符'
+        this.renameMessage = localizedText($r('app.string.text_please_enter_a_valid_filename_which_does'))
         return
       }
       if (orgFileName(name) === this.originalRenameName) { this.closeRename(); return }
@@ -173,7 +174,7 @@ struct Files {
       }
       await AppConfigService.renameFileTargets(context, repoId, file.path, this.renamedPath)
     } catch (error) {
-      this.renameMessage = (this.renamedPath ? '文件已改名，入口更新失败。' : '') + coreErrorMessage(error as CoreBridgeError)
+      this.renameMessage = (this.renamedPath ? localizedText($r('app.string.text_the_document_has_been_renamed_and_the')) : '') + coreErrorMessage(error as CoreBridgeError)
       return
     } finally {
       this.renameBusy = false
@@ -185,18 +186,18 @@ struct Files {
   renamePanel() {
     Column({ space: 16 }) {
       Row() {
-        Text('改文件名').fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
-        Button('取消').height(44).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+        Text($r('app.string.text_change_file_name')).fontSize(20).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
+        Button($r('app.string.text_cancel')).height(44).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .enabled(!this.renameBusy).onClick((): void => { this.closeRename() })
       }.width('100%')
-      TextInput({ text: this.renameName, placeholder: '文件名' }).id('notebook_rename_name')
+      TextInput({ text: this.renameName, placeholder: localizedText($r('app.string.text_filename')) }).id('notebook_rename_name')
         .width('100%').height(48).fontSize(16).fontColor(UiColor.text).backgroundColor('#414542')
         .enabled(!this.renameBusy && !this.renamedPath).onChange((value: string): void => { this.renameName = value })
         .onSubmit((): void => { this.submitRename() })
       if (this.renameMessage) {
         Text(this.renameMessage).fontSize(14).fontColor(UiColor.error).width('100%')
       }
-      Button(this.renameBusy ? '保存中…' : this.renamedPath ? '重试更新入口' : '保存')
+      Button(this.renameBusy ? localizedText($r('app.string.text_saving_3')) : this.renamedPath ? localizedText($r('app.string.text_try_again_to_update_the_portal')) : localizedText($r('app.string.text_save')))
         .id('notebook_rename_save').width('100%').height(48).backgroundColor(UiColor.primary)
         .fontColor(UiColor.onPrimary).enabled(!this.renameBusy).onClick((): void => { this.submitRename() })
     }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 24 })
@@ -209,7 +210,7 @@ struct Files {
       const ui = this.getUIContext()
       const repositories = await OrgFileCreateService.repositories(ui.getHostContext()!)
       if (!this.active) return
-      if (!repositories.some(repo => repo.repoId === repoId)) throw new Error('目标存储库已失效，请重新选择')
+      if (!repositories.some(repo => repo.repoId === repoId)) throw new Error(localizedText($r('app.string.text_target_repository_is_dead_please_re_select')))
       this.createRepoId = repoId
       this.createRepositories = repositories
       this.createMessage = ''
@@ -285,12 +286,12 @@ struct Files {
 
   repositoryActions(group: NotebookGroup): PopupMenuItem[] {
     return [
-      { title: '新增', icon: $r('app.media.ui_add_file'), disabled: this.createLoading || this.createOpen,
+      { title: localizedText($r('app.string.text_add_3')), icon: $r('app.media.ui_add_file'), disabled: this.createLoading || this.createOpen,
         action: (): void => { this.openCreate(group.repoId) } },
-      { title: '设置', icon: $r('app.media.ui_settings'), action: (): void => {
+      { title: localizedText($r('app.string.text_settings')), icon: $r('app.media.ui_settings'), action: (): void => {
         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/RepositorySettings', params: { repoId: group.configId } })
       } },
-      { title: '历史', icon: $r('app.media.ui_sync_log'), action: (): void => {
+      { title: localizedText($r('app.string.text_history')), icon: $r('app.media.ui_sync_log'), action: (): void => {
         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/SyncLog', params: { repoId: group.configId } })
       } }
     ]
@@ -300,7 +301,7 @@ struct Files {
     if (!this.trashMaintenance) {
       const trash = new TrashDataManager(this.getUIContext().getHostContext()!)
       this.trashMaintenance = trash.start().catch((): void => {
-        try { this.getUIContext().getPromptAction().showToast({ message: '废纸篓过期清理失败，可打开废纸篓重试' }) }
+        try { this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_waste_paper_expiry_cleanup_failed_to_open')) }) }
         catch (_) { console.error('显示废纸篓清理提示失败') }
       }).finally(async (): Promise<void> => { await trash.close() }).catch((): void => { console.error('关闭废纸篓清理数据集失败') })
     }
@@ -315,7 +316,7 @@ struct Files {
           }
           this.config = state.value.config; this.groups = state.value.groups; this.loading = false
         }
-        this.message = state.message ? `读取笔记本失败：${state.message}` : ''
+        this.message = state.message ? localizedText($r('app.string.text_reading_notebook_failed'), String(state.message)) : ''
         if (state.message) this.loading = false
       })
     }
@@ -325,19 +326,19 @@ struct Files {
 
   build() {
     Column() {
-      AppShell({ title: '笔记本', titleIcon: $r('app.media.nav_repository'),
-        actionIcon: $r('app.media.ui_add'), actionLabel: '添加存储库',
+      AppShell({ title: localizedText($r('app.string.text_notebooks')), titleIcon: $r('app.media.nav_repository'),
+        actionIcon: $r('app.media.ui_add'), actionLabel: localizedText($r('app.string.text_add_repository')),
         action: (): void => { addRepository(this.getUIContext()) },
         activeRoute: 'pages/Files', drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletePending || this.renameOpen,
         pullDisabled: this.deletePending || this.renameOpen,
         beforePull: async (): Promise<void> => await this.loadFiles(true) }) {
         Column() {
           if (this.loading) {
-            NotificationEmptyState({ title: '正在读取笔记本', busy: true })
+            NotificationEmptyState({ title: localizedText($r('app.string.text_reading_notebooks')), busy: true })
           } else if (this.message) {
-            NotificationEmptyState({ title: '笔记本读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFiles(true) } })
+            NotificationEmptyState({ title: localizedText($r('app.string.text_notebook_reading_failed')), detail: this.message, actionLabel: localizedText($r('app.string.text_retry')), action: (): void => { this.loadFiles(true) } })
           } else if (this.groups.length === 0) {
-            NotificationEmptyState({ title: '还没有存储库', actionLabel: '添加存储库', action: (): void => { addRepository(this.getUIContext()) } })
+            NotificationEmptyState({ title: localizedText($r('app.string.text_no_repository_yet')), actionLabel: localizedText($r('app.string.text_add_repository')), action: (): void => { addRepository(this.getUIContext()) } })
           } else {
             List({ scroller: this.listScroller }) {
               if (this.showNotifications) {
@@ -347,7 +348,7 @@ struct Files {
                 ListItemGroup({ header: this.repositoryHeader(group) }) {
                   if (this.visibleFiles(group).length === 0) {
                     ListItem() {
-                      Text(group.message || (group.files.length > 0 ? '暂无可见 Org 文件' : '暂无 Org 文件')).fontSize(13)
+                      Text(group.message || (group.files.length > 0 ? localizedText($r('app.string.text_not_seen_org_file')) : localizedText($r('app.string.text_no_org_file_available')))).fontSize(13)
                         .fontColor(group.message ? UiColor.error : UiColor.secondary)
                         .width('100%').padding({ left: 8, right: 8, top: 12, bottom: 16 })
                     }
@@ -388,13 +389,13 @@ struct Files {
           Text(group.name).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
             .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.layoutWeight(1).height(48)
-          .accessibilityText(`存储库 ${group.name}`)
+          .accessibilityText(localizedText($r('app.string.text_repository_3'), String(group.name)))
         if (group.configId !== SYSTEM_REPOSITORY_ID) {
           IconButton({ icon: this.showIgnoredRepoIds.includes(group.repoId) ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
             iconSize: 20, buttonWidth: 40,
-            label: `${group.name}：${this.showIgnoredRepoIds.includes(group.repoId) ? '隐藏配置的隐藏文件' : '显示配置的隐藏文件'}`,
+            label: `${group.name}：${this.showIgnoredRepoIds.includes(group.repoId) ? localizedText($r('app.string.text_hide_the_hidden_file_of_the_configuration')) : localizedText($r('app.string.text_show_the_hidden_files_of_the_configuration'))}`,
             action: (): void => { this.toggleIgnored(group) } })
-          PopupMenuButton({ label: `${group.name}：更多`, disabled: group.configId.length === 0,
+          PopupMenuButton({ label: localizedText($r('app.string.text_more'), String(group.name)), disabled: group.configId.length === 0,
             iconSize: 20, buttonWidth: 40, items: this.repositoryActions(group) })
         }
       }.width('100%')

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { fileIo as fs } from '@kit.CoreFileKit'
 import { RepoConfig } from '../models/OrgTask'
@@ -32,8 +33,8 @@ export class SystemRepositoryService {
       try { await fs.write(file.fd, template.buffer); await fs.fsync(file.fd) }
       finally { await fs.close(file) }
     }
-    } catch (_) { throw new Error('系统仓库初始化失败，请重试') }
-    return { id: SYSTEM_REPOSITORY_ID, name: '系统仓库', rootDirectory: directory, webdavEnabled: false,
+    } catch (_) { throw new Error(localizedText($r('app.string.text_system_repository_initialization_failed_try_again'))) }
+    return { id: SYSTEM_REPOSITORY_ID, name: localizedText($r('app.string.text_system_repository')), rootDirectory: directory, webdavEnabled: false,
       webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] }
   }
 }

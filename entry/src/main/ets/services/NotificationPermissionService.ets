@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { common, Context } from '@kit.AbilityKit'
 import { BusinessError } from '@kit.BasicServicesKit'
 import { notificationManager } from '@kit.NotificationKit'
@@ -96,7 +97,7 @@ export class NotificationPermissionService {
     try { return await notificationManager.isNotificationEnabled() }
     catch (error) {
       const code = (error as BusinessError).code
-      throw new Error(code ? `读取通知状态失败（错误码 ${code}）` : '读取通知状态失败')
+      throw new Error(code ? localizedText($r('app.string.text_failed_to_read_notification_status_error_code'), String(code)) : localizedText($r('app.string.text_failed_to_read_notification_status')))
     }
   }
 
@@ -115,7 +116,7 @@ export class NotificationPermissionService {
       if ((error as BusinessError).code !== 1600004) {
         await NotificationPermissionService.mark(store, false)
         const code = (error as BusinessError).code
-        throw new Error(code ? `请求通知授权失败（错误码 ${code}）` : '请求通知授权失败')
+        throw new Error(code ? localizedText($r('app.string.text_request_for_notification_of_authorization_failed_error'), String(code)) : localizedText($r('app.string.text_request_for_notification_of_authorization_failed')))
       }
     }
     if (await NotificationPermissionService.enabled()) await DeviceBadgeService.refresh(context)

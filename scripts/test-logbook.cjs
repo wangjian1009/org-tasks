@@ -1,4 +1,5 @@
 // 验证日志簿完成与取消任务编排，以及共享卡片只读会话不会打开编辑入口或写入。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +12,7 @@ if (process.argv.includes('-h') || process.argv.includes('--help')) {
 const ts = require(path.join('/Applications/DevEco-Studio.app/Contents', 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function compile(source, mocks = {}) {
   const module = { exports: {} };
-  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const code = transpileFixture(ts, source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   vm.runInThisContext('(function(require,module,exports,TaskInlineSession,LogShowPolicy,ReminderManager){' + code + '\n})')(
     name => name === './TaskOperationGroups' ? compile(fs.readFileSync('entry/src/main/ets/services/TaskOperationGroups.ets', 'utf8')) : mocks[name],
     module, module.exports, mocks.session, { LogShowBySwitch: 'LogShowBySwitch', LogShowAlways: 'LogShowAlways' },

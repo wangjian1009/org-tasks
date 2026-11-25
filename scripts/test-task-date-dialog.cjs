@@ -1,4 +1,5 @@
 // 验证日期窗口只编辑数据并返回字段修改，由调用点决定提交策略。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -10,7 +11,7 @@ if (process.argv.includes('-h') || process.argv.includes('--help')) {
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
 const source = fs.readFileSync('entry/src/main/ets/components/editors/TaskDateDialog.ets', 'utf8');
 const methods = source.slice(source.indexOf('  aboutToAppear()'), source.indexOf('  @Builder'));
-const code = ts.transpileModule('export class Dialog {' + methods + '}', { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+const code = transpileFixture(ts, 'export class Dialog {' + methods + '}', { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
 const moduleValue = { exports: {} };
 vm.runInThisContext('(function(module,exports,inlineDate,UiColor){' + code + '\n})')(moduleValue, moduleValue.exports,
   date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`, { error: 'red', primary: 'green' });

@@ -1,3 +1,4 @@
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +19,7 @@ function deferred() {
 }
 function compile(name, dependencies, globals = {}) {
   const filename = path.join(root, name + '.ets');
-  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const source = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };

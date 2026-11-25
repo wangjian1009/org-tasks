@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { showDangerousConfirmation } from './controls/DangerousConfirmation'
 import { LengthMetrics, window } from '@kit.ArkUI'
 import { CoreFileHeaderEntry, CoreFileHeaderValueChange } from '../services/NativeCoreService'
@@ -87,7 +88,7 @@ export struct OrgFileHeader {
       this.drafts = this.editEntries.filter(entry => !!entry.edit).map((entry: CoreFileHeaderEntry): HeaderDraft =>
         ({ entry, text: entry.value, tags: [...entry.tags], newTag: '' }))
       if (!await TaskInlineSession.begin(this.ownerKey, async (): Promise<boolean> => {
-        if (this.busy || this.dirty()) { this.toast('请先保存或取消属性修改'); return false }
+        if (this.busy || this.dirty()) { this.toast(localizedText($r('app.string.text_please_save_or_cancel_the_attribute_changes'))); return false }
         this.finishEditor(); return true
       })) return
       if (!this.alive) { TaskInlineSession.release(this.ownerKey); return }
@@ -153,16 +154,16 @@ export struct OrgFileHeader {
   closeEditor(): void {
     if (this.busy) return
     if (this.dirty() && !this.saved) {
-      showDangerousConfirmation(this.getUIContext(), { title: '放弃属性修改？', message: '本次未保存的修改将被丢弃。',
-        cancelLabel: '继续编辑',
-        confirmLabel: '放弃修改', onConfirm: (): void => { this.finishEditor() } })
+      showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_discarding_attribute_modifications')), message: localizedText($r('app.string.text_this_unsaved_change_will_be_discarded')),
+        cancelLabel: localizedText($r('app.string.text_continue_editing')),
+        confirmLabel: localizedText($r('app.string.text_discard_changes')), onConfirm: (): void => { this.finishEditor() } })
     } else this.finishEditor()
   }
 
   async submitEditor(): Promise<void> {
     if (!this.editing || this.busy) return
     if (this.saved || !this.dirty()) { this.finishEditor(); return }
-    if (this.sourceVersion !== this.fileVersion) { this.message = '文件已更新，输入已保留。请取消后重新进入编辑。'; return }
+    if (this.sourceVersion !== this.fileVersion) { this.message = localizedText($r('app.string.text_the_file_has_been_updated_and_entered')); return }
     this.busy = true; this.message = ''
     try {
       await this.save(this.changes(), this.sourceVersion)
@@ -170,7 +171,7 @@ export struct OrgFileHeader {
     } catch (error) {
       if (this.alive) {
         this.saved = error instanceof DataSetWriteError && error.committed
-        this.message = this.saved ? '已保存，但页面更新失败。请结束编辑后刷新查看。' : (error as Error).message
+        this.message = this.saved ? localizedText($r('app.string.text_saved_but_page_update_failed_please_finish')) : (error as Error).message
       }
     } finally { if (this.alive) this.busy = false }
   }
@@ -194,7 +195,7 @@ export struct OrgFileHeader {
     }.width('auto').height(32).padding(0).borderRadius(4).flexShrink(0)
       .backgroundColor(this.selectedTags.includes(tag) ? UiColor.primary : Color.Transparent)
       .id(`project_filter_tag_${tag}`).onClick((): void => { if (this.allowFilterClick()) this.toggle(tag) })
-      .accessibilityText(`${tag}，${this.selectedTags.includes(tag) ? '已选中，点击取消筛选' : '未选中，点击加入筛选'}`)
+      .accessibilityText(`${tag}，${this.selectedTags.includes(tag) ? localizedText($r('app.string.text_selected_tap_to_remove_filter')) : localizedText($r('app.string.text_tap_to_filter_by_this_tag'))}`)
   }
 
   @Builder
@@ -233,11 +234,11 @@ export struct OrgFileHeader {
           .backgroundColor(entry.edit!.kind === 'fileTags' ? UiColor.field : this.selectedTags.includes(tag) ? UiColor.primary : Color.Transparent)
           .id(`project_header_delete_${index}_${tag}`)
           .enabled(!this.busy && !this.saved && !entry.edit!.protectedTags.includes(tag))
-          .accessibilityText(entry.edit!.protectedTags.includes(tag) ? `${tag}，不可移除` : `删除标签 ${tag}`)
+          .accessibilityText(entry.edit!.protectedTags.includes(tag) ? localizedText($r('app.string.text_unremovable'), String(tag)) : localizedText($r('app.string.text_remove_label'), String(tag)))
           .onClick((): void => { this.removeTag(entry.id, tag) })
       }, (tag: string) => tag)
       if (this.creatingTagId === entry.id) {
-        TextInput({ text: this.draft(entry.id).newTag, placeholder: '标签' }).fontSize(16).placeholderFont({ size: 16 }).placeholderColor(UiColor.secondary).fontColor(UiColor.text).height(32)
+        TextInput({ text: this.draft(entry.id).newTag, placeholder: localizedText($r('app.string.text_tags')) }).fontSize(16).placeholderFont({ size: 16 }).placeholderColor(UiColor.secondary).fontColor(UiColor.text).height(32)
           .width(Math.min(160, Math.max(48, this.draft(entry.id).newTag.length * 16 + 16)))
           .padding({ left: 6, right: 6, top: 0, bottom: 0 }).backgroundColor(UiColor.field).borderRadius(4)
           .id(`project_header_tag_input_${index}`).enabled(!this.busy && !this.saved).defaultFocus(true)
@@ -248,7 +249,7 @@ export struct OrgFileHeader {
       } else {
         Button('+', { type: ButtonType.Normal }).fontSize(20).height(32).width(32).padding(0).borderRadius(4)
           .backgroundColor(Color.Transparent).fontColor(UiColor.primary).enabled(!this.busy && !this.saved)
-          .accessibilityText(`添加 ${entry.name} 标签`).id(`project_header_add_${index}`)
+          .accessibilityText(localizedText($r('app.string.text_add_label'), String(entry.name))).id(`project_header_add_${index}`)
           .onClick((): void => { this.startTag(entry.id) })
       }
     }.width('100%').constraintSize({ minHeight: 32 })
@@ -267,7 +268,7 @@ export struct OrgFileHeader {
           Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_down')).width(16).height(16).fillColor(UiColor.secondary) }
             .width(32).height(32).padding(0)
             .backgroundColor(Color.Transparent).fontColor(UiColor.secondary).enabled(!this.busy && !this.saved)
-            .accessibilityText('选择已有分类')
+            .accessibilityText($r('app.string.text_select_an_existing_category'))
             .bindMenu(this.categoryOptions.map((value: string): MenuElement => ({ value,
               action: (): void => { this.setText(entry.id, value) } })))
         }
@@ -303,16 +304,16 @@ export struct OrgFileHeader {
       }, (entry: CoreFileHeaderEntry, index: number) => `${this.editing ? 'edit' : 'read'}:${entry.id}:${index}`)
       if (this.editing) {
         Row() {
-          Text('编辑中').fontSize(16).fontColor(UiColor.secondary).layoutWeight(1)
-          Button('取消', { type: ButtonType.Normal }).fontSize(16).height(32).backgroundColor(Color.Transparent)
+          Text($r('app.string.text_editing')).fontSize(16).fontColor(UiColor.secondary).layoutWeight(1)
+          Button($r('app.string.text_cancel'), { type: ButtonType.Normal }).fontSize(16).height(32).backgroundColor(Color.Transparent)
             .fontColor(UiColor.secondary).enabled(!this.busy).id('project_header_cancel').onClick((): void => { this.closeEditor() })
-          Button(this.busy ? '保存中' : this.saved ? '结束编辑' : '保存', { type: ButtonType.Normal }).fontSize(16).height(32)
+          Button(this.busy ? localizedText($r('app.string.text_saving')) : this.saved ? localizedText($r('app.string.text_end_edit')) : localizedText($r('app.string.text_save')), { type: ButtonType.Normal }).fontSize(16).height(32)
             .backgroundColor(Color.Transparent).fontColor(UiColor.primary).enabled(!this.busy)
             .id('project_header_save').onClick((): void => { this.submitEditor() })
         }.width('100%').margin({ top: 4 })
       }
       if (this.editing && this.sourceVersion !== this.fileVersion && !this.saved) {
-        Text('文件已有新版本，当前修改已保留；请取消后重新进入编辑。').fontSize(12).fontColor(UiColor.warning).width('100%').margin({ top: 8 })
+        Text($r('app.string.text_a_new_version_of_the_document_is')).fontSize(12).fontColor(UiColor.warning).width('100%').margin({ top: 8 })
       }
       if (this.editing && this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%').margin({ top: 8 }) }
     }.width('100%').padding({ left: 4, right: 4, top: 8, bottom: 16 }).alignItems(HorizontalAlign.Start)

@@ -1,8 +1,9 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { CoreTask, CoreTaskRepeatMode, CoreTaskRepeatUnit, CoreTaskRepeatInfo, CoreTaskModification, CoreTaskPlanningEdit } from '../../services/NativeCoreService'
 import { repeatUnits, repeatUnitLabels, repeatSummary, repeatModifications } from '../../ui/TaskRepeatPresentation'
 import { inlineDate, inlineDateLabel } from '../../ui/TaskInlinePresentation'
 import { TaskDateDialog } from './TaskDateDialog'
-import { UiColor } from '../../ui/Theme'
+import { UiColor, UiSize } from '../../ui/Theme'
 
 // 参考 Things 3 iPhone：取消／保存、分段模式、分组字段和停止重复。
 @CustomDialog
@@ -45,9 +46,9 @@ export struct TaskRepeatDialog {
     if (this.busy) return
     const interval = Number(this.interval)
     if (!stop && (!/^\d+$/.test(this.interval) || !Number.isSafeInteger(interval) || interval < 1 || interval > 4294967295)) {
-      this.message = '请输入大于零的有效重复间隔'; return
+      this.message = localizedText($r('app.string.text_please_enter_a_valid_repeat_interval_greater')); return
     }
-    if (!stop && this.unit === 'hour' && !this.info()?.hasTime) { this.message = '按小时重复需要任务已有具体时刻'; return }
+    if (!stop && this.unit === 'hour' && !this.info()?.hasTime) { this.message = localizedText($r('app.string.text_we_ve_got_a_specific_moment_to')); return }
     this.busy = true; this.message = ''
     try {
       const changes = repeatModifications(this.deadline, this.info()?.date || '', this.date,
@@ -59,60 +60,60 @@ export struct TaskRepeatDialog {
   build() {
     Column({ space: 16 }) {
       Row() {
-        Button('取消').fontSize(15).fontColor(UiColor.primary).backgroundColor(Color.Transparent).padding(0).height(44)
+        Button($r('app.string.text_cancel')).fontSize(15).fontColor(UiColor.primary).backgroundColor(Color.Transparent).padding(0).height(44)
           .enabled(!this.busy).onClick(() => { this.close() })
-        Text('重复').fontSize(17).fontWeight(FontWeight.Medium).fontColor(UiColor.text).textAlign(TextAlign.Center).layoutWeight(1)
-        Button('保存').id('repeat_save').fontSize(15).fontColor(UiColor.primary).backgroundColor(Color.Transparent).padding(0).height(44)
+        Text($r('app.string.text_repeat')).fontSize(17).fontWeight(FontWeight.Medium).fontColor(UiColor.text).textAlign(TextAlign.Center).layoutWeight(1)
+        Button($r('app.string.text_save')).id('repeat_save').fontSize(15).fontColor(UiColor.primary).backgroundColor(Color.Transparent).padding(0).height(44)
           .enabled(!this.busy).onClick(() => { this.accept() })
       }.width('100%')
       Scroll() {
         Column({ space: 16 }) {
           Row({ space: 4 }) {
-            Button('计划日期').type(ButtonType.Normal).layoutWeight(1).height(38).fontSize(14).fontColor(UiColor.text)
+            Button($r('app.string.text_scheduled_date')).type(ButtonType.Normal).layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).fontSize(14).fontColor(UiColor.text)
               .backgroundColor(!this.deadline ? '#555655' : Color.Transparent).borderRadius(8).enabled(!this.busy).onClick(() => { this.load(false) })
-            Button('截止日期').type(ButtonType.Normal).layoutWeight(1).height(38).fontSize(14).fontColor(UiColor.text)
+            Button($r('app.string.text_deadline')).type(ButtonType.Normal).layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).fontSize(14).fontColor(UiColor.text)
               .backgroundColor(this.deadline ? '#555655' : Color.Transparent).borderRadius(8).enabled(!this.busy).onClick(() => { this.load(true) })
           }.width('100%').padding(3).backgroundColor(UiColor.field).borderRadius(10)
           Row({ space: 4 }) {
-            Button('定期').type(ButtonType.Normal).layoutWeight(1).height(38).fontSize(14).fontColor(UiColor.text)
+            Button($r('app.string.text_periodic')).type(ButtonType.Normal).layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).fontSize(14).fontColor(UiColor.text)
               .backgroundColor(this.mode !== 'afterCompletion' ? '#555655' : Color.Transparent).borderRadius(8).enabled(!this.busy)
               .onClick(() => { this.mode = this.info()?.rule?.mode === 'catchUp' ? 'catchUp' : 'cumulative' })
-            Button('完成后').type(ButtonType.Normal).layoutWeight(1).height(38).fontSize(14).fontColor(UiColor.text)
+            Button($r('app.string.text_after_completion')).type(ButtonType.Normal).layoutWeight(1).constraintSize({ minHeight: UiSize.taskRow }).fontSize(14).fontColor(UiColor.text)
               .backgroundColor(this.mode === 'afterCompletion' ? '#555655' : Color.Transparent).borderRadius(8).enabled(!this.busy)
               .onClick(() => { this.mode = 'afterCompletion' })
           }.width('100%').padding(3).backgroundColor(UiColor.field).borderRadius(10)
-          Text(this.mode === 'afterCompletion' ? '从实际完成日期起，间隔一段时间后再次安排。' : '以任务日期为基准，按固定间隔重复。')
+          Text(this.mode === 'afterCompletion' ? localizedText($r('app.string.text_from_the_actual_date_of_completion_arrangements')) : localizedText($r('app.string.text_the_date_of_the_mandate_is_used')))
             .fontSize(13).fontColor(UiColor.secondary).width('100%')
           Row({ space: 8 }) {
-            Text(this.mode === 'afterCompletion' ? '完成后' : '每隔').fontSize(15).fontColor(UiColor.text)
+            Text(this.mode === 'afterCompletion' ? localizedText($r('app.string.text_after_completion')) : localizedText($r('app.string.text_every'))).fontSize(15).fontColor(UiColor.text)
             TextInput({ text: this.interval }).id('repeat_interval').layoutWeight(1).height(44).type(InputType.Number)
               .fontSize(16).fontColor(UiColor.text).backgroundColor(UiColor.field).enabled(!this.busy)
-              .accessibilityText('重复间隔').onChange((value: string) => { this.interval = value })
-            Select(repeatUnitLabels.map((value: string): SelectOption => { return { value } }))
+              .accessibilityText($r('app.string.text_repeat_interval')).onChange((value: string) => { this.interval = value })
+            Select(repeatUnitLabels.map((value: Resource): SelectOption => { return { value } }))
               .selected(repeatUnits.indexOf(this.unit)).value(repeatUnitLabels[repeatUnits.indexOf(this.unit)])
               .fontColor(UiColor.primary).backgroundColor(UiColor.field).enabled(!this.busy)
               .onSelect((index: number) => { this.unit = repeatUnits[index] })
           }.width('100%')
           Row() {
-            Text('下次日期').fontSize(15).fontColor(UiColor.text).layoutWeight(1)
+            Text($r('app.string.text_next_date')).fontSize(15).fontColor(UiColor.text).layoutWeight(1)
             Text(inlineDateLabel(this.date)).fontSize(14).fontColor(UiColor.primary).constraintSize({ maxWidth: '64%' })
             Image($r('app.media.ui_next')).width(20).height(20).margin({ left: 8 }).accessibilityLevel('no')
           }.width('100%').constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 })
             .backgroundColor(UiColor.field).borderRadius(10).enabled(!this.busy).onClick(() => { this.chooseDate() })
           if (this.mode !== 'afterCompletion') {
             Row() {
-              Text('错过日期时').fontSize(15).fontColor(UiColor.text).layoutWeight(1)
-              Text(this.mode === 'catchUp' ? '跳到未来' : '顺延一次').fontSize(14).fontColor(UiColor.primary)
+              Text($r('app.string.text_missing_date')).fontSize(15).fontColor(UiColor.text).layoutWeight(1)
+              Text(this.mode === 'catchUp' ? localizedText($r('app.string.text_jump_to_the_future')) : localizedText($r('app.string.text_one_extension'))).fontSize(14).fontColor(UiColor.primary)
               Image($r('app.media.ui_next')).width(20).height(20).margin({ left: 8 }).accessibilityLevel('no')
             }.width('100%').constraintSize({ minHeight: 48 }).padding({ left: 12, right: 12 })
               .backgroundColor(UiColor.field).borderRadius(10).enabled(!this.busy)
               .onClick(() => { this.mode = this.mode === 'catchUp' ? 'cumulative' : 'catchUp' })
-            Text(this.mode === 'catchUp' ? '完成后推进到今天之后的下一个日期。' : '完成后只向前推进一个间隔，可能仍是过期日期。')
+            Text(this.mode === 'catchUp' ? localizedText($r('app.string.text_after_completion_move_forward_to_the_next')) : localizedText($r('app.string.text_only_one_interval_will_be_moved_forward')))
               .fontSize(12).fontColor(UiColor.secondary).width('100%')
           }
           if (this.info()?.rule) {
-            Text(`当前：${repeatSummary(this.info()?.rule)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
-            Button('停止重复').id('repeat_stop').width('100%').height(44).fontColor(UiColor.error).backgroundColor('#443337')
+            Text(localizedText($r('app.string.text_current_2'), String(repeatSummary(this.info()?.rule)))).fontSize(12).fontColor(UiColor.secondary).width('100%')
+            Button($r('app.string.text_stop_repeating')).id('repeat_stop').width('100%').height(44).fontColor(UiColor.error).backgroundColor('#443337')
               .enabled(!this.busy).onClick(() => { this.accept(true) })
           }
           if (this.message) { Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%') }

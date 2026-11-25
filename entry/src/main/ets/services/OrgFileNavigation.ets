@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { PageNavigator } from './PageNavigator'
 import { PageRoute } from './PagePath'
 import { UIContext } from '@kit.ArkUI'
@@ -19,7 +20,7 @@ export class OrgFileNavigation {
     if (!await TaskInlineSession.end(true) || previous !== PageNavigator.shared.path ||
       !await OrgFileNavigation.hasInternalTarget(context, repoId, path, target) || previous !== PageNavigator.shared.path ||
       !await PageNavigator.shared.pushPage(context, { url: 'pages/OrgFileDetail', params: { repoId, path, focusLink: target } })) {
-      throw new Error('内部链接目标已变化或当前编辑尚未保存')
+      throw new Error(localizedText($r('app.string.text_internal_link_target_changed_or_current_edit')))
     }
   }
 
@@ -34,7 +35,7 @@ export class OrgFileNavigation {
       return primary ? await PageNavigator.shared.openPrimary(context, page) : await PageNavigator.shared.pushPage(context, page)
     }
     catch (_) {
-      try { context.getPromptAction().showToast({ message: '暂时无法打开项目，请重试。' }) }
+      try { context.getPromptAction().showToast({ message: localizedText($r('app.string.text_couldn_t_open_the_project_try_again')) }) }
       catch (_) { /* 页面已退出时不再显示提示。 */ }
       return false
     }

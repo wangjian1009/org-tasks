@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { compareRecords } from '../ui/QueryOrderPresentation'
 import { samePageTask, samePageMetadata, samePageValue } from './PageDataEquality'
 import { Context } from '@kit.AbilityKit'
@@ -178,7 +179,7 @@ export class DataSet {
     let committed = false
     try {
       await this.operate(async (operationId: string): Promise<void> => {
-        if (!this.workspace) throw new Error('底层连接不可用')
+        if (!this.workspace) throw new Error(localizedText($r('app.string.text_bottom_connection_not_available')))
         await this.workspace.executeTaskOperations({ operationId,
           operations: [{ type: 'FileHaderModification', data: { file, changes } }],
           fileVersions: [{ repoId: file.repoId, file: file.path, version: sourceVersion }] })
@@ -192,11 +193,11 @@ export class DataSet {
   async operate(execute: (operationId: string) => Promise<void>): Promise<void> { await this.runOperation(this.name, execute) }
   async commitStructure(request: CoreTaskStructureRequest): Promise<string[]> {
     const file = request.file.file
-    if (!file) throw new Error('项目文件路径为空')
+    if (!file) throw new Error(localizedText($r('app.string.text_project_file_path_is_empty')))
     const created = new Set<string>()
     await this.runOperation(this.name, async (operationId: string): Promise<void> => {
       const workspace = this.workspace
-      if (!workspace) throw new Error('底层连接不可用')
+      if (!workspace) throw new Error(localizedText($r('app.string.text_bottom_connection_not_available')))
       const group = await workspace.taskStructureOperations(request)
       if (!group.operations.length) return
       const before = new Set<string>(this.taskRows.get(this.name)?.keys() ?? [])
@@ -217,8 +218,8 @@ export class DataSet {
     if (!group.operations.length) return
     const files = group.fileVersions?.map(version => JSON.stringify([version.repoId, version.file])) ?? this.scopeFiles()
     await this.start()
-    if (!this.isReady() || this.closing) throw new Error('页面数据集当前不可编辑')
-    if (!allowed()) throw new Error('操作已取消')
+    if (!this.isReady() || this.closing) throw new Error(localizedText($r('app.string.text_page_dataset_is_currently_unedited')))
+    if (!allowed()) throw new Error(localizedText($r('app.string.text_operation_cancelled')))
     const version = this.clock ? this.clock.next() : this.sequence + 1
     this.sequence = version
     const edit: PendingEdit = {
@@ -288,7 +289,7 @@ export class DataSet {
     const key = this.itemKey(name, id)
     await this.update(name, id, changes, sourceVersion)
     const task = this.getTask(key, name)
-    if (!task) throw new Error('任务已离开当前数据集')
+    if (!task) throw new Error(localizedText($r('app.string.text_task_has_left_the_current_data_set')))
     return task
   }
   async commitTaskFields(id: string, changes: TaskModification[], sourceVersion: string): Promise<CoreTask> {
@@ -296,7 +297,7 @@ export class DataSet {
     const key = this.itemKey(this.name, id)
     await this.queueUpdate(this.name, key, changes, sourceVersion, false).completion
     const task = this.getTask(key)
-    if (!task) throw new DataSetWriteError('任务已离开当前数据集', true)
+    if (!task) throw new DataSetWriteError(localizedText($r('app.string.text_task_has_left_the_current_data_set')), true)
     return task
   }
   watchTask(id: string, listener: (change: TaskDataChange) => void, name: string = this.name): () => void {
@@ -310,7 +311,7 @@ export class DataSet {
     return Number.isSafeInteger(value) && value >= 0 ? value : undefined
   }
   start(): Promise<void> {
-    if (this.closed || this.closing) return Promise.reject(new Error('页面数据集已关闭'))
+    if (this.closed || this.closing) return Promise.reject(new Error(localizedText($r('app.string.text_page_data_set_closed'))))
     if (!this.initialization) {
       const initialization = this.initialize().catch((error: Error): never => { if (this.initialization === initialization) this.initialization = undefined; throw error })
       this.initialization = initialization
@@ -318,7 +319,7 @@ export class DataSet {
     return this.initialization
   }
   private async initialize(): Promise<void> {
-    if (this.scopeChanged || !this.connection) throw new Error('数据集尚未配置')
+    if (this.scopeChanged || !this.connection) throw new Error(localizedText($r('app.string.text_dataset_is_not_yet_configured')))
     this.workspace = this.connection
     const definition = this.definition
     if (!definition) {
@@ -334,8 +335,8 @@ export class DataSet {
   private requestExternalRefresh(): void { this.clock?.refresh(this.name) }
   private async load(definition: DataSetDefinition, version: number): Promise<void> {
     const workspace = this.workspace
-    if (!workspace) throw new Error('底层连接尚未建立')
-    if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
+    if (!workspace) throw new Error(localizedText($r('app.string.text_bottom_connection_not_established')))
+    if (this.scopeChanged) throw new Error(localizedText($r('app.string.text_page_data_range_changed_please_reopen_the')))
     const operationId = this.operationId(version, 'refresh')
     const activate = (): void => {
       this.generation = operationId
@@ -343,7 +344,7 @@ export class DataSet {
     }
     try {
       {
-        if (!this.clock) throw new Error('数据集缺少订阅管理器')
+        if (!this.clock) throw new Error(localizedText($r('app.string.text_data_set_without_subscription_manager')))
         const result = await this.clock.subscribe(this.name, { query: definition.query, callback: (event: CoreDataChangeEvent): void => {
           if (this.closed || this.generation !== operationId) return
           const queue = this.initialEvents.get(this.name)
@@ -351,7 +352,7 @@ export class DataSet {
           else this.onCoreDataChanged(this.name, event, operationId)
         }, operationId, repositoryBindings: this.repositoryBindings }, activate)
         if (this.closed || this.generation !== operationId) {
-          throw new Error('数据集查询已变化')
+          throw new Error(localizedText($r('app.string.text_dataset_query_changed')))
         }
         this.applyFullResult(this.name, result.data, result.operationId ?? operationId)
         const events = this.initialEvents.get(this.name) ?? []
@@ -378,8 +379,8 @@ export class DataSet {
   }
   async refresh(): Promise<void> {
     await this.start()
-    if (this.closing || this.closed) throw new Error('页面数据集已关闭')
-    if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
+    if (this.closing || this.closed) throw new Error(localizedText($r('app.string.text_page_data_set_closed')))
+    if (this.scopeChanged) throw new Error(localizedText($r('app.string.text_page_data_range_changed_please_reopen_the')))
     const definition = this.definition
     if (!definition) return
     const version = this.clock ? this.clock.next() : this.sequence + 1
@@ -390,15 +391,15 @@ export class DataSet {
   }
   async runOperation(name: string, execute: (operationId: string) => Promise<void>, files?: string[], operationOnly: boolean = false): Promise<void> {
     await this.start()
-    if (!this.isReady() || this.closing) throw new Error('页面数据集当前不可编辑')
+    if (!this.isReady() || this.closing) throw new Error(localizedText($r('app.string.text_page_dataset_is_currently_unedited')))
     const version = this.clock ? this.clock.next() : this.sequence + 1
     this.sequence = version
     const operationId = this.operationId(version, 'operation')
     const work = UserOperationQueue.submit(async (): Promise<void> => {
       try {
-        if (!this.hasValidScope()) throw new Error('页面数据范围已变化')
+        if (!this.hasValidScope()) throw new Error(localizedText($r('app.string.text_page_data_range_changed')))
         if (this.clock && await this.clock.status(this.name) !== 'current') {
-          this.requestExternalRefresh(); throw new Error('数据订阅已失效，正在刷新页面')
+          this.requestExternalRefresh(); throw new Error(localizedText($r('app.string.text_data_subscription_is_invalid_refreshing_page')))
         }
         await execute(operationId)
         this.loadError = ''
@@ -413,7 +414,7 @@ export class DataSet {
   }
   private queueUpdate(name: string, key: string, changes: TaskModification[], sourceVersion?: string, rebaseQueuedVersion: boolean = true): DataSetSubmission {
     const task = this.findTask(name, key)
-    if (!task) throw new Error('任务不在当前数据集中')
+    if (!task) throw new Error(localizedText($r('app.string.text_tasks_are_not_currently_in_data_collection')))
     const edit = this.edit(name, 'update', task, changes, sourceVersion)
     edit.rebaseVersion = rebaseQueuedVersion && this.pending.some(item => item.files.some(file => edit.files.includes(file)))
     return { operationId: edit.id, completion: this.submit(edit) }
@@ -432,20 +433,20 @@ export class DataSet {
   async remove(name: string, key: string): Promise<void> {
     if (!this.ready) await this.start()
     const task = this.findTask(name, key)
-    if (!task) throw new Error('任务不在当前数据集中')
+    if (!task) throw new Error(localizedText($r('app.string.text_tasks_are_not_currently_in_data_collection')))
     this.submit(this.edit(name, 'remove', task, [])).catch((): void => {})
   }
   async create(name: string, value: TaskCreation, sourceVersion?: string): Promise<void> {
     if (!this.ready) await this.start()
     const target = this.confirmed.get(name)
-    if (target?.type !== 'task') throw new Error('创建目标不是任务数据集')
+    if (target?.type !== 'task') throw new Error(localizedText($r('app.string.text_create_target_is_not_a_task_data')))
     const metadata = this.clock?.metadata?.(value.position.parent.repoId, value.position.parent.file!) ?? Array.from(this.confirmed.values()).filter(item => item.type === 'file')
       .flatMap(item => item.type === 'file' ? item.result : []).find(file => file.repoId === value.position.parent.repoId && file.path === value.position.parent.file)
-    if (!metadata) throw new Error('创建需要在页面数据集中包含目标文件元信息')
+    if (!metadata) throw new Error(localizedText($r('app.string.text_create_needs_to_include_target_file_metadata')))
     const reference = Array.from(this.confirmed.values()).flatMap(item => item.type === 'task' ? item.result.tasks : [])
       .find(task => task.repoId === value.position.parent.repoId && task.filePath === value.position.parent.file)
     const version = sourceVersion ?? reference?.fileVersion ?? ''
-    if ((value.position.parent.titles.length > 0 || value.position.after) && !version) throw new Error('创建位置需要对应的文件版本')
+    if ((value.position.parent.titles.length > 0 || value.position.after) && !version) throw new Error(localizedText($r('app.string.text_file_version_for_creation_location')))
     const draft = createPageTask(metadata, '', value)
     const edit = this.edit(name, 'create', draft, [])
     edit.creation = JSON.parse(JSON.stringify(value)) as TaskCreation; edit.draft = draft; edit.sourceVersion = version
@@ -455,14 +456,14 @@ export class DataSet {
   async move(name: string, key: string, target: CoreRefileTarget): Promise<void> {
     if (!this.ready) await this.start()
     const task = this.findTask(name, key)
-    if (!task) throw new Error('任务不在当前数据集中')
+    if (!task) throw new Error(localizedText($r('app.string.text_tasks_are_not_currently_in_data_collection')))
     const edit = this.edit(name, 'move', task, [])
     edit.target = JSON.parse(JSON.stringify(target)) as CoreRefileTarget
     edit.files.push(JSON.stringify([target.repoId, target.path]))
     this.submit(edit).catch((): void => {})
   }
   private edit(name: string, kind: 'update' | 'remove' | 'create' | 'move', task: CoreTask, changes: TaskModification[], sourceVersion?: string): PendingEdit {
-    if (this.closing || this.closed || !this.ready) throw new Error('页面数据集当前不可编辑')
+    if (this.closing || this.closed || !this.ready) throw new Error(localizedText($r('app.string.text_page_dataset_is_currently_unedited')))
     const version = this.clock ? this.clock.next() : this.sequence + 1
     this.sequence = version
     return { id: this.operationId(version, kind), version, name, kind, key: taskKey(task), files: [JSON.stringify([task.repoId, task.filePath])],
@@ -486,14 +487,14 @@ export class DataSet {
     this.rebuild(this.name, edit.id, true)
     const work = UserOperationQueue.submit(async (): Promise<void> => {
       const workspace = this.workspace
-      if (!workspace) throw new Error('底层连接不可用')
+      if (!workspace) throw new Error(localizedText($r('app.string.text_bottom_connection_not_available')))
       let committed: boolean = false
       try {
-        if (this.scopeChanged) throw new Error('页面数据范围已变化，请重新打开页面')
-        if (edit.missingFrames.size) throw new Error('操作涉及的文件或记录已移除')
+        if (this.scopeChanged) throw new Error(localizedText($r('app.string.text_page_data_range_changed_please_reopen_the')))
+        if (edit.missingFrames.size) throw new Error(localizedText($r('app.string.text_the_files_or_records_involved_in_the')))
         if (this.clock && await this.clock.status(this.name) !== 'current') {
           this.requestExternalRefresh()
-          throw new Error('数据订阅已失效，正在刷新页面')
+          throw new Error(localizedText($r('app.string.text_data_subscription_is_invalid_refreshing_page')))
         }
         let group: CoreTaskOperationGroup
         if (edit.kind === 'group') {
@@ -508,7 +509,7 @@ export class DataSet {
         }
         else {
           const task = Array.from(this.confirmed.values()).flatMap(item => item.type === 'task' ? item.result.tasks : []).find(item => taskKey(item) === edit.key)
-          if (!task || edit.missingFrames.size) throw new Error('任务已离开当前数据集')
+          if (!task || edit.missingFrames.size) throw new Error(localizedText($r('app.string.text_task_has_left_the_current_data_set')))
           if (edit.kind === 'move' && edit.target) {
             group = { operationId: edit.id, operations: [{ type: 'Movement', data: { path: task.fullPath, position: { parent: edit.target.fullPath } } }],
               fileVersions: [{ repoId: task.repoId, file: task.filePath, version: task.fileVersion }, { repoId: edit.target.repoId, file: edit.target.path, version: edit.target.fileVersion }] }
@@ -576,7 +577,7 @@ export class DataSet {
     if (!failed && !this.scopeChanged) this.versions.set(this.name, Math.max(this.versions.get(this.name) ?? 0, edit.version))
     this.rebuild(this.name, edit.id, this.pending.length > 0)
     this.publish({ name: edit.name, type: 'complete', version: edit.version, operationId: edit.id,
-      optimistic: false, dataVersion: this.views.get(edit.name)?.version, added: [], removed: [], updated: [], succeeded: !failed, result: this.scopeChanged ? undefined : this.getConfirmed(edit.name), message: failed ? '提交失败' : undefined })
+      optimistic: false, dataVersion: this.views.get(edit.name)?.version, added: [], removed: [], updated: [], succeeded: !failed, result: this.scopeChanged ? undefined : this.getConfirmed(edit.name), message: failed ? localizedText($r('app.string.text_failed_to_submit')) : undefined })
   }
   private onCoreDataChanged(name: string, event: CoreDataChangeEvent, refreshId: string): void {
     const data = this.confirmed.get(name)
@@ -594,7 +595,7 @@ export class DataSet {
       task.repoId === file.after.repoId && task.filePath === file.after.path &&
       task.fileVersion !== file.beforeVersion && task.fileVersion !== file.afterVersion))
     if (incomplete || discontinuous) {
-      this.emitError(name, operationId, new Error(incomplete ? '数据事件缺少显示快照，正在恢复' : '文件版本不连续，正在恢复'))
+      this.emitError(name, operationId, new Error(incomplete ? localizedText($r('app.string.text_data_event_missing_snapshot_and_recovering')) : localizedText($r('app.string.text_file_version_not_continuous_recovering'))))
       this.clock?.refresh(name)
       return
     }
@@ -657,7 +658,7 @@ export class DataSet {
         return new PageTaskSnapshot(record)
       })
       for (const change of event.changes) if (change.after) {
-        if (!change.after.view) { this.emitError(name, operationId, new Error('数据事件缺少任务显示快照')); return }
+        if (!change.after.view) { this.emitError(name, operationId, new Error(localizedText($r('app.string.missing_task_snapshot')))); return }
         tasks.push(new PageTaskSnapshot(taskRecord(change.after.view)))
       }
       tasks.sort(compareRecords)
@@ -667,7 +668,7 @@ export class DataSet {
       for (const file of event.files ?? []) keys.add(JSON.stringify([file.after.repoId, file.after.path]))
       const files = data.result.filter(file => !keys.has(JSON.stringify([file.repoId, file.path])))
       for (const file of event.files ?? []) {
-        if (!file.afterView) { this.emitError(name, operationId, new Error('数据事件缺少文件显示快照')); return }
+        if (!file.afterView) { this.emitError(name, operationId, new Error(localizedText($r('app.string.text_data_event_missing_files_to_display_snapshots')))); return }
         files.push(new PageMetadataSnapshot(metadataRecord(file.afterView)))
       }
       files.sort(compareRecords)

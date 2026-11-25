@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreTask, CoreTaskModification } from '../services/NativeCoreService'
 import { DataSet, TaskDataSource } from '../services/DataSet'
 import { TaskInlineSession } from '../services/TaskInlineService'
@@ -69,7 +70,7 @@ export struct OrgFileTaskSection {
 
   async modify(changes: CoreTaskModification[]): Promise<void> {
     const task = this.source?.task
-    if (!task) throw new Error('当前章节已移除')
+    if (!task) throw new Error(localizedText($r('app.string.text_current_chapter_removed')))
     await this.dataSet!.updateTask(this.taskId, changes, task.fileVersion)
   }
 
@@ -89,12 +90,12 @@ export struct OrgFileTaskSection {
   private chapterActions(close: () => void): TaskActionItem[] {
     const items = this.structureActions(false)
       .map((item): TaskActionItem => ({
-        id: item.title === '任务' ? TaskOperation.Project : item.title === '章节' ? TaskOperation.Memo : TaskOperation.Refactor,
-        title: item.title, label: item.title === '任务' ? '添加任务' : item.title === '章节' ? '添加章节' : '重构章节',
+        id: item.title === localizedText($r('app.string.text_tasks_2')) ? TaskOperation.Project : item.title === localizedText($r('app.string.text_section')) ? TaskOperation.Memo : TaskOperation.Refactor,
+        title: item.title, label: item.title === localizedText($r('app.string.text_tasks_2')) ? localizedText($r('app.string.text_add_task')) : item.title === localizedText($r('app.string.text_section')) ? localizedText($r('app.string.text_add_chapter')) : localizedText($r('app.string.text_reconstruct_chapter')),
         icon: item.icon!, action: (): void => { close(); item.action() }
       }))
     if (this.canAddContent()) {
-      items.unshift({ id: 'addContent', title: '添加内容', label: '添加章节内容', icon: $r('app.media.ui_add'),
+      items.unshift({ id: 'addContent', title: localizedText($r('app.string.text_add')), label: localizedText($r('app.string.text_add_chapter_2')), icon: $r('app.media.ui_add'),
         action: (): void => { close(); this.addContent() } })
     }
     return items
@@ -118,7 +119,7 @@ export struct OrgFileTaskSection {
             .width(14).height(14).fillColor(UiColor.secondary).accessibilityLevel('no')
         }.id(`project_order_fold:${this.taskId}`).width(28).height(44).padding(0)
           .backgroundColor(Color.Transparent).enabled(!this.orderDragActive)
-          .accessibilityText(`${this.orderFolded ? '展开子节点' : '折叠子节点'}，${this.node?.heading ?? ''}`)
+          .accessibilityText(`${this.orderFolded ? localizedText($r('app.string.text_expand_subpoints')) : localizedText($r('app.string.text_collapse_subnodes'))}，${this.node?.heading ?? ''}`)
           .onClick(this.toggleOrderFold)
       } else {
         Blank().width(28)
@@ -134,7 +135,7 @@ export struct OrgFileTaskSection {
         Row() {
           Image($r('app.media.ui_drag_handle')).width(22).height(22).draggable(false)
         }.id(`project_order_drag:${this.taskId}`).width(44).height(44).justifyContent(FlexAlign.Center).enabled(!this.editBusy)
-          .accessibilityText(`长按拖动，${this.node?.heading ?? ''}`)
+          .accessibilityText(localizedText($r('app.string.text_long_press_drag'), String(this.node?.heading ?? '')))
           .gesture(GestureGroup(GestureMode.Sequence, LongPressGesture({ repeat: false, duration: 300 }),
             PanGesture({ direction: PanDirection.Vertical, distance: 4 })
               .onActionStart(this.beginDrag)

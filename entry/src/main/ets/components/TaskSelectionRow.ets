@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { UiColor } from '../ui/Theme'
 
 // 原任务内容保持挂载，多选期间由外层承接点击并屏蔽内部编辑。
@@ -35,7 +36,7 @@ export struct TaskSelectionRow {
         this.highlighted ? '#323D3A' : Color.Transparent)
       .borderRadius(this.selectionActive() ? 8 : 12)
       .border({ width: !this.selectionActive() && this.highlighted ? 1 : 0, color: UiColor.primary })
-      .accessibilityText(this.selectionActive() ? `${this.heading}，${this.selectedIndex >= 0 ? `已选择，第 ${this.selectedIndex + 1} 条` : '未选择'}` : '')
+      .accessibilityText(this.selectionActive() ? `${this.heading}，${this.selectedIndex >= 0 ? localizedText($r('app.string.text_selected_art'), String(this.selectedIndex + 1)) : localizedText($r('app.string.text_no_selection'))}` : '')
       .onClick((): void => { this.toggleSelection() })
       .gesture(LongPressGesture({ repeat: false }).onAction((): void => { this.beginSelection() }))
   }

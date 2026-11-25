@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { LengthMetrics } from '@kit.ArkUI'
 import { TaskTagSelection, allTaskTagsSelected, toggleTaskTag, groupedTaskTags } from '../ui/TaskTagFilterPresentation'
 import { UiColor } from '../ui/Theme'
@@ -17,12 +18,12 @@ struct TaskTagChip {
       Text(this.label).fontSize(14).fontWeight(FontWeight.Medium)
         .fontColor(this.selected ? '#25282C' : this.unselectedForeground)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: 88 })
+        .constraintSize({ maxWidth: this.chipWidth > 0 ? this.chipWidth : 104 })
         .padding({ left: 8, right: 8, top: 3, bottom: 3 })
         .backgroundColor(this.selected ? this.selectedBackground : this.unselectedBackground).borderRadius(16)
-    }.width(this.chipWidth > 0 ? this.chipWidth : 'auto').height(32).padding(0).borderRadius(18)
+    }.width(this.chipWidth > 0 ? this.chipWidth : 'auto').constraintSize({ minHeight: 32 }).padding(0).borderRadius(18)
       .backgroundColor(Color.Transparent).flexShrink(0)
-      .accessibilityText(`${this.label}，${this.selected ? '已选中' : '未选中'}`)
+      .accessibilityText(`${this.label}，${this.selected ? localizedText($r('app.string.text_selected')) : localizedText($r('app.string.text_not_selected'))}`)
       .onClick((): void => { this.activate() })
   }
 }
@@ -46,12 +47,13 @@ export struct TaskTagFilter {
 
   tagGroups(): string[][] { return groupedTaskTags(this.tags, this.exclusiveGroups) }
 
-  tagChipWidth(label: string): number {
-    const width = this.getUIContext().getMeasureUtils().measureText({
-      textContent: label, fontSize: 14, fontWeight: FontWeight.Medium
+  tagChipWidth(label: string, limit: number = 104): number {
+    const context = this.getUIContext()
+    const width = context.getMeasureUtils().measureText({
+      textContent: label, fontSize: `${context.fp2px(14)}px`, fontWeight: FontWeight.Medium
     })
-    // 保留测量精度，逐项取整会累积宽度误差，使本来能放下的标签提前换行。
-    return Math.min(104, this.getUIContext().px2vp(width) + 16)
+    // 向上取整并计入左右内边距，避免放大后的文字被胶囊边缘裁切。
+    return Math.min(limit, Math.ceil(context.px2vp(width) + 16))
   }
 
   toggleWidth(): number { return 32 }
@@ -61,8 +63,12 @@ export struct TaskTagFilter {
   }
 
   fixedChipWidth(): number {
-    const runningWidth = this.enableRuningFilter ? this.tagChipWidth('进行中') + 2 : 0
-    return this.tagChipWidth('全部') + runningWidth + this.tagChipWidth('无标签') + 2
+    const runningWidth = this.enableRuningFilter ? this.filterChipWidth(localizedText($r('app.string.text_ongoing'))) + 2 : 0
+    return this.filterChipWidth(localizedText($r('app.string.text_all'))) + runningWidth + this.filterChipWidth(localizedText($r('app.string.text_no_label'))) + 2
+  }
+
+  filterChipWidth(label: string): number {
+    return this.tagChipWidth(label, this.availableWidth || 160)
   }
 
   remainingTagWidth(): number {
@@ -111,26 +117,26 @@ export struct TaskTagFilter {
         .width(14).height(14).fillColor(UiColor.secondary).accessibilityLevel('no')
     }.width(this.toggleWidth()).height(32).padding(0)
       .backgroundColor(Color.Transparent).borderRadius(16).flexShrink(0)
-      .accessibilityText(this.expanded ? '收起全部标签筛选' : '展开全部标签筛选')
+      .accessibilityText(this.expanded ? localizedText($r('app.string.text_collapse_all_tab_filters')) : localizedText($r('app.string.text_expand_all_tab_filters')))
       .onClick((): void => { this.expanded = !this.expanded })
   }
 
   build() {
     Row({ space: 2 }) {
-      Flex({ wrap: this.expanded ? FlexWrap.Wrap : FlexWrap.NoWrap, alignItems: ItemAlign.Center,
+      Flex({ wrap: this.expanded || this.fixedChipWidth() > this.usableWidth() ? FlexWrap.Wrap : FlexWrap.NoWrap, alignItems: ItemAlign.Center,
         space: { main: LengthMetrics.vp(2), cross: LengthMetrics.vp(0) } }) {
-        TaskTagChip({ label: '全部', selected: this.allSelected(), selectedBackground: UiColor.secondary,
-          chipWidth: this.tagChipWidth('全部'), activate: (): void => {
+        TaskTagChip({ label: localizedText($r('app.string.text_all')), selected: this.allSelected(), selectedBackground: UiColor.secondary,
+          chipWidth: this.filterChipWidth(localizedText($r('app.string.text_all'))), activate: (): void => {
           this.changed({ tags: [], includeUntagged: false }, false)
         } })
         if (this.enableRuningFilter) {
-          TaskTagChip({ label: '进行中', selected: this.runningOnly,
+          TaskTagChip({ label: localizedText($r('app.string.text_ongoing')), selected: this.runningOnly,
             unselectedBackground: UiColor.taskDoingTint, unselectedForeground: UiColor.text,
-            chipWidth: this.tagChipWidth('进行中'), activate: (): void => {
+            chipWidth: this.filterChipWidth(localizedText($r('app.string.text_ongoing'))), activate: (): void => {
               this.changed(this.selection(), !this.runningOnly)
             } })
         }
-        TaskTagChip({ label: '无标签', selected: this.includeUntagged, chipWidth: this.tagChipWidth('无标签'), activate: (): void => {
+        TaskTagChip({ label: localizedText($r('app.string.text_no_label')), selected: this.includeUntagged, chipWidth: this.filterChipWidth(localizedText($r('app.string.text_no_label'))), activate: (): void => {
           this.changed({ tags: this.selectedTags, includeUntagged: !this.includeUntagged }, this.runningOnly)
         } })
         ForEach(this.displayTags(), (tag: string, index: number) => {

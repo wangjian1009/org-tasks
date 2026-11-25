@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 // 集中读取应用配置；配置 ID 用于定位配置和凭据，core 仓库 ID 由目录维护。
 
 import { defaultSyncOptions, normalizeSyncOptions, defaultTodoSettings, SyncOptions as NativeSyncOptions, CoreSettings, validateConfiguration } from 'liborg_tasks_harmony.so'
@@ -17,7 +18,7 @@ export function validateEntryFile(path: string): void {
   if (file && (!file.endsWith('.org') || file.startsWith('/') || file.includes('\\') ||
     file.split('/').some((part: string) => part === '..' || part === '.' || part.length === 0) ||
     file.split('/')[0] === '.sync' || /[\x00-\x1f\x7f]/.test(file))) {
-    throw new Error('收件箱、某天和备忘文件必须是存储库中的安全相对 .org 路径，未配置时可留空')
+    throw new Error(localizedText($r('app.string.text_inboxes_one_day_and_memo_files_must')))
   }
 }
 
@@ -179,7 +180,7 @@ export class AppConfigService {
   }
 
   static async removeRepository(context: Context, configId: string): Promise<void> {
-    if (configId === 'org-tasks-system') throw new Error('系统仓库不能删除')
+    if (configId === 'org-tasks-system') throw new Error(localizedText($r('app.string.text_system_repository_cannot_be_deleted')))
     const current = await AppConfigService.load(context)
     current.repos = current.repos.filter((repo: RepoConfig) => repo.id !== configId)
     if (current.inboxRepoId === configId) { current.inboxRepoId = ''; current.inboxFile = '' }

@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { FrameCallback } from '@ohos.arkui.UIContext'
 import { ComponentContent, window } from '@kit.ArkUI'
 import { CoreLinkValue, CoreTextLink, formatOrgLink } from '../../services/NativeCoreService'
@@ -19,10 +20,10 @@ function draftLinkButton(open: () => void, disabled: boolean) {
   Button({ type: ButtonType.Normal }) {
     Row({ space: 6 }) {
       Image($r('app.media.ui_link_other')).width(16).height(16).fillColor(UiColor.primary)
-      Text('链接').fontSize(13).fontColor(UiColor.primary)
+      Text($r('app.string.text_link')).fontSize(13).fontColor(UiColor.primary)
     }.padding({ left: 10, right: 10 })
   }.height(44).backgroundColor(Color.Transparent).focusable(false).enabled(!disabled)
-    .accessibilityText('插入链接').onClick(open)
+    .accessibilityText($r('app.string.text_insert_link')).onClick(open)
 }
 
 @Builder
@@ -152,7 +153,7 @@ export struct DraftLinkAction {
     if (!value) return
     const link = await formatOrgLink(value)
     if (!this.active || this.title === undefined || this.disabled || this.source !== this.original) {
-      throw new Error('文字草稿已变化，请取消后重试')
+      throw new Error(localizedText($r('app.string.text_draft_text_changed_please_try_again_after')))
     }
     const start = this.range.start
     this.write(this.original.slice(0, start) + link + this.original.slice(this.range.end))

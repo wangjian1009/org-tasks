@@ -1,4 +1,5 @@
 // 验证编辑器返回修改组，确认交互经提交宿主完成，编辑器不直接执行任务动作。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -13,7 +14,7 @@ class TestDate extends Date { constructor(...args) { if(args.length) super(...ar
 function compile(source, bindings = {}) {
   bindings = { Date: TestDate, ...bindings };
   const module = { exports: {} };
-  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const code = transpileFixture(ts, source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   vm.runInThisContext('(function(module,exports,' + Object.keys(bindings).join(',') + '){' + code + '\n})')(module, module.exports, ...Object.values(bindings));
   return module.exports;
 }

@@ -1,4 +1,5 @@
 // 验证公共弹出菜单的原生行测量、窗口约束、布局和异步生命周期。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +13,7 @@ const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents
 const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function load(source, mocks) {
   const module = { exports: {} };
-  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const code = transpileFixture(ts, source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   vm.runInThisContext('(function(require,module,exports,$r){' + code + '\n})')(name => mocks[name] ?? {}, module, module.exports, name => name);
   return module.exports;
 }

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { window } from '@kit.ArkUI'
 import { HttpNavigationService } from './HttpNavigationService'
@@ -60,11 +61,11 @@ export class HttpApiService {
         HttpApiService.workspace === workspace && HttpApiService.stage !== undefined && Date.now() < deadline
       const stage = HttpApiService.stage
       if (!stage || !active()) {
-        respond({ status: 503, body: '{"error":{"code":"unavailable","message":"主窗口尚未就绪"}}' }); return
+        respond({ status: 503, body: localizedText($r('app.string.text_sync_corrected_by_elderman_elder_man')) }); return
       }
       stage.getMainWindow().then(async (mainWindow: window.Window): Promise<void> => {
         respond(await HttpNavigationService.handle(mainWindow.getUIContext(), request, active))
-      }).catch((): void => { respond({ status: 503, body: '{"error":{"code":"unavailable","message":"主窗口不可用"}}' }) })
+      }).catch((): void => { respond({ status: 503, body: localizedText($r('app.string.text_sync_corrected_by_elderman_elder_man_2')) }) })
     })
     HttpApiService.workspace = workspace
     console.info(`APP HTTP 接口已启动：http://${info.address}`)

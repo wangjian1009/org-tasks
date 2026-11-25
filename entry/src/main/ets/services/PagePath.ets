@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreTask, CoreTaskPath } from './NativeCoreService'
 
 export type RepositoryCreationMode = 'initialize' | 'remote'
@@ -30,7 +31,7 @@ export class PagePath {
   private readonly entries: PageRoute[]
 
   constructor(pages: PageRoute[]) {
-    if (!pages.length || pages.some(page => !page.url.startsWith('pages/'))) throw new Error('页面路径无效')
+    if (!pages.length || pages.some(page => !page.url.startsWith('pages/'))) throw new Error(localizedText($r('app.string.text_page_path_invalid')))
     this.entries = pages.map((page: PageRoute): PageRoute => ({ url: page.url, params: page.params }))
   }
 

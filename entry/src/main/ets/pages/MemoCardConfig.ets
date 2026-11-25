@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { common } from '@kit.AbilityKit'
 import { formBindingData, formProvider } from '@kit.FormKit'
 import { MemoCardData, memoCardData, MemoCardService } from '../services/MemoCardService'
@@ -13,7 +14,7 @@ struct MemoCardConfig {
   @LocalStorageProp('memoCardFormId') formId: string = ''
   @State selectedTag: string = ''
   @State options: MemoCardTagOption[] = []
-  @State preview: MemoCardData = memoCardData([], '', '正在读取备忘…')
+  @State preview: MemoCardData = memoCardData([], '', localizedText($r('app.string.text_reading_memo')))
   @State loading: boolean = true
   @State previewLoading: boolean = false
   @State available: boolean = false
@@ -33,7 +34,7 @@ struct MemoCardConfig {
       const snapshot = await MemoCardService.snapshot(context, '')
       const tags = snapshot.tags.slice()
       if (this.selectedTag && !tags.includes(this.selectedTag)) tags.push(this.selectedTag)
-      const all: MemoCardTagOption = { tag: '', label: '全部备忘' }
+      const all: MemoCardTagOption = { tag: '', label: localizedText($r('app.string.text_all_notes')) }
       this.options = [all].concat(tags.map((tag: string): MemoCardTagOption => ({ tag, label: tag })))
       this.available = snapshot.available
       if (this.selectedTag) await this.selectTag(this.selectedTag)
@@ -41,7 +42,7 @@ struct MemoCardConfig {
     } catch (error) {
       this.available = false
       this.message = coreErrorMessage(error as CoreBridgeError)
-      this.preview = memoCardData([], this.selectedTag, '暂时无法读取备忘')
+      this.preview = memoCardData([], this.selectedTag, localizedText($r('app.string.text_couldn_t_load_notes')))
     } finally { this.loading = false }
   }
 
@@ -52,7 +53,7 @@ struct MemoCardConfig {
     this.persisted = false
     this.message = ''
     this.previewLoading = true
-    this.preview = memoCardData([], tag, '正在读取备忘…')
+    this.preview = memoCardData([], tag, localizedText($r('app.string.text_reading_memo')))
     try {
       const snapshot = await MemoCardService.snapshot(this.getUIContext().getHostContext()!, tag)
       if (request !== this.requestId) return
@@ -62,7 +63,7 @@ struct MemoCardConfig {
       if (request !== this.requestId) return
       this.available = false
       this.message = coreErrorMessage(error as CoreBridgeError)
-      this.preview = memoCardData([], tag, '暂时无法读取备忘')
+      this.preview = memoCardData([], tag, localizedText($r('app.string.text_couldn_t_load_notes')))
     } finally { if (request === this.requestId) this.previewLoading = false }
   }
 
@@ -79,7 +80,7 @@ struct MemoCardConfig {
       await formProvider.updateForm(this.formId, formBindingData.createFormBindingData(snapshot.data))
       await (context as common.UIAbilityContext).terminateSelf()
     } catch (error) {
-      this.message = `${this.persisted ? '设置已保存，更新卡片或返回失败' : '保存失败'}：${coreErrorMessage(error as CoreBridgeError)}`
+      this.message = `${this.persisted ? localizedText($r('app.string.text_settings_saved_cards_updated_or_returned_failed')) : localizedText($r('app.string.text_save_failed_2'))}：${coreErrorMessage(error as CoreBridgeError)}`
     } finally { this.working = false }
   }
 
@@ -87,7 +88,7 @@ struct MemoCardConfig {
     if (this.working) return
     ++this.requestId
     try { await (this.getUIContext().getHostContext() as common.UIAbilityContext).terminateSelf() }
-    catch (_) { this.message = '返回失败，请重试' }
+    catch (_) { this.message = localizedText($r('app.string.text_failed_to_return_try_again')) }
   }
 
   onBackPress(): boolean { this.cancel(); return true }
@@ -125,24 +126,24 @@ struct MemoCardConfig {
         }
       }.width('100%').height('75%').clip(true)
     }.width('100%').height(148).backgroundColor($r('app.color.memo_card_surface')).borderRadius(22).clip(true)
-      .accessibilityText('卡片预览')
+      .accessibilityText($r('app.string.text_card_preview'))
   }
 
   build() {
     Column() {
       Row() {
-        IconButton({ icon: $r('app.media.ui_back'), label: '取消编辑', disabled: this.working,
+        IconButton({ icon: $r('app.media.ui_back'), label: localizedText($r('app.string.text_cancel_edit')), disabled: this.working,
           action: (): void => { this.cancel() } })
-        Text('编辑').fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
+        Text($r('app.string.text_edit')).fontSize(22).fontWeight(FontWeight.Medium).fontColor(UiColor.text)
       }.width('100%').height(64).padding({ left: 4, right: 16 })
       Text(this.preview.memoCardTitle).fontSize(22).fontWeight(FontWeight.Bold).fontColor(UiColor.text)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ top: 16, bottom: 24 })
       Column() { this.previewCard() }.width('100%').constraintSize({ maxWidth: 400 }).padding({ left: 32, right: 32 })
-      Text('选择标签，设置卡片显示的备忘').width('100%').fontSize(14).fontColor(UiColor.secondary)
+      Text($r('app.string.text_select_tab_set_the_memos_to_display')).width('100%').fontSize(14).fontColor(UiColor.secondary)
         .padding({ left: 24, right: 24, top: 24, bottom: 12 })
       if (this.message) {
         Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%').padding({ left: 24, right: 24 })
-        Button('重新读取').fontSize(14).backgroundColor(Color.Transparent).fontColor($r('app.color.memo_accent'))
+        Button($r('app.string.text_reread')).fontSize(14).backgroundColor(Color.Transparent).fontColor($r('app.color.memo_accent'))
           .enabled(!this.working && !this.loading && !this.previewLoading).onClick((): void => { this.load() })
       }
       if (this.loading) {
@@ -164,13 +165,13 @@ struct MemoCardConfig {
                 .backgroundColor(this.selectedTag === option.tag ? $r('app.color.memo_card_header') : Color.Transparent)
             }.width('100%').height(52).padding({ left: 16, right: 16 })
               .enabled(!this.loading && !this.working)
-              .accessibilityText(`${option.label}，${this.selectedTag === option.tag ? '已选中' : '未选中'}`)
+              .accessibilityText(`${option.label}，${this.selectedTag === option.tag ? localizedText($r('app.string.text_selected')) : localizedText($r('app.string.text_not_selected'))}`)
               .onClick((): void => { this.selectTag(option.tag) })
           }
         }, (option: MemoCardTagOption): string => option.tag)
       }.width('100%').layoutWeight(1).backgroundColor(UiColor.container).borderRadius(20).clip(true)
         .divider({ strokeWidth: 0.5, color: UiColor.outline, startMargin: 50, endMargin: 16 })
-      Button(this.working ? '正在保存…' : '确定').width('100%').height(48).fontSize(17).fontColor($r('app.color.memo_on_header'))
+      Button(this.working ? localizedText($r('app.string.text_saving_4')) : localizedText($r('app.string.text_ok'))).width('100%').height(48).fontSize(17).fontColor($r('app.color.memo_on_header'))
         .backgroundColor($r('app.color.memo_card_header')).margin({ top: 16, bottom: 16 })
         .enabled(!this.loading && !this.previewLoading && !this.working && this.available)
         .onClick((): void => { this.confirm() })

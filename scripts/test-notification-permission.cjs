@@ -1,3 +1,4 @@
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -18,7 +19,7 @@ function deferred() {
 }
 function load(name, mocks, globals = {}) {
   const filename = path.resolve('entry/src/main/ets', name + '.ets');
-  const output = ts.transpileModule(globals.source ?? fs.readFileSync(filename, 'utf8'), {
+  const output = transpileFixture(ts, globals.source ?? fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };

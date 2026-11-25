@@ -1,4 +1,5 @@
 // 验证公共链接控件的系统跳转、地图选择、失败与生命周期隔离。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -14,13 +15,13 @@ const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-l
 function presentation() {
   const module = { exports: {} };
   const input = fs.readFileSync('entry/src/main/ets/ui/LinkPresentation.ets','utf8');
-  const code = ts.transpileModule(input,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code = transpileFixture(ts, input,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInThisContext('(function(module,exports,$r){'+code+'})')(module,module.exports,name=>({name}));
   return module.exports;
 }
 const linkPresentation = presentation();
 const focusModule = { exports: {} };
-vm.runInThisContext('(function(module,exports){' + ts.transpileModule(
+vm.runInThisContext('(function(module,exports){' + transpileFixture(ts,
   fs.readFileSync('entry/src/main/ets/ui/TaskInlineFocus.ets', 'utf8'),
   { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText + '})')(
   focusModule, focusModule.exports);
@@ -28,7 +29,7 @@ const filename = 'entry/src/main/ets/components/LinkView.ets';
 const source = fs.readFileSync(filename, 'utf8');
 const behavior = source.slice(0, source.indexOf('  build() {')).replace(/  @Builder\n[\s\S]*?\n  \}\n/g, '')
   + '}\n' + source.slice(source.indexOf('interface GeoCoordinates'));
-const code = ts.transpileModule(behavior.replace(/@Component\n|@State |@Prop |@Watch\('[^']+'\) |@BuilderParam /g, '')
+const code = transpileFixture(ts, behavior.replace(/@Component\n|@State |@Prop |@Watch\('[^']+'\) |@BuilderParam /g, '')
   .replace('export struct LinkView', 'export class LinkView'), {
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
 }).outputText;
@@ -444,7 +445,7 @@ test('内部处理对象验证目标再执行；目标失效不跳转，异步�
 
 function internalScript() {
   const input=fs.readFileSync('entry/src/main/ets/ui/InternalLinkProcessor.ets','utf8');
-  const output=ts.transpileModule(input,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const output=transpileFixture(ts, input,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module={exports:{}};
   vm.runInThisContext('(function(module,exports){'+output+'})')(module,module.exports);
   return module.exports.documentInternalLinkScript;

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context, Want } from '@kit.AbilityKit'
 import { FormExtensionAbility, formBindingData, formInfo, formProvider } from '@kit.FormKit'
 import { preferences } from '@kit.ArkData'
@@ -15,7 +16,7 @@ export default class MemoFormExtension extends FormExtensionAbility {
       this.formIds.add(formId)
       this.refreshForm(formId)
     }
-    return formBindingData.createFormBindingData(memoCardData([], '', '正在读取备忘…'))
+    return formBindingData.createFormBindingData(memoCardData([], '', localizedText($r('app.string.text_reading_memo'))))
   }
 
   onUpdateForm(formId: string): void {
@@ -52,7 +53,7 @@ export default class MemoFormExtension extends FormExtensionAbility {
       data = (await MemoCardService.snapshot(this.context as Context, tag)).data
     } catch (error) {
       console.error('读取备忘卡片失败，错误码:', (error as BusinessError).code)
-      data = memoCardData([], tag, '暂时无法读取备忘，点击打开应用')
+      data = memoCardData([], tag, localizedText($r('app.string.text_couldn_t_load_notes_tap_to_open')))
     }
     if (!this.formIds.has(formId)) return
     try { await formProvider.updateForm(formId, formBindingData.createFormBindingData(data)) }

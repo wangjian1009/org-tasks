@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { uiObserver } from '@kit.ArkUI'
 import { RepositorySyncBanner } from './RepositorySyncBanner'
 import { RepositorySyncService, RepositorySyncState, SyncStartPolicy, emptyRepositorySyncState } from '../services/RepositorySyncService'
@@ -46,7 +47,7 @@ export struct RepositorySyncView {
     if (!this.pageVisible || this.getUIContext().getRouter().getState().index !== this.pageIndex) return
     const failure = RepositorySyncService.takeFailure()
     if (!failure) return
-    const message = failure.needsRepository ? '尚未配置可同步的存储库。' : failure.message
+    const message = failure.needsRepository ? localizedText($r('app.string.text_synchronisable_repository_is_not_yet_configured')) : failure.message
     try {
       this.getUIContext().getPromptAction().showToast({ message })
     } catch (_) {
@@ -69,7 +70,7 @@ export struct RepositorySyncView {
       RepositorySyncService.start(this.getUIContext().getHostContext()!, { source: 'manual', policy: SyncStartPolicy.Wait })
     } catch (_) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '保存任务失败，请重试。' })
+        this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_couldn_t_save_the_task_try_again')) })
       } catch (_) {
         // 页面退出时提示可能不可用。
       }

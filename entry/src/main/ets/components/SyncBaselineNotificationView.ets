@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreSyncBaselineUnavailableNotification } from '../services/NativeCoreService'
 import { NotificationRepository } from '../services/NotificationManager'
 import { UiColor } from '../ui/Theme'
@@ -8,8 +9,8 @@ export struct SyncBaselineNotificationView {
   @Prop repositories: NotificationRepository[] = []
 
   message(): string {
-    const name = this.repositories.find(item => item.coreRepoId === this.notification.repoId)?.name || '存储库'
-    return `${name}同步基线异常，暂时无法同步`
+    const name = this.repositories.find(item => item.coreRepoId === this.notification.repoId)?.name || localizedText($r('app.string.text_repositories'))
+    return localizedText($r('app.string.text_synchronization_baseline_abnormal_not_yet_possible'), String(name))
   }
 
   build() {

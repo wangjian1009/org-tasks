@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfigService } from './AppConfigService'
@@ -13,12 +14,12 @@ export class OrgFileCreateService {
     await app.start()
     const categories = app.dataSet('categories')
     if (categories.error) throw new Error(categories.error)
-    if (!categories.isReady() || categories.data?.type !== 'file') throw new Error('分类候选尚未读取完成，请稍后重试')
+    if (!categories.isReady() || categories.data?.type !== 'file') throw new Error(localizedText($r('app.string.text_categories_are_still_loading_try_again_shortly')))
     const config = app.configuration!
     const repos = app.manager.repositoryInfo
     const files = categories.data.result
     return repos.filter(repo => !config.repos.some(item => item.rootDirectory === repo.rootDirectory && isSystemRepository(item))).map((repo: CoreRepo): OrgFileRepositoryOption => ({ repoId: repo.id,
-      name: config.repos.find(item => item.rootDirectory === repo.rootDirectory)?.name || '未命名存储库',
+      name: config.repos.find(item => item.rootDirectory === repo.rootDirectory)?.name || localizedText($r('app.string.text_unnamed_repository')),
       regions: Array.from(new Set(files.filter(file => file.repoId === repo.id && !file.isIgnore && !!file.category)
         .map(file => file.category!))).sort() }))
   }
@@ -30,13 +31,13 @@ export class OrgFileCreateService {
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const system = config.repos.find(item => isSystemRepository(item))
     const target = (await workspace.repos()).find(repo => repo.id === input.repoId)
-    if (!target) throw new Error('目标存储库已失效，请重新选择')
-    if (target.rootDirectory === system?.rootDirectory) throw new Error('系统仓库不能新增文件')
+    if (!target) throw new Error(localizedText($r('app.string.text_target_repository_is_dead_please_re_select')))
+    if (target.rootDirectory === system?.rootDirectory) throw new Error(localizedText($r('app.string.text_system_repository_cannot_add_files')))
     const title = input.title.trim()
     const projectName = input.projectName.trim()
     let template: Uint8Array
     try { template = await context.resourceManager.getRawFileContent(projectName ? 'templates/project.org' : 'templates/tasks.org') }
-    catch (_) { throw new Error('文件模板读取失败，请重试') }
+    catch (_) { throw new Error(localizedText($r('app.string.text_file_template_reading_failed_please_try_again'))) }
     const file: CoreTaskFileNew = {
       path: { repoId: input.repoId, file: orgFileName(input.fileName.trim() || title), titles: [] },
       templatePath: '', templateContent: util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(template),

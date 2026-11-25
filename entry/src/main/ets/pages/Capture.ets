@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { common } from '@kit.AbilityKit'
 import { KeyboardAvoidMode } from '@kit.ArkUI'
 import { util } from '@kit.ArkTS'
@@ -82,7 +83,7 @@ struct Capture {
         this.draftId = drafts[0].id
         this.title = drafts[0].title
       }
-    } catch (e) { if (!this.departed) this.message = '读取草稿失败，仍可输入并重试保存' }
+    } catch (e) { if (!this.departed) this.message = localizedText($r('app.string.text_failed_to_read_draft_still_enter_and')) }
     finally {
       this.draftLoaded = true
       if (!this.departed) {
@@ -133,7 +134,7 @@ struct Capture {
       await CaptureDraftStore.putDraft(this.context(), { id: this.draftId, title: this.title })
       return true
     } catch (e) {
-      if (!this.departed) this.message = '草稿暂时无法保存，请保持当前窗口并重试'
+      if (!this.departed) this.message = localizedText($r('app.string.text_draft_cannot_be_saved_please_keep_the'))
       return false
     }
   }
@@ -150,11 +151,11 @@ struct Capture {
         this.listening = false
         if (!completed) return
       }
-      if (!this.title.trim()) { this.message = '请输入标题'; return }
+      if (!this.title.trim()) { this.message = localizedText($r('app.string.text_please_enter_the_title')); return }
       if (!await this.persistTitle()) return
       await this.saveSession().save(this.title)
       this.saved = true
-    } catch (e) { this.message = `保存失败：${(e as Error).message || '请重试'}` }
+    } catch (e) { this.message = localizedText($r('app.string.text_save_failed'), String((e as Error).message || localizedText($r('app.string.text_please_try_again')))) }
     finally { this.saving = false }
     if (this.saved) await this.close()
   }
@@ -171,7 +172,7 @@ struct Capture {
       await this.animatePanel(false)
       await this.context().terminateSelf()
     } catch (e) {
-      this.message = this.saved ? '任务已保存，请再次点击面板外关闭' : '保留草稿失败，请重试关闭'
+      this.message = this.saved ? localizedText($r('app.string.text_task_saved_tap_outside_the_panel_again')) : localizedText($r('app.string.text_couldn_t_keep_the_draft_try_closing'))
       await this.animatePanel(true)
     }
     finally { this.closing = false }
@@ -182,12 +183,12 @@ struct Capture {
     this.pendingVoice = false
     this.listening = true
     this.speechBase = this.title.trim()
-    this.speechMessage = '正在准备语音…'
+    this.speechMessage = localizedText($r('app.string.text_preparing_voice'))
     const request = ++this.speechRequest
     this.speechStart = this.startSpeech(request).catch((error: Error): void => {
       if (request !== this.speechRequest || this.departed) return
       this.listening = false
-      this.speechMessage = /^(语音|未获得)/.test(error.message) ? error.message : '语音暂时不可用，可以继续输入标题'
+      this.speechMessage = /^(语音|未获得)/.test(error.message) ? error.message : localizedText($r('app.string.text_voice_is_temporarily_unavailable_so_you_can'))
       this.focusTitle()
     })
   }
@@ -201,7 +202,7 @@ struct Capture {
 
   private speechEvents(): CaptureSpeechEvents {
     return {
-      started: (): void => { this.speechMessage = '正在聆听…' },
+      started: (): void => { this.speechMessage = localizedText($r('app.string.text_listening')) },
       result: (text: string): void => {
         this.revision++
         this.title = captureTitle(`${this.speechBase} ${text}`)
@@ -223,9 +224,9 @@ struct Capture {
     Stack({ alignContent: Alignment.Bottom }) {
       // 捕捉窗口本身保持透明，只让底部录入面板覆盖来源界面。
       Column().id('capture_backdrop').width('100%').height('100%').backgroundColor(Color.Transparent)
-        .accessibilityText('关闭并保留草稿').onClick((): void => { this.close() })
+        .accessibilityText($r('app.string.text_close_and_retain_the_draft')).onClick((): void => { this.close() })
       Column({ space: 12 }) {
-        TextInput({ text: this.title, placeholder: '记下一件事…' }).id('capture_title').height(60)
+        TextInput({ text: this.title, placeholder: localizedText($r('app.string.text_just_write_down_one_thing')) }).id('capture_title').height(60)
           .fontSize(20).fontColor(UiColor.text).placeholderColor(UiColor.secondary).backgroundColor(UiColor.field)
           .borderRadius(12).enterKeyType(EnterKeyType.Done)
           .enabled(!this.saving && !this.saved && !this.closing && !this.listening)
@@ -235,7 +236,7 @@ struct Capture {
           Text(this.message || this.speechMessage).width('100%').fontSize(13)
             .fontColor(this.message ? UiColor.error : UiColor.secondary)
         }
-        Button(this.saving ? '保存中…' : this.saved ? '已保存' : '保存').id('capture_save')
+        Button(this.saving ? localizedText($r('app.string.text_saving_3')) : this.saved ? localizedText($r('app.string.text_saved')) : localizedText($r('app.string.text_save'))).id('capture_save')
           .width('100%').height(48).fontColor(UiColor.onPrimary).backgroundColor(UiColor.primary)
           .enabled(!this.saving && !this.saved && !this.closing && (this.title.trim().length > 0 || this.listening))
           .onClick((): void => { this.save() })

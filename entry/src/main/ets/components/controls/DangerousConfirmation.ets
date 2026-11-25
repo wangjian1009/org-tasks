@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { UIContext } from '@kit.ArkUI'
 import { UiColor } from '../../ui/Theme'
 
@@ -23,7 +24,7 @@ export function showDangerousConfirmation(context: UIContext, options: Dangerous
     message: options.message,
     autoCancel: true,
     cancel: (): void => { finish(false) },
-    primaryButton: { value: options.cancelLabel ?? '取消', defaultFocus: true, action: (): void => { finish(false) } },
+    primaryButton: { value: options.cancelLabel ?? localizedText($r('app.string.text_cancel')), defaultFocus: true, action: (): void => { finish(false) } },
     secondaryButton: { value: options.confirmLabel, fontColor: UiColor.error, action: (): void => { finish(true) } }
   })
 }

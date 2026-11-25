@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreQuery, CoreTaskQuery, CoreOrgFileRef } from './NativeCoreService'
 import { TaskRegionData } from '../ui/TaskRegionPresentation'
 
@@ -23,13 +24,13 @@ export type TaskView = 'today' | 'planned' | 'waiting' | 'anytime' | 'someday' |
 
 export function overviewTitle(view: TaskView): string {
   switch (view) {
-    case 'today': return '今天'
-    case 'planned': return '计划'
-    case 'waiting': return '等待'
-    case 'anytime': return '随时'
-    case 'someday': return '某天'
-    case 'memo': return '备忘'
-    case 'logbook': return '日志簿'
+    case 'today': return localizedText($r('app.string.text_today'))
+    case 'planned': return localizedText($r('app.string.text_planned'))
+    case 'waiting': return localizedText($r('app.string.text_waiting'))
+    case 'anytime': return localizedText($r('app.string.text_anytime'))
+    case 'someday': return localizedText($r('app.string.text_someday'))
+    case 'memo': return localizedText($r('app.string.text_notes'))
+    case 'logbook': return localizedText($r('app.string.text_logbook'))
   }
 }
 

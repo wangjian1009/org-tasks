@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 // 只访问 Core 生成的语义 HTML；目录序号在当前阅读快照内有效，不解析 Org 或写回文件。
 export interface OrgDocumentChapter {
   index: number
@@ -25,7 +26,7 @@ export function documentOutlineScript(): string {
       var top = summary.getBoundingClientRect().top;
       if (visible && top <= 48) activeIndex = index;
       return { index: index, level: Number(heading.getAttribute('aria-level')) || 1,
-        title: title.textContent.trim() || '无标题' };
+        title: title.textContent.trim() || ${JSON.stringify(localizedText($r('app.string.document_untitled')))} };
     });
     return JSON.stringify({ chapters: chapters, activeIndex: activeIndex });
   })()`

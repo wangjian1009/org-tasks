@@ -1,4 +1,5 @@
 // 验证设置交互的提交边界与失败恢复，布局由 HAP 编译和设计预览验证。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -15,7 +16,7 @@ function load(relative, name, mocks) {
   let source = fs.readFileSync(filename, 'utf8').split(/  @Builder|  build\(\)/)[0] + '}';
   source = source.replace(/^@(Entry|Component)\n/gm, '').replace(/^  @(State|Link|Prop) /gm, '  ')
     .replace('struct ' + name, 'export class ' + name);
-  const output = ts.transpileModule(source, { compilerOptions: {
+  const output = transpileFixture(ts, source, { compilerOptions: {
     target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS
   } }).outputText;
   const module = { exports: {} };

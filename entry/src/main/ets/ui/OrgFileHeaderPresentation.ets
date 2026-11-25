@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 export interface ProjectHeaderTagSegment {
   tags: string[]
   grouped: boolean
@@ -26,5 +27,5 @@ export function projectTagExpression(tags: string[], _groups: string[][]): strin
 }
 
 export function projectHeaderTitle(region: string, project: string): string {
-  return region ? `${region} . ${project || '未命名项目'}` : project || '未命名项目'
+  return region ? `${region} . ${project || localizedText($r('app.string.text_untitled_project'))}` : project || localizedText($r('app.string.text_untitled_project'))
 }

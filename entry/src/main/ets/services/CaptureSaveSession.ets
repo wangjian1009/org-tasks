@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 
 export interface CaptureBackend {
@@ -40,10 +41,10 @@ export class CaptureSaveSession {
   }
 
   async save(title: string): Promise<void> {
-    if (!title.trim()) throw new Error('请输入标题')
+    if (!title.trim()) throw new Error(localizedText($r('app.string.text_please_enter_the_title')))
     let backend: CaptureBackend
     try { backend = await this.initialize() }
-    catch (e) { this.initialization = undefined; throw new Error((e as Error).message || '初始化失败，请重试保存') }
+    catch (e) { this.initialization = undefined; throw new Error((e as Error).message || localizedText($r('app.string.text_initialization_failed_try_saving_again'))) }
     await backend.save(this.context, title)
   }
 }

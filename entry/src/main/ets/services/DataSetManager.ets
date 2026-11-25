@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { AppConfig } from '../models/OrgTask'
@@ -113,7 +114,7 @@ export class DataSetManager {
     this.context = context; this.pageName = pageName; this.source = typeof source === 'function' ? source : JSON.parse(JSON.stringify(source)) as DataSetDefinition[]
     const names = typeof source === 'function' ? options.names ?? [] : source.map(definition => definition.name)
     if ((!names.length && !this.parent) || names.some(name => !name) || new Set(names).size !== names.length) {
-      throw new Error('页面数据集名称无效')
+      throw new Error(localizedText($r('app.string.text_invalid_page_data_set_name')))
     }
     for (const name of names) this.createDataSet(name)
     if (typeof source !== 'function') this.validate(source)
@@ -124,13 +125,13 @@ export class DataSetManager {
   private validate(definitions: DataSetDefinition[]): void {
     if (new Set(definitions.map(item => item.name)).size !== definitions.length ||
       definitions.some(item => !this.sets.has(item.name) || !item.query ||
-        (item.query.type !== 'task' && item.query.type !== 'file'))) throw new Error('页面数据集定义无效')
+        (item.query.type !== 'task' && item.query.type !== 'file'))) throw new Error(localizedText($r('app.string.text_invalid_page_data_set_definition')))
   }
   dataSet(name: string): DataSet {
     const own = this.sets.get(name)
     if (own) return own
     if (this.parent) return this.parent.dataSet(name)
-    throw new Error(`未定义数据集：${name}`)
+    throw new Error(localizedText($r('app.string.text_undefined_data_set'), String(name)))
   }
   // 完整文件只作为外部失效恢复的一次性结果交付，不进入 DataSet 或缓存。
   subscribeFiles(listener: (result: DataLoadResult) => Promise<void> | void): () => void {
@@ -152,7 +153,7 @@ export class DataSetManager {
     const dataSet = this.dataSet(name)
     await this.start()
     if (this.closed || this.closing) return
-    if (!dataSet.query) throw new Error(`数据集未配置查询：${name}`)
+    if (!dataSet.query) throw new Error(localizedText($r('app.string.text_data_set_unconfigured_query'), String(name)))
     const request = (this.queryRequests.get(name) ?? 0) + 1
     this.queryRequests.set(name, request)
     const definition: DataSetDefinition = { name, query, repositoryBindings }
@@ -170,7 +171,7 @@ export class DataSetManager {
     this.scheduleSave()
   }
   start(): Promise<DataLoadResult[]> {
-    if (this.closed || this.closing) return Promise.reject(new Error('数据集管理器已关闭'))
+    if (this.closed || this.closing) return Promise.reject(new Error(localizedText($r('app.string.text_data_set_manager_closed'))))
     if (this.initialized) return Promise.resolve([])
     if (this.running) return this.running
     const generation = this.generation
@@ -321,7 +322,7 @@ export class DataSetManager {
     const keys = entries.flatMap(entry => [...(this.sets.get(entry.name)?.scopeFiles() ?? []), JSON.stringify(['$dataset', entry.identity, entry.name])])
     const execute = async (): Promise<void> => {
       const active = entries.filter(entry => this.currentSubscription(entry))
-      for (const entry of entries) if (!active.includes(entry)) entry.reject(new Error('数据集查询已变化'))
+      for (const entry of entries) if (!active.includes(entry)) entry.reject(new Error(localizedText($r('app.string.text_dataset_query_changed'))))
       if (!active.length) return
       try {
         for (const entry of active) {
@@ -339,13 +340,13 @@ export class DataSetManager {
         }))
         if (results.length !== active.length) {
           for (const result of results) workspace.unsubscribeQuery(result.subscriptionId)
-          throw new Error('批量订阅结果数量不一致')
+          throw new Error(localizedText($r('app.string.text_inconsistent_number_of_batch_subscriptions')))
         }
         for (let index = 0; index < active.length; index++) {
           const entry = active[index], result = results[index]
           if (!this.currentSubscription(entry)) {
             workspace.unsubscribeQuery(result.subscriptionId)
-            entry.reject(new Error('数据集查询已变化'))
+            entry.reject(new Error(localizedText($r('app.string.text_dataset_query_changed'))))
           } else {
             this.subscriptions.set(entry.name, result.subscriptionId)
             if (result.data.type === 'task') {

@@ -1,3 +1,4 @@
+import { localizedDate, localizedText } from './LocalizedText'
 import { RepoConfig } from '../models/OrgTask'
 
 // 与侧边栏统一的全局深色语义色。
@@ -69,8 +70,8 @@ export class UiSize {
 export function dateLabel(value: string): string {
   const date = new Date(`${value.slice(0, 10)}T12:00:00`)
   if (isNaN(date.getTime())) return value
-  const weekdays: string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${weekdays[date.getDay()]}`
+  return localizedText($r('app.string.date_with_weekday'),
+    localizedDate(date, { month: 'long', day: 'numeric' }), localizedDate(date, { weekday: 'short' }))
 }
 
 export function localDate(date: Date): string {
@@ -79,9 +80,9 @@ export function localDate(date: Date): string {
 
 export function repositoryName(path: string): string {
   const parts = path.split('/').filter((part: string) => part.length > 0)
-  return parts.length > 0 ? parts[parts.length - 1] : '未设置目录'
+  return parts.length > 0 ? parts[parts.length - 1] : localizedText($r('app.string.text_no_directory_set'))
 }
 
 export function repositoryLabel(repo: RepoConfig | undefined): string {
-  return repo ? (repo.name || '').trim() || repositoryName(repo.rootDirectory) : '未设置目录'
+  return repo ? (repo.name || '').trim() || repositoryName(repo.rootDirectory) : localizedText($r('app.string.text_no_directory_set'))
 }

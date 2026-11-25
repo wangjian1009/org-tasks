@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { UIContext } from '@kit.ArkUI'
 import { PagePath, PageRoute } from './PagePath'
@@ -128,7 +129,7 @@ export class PageNavigator {
     this.navigating = true
     try { await action(); return true }
     catch (_) {
-      try { context.getPromptAction().showToast({ message: '切换页面失败，请重试' }) }
+      try { context.getPromptAction().showToast({ message: localizedText($r('app.string.text_toggle_page_failed_please_try_again')) }) }
       catch (_) { /* 窗口关闭后不再显示提示。 */ }
       return false
     } finally { this.navigating = false }

@@ -1,3 +1,4 @@
+import { localizedDate, localizedText } from './LocalizedText'
 import { CoreTaskPlanningInfo } from '../services/NativeCoreService'
 // 仅维护月历布局；任务时间戳的语法与写入由 Core 验证。
 export interface TaskCalendarDay { key: string; label: string; date: string; inMonth: boolean; today: boolean; selected: boolean }
@@ -7,11 +8,11 @@ export function inlineDate(date: Date): string {
 }
 export function inlineDateLabel(value: string, now: Date = new Date()): string {
   if (!value) return ''
-  if (value === inlineDate(now)) return '今天'
+  if (value === inlineDate(now)) return localizedText($r('app.string.text_today'))
   const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12)
-  if (value === inlineDate(tomorrow)) return '明天'
+  if (value === inlineDate(tomorrow)) return localizedText($r('app.string.text_tomorrow'))
   const date = new Date(`${value}T12:00:00`)
-  return `${date.getFullYear() === now.getFullYear() ? '' : `${date.getFullYear()}年`}${date.getMonth() + 1}月${date.getDate()}日`
+  return localizedDate(date, { month: 'long', day: 'numeric', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' })
 }
 export function taskCalendarDays(year: number, month: number, selected: string, now: Date = new Date()): TaskCalendarDay[] {
   const first = new Date(year, month, 1, 12)

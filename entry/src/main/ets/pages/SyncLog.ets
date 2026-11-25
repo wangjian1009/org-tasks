@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { PageNavigator } from '../services/PageNavigator'
 import { NotificationEmptyState } from '../components/NotificationEmptyState'
 import { CoreNotificationsView } from '../components/CoreNotificationsView'
@@ -63,11 +64,11 @@ struct SyncLog {
       this.stopData = this.dataManager.subscribe((state: SnapshotState<SyncLogSnapshot>): void => {
         if (!state.value && !state.message) return
         this.loading = false
-        this.message = state.message ? `读取同步日志失败：${state.message}` : ''
+        this.message = state.message ? localizedText($r('app.string.text_reading_sync_log_failed'), String(state.message)) : ''
         if (!state.value) return
         this.repositoryName = state.value.repositoryName; this.repoId = state.value.repoId
         this.items = state.value.items; this.revision = state.revision
-        if (params?.syncId && !this.items.some(item => item.id === params.syncId)) { this.items = []; this.message = '通知对应的同步记录已不存在' }
+        if (params?.syncId && !this.items.some(item => item.id === params.syncId)) { this.items = []; this.message = localizedText($r('app.string.text_the_simultaneous_log_for_notification_no_longer')) }
       })
     }
     if (reload) await this.dataManager.refresh()
@@ -84,13 +85,13 @@ struct SyncLog {
   @Builder
   content() {
     if (this.loading) {
-      NotificationEmptyState({ title: '正在读取同步日志', busy: true })
+      NotificationEmptyState({ title: localizedText($r('app.string.text_reading_synchronization_log')), busy: true })
     } else if (this.message) {
-      NotificationEmptyState({ title: '同步日志读取失败', detail: this.message, actionLabel: '重试', action: (): void => { this.loadLogs(true) } })
+      NotificationEmptyState({ title: localizedText($r('app.string.text_sync_log_reading_failed')), detail: this.message, actionLabel: localizedText($r('app.string.text_retry')), action: (): void => { this.loadLogs(true) } })
     } else if (this.items.length === 0) {
-      NotificationEmptyState({ title: '暂无同步日志', detail: '完成一次文件同步后，记录会显示在这里。' })
+      NotificationEmptyState({ title: localizedText($r('app.string.text_synchronisation_log_not_available')), detail: localizedText($r('app.string.text_once_a_file_is_synchronized_the_records')) })
     } else if (this.visibleItems().length === 0) {
-      NotificationEmptyState({ title: '暂无上传或下载记录', detail: '点击右上角显示全部日志' })
+      NotificationEmptyState({ title: localizedText($r('app.string.text_no_uploads_or_downloads_at_this_time')), detail: localizedText($r('app.string.text_show_all_logs_by_tap_on_the')) })
     } else {
       List({ initialIndex: this.initialIndex() }) {
               if (this.showNotifications) {
@@ -116,9 +117,9 @@ struct SyncLog {
 
   build() {
     Column() {
-      AppShell({ title: this.repositoryName ? `${this.repositoryName} · 同步日志` : '同步日志', back: true, backAction: (): void => { PageNavigator.shared.back(this.getUIContext()) },
+      AppShell({ title: this.repositoryName ? localizedText($r('app.string.text_synchronization_log'), String(this.repositoryName)) : localizedText($r('app.string.text_synchronization_log_2')), back: true, backAction: (): void => { PageNavigator.shared.back(this.getUIContext()) },
         actionIcon: this.showUnchanged ? $r('app.media.ui_visibility_selected') : $r('app.media.ui_visibility_off'),
-        actionLabel: this.showUnchanged ? '隐藏无变化日志' : '显示全部日志',
+        actionLabel: this.showUnchanged ? localizedText($r('app.string.text_hide_no_change_log')) : localizedText($r('app.string.text_show_all_logs')),
         action: (): void => { this.showUnchanged = !this.showUnchanged },
         drawerOpen: $drawerOpen, pullToSync: true }) {
         Column() { this.content() }.width('100%').height('100%')

@@ -1,3 +1,4 @@
+import { localizedDate, localizedText } from './LocalizedText'
 import { CoreTask, CoreTitlePart } from '../services/NativeCoreService'
 import { localDate, UiColor } from './Theme'
 
@@ -109,22 +110,20 @@ export function taskDeadlineColor(task: CoreTask, today: Date = new Date()): str
 
 export function taskDeadlineText(task: CoreTask, today: Date = new Date()): string {
   const remaining = dayNumber(task.deadline) - dayNumber(localDate(today))
-  if (!Number.isFinite(remaining)) return '日期不可用'
+  if (!Number.isFinite(remaining)) return localizedText($r('app.string.text_date_not_available'))
   if (task.isDone()) return taskDateText(task.deadline, true, today)
-  if (remaining > 0) return `剩下 ${remaining} 天`
-  return remaining === 0 ? '今天截止' : `逾期 ${-remaining} 天`
+  if (remaining > 0) return localizedText($r('app.string.text_days_left'), String(remaining))
+  return remaining === 0 ? localizedText($r('app.string.text_it_s_closed_today')) : localizedText($r('app.string.text_overdue_days'), String(-remaining))
 }
 
 export function taskDateText(value: string, compact: boolean = false, today: Date = new Date()): string {
-  if (!Number.isFinite(dayNumber(value))) return '日期不可用'
-  if (compact && taskDateIsToday(value, today)) return '今天'
+  if (!Number.isFinite(dayNumber(value))) return localizedText($r('app.string.text_date_not_available'))
+  if (compact && taskDateIsToday(value, today)) return localizedText($r('app.string.text_today'))
   const date = new Date(dayNumber(value) * 86400000)
-  const month = date.getUTCMonth() + 1
-  const day = date.getUTCDate()
-  if (compact) return `${month}/${day}`
-  const weekdays: string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-  const year = date.getUTCFullYear() === today.getFullYear() ? '' : `${date.getUTCFullYear()}年`
-  return `${year}${month}月${day}日 ${weekdays[date.getUTCDay()]}`
+  if (compact) return localizedDate(date, { month: 'numeric', day: 'numeric', timeZone: 'UTC' })
+  const label = localizedDate(date, { month: 'long', day: 'numeric', timeZone: 'UTC',
+    year: date.getUTCFullYear() === today.getFullYear() ? undefined : 'numeric' })
+  return localizedText($r('app.string.date_with_weekday'), label, localizedDate(date, { weekday: 'short', timeZone: 'UTC' }))
 }
 
 export function taskTitleText(task: CoreTask): string {
@@ -175,7 +174,7 @@ export function taskSourceText(task: CoreTask, fallbackFile: boolean = false,
   const category = area.category
   const project = area.project
   if (project !== null) {
-    const name = project || '未命名项目'
+    const name = project || localizedText($r('app.string.text_untitled_project'))
     return category ? `${category} · ${name}` : name
   }
   return category || (fallbackFile && policy === RegionAreaPolicy.CategoryProject ? task.fileName : '')

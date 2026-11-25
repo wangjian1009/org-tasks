@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from './AppConfigService'
@@ -46,7 +47,7 @@ export function fileTargetRepository(config: AppConfig, kind: FileTargetKind): R
 }
 
 export function fileTargetName(kind: FileTargetKind): string {
-  return kind === 'inbox' ? '收件箱' : kind === 'someday' ? '某天' : '备忘'
+  return kind === 'inbox' ? localizedText($r('app.string.text_inbox')) : kind === 'someday' ? localizedText($r('app.string.text_someday')) : localizedText($r('app.string.text_notes'))
 }
 
 // 文件入口只接受显式选择的仓库和文件；旧配置、失效目标与忽略文件均不回退。
@@ -106,14 +107,14 @@ export class FileTargetService {
   }
 
   static async select(context: Context, kind: FileTargetKind, repoId: string, path: string): Promise<void> {
-    if (repoId === SYSTEM_REPOSITORY_ID) throw new Error('系统仓库不能作为文件入口')
+    if (repoId === SYSTEM_REPOSITORY_ID) throw new Error(localizedText($r('app.string.text_the_system_repository_is_not_a_file')))
     // 选择列表只是展示快照；提交前重新读取配置和 Core 元信息，保留其他页面的更新。
     const config = await AppConfigService.load(context)
     if (kind === 'inbox') { config.inboxRepoId = repoId; config.inboxFile = path }
     else if (kind === 'someday') { config.somedayRepoId = repoId; config.somedayFile = path }
     else { config.memoRepoId = repoId; config.memoFile = path }
     if ((repoId || path) && !await FileTargetService.resolve(config, kind)) {
-      throw new Error(`所选${fileTargetName(kind)}文件已失效，请重新选择`)
+      throw new Error(localizedText($r('app.string.text_the_selected_file_is_invalid_please_re'), String(fileTargetName(kind))))
     }
     await AppConfigService.save(context, config)
   }

@@ -1,4 +1,5 @@
 // 验证正文区块会话、只读保护、项目编辑版本与日志显示策略。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +13,7 @@ const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-St
 const base = 'entry/src/main/ets/';
 function load(name, mocks = {}, transform = s => s) {
   const filename = base + name + '.ets';
-  const source = ts.transpileModule(transform(fs.readFileSync(filename, 'utf8')), { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const source = transpileFixture(ts, transform(fs.readFileSync(filename, 'utf8')), { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports){' + source + '\n})', { filename })(name => {
     assert.ok(name in mocks, name);return mocks[name];
@@ -230,7 +231,7 @@ test('编译后的清单在只读与可写状态保留相同字号、颜色、�
     ts.forEachChild(node, visit);
   }
   visit(source);assert.ok(row);
-  const code = ts.transpileModule('class Rendered {' + row + '}\nmodule.exports = Rendered;', {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code = transpileFixture(ts, 'class Rendered {' + row + '}\nmodule.exports = Rendered;', {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   function render(readonly, checked, partial) {
     const root = { type: 'root', children: [] }, stack = [root], callbacks = [];
     let writes = 0;
@@ -300,7 +301,7 @@ function compiledBuilders(name, methods, directory = 'components/editors') {
     Gesture:noop,GesturePriority:{High:'high'},PanGesture:noop,PanDirection:{All:'all'},
     Row:noop,Color:{Transparent:'transparent'},
     ViewPU:{create(){}},__Common__:common,Column:common,Stack:noop,If:noop,TaskStateCategory:{Doing:'Doing'},UiColor:{taskCard:'card'},UiSize:{contentLiftRadius:8,contentLiftShadowRadius:12,contentLiftShadowOffset:6}};
-  const code = ts.transpileModule('class Host {' + bodies.join('\n') + '}\nmodule.exports=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code = transpileFixture(ts, 'class Host {' + bodies.join('\n') + '}\nmodule.exports=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInNewContext(code, globals);
   const host = new module.exports();
   Object.assign(host,{observeComponentCreation2(callback){callback(1,true);},ifElseBranchUpdateFunction(_,callback){callback();},

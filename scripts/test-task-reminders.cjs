@@ -1,3 +1,4 @@
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -10,7 +11,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
 function load(name, mocks, globals = {}) {
   const module = { exports: {} };
-  const code = ts.transpileModule(fs.readFileSync(`entry/src/main/ets/services/${name}.ets`, 'utf8'), {
+  const code = transpileFixture(ts, fs.readFileSync(`entry/src/main/ets/services/${name}.ets`, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInNewContext(code, { module, exports: module.exports, console,
@@ -293,7 +294,7 @@ function cardFixture(check) {
     }
   }).join('\n');
   const module = { exports: {} };
-  const output = ts.transpileModule('export class Card {' + methods + '}', {
+  const output = transpileFixture(ts, 'export class Card {' + methods + '}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInNewContext(output, { module, exports: module.exports, ReminderManager: { checkRegistered: check, contentKey: task => JSON.stringify([task.heading, task.reminderAt, task.editContent, task.priority]) }, coreErrorMessage: error => error.message });

@@ -1,4 +1,5 @@
 // 验证页面动作配置、动态菜单和批量操作的提交门槛。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +12,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents',
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function compile(source, filename, mocks = {}) {
-  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const code = transpileFixture(ts, source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(module,exports,require,$r){' + code + '\n})', { filename })(
     module, module.exports, name => { assert.ok(Object.hasOwn(mocks, name), name); return mocks[name]; }, name => ({ name }));
@@ -82,7 +83,7 @@ test('收起任务行使用普通点击，链接可优先处理，checkbox 独�
     const If = { create() {}, pop() {} };
     const toggleFromCompact = fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets', 'utf8')
       .match(/  private toggleFromCompact\(\): void \{[\s\S]*?\n  \}/)[0];
-    const code = ts.transpileModule('export class Card {' + builder + toggleFromCompact + '}', {
+    const code = transpileFixture(ts, 'export class Card {' + builder + toggleFromCompact + '}', {
       compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
     }).outputText;
     const module = { exports: {} };
@@ -385,7 +386,7 @@ test('编译后的普通线框图标不调用 fillColor，删除和多选保留�
   const Image={create(){},width(){},height(){},accessibilityLevel(){},fillColor(value){fills.push(value);}};
   const If={create(){},pop(){}};
   const result={exports:{}};
-  const code=ts.transpileModule('export class Menu {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code=transpileFixture(ts, 'export class Menu {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInNewContext(code,{module:result,exports:result.exports,Image,If,UiColor:{error:'red'},Color:{White:'white'}});
   const menu=new result.exports.Menu();
   menu.observeComponentCreation2=fn=>fn(1,true);menu.ifElseBranchUpdateFunction=(_branch,fn)=>fn();

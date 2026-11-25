@@ -1,4 +1,5 @@
 // 验证宿主事件快照刷新及身份映射，不在宿主重新判定冲突。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +13,7 @@ const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents
 const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function load(file, mocks, storage, clock = {setTimeout, clearTimeout}) {
   const filename = path.resolve('entry/src/main/ets', file + '.ets');
-  const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const output = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };

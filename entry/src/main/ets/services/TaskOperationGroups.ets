@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreTask, CoreTaskFileVersion, CoreTaskModification, CoreTaskOperation, CoreTaskOperationGroup, CoreRefileTarget } from './NativeCoreService'
 
 class TaskOperationGroupVersionError extends Error { readonly code: string = 'invalidState' }
@@ -26,7 +27,7 @@ export function mergeTaskOperationGroups(groups: CoreTaskOperationGroup[]): Core
     for (const version of group.fileVersions ?? []) {
       const key = JSON.stringify([version.repoId, version.file])
       const previous = versions.get(key)
-      if (previous && previous.version !== version.version) throw new TaskOperationGroupVersionError('同一文件的修改组版本不一致，请刷新后重试')
+      if (previous && previous.version !== version.version) throw new TaskOperationGroupVersionError(localizedText($r('app.string.text_change_group_versions_of_the_same_document')))
       if (!previous) versions.set(key, { repoId: version.repoId, file: version.file, version: version.version })
     }
     for (const operation of group.operations) operations.push(JSON.parse(JSON.stringify(operation)) as CoreTaskOperation)

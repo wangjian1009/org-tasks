@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { AppConfig } from '../models/OrgTask'
 import { configuredFileTarget, FileTargetKind } from '../services/FileTargetService'
 import { CoreOrgFileMetadata, CoreTaskStateCount } from '../services/NativeCoreService'
@@ -58,9 +59,9 @@ export function fileSizeLabel(bytes: number): string {
 }
 
 export function fileModifiedLabel(timestamp: number | null, compact: boolean = false, referenceTime: number = Date.now()): string {
-  if (timestamp === null) return compact ? '时间未知' : '修改时间未知'
+  if (timestamp === null) return compact ? localizedText($r('app.string.text_time_unknown')) : localizedText($r('app.string.text_the_change_time_is_unknown'))
   const date = new Date(timestamp)
-  if (isNaN(date.getTime())) return compact ? '时间未知' : '修改时间未知'
+  if (isNaN(date.getTime())) return compact ? localizedText($r('app.string.text_time_unknown')) : localizedText($r('app.string.text_the_change_time_is_unknown'))
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
   const day = date.getDate().toString().padStart(2, '0')
   const hour = date.getHours().toString().padStart(2, '0')
@@ -69,7 +70,7 @@ export function fileModifiedLabel(timestamp: number | null, compact: boolean = f
     return date.getFullYear() === new Date(referenceTime).getFullYear()
       ? `${month}-${day} ${hour}:${minute}` : `${date.getFullYear()}-${month}-${day}`
   }
-  return `修改于 ${date.getFullYear()}-${month}-${day} ${hour}:${minute}`
+  return localizedText($r('app.string.text_modified_on'), String(date.getFullYear()), String(month), String(day), String(hour), String(minute))
 }
 
 export function fileUsageKinds(config: AppConfig, configId: string, path: string): FileTargetKind[] {

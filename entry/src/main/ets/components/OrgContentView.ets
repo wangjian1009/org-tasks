@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { InternalLinkProcessor, DocumentInternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { webview } from '@kit.ArkWeb'
 import { LinkView, LinkController, LinkEditController } from './LinkView'
@@ -118,7 +119,7 @@ export struct OrgContentView {
   }
 
   reportError(error: CoreBridgeError) {
-    this.error = `阅读视图加载失败：${coreErrorMessage(error)}`
+    this.error = localizedText($r('app.string.text_reading_view_loading_failed'), String(coreErrorMessage(error)))
     this.failed(this.error)
   }
 

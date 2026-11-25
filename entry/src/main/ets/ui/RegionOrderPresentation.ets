@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreOrgFileMetadata } from '../services/NativeCoreService'
 import { TodayLayout, TodaySection, TodayTaskGroup } from './TodayPresentation'
 
@@ -31,9 +32,9 @@ export function regionOrderCatalog(files: CoreOrgFileMetadata[], layout: TodayLa
   for (const file of files) {
     if (file.isIgnore) continue
     allowedFiles.add(orderProjectKey(file.repoId, file.path))
-    const region = ensure(orderRegionKey(file.category), file.category || '未分类')
+    const region = ensure(orderRegionKey(file.category), file.category || localizedText($r('app.string.text_uncategorized')))
     const project = file.project()
-    if (project !== null) region.projects.push({ key: orderProjectKey(file.repoId, file.path), title: project || '未命名项目', taskCount: 0 })
+    if (project !== null) region.projects.push({ key: orderProjectKey(file.repoId, file.path), title: project || localizedText($r('app.string.text_untitled_project')), taskCount: 0 })
   }
   for (const section of layout.sections) {
     const region = regions.get(section.key)

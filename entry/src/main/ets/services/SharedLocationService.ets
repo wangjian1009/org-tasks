@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { http } from '@kit.NetworkKit'
 
 export interface ShareLocationRequest {
@@ -18,7 +19,7 @@ export interface SharedLocation {
 
 export function parseSharedLocation(request: ShareLocationRequest): SharedLocation {
   const url = request.url.trim()
-  const title = request.title.trim() || '分享地点'
+  const title = request.title.trim() || localizedText($r('app.string.text_share_location'))
   const petal = /(?:https?:\/\/)?(?:www\.)?petalmaps\.com\/place\//i.test(url)
   const amap = /(?:https?:\/\/)?(?:surl\.)?amap\.com\//i.test(url)
   const marker = url.match(/[?&]marker=([-+]?\d+(?:\.\d+)?),([-+]?\d+(?:\.\d+)?)/i)

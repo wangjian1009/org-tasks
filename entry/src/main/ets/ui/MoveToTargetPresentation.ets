@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreRefileTarget, CoreTaskPath } from '../services/NativeCoreService'
 import { DEFAULT_TASK_CATEGORY } from '../models/RepositoryDefaults'
 
@@ -10,7 +11,7 @@ export function refileSections(targets: CoreRefileTarget[]): RefileSection[] {
   for (const target of targets) {
     const project = target.projectName !== null
     const kind = project ? 'project' : 'category'
-    const name = project ? target.projectName || '未命名项目' : target.category || ''
+    const name = project ? target.projectName || localizedText($r('app.string.text_untitled_project')) : target.category || ''
     const key = JSON.stringify(project ? [kind, target.repoId, target.path] : [kind, name])
     let section = groups.get(key)
     if (!section) { section = { key, kind, name, targets: [] }; groups.set(key, section) }
@@ -36,9 +37,9 @@ export function refileTargetKey(target: CoreRefileTarget): string {
 
 export function refileTargetTitle(target: CoreRefileTarget): string {
   if (!target.fullPath.titles.length) {
-    return target.projectName === null ? DEFAULT_TASK_CATEGORY : target.projectName || '未命名项目'
+    return target.projectName === null ? DEFAULT_TASK_CATEGORY : target.projectName || localizedText($r('app.string.text_untitled_project'))
   }
-  return target.titleParts.map((part): string => part.text).join('').trim() || '未命名位置'
+  return target.titleParts.map((part): string => part.text).join('').trim() || localizedText($r('app.string.text_unnamed_location'))
 }
 
 export interface RefileRow {
@@ -88,10 +89,10 @@ export function refileRows(sections: RefileSection[], repositoryNames: Map<strin
     const showRepository = (repositories.get(identity)?.size ?? 0) > 1 ||
       (!target.fullPath.titles.length && target.projectName === null)
     const parts = showRepository ? [repoLabel, entry.pathLabel] : [entry.pathLabel]
-    if ((occurrences.get(inRepository) ?? 0) > 1) parts.push('位置 ' + rank)
+    if ((occurrences.get(inRepository) ?? 0) > 1) parts.push(localizedText($r('app.string.text_location')) + rank)
     return {
       key: refileTargetKey(target), target, title: entry.title, context: parts.join(' / '),
-      searchText: [entry.title, target.projectName ?? '', target.category || '未分类', entry.pathLabel,
+      searchText: [entry.title, target.projectName ?? '', target.category || localizedText($r('app.string.text_uncategorized')), entry.pathLabel,
         target.headingPath[target.headingPath.length - 1] ?? '', entry.repoLabel].join(' ').toLowerCase()
     }
   })

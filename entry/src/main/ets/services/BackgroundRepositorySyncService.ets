@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { common } from '@kit.AbilityKit'
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit'
 import { AppConfigService } from './AppConfigService'
@@ -27,7 +28,7 @@ export class BackgroundRepositorySyncService {
     const observer = (state: RepositorySyncState): void => { presentation.update(state) }
     try {
       // 保护排队修改、通知归并及配置读取，取得长时任务后释放短时任务。
-      delayId = backgroundTaskManager.requestSuspendDelay('检查并同步本地修改', (): void => {
+      delayId = backgroundTaskManager.requestSuspendDelay(localizedText($r('app.string.text_check_and_sync_local_changes')), (): void => {
         expired = true
         cancelNotificationWait?.()
         if (delayId !== -1) {

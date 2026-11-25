@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { CoreTaskChecklistItem, CoreTaskChecklistChange, CoreContentNode, CoreContentBlockChange } from '../../services/NativeCoreService'
 import { checklistBlockEnd, checklistSiblings } from '../../ui/TaskChecklistReorder'
 import { UiColor, UiSize } from '../../ui/Theme'
@@ -92,7 +93,7 @@ export struct TaskChecklistBlock {
     Column() {
       Row({ space: UiSize.listMarkerGap }) {
         Text(this.marker(this.addingAfter) ?? '○').width(UiSize.listMarkerWidth).fontSize(19).fontColor(UiColor.secondary)
-        TextInput({ text: this.newText, controller: this.draftController, placeholder: '条目' })
+        TextInput({ text: this.newText, controller: this.draftController, placeholder: localizedText($r('app.string.text_entry')) })
           .id(`inline_new_check_${this.ownerKey}`)
           .enabled(!this.disabled && !this.dragging).layoutWeight(1).fontSize(UiSize.listItemFont)
           .backgroundColor(Color.Transparent).padding(0).enterKeyType(EnterKeyType.Next)
@@ -175,7 +176,7 @@ export struct TaskChecklistBlock {
         Button(item.checked ? '✓' : item.partial ? '−' : '○').width(UiSize.listMarkerWidth).height(44).padding(0)
           .fontSize(19).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .enabled(!this.disabled && !this.dragging && !floating).focusable(!this.readonly)
-          .accessibilityText(this.readonly ? `${item.text}，${item.checked ? '已完成' : item.partial ? '部分完成' : '未完成'}` : item.checked ? `恢复未完成：${item.text}` : `完成：${item.text}`)
+          .accessibilityText(this.readonly ? `${item.text}，${item.checked ? localizedText($r('app.string.text_completed')) : item.partial ? localizedText($r('app.string.text_partially_completed')) : localizedText($r('app.string.text_not_completed'))}` : item.checked ? localizedText($r('app.string.text_restore_incomplete'), String(item.text)) : localizedText($r('app.string.text_completed_2'), String(item.text)))
           .onClick((): void => { if (!this.readonly) this.toggle({ type: 'setChecked', id: item.id, checked: !item.checked }) })
       }
       if (!this.readonly && !floating && this.editingId === item.id) {
@@ -225,7 +226,7 @@ export struct TaskChecklistBlock {
   deleteItem(item: CoreTaskChecklistItem) {
     Button({ type: ButtonType.Circle }) { Image($r('app.media.ui_delete')).width(24).height(24) }
       .width(44).height(44).padding(0).backgroundColor('#513A40')
-      .enabled(!this.readonly && !this.disabled && !this.dragging).accessibilityText(`删除清单条目：${item.text}`)
+      .enabled(!this.readonly && !this.disabled && !this.dragging).accessibilityText(localizedText($r('app.string.text_delete_list_entry'), String(item.text)))
       .onClick((): void => { if (!this.readonly) this.remove(item) })
   }
 
@@ -259,7 +260,7 @@ export struct TaskChecklistBlock {
         }, (item: CoreTaskChecklistItem): string => `${item.id}:${item.text}:${item.checked}:${item.partial}:${item.depth}`)
         if (!this.readonly && this.showAdd) {
           ListItem() {
-            Text(this.marker(this.items[0]?.id ?? '') === undefined ? '+  添加清单项' : '+  添加条目')
+            Text(this.marker(this.items[0]?.id ?? '') === undefined ? localizedText($r('app.string.text_add_list_item')) : localizedText($r('app.string.text_add_entry')))
               .fontSize(14).fontColor(UiColor.secondary).width('100%').height(44)
               .enabled(!this.disabled && !this.dragging).onClick((): void => { this.add() })
           }

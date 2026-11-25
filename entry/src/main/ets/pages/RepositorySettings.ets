@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { PageNavigator } from '../services/PageNavigator'
 import { PageParameters, RepositoryCreationMode } from '../services/PagePath'
@@ -84,9 +85,9 @@ struct RepositorySettings {
 
   cannotSave(message: string) {
     this.message = message
-    showDangerousConfirmation(this.getUIContext(), { title: '无法保存修改', message,
-      cancelLabel: '继续编辑',
-      confirmLabel: '放弃修改并返回', onConfirm: (): void => { PageNavigator.shared.back(this.getUIContext()) } })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_unable_to_save_changes')), message,
+      cancelLabel: localizedText($r('app.string.text_continue_editing')),
+      confirmLabel: localizedText($r('app.string.text_discard_changes_and_return')), onConfirm: (): void => { PageNavigator.shared.back(this.getUIContext()) } })
   }
 
   clearTestResult() {
@@ -97,7 +98,7 @@ struct RepositorySettings {
   changeSyncMethod(enabled: boolean): void {
     if (!this.loaded || this.loading || this.saving || this.testing || this.deleting || this.resetting || this.webdavEnabled === enabled) return
     if (this.cleanupPending) {
-      this.message = '请先完成同步信息清理'
+      this.message = localizedText($r('app.string.text_please_complete_the_sync_message_first'))
       return
     }
     this.webdavEnabled = enabled
@@ -106,7 +107,7 @@ struct RepositorySettings {
 
   syncMethodChoices(): PopupMenuItem[] {
     return [
-      { title: '不同步', checked: !this.webdavEnabled, action: (): void => { this.changeSyncMethod(false) } },
+      { title: localizedText($r('app.string.text_do_not_sync')), checked: !this.webdavEnabled, action: (): void => { this.changeSyncMethod(false) } },
       { title: 'WebDAV', checked: this.webdavEnabled, action: (): void => { this.changeSyncMethod(true) } }
     ]
   }
@@ -115,19 +116,19 @@ struct RepositorySettings {
     if (!this.webdavEnabled || this.testing || this.saving || this.loading) return
     this.clearTestResult()
     if (!this.webdavUrl.trim().startsWith('https://') || !this.webdavUsername.trim() || !this.webdavPassword) {
-      this.testMessage = '请填写 HTTPS WebDAV 地址、用户名和密码'
+      this.testMessage = localizedText($r('app.string.text_please_fill_in_https_webdav_address_username'))
       return
     }
     this.testing = true
     this.message = ''
-    this.testMessage = '正在测试连接…'
+    this.testMessage = localizedText($r('app.string.text_testing_connection'))
     try {
       const policy = new CoreWebDavSyncPolicy(this.webdavUrl.trim(), this.webdavUsername.trim(), this.webdavPassword)
       await policy.testConnection()
       this.testSucceeded = true
-      this.testMessage = '连接成功，可以访问该目录。'
+      this.testMessage = localizedText($r('app.string.text_you_can_access_the_directory'))
     } catch (e) {
-      this.testMessage = `连接测试失败：${coreErrorMessage(e as CoreBridgeError)}`
+      this.testMessage = localizedText($r('app.string.text_connection_test_failed'), String(coreErrorMessage(e as CoreBridgeError)))
     } finally {
       this.testing = false
     }
@@ -137,9 +138,9 @@ struct RepositorySettings {
     try {
       this.config = await AppConfigService.load(this.getUIContext().getHostContext()!)
       const params = this.getUIContext().getRouter().getParams() as PageParameters | undefined
-      if (params?.repoId === SYSTEM_REPOSITORY_ID) throw new Error('系统仓库由应用管理，不能修改')
+      if (params?.repoId === SYSTEM_REPOSITORY_ID) throw new Error(localizedText($r('app.string.text_the_system_repository_is_managed_by_application')))
       const existing = this.config.repos.find((item: RepoConfig) => item.id === params?.repoId)
-      if (params?.repoId && !existing) throw new Error('此存储库已不存在，请返回存储库列表')
+      if (params?.repoId && !existing) throw new Error(localizedText($r('app.string.text_this_repository_does_not_exist_please_return')))
       this.existing = existing !== undefined
       this.creationMode = existing ? undefined : params?.repositoryCreation
       const repo = existing || AppConfigService.newRepository()
@@ -158,16 +159,16 @@ struct RepositorySettings {
       }
       this.originalDraft = JSON.stringify(this.draft())
       this.loaded = true
-    } catch (e) { this.message = `读取配置失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { this.message = localizedText($r('app.string.text_reading_configuration_failed'), String(coreErrorMessage(e as CoreBridgeError))) }
     finally { this.loading = false }
   }
 
   private pageTitle(): string {
-    if (this.existing) return '仓库'
+    if (this.existing) return localizedText($r('app.string.text_repository_2'))
     switch (this.creationMode) {
-      case 'initialize': return '初始化新仓库'
-      case 'remote': return '新增远程仓库'
-      default: return '添加仓库'
+      case 'initialize': return localizedText($r('app.string.text_initialize_a_new_repository'))
+      case 'remote': return localizedText($r('app.string.text_add_remote_repository'))
+      default: return localizedText($r('app.string.text_add_repository_2'))
     }
   }
 
@@ -182,7 +183,7 @@ struct RepositorySettings {
       beforeSync: async (config: AppConfig): Promise<void> => {
         const saved = config.repos.find(item => item.id === repository.id)
         if (!saved || saved.rootDirectory !== repository.rootDirectory || !saved.webdavEnabled) {
-          throw new Error('仓库配置已改变，请重新打开')
+          throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
         }
         if (reset) {
           const repo = await NativeCoreService.repository(config.repos, saved, config.todoDefaults, config.coreSettings)
@@ -191,19 +192,19 @@ struct RepositorySettings {
         this.syncRetry = source
       }
     })
-    if (request.kind === 'rejected') throw new Error('同步未受理，请重试')
+    if (request.kind === 'rejected') throw new Error(localizedText($r('app.string.text_synchronization_not_accepted_please_try_again')))
     const completion = await request.handle.completion
-    if (completion.status === 'failed') throw new Error(completion.message || '同步未完成')
+    if (completion.status === 'failed') throw new Error(completion.message || localizedText($r('app.string.text_synchronization_not_completed')))
     const config = await AppConfigService.load(context)
     const saved = config.repos.find(item => item.id === repository.id)
     if (!saved || saved.rootDirectory !== repository.rootDirectory || !saved.webdavEnabled) {
-      throw new Error('仓库配置已改变，请重新打开')
+      throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
     }
     const files = source === 'repositoryCreated' ? await RepositorySetupService.initialize(context, config, saved)
       : await RepositorySetupService.listEntries(config, saved)
     const current = await AppConfigService.load(context)
     const before = current.repos.find(item => item.id === saved.id)
-    if (!before || before.rootDirectory !== saved.rootDirectory || !before.webdavEnabled) throw new Error('仓库配置已改变，请重新打开')
+    if (!before || before.rootDirectory !== saved.rootDirectory || !before.webdavEnabled) throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
     if (RepositorySetupService.bindEntries(current, before, files, source === 'repositoryReset')) {
       await AppConfigService.save(context, current)
     }
@@ -218,8 +219,8 @@ struct RepositorySettings {
     this.message = ''
     try {
       await this.syncRepository(repository, this.syncRetry)
-      this.getUIContext().getPromptAction().showToast({ message: '仓库已同步' })
-    } catch (e) { this.message = `仓库同步未完成：${coreErrorMessage(e as CoreBridgeError)}` }
+      this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_repository_synchronized')) })
+    } catch (e) { this.message = localizedText($r('app.string.text_repository_sync_not_completed'), String(coreErrorMessage(e as CoreBridgeError))) }
     finally { this.saving = false }
   }
 
@@ -229,48 +230,48 @@ struct RepositorySettings {
     if (confirmedDraft !== undefined && confirmedDraft !== JSON.stringify(this.draft())) return
     const saved = this.config.repos.find(item => item.id === this.repoId)
     if (this.cleanupPending && this.rootDirectory.trim() !== saved?.rootDirectory) {
-      this.cannotSave('请先完成同步信息清理，再修改本地目录')
+      this.cannotSave(localizedText($r('app.string.text_please_complete_the_hotsync_info_cleanup_and')))
       return
     }
     if (saved?.webdavEnabled && !this.webdavEnabled) {
       if (this.rootDirectory.trim() !== saved.rootDirectory) {
-        this.cannotSave('请先保存本地目录的修改，再切换为本地仓库')
+        this.cannotSave(localizedText($r('app.string.text_save_changes_to_local_directories_and_switch')))
         return
       }
-      showDangerousConfirmation(this.getUIContext(), { title: '切换为本地仓库？',
-        message: '将清除本机保存的 WebDAV 地址、账号、密码、同步历史和待上传记录。本机与远端的文件都会保留。以后重新开启同步时，同路径文件将采用远端版本。',
+      showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_switch_to_local_repository')),
+        message: localizedText($r('app.string.text_the_webdav_address_account_numbers_passwords_sync')),
         onCancel: (): void => { this.changeSyncMethod(true) },
-        confirmLabel: '切换为本地', onConfirm: (): void => { this.finishLocalConversion(saved.rootDirectory) } })
+        confirmLabel: localizedText($r('app.string.text_switch_to_local')), onConfirm: (): void => { this.finishLocalConversion(saved.rootDirectory) } })
       return
     }
-    if (!this.rootDirectory.trim().startsWith('/')) { this.cannotSave('请输入本地 Org 文件目录的绝对路径'); return }
+    if (!this.rootDirectory.trim().startsWith('/')) { this.cannotSave(localizedText($r('app.string.text_please_enter_an_absolute_path_to_the'))); return }
     if (this.webdavEnabled && (!this.webdavUrl.trim().startsWith('https://') || !this.webdavUsername.trim() || !this.webdavPassword)) {
-      this.cannotSave('请填写 HTTPS WebDAV 地址、用户名和密码'); return
+      this.cannotSave(localizedText($r('app.string.text_please_fill_in_https_webdav_address_username'))); return
     }
     this.saving = true
     try {
       const context = this.getUIContext().getHostContext()!
       let current = await AppConfigService.load(context)
       if (current.repos.some((repo: RepoConfig) => repo.id !== this.repoId && repo.rootDirectory === this.rootDirectory.trim())) {
-        this.cannotSave('此本地目录已属于另一个存储库'); return
+        this.cannotSave(localizedText($r('app.string.text_this_local_directory_belongs_to_another_repository'))); return
       }
       const previous = current.repos.find((repo: RepoConfig) => repo.id === this.repoId)
       if (this.existing && !previous) {
-        this.cannotSave('此存储库已不存在，请放弃修改并返回'); return
+        this.cannotSave(localizedText($r('app.string.text_this_repository_does_not_exist_please_give'))); return
       }
       const repository = this.draft()
       const encodedDraft = JSON.stringify(repository)
       if (previous && !previous.webdavEnabled && repository.webdavEnabled && confirmedDraft !== encodedDraft) {
-        showDangerousConfirmation(this.getUIContext(), { title: '启用 WebDAV 同步？',
-          message: '首次同步时，同路径的本地 Org 文件会被远端版本覆盖，未被远端版本保留的本地任务会在同步后移入废纸篓。本地独有文件会保留并上传。',
-          confirmLabel: '启用同步', onConfirm: (): void => { this.save(encodedDraft) } })
+        showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_enable_webdav_sync')),
+          message: localizedText($r('app.string.text_local_org_files_of_the_same_path')),
+          confirmLabel: localizedText($r('app.string.text_enable_synchronization')), onConfirm: (): void => { this.save(encodedDraft) } })
         return
       }
       const managed = this.managedDirectory()
       if (repository.rootDirectory === managed && !await fileIo.access(managed)) await fileIo.mkdir(managed, true)
       await NativeCoreService.validateRepository(repository.rootDirectory)
       if (!this.existing && repository.rootDirectory === managed && !repository.name) {
-        repository.name = repository.webdavEnabled ? 'WebDAV 仓库' : '本地仓库'
+        repository.name = repository.webdavEnabled ? localizedText($r('app.string.text_webdav_repository')) : localizedText($r('app.string.text_local_repository'))
       }
       if (!this.existing && !repository.webdavEnabled) {
         current.repos.push(repository)
@@ -289,12 +290,12 @@ struct RepositorySettings {
         this.syncRetry = 'repositoryCreated'
         try { await this.syncRepository(repository, 'repositoryCreated') }
         catch (e) {
-          this.message = `仓库已创建，同步未完成：${coreErrorMessage(e as CoreBridgeError)}`
+          this.message = localizedText($r('app.string.text_repository_created_sync_not_completed'), String(coreErrorMessage(e as CoreBridgeError)))
           return
         }
       }
       PageNavigator.shared.back(this.getUIContext())
-    } catch (e) { this.cannotSave(`保存失败：${coreErrorMessage(e as CoreBridgeError)}`) }
+    } catch (e) { this.cannotSave(localizedText($r('app.string.text_save_failed'), String(coreErrorMessage(e as CoreBridgeError)))) }
     finally { this.saving = false }
   }
 
@@ -308,7 +309,7 @@ struct RepositorySettings {
         source: 'manual', policy: SyncStartPolicy.Wait, repositoryId: this.repoId,
         beforeSync: async (config: AppConfig): Promise<void> => {
           const repository = config.repos.find(item => item.id === this.repoId)
-          if (!repository || repository.rootDirectory !== expectedRoot) throw new Error('仓库配置已改变，请重新打开')
+          if (!repository || repository.rootDirectory !== expectedRoot) throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
           if (!repository.webdavEnabled) return
           repository.name = this.name.trim()
           repository.webdavEnabled = false
@@ -327,12 +328,12 @@ struct RepositorySettings {
           this.originalDraft = JSON.stringify(this.draft())
         }
       })
-      if (result.kind === 'rejected') throw new Error('仓库正在同步，请重试')
+      if (result.kind === 'rejected') throw new Error(localizedText($r('app.string.text_the_repository_is_synchronized_please_try_again')))
       const completion = await result.handle.completion
-      if (completion.status === 'failed') throw new Error(completion.message || '同步信息清理未完成')
+      if (completion.status === 'failed') throw new Error(completion.message || localizedText($r('app.string.text_synchronization_information_cleanup_not_completed')))
       this.cleanupPending = false
       PageNavigator.shared.back(this.getUIContext())
-    } catch (e) { this.message = `切换为本地仓库未完成：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { this.message = localizedText($r('app.string.text_switch_to_local_repository_not_completed'), String(coreErrorMessage(e as CoreBridgeError))) }
     finally { this.saving = false }
   }
 
@@ -340,9 +341,9 @@ struct RepositorySettings {
     if (!this.existing || this.saving || this.testing || this.deleting || this.resetting || this.loading) return
     const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
     if (!repo) return
-    showDangerousConfirmation(this.getUIContext(), { title: '删除存储库？',
-      message: `将移除“${repositoryLabel(repo)}”的配置、密码和指向该仓库的文件入口，保留本地 Org 文件及远端文件。`,
-      confirmLabel: '删除', onConfirm: (): void => { this.removeRepository() } })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_delete_the_repository')),
+      message: localizedText($r('app.string.text_this_removes_settings_the_password_and_notebook'), String(repositoryLabel(repo))),
+      confirmLabel: localizedText($r('app.string.text_delete')), onConfirm: (): void => { this.removeRepository() } })
   }
 
   async removeRepository() {
@@ -352,22 +353,22 @@ struct RepositorySettings {
       await AppConfigService.removeRepository(this.getUIContext().getHostContext()!, this.repoId)
       try { await PageQueryService.query(await AppConfigService.load(this.getUIContext().getHostContext()!, false), []) } catch (_) {}
       PageNavigator.shared.back(this.getUIContext())
-    } catch (e) { this.message = `删除存储库失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { this.message = localizedText($r('app.string.text_failed_to_delete_repository'), String(coreErrorMessage(e as CoreBridgeError))) }
     finally { this.deleting = false }
   }
 
   confirmReset() {
     if (!this.existing || this.saving || this.testing || this.deleting || this.resetting || this.loading) return
-    if (this.cleanupPending) { this.message = '请先完成同步信息清理'; return }
+    if (this.cleanupPending) { this.message = localizedText($r('app.string.text_please_complete_the_sync_message_first')); return }
     const repo = this.config.repos.find((item: RepoConfig) => item.id === this.repoId)
     if (!repo) return
     if (this.rootDirectory.trim() !== repo.rootDirectory) {
-      this.message = '本地目录已修改，请先点击“确定”保存后再重置'
+      this.message = localizedText($r('app.string.text_local_directory_modified_tap_ok_before_resetting'))
       return
     }
-    showDangerousConfirmation(this.getUIContext(), { title: '重置本地目录？',
-      message: `将清空“${repositoryLabel(repo)}”的全部本地文件、同步历史和未上传修改。${repo.webdavEnabled ? '随后从 WebDAV 重新同步。' : '随后从模板重新创建收件箱、某天、备忘和我的任务文件。'}此操作无法撤销。\n${repo.rootDirectory}`,
-      confirmLabel: '重置', onConfirm: (): void => { this.resetRepository(repo.rootDirectory) } })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_reset_local_directories')),
+      message: localizedText($r('app.string.text_clears_all_local_files_sync_history_and'), String(repositoryLabel(repo)), String(repo.webdavEnabled ? localizedText($r('app.string.text_then_re_sync_from_webdav')) : localizedText($r('app.string.text_the_inbox_one_day_memo_and_my'))), String(repo.rootDirectory)),
+      confirmLabel: localizedText($r('app.string.text_reset')), onConfirm: (): void => { this.resetRepository(repo.rootDirectory) } })
   }
 
   async resetRepository(expectedRoot: string, initializeOnly: boolean = false) {
@@ -378,23 +379,23 @@ struct RepositorySettings {
       const context = this.getUIContext().getHostContext()!
       const config = await AppConfigService.load(context)
       const repository = config.repos.find((item: RepoConfig) => item.id === this.repoId)
-      if (!repository || repository.rootDirectory !== expectedRoot) throw new Error('仓库配置已改变，请重新打开')
+      if (!repository || repository.rootDirectory !== expectedRoot) throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
       if (repository.webdavEnabled) {
-        if (initializeOnly) throw new Error('仓库同步方式已改变，请重新打开')
+        if (initializeOnly) throw new Error(localizedText($r('app.string.text_reopen_repository_sync_mode_changed')))
         await this.syncRepository(repository, 'repositoryReset', true)
       } else {
         this.retryInitialization = true
         const files = await RepositorySetupService.initialize(context, config, repository, !initializeOnly)
         const current = await AppConfigService.load(context)
         const saved = current.repos.find((item: RepoConfig) => item.id === this.repoId)
-        if (!saved || saved.rootDirectory !== expectedRoot || saved.webdavEnabled) throw new Error('仓库配置已改变，请重新打开')
+        if (!saved || saved.rootDirectory !== expectedRoot || saved.webdavEnabled) throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
         if (RepositorySetupService.bindEntries(current, repository, files, true)) await AppConfigService.save(context, current)
         this.retryInitialization = false
       }
-      this.getUIContext().getPromptAction().showToast({ message: repository.webdavEnabled ? '仓库已重置并同步' : '本地目录已重置' })
+      this.getUIContext().getPromptAction().showToast({ message: repository.webdavEnabled ? localizedText($r('app.string.text_reset_and_synchronized_repository')) : localizedText($r('app.string.text_local_directory_resetd')) })
     } catch (e) {
       const detail = coreErrorMessage(e as CoreBridgeError)
-      this.message = this.syncRetry === 'repositoryReset' ? `本地目录已重置，同步未完成：${detail}` : `重置失败：${detail}`
+      this.message = this.syncRetry === 'repositoryReset' ? localizedText($r('app.string.text_local_directory_has_been_reset_sync_is'), String(detail)) : localizedText($r('app.string.text_reset_failed'), String(detail))
     }
     finally { this.resetting = false }
   }
@@ -409,21 +410,21 @@ struct RepositorySettings {
     Column() {
       AppShell({ title: this.pageTitle(), titleIcon: $r('app.media.nav_repository'), back: true, drawerOpen: $drawerOpen,
         busy: this.loading || this.saving || this.testing || this.deleting || this.resetting || this.directoryBusy,
-        actionLabel: this.existing ? '重置本地目录' : '',
-        actionText: this.resetting ? '正在重置…' : '重置',
+        actionLabel: this.existing ? localizedText($r('app.string.text_reset_local_directory')) : '',
+        actionText: this.resetting ? localizedText($r('app.string.text_reseting')) : localizedText($r('app.string.text_reset')),
         action: (): void => { this.confirmReset() },
         backAction: (): void => { this.onBackPress() } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
           Scroll() {
             Column() {
-              SettingsGroup({ title: '基本信息', detail: this.creationMode ?
-                '使用应用专用目录存放文件。' :
-                (this.existing ? '名称可留空，默认使用目录名称。修改后点击底部“确定”保存。' : '默认使用应用专用目录，也可选择应用可访问的其他目录。') }) {
-                SettingsField({ title: '名称', text: this.name,
-                  placeholder: !this.existing && this.rootDirectory === this.managedDirectory() ? (this.webdavEnabled ? 'WebDAV 仓库' : '本地仓库') : repositoryName(this.rootDirectory),
+              SettingsGroup({ title: localizedText($r('app.string.text_basic_information')), detail: this.creationMode ?
+                localizedText($r('app.string.text_stores_files_using_an_application_directory')) :
+                (this.existing ? localizedText($r('app.string.text_you_can_leave_a_name_empty_and')) : localizedText($r('app.string.text_by_default_use_the_application_directory_or'))) }) {
+                SettingsField({ title: localizedText($r('app.string.text_name')), text: this.name,
+                  placeholder: !this.existing && this.rootDirectory === this.managedDirectory() ? (this.webdavEnabled ? localizedText($r('app.string.text_webdav_repository')) : localizedText($r('app.string.text_local_repository'))) : repositoryName(this.rootDirectory),
                   changed: (value: string): void => { this.name = value } })
-                SettingsRow({ title: '本地目录', value: this.rootDirectory === this.managedDirectory() ? '应用专用目录' : repositoryName(this.rootDirectory),
+                SettingsRow({ title: localizedText($r('app.string.text_local_directory')), value: this.rootDirectory === this.managedDirectory() ? localizedText($r('app.string.text_apply_a_special_directory')) : repositoryName(this.rootDirectory),
                   detail: this.rootDirectory, icon: $r('app.media.ui_folder'), divider: false,
                   disclosure: this.existing || !this.creationMode,
                   action: (): void => {
@@ -431,24 +432,24 @@ struct RepositorySettings {
                   } })
               }
               if (this.existing || !this.creationMode) {
-                SettingsGroup({ title: '同步', detail: '本地仓库仅使用本机文件。WebDAV 仓库切换为不同步时，需要确认清理同步信息。' }) {
-                  SettingsChoiceRow({ title: '同步方式', value: this.webdavEnabled ? 'WebDAV' : '不同步',
+                SettingsGroup({ title: localizedText($r('app.string.text_sync')), detail: localizedText($r('app.string.text_local_warehouses_use_only_their_own_machine')) }) {
+                  SettingsChoiceRow({ title: localizedText($r('app.string.text_synchronisation_method')), value: this.webdavEnabled ? 'WebDAV' : localizedText($r('app.string.text_do_not_sync')),
                     divider: false, items: this.syncMethodChoices() })
                   if (this.cleanupPending) {
-                    SettingsRow({ title: '重试清理同步信息', divider: false, disclosure: false,
+                    SettingsRow({ title: localizedText($r('app.string.text_retry_clearing_sync_data')), divider: false, disclosure: false,
                       action: (): void => { this.finishLocalConversion(this.rootDirectory) } })
                   }
                 }
               }
               if (this.webdavEnabled) {
-                SettingsGroup({ title: 'WebDAV 连接', detail: '测试连接验证认证与目录访问，不保存配置或同步文件；上传权限在实际同步时验证。' }) {
-                  SettingsField({ title: '服务器地址', text: this.webdavUrl, placeholder: 'https://dav.example.com/org/',
+                SettingsGroup({ title: localizedText($r('app.string.text_webdav_connection')), detail: localizedText($r('app.string.text_tests_the_connection_to_verify_authentication_and')) }) {
+                  SettingsField({ title: localizedText($r('app.string.text_server_address')), text: this.webdavUrl, placeholder: 'https://dav.example.com/org/',
                     changed: (value: string): void => { this.webdavUrl = value; this.clearTestResult() } })
-                  SettingsField({ title: '用户名', text: this.webdavUsername, placeholder: 'WebDAV 用户名',
+                  SettingsField({ title: localizedText($r('app.string.text_username')), text: this.webdavUsername, placeholder: localizedText($r('app.string.text_webdav_username')),
                     changed: (value: string): void => { this.webdavUsername = value; this.clearTestResult() } })
-                  SettingsField({ title: '密码或应用专用密码', text: this.webdavPassword, placeholder: 'WebDAV 密码', password: true,
+                  SettingsField({ title: localizedText($r('app.string.text_password_or_application_of_a_specific_password')), text: this.webdavPassword, placeholder: localizedText($r('app.string.text_webdav_password')), password: true,
                     changed: (value: string): void => { this.webdavPassword = value; this.clearTestResult() } })
-                  SettingsRow({ title: this.testing ? '测试连接中…' : '测试连接', divider: false, disclosure: false, disabled: this.testing,
+                  SettingsRow({ title: this.testing ? localizedText($r('app.string.text_testing_connection_2')) : localizedText($r('app.string.text_test_connection')), divider: false, disclosure: false, disabled: this.testing,
                     action: (): void => { this.testConnection() } })
                 }
               }
@@ -457,22 +458,22 @@ struct RepositorySettings {
                   .fontColor(this.testing ? UiColor.secondary : this.testSucceeded ? UiColor.done : UiColor.error)
               }
               if (this.webdavEnabled) {
-                SettingsGroup({ title: '同步过滤目录', detail: '目录名用逗号分隔，匹配任意层级。过滤目录不参与同步，已下载文件会保留。' }) {
-                  SettingsField({ title: '过滤目录', text: this.excludedDirectoriesText, placeholder: '目录名，用逗号分隔',
+                SettingsGroup({ title: localizedText($r('app.string.text_synchronise_filter_directory')), detail: localizedText($r('app.string.text_catalogues_are_separated_by_commas_to_match')) }) {
+                  SettingsField({ title: localizedText($r('app.string.text_filter_directory')), text: this.excludedDirectoriesText, placeholder: localizedText($r('app.string.text_catalogue_name_separated_by_comma')),
                     changed: (value: string): void => { this.excludedDirectoriesText = value } })
-                  SettingsRow({ title: '恢复默认过滤目录', divider: false, disclosure: false, action: (): void => { this.restoreDefaultExclusions() } })
+                  SettingsRow({ title: localizedText($r('app.string.text_restore_default_filter_directory')), divider: false, disclosure: false, action: (): void => { this.restoreDefaultExclusions() } })
                 }
               }
               if (this.existing) {
-                SettingsGroup({ title: '仓库管理', detail: '重置会清空本地文件；删除存储库仅移除配置和密码。操作前均需确认。' }) {
+                SettingsGroup({ title: localizedText($r('app.string.text_repository_management')), detail: localizedText($r('app.string.text_reset_will_empty_local_files_deleting_the')) }) {
                   if (this.syncRetry) {
-                    SettingsRow({ title: '重试仓库同步', disclosure: false, action: (): void => { this.retrySync() } })
+                    SettingsRow({ title: localizedText($r('app.string.text_retry_repository_sync')), disclosure: false, action: (): void => { this.retrySync() } })
                   }
                   if (this.retryInitialization) {
-                    SettingsRow({ title: '重试初始化入口文件', disclosure: false,
+                    SettingsRow({ title: localizedText($r('app.string.text_retry_initializing_entry_files')), disclosure: false,
                       action: (): void => { this.resetRepository(this.rootDirectory.trim(), true) } })
                   }
-                  SettingsRow({ title: this.deleting ? '正在删除…' : '删除存储库', danger: true, disclosure: false, divider: false, action: (): void => { this.confirmDelete() } })
+                  SettingsRow({ title: this.deleting ? localizedText($r('app.string.text_deleting')) : localizedText($r('app.string.text_remove_repository')), danger: true, disclosure: false, divider: false, action: (): void => { this.confirmDelete() } })
                 }
               }
             }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
@@ -480,7 +481,7 @@ struct RepositorySettings {
           }.width('100%').layoutWeight(1).align(Alignment.TopStart)
           if (!this.loading && this.loaded && (!this.existing || this.hasChanges())) {
             Column() {
-              Button(this.saving ? '正在保存…' : this.existing ? '确定' : '新建仓库')
+              Button(this.saving ? localizedText($r('app.string.text_saving_4')) : this.existing ? localizedText($r('app.string.text_ok')) : localizedText($r('app.string.text_new_repository')))
                 .id(this.existing ? 'repository_confirm' : 'repository_create')
                 .width('100%').height(48).borderRadius(12)
                 .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
@@ -502,6 +503,6 @@ struct RepositorySettings {
     try {
       const defaults: NativeSyncOptions = await defaultSyncOptions()
       this.excludedDirectoriesText = defaults.excludedDirectories.join(', ')
-    } catch (e) { this.message = `读取默认过滤目录失败：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { this.message = localizedText($r('app.string.text_reading_default_filter_directory_failed'), String(coreErrorMessage(e as CoreBridgeError))) }
   }
 }

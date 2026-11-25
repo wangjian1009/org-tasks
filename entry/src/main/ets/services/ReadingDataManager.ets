@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { AppDataManager } from './AppDataManager'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig } from '../models/OrgTask'
@@ -60,7 +61,7 @@ export class NotebookDataManager {
     const dataSet = this.app.dataSet('notebookFiles')
     const snapshot = dataSet.data
     const current = snapshot?.type === 'file' && snapshot.result.find(item => item.repoId === file.repoId && item.path === file.path)
-    if (!current || current.fileVersion !== file.fileVersion) throw new Error('文件已变化，请重新选择')
+    if (!current || current.fileVersion !== file.fileVersion) throw new Error(localizedText($r('app.string.text_file_has_changed_please_re_select')))
     group.fileVersions = [{ repoId: file.repoId, file: file.path, version: file.fileVersion }]
     await dataSet.submitOperationGroup(group, () => !this.closed && allowed(), true)
   }
@@ -72,7 +73,7 @@ export class HistoryFileDataManager extends SnapshotDataManager<HistoryFileReadi
   constructor(context: Context, target: HistoryFileReadingTarget) {
     super(context, async (config: AppConfig): Promise<HistoryFileReadingSnapshot> => {
       const repository = config.repos.find(repo => repo.id === target.repoId)
-      if (!repository) throw new Error('此存储库已不存在')
+      if (!repository) throw new Error(localizedText($r('app.string.text_this_repository_does_not_exist')))
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
       const file = await repo.historyFile(target.syncId, target.path, false)
       return { config, file, repositoryName: repositoryLabel(repository) }
@@ -84,7 +85,7 @@ export class SyncLogDataManager extends SnapshotDataManager<SyncLogSnapshot> {
   constructor(context: Context, repoId: string) {
     super(context, async (config: AppConfig): Promise<SyncLogSnapshot> => {
       const repository = config.repos.find(repo => repo.id === repoId)
-      if (!repository) throw new Error('此存储库已不存在，请返回存储库列表')
+      if (!repository) throw new Error(localizedText($r('app.string.text_this_repository_does_not_exist_please_return')))
       const items = await NativeCoreService.repositoryHistory(config.repos, repository, config.todoDefaults, config.coreSettings)
       items.sort((left: CoreSyncRecord, right: CoreSyncRecord): number => (right.started_at ?? -1) - (left.started_at ?? -1))
       return { items, repositoryName: repositoryLabel(repository), repoId: repository.id }
@@ -96,7 +97,7 @@ export class SyncLogDetailDataManager extends SnapshotDataManager<CoreSyncRecord
   constructor(context: Context, repoId: string, syncId: string) {
     super(context, async (config: AppConfig): Promise<CoreSyncRecordDetail> => {
       const repository = config.repos.find(repo => repo.id === repoId)
-      if (!repository) throw new Error('此存储库已不存在')
+      if (!repository) throw new Error(localizedText($r('app.string.text_this_repository_does_not_exist')))
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
       return await repo.historyDetail(syncId)
     }, (): boolean => false)

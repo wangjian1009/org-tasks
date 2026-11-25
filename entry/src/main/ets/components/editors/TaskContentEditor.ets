@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { TaskContentSlot, contentDragScrollSpeed, reconcileTaskContent, taskContentGap } from '../../ui/TaskContentPresentation'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTextLink, CoreLinkValue, CoreContentNode, CoreContentBlockChange, CoreTaskChecklistChange } from '../../services/NativeCoreService'
@@ -83,7 +84,7 @@ export struct TaskContentEditor {
     if (!this.movingId || this.savingMove) return
     if (this.selectedVersion !== this.moveVersion) {
       this.cancelMove()
-      try { this.getUIContext().getPromptAction().showToast({ message: '正文已变化，请重新选择移动位置' }) }
+      try { this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_the_text_has_changed_re_select_the')) }) }
       catch (_) { /* 宿主离开时可能没有可用窗口。 */ }
     } else if (this.readonly || this.disabled) {
       this.cancelMove()
@@ -314,7 +315,7 @@ export struct TaskContentEditor {
   moveGap(index: number, beforeId: string | null) {
     Button({ type: ButtonType.Normal }) {
       if (this.dragTarget === index) {
-        Text('放入').fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
+        Text($r('app.string.text_put_it_in')).fontSize(14).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
       } else if (!this.dragSlot) {
         Circle({ width: 6, height: 6 }).fill(UiColor.projectLabel)
       }
@@ -323,7 +324,7 @@ export struct TaskContentEditor {
       .responseRegion({ x: 0, y: -8, width: '100%', height: this.dragTarget === index ? Math.max(52, this.dragHeight) + 16 : 32 })
       .enabled(!this.savingMove && !this.disabled)
       .id(this.moveGapId(index))
-      .accessibilityText(beforeId === null ? '移到正文末尾' : `移到区块之前：${this.blocks.find(block => block.id === beforeId)?.source.split('\n', 1)[0] ?? ''}`)
+      .accessibilityText(beforeId === null ? localizedText($r('app.string.text_move_to_the_end_of_the_body')) : localizedText($r('app.string.text_before_moving_to_block'), String(this.blocks.find(block => block.id === beforeId)?.source.split('\n', 1)[0] ?? '')))
       .onClick((): void => { this.placeBlock(beforeId) })
   }
 
@@ -354,13 +355,13 @@ export struct TaskContentEditor {
     Column() {
       if (this.movingId) {
         Row({ space: 8 }) {
-          Text(this.savingMove ? '正在移动…' : '拖到目标位置，或点按圆点').fontSize(14).fontColor(UiColor.text).layoutWeight(1)
-          Button('取消').height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+          Text(this.savingMove ? localizedText($r('app.string.text_moving')) : localizedText($r('app.string.text_drag_to_target_position_or_dot_by'))).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
+          Button($r('app.string.text_cancel')).height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
             .enabled(!this.savingMove).onClick((): void => { this.cancelMove() })
         }.width('100%')
       }
       if (!this.readonly && this.blocks.length === 0) {
-        TaskBlockView({ block: this.emptyBlock, emptyBody: true, placeholder: '段落', disabled: this.disabled,
+        TaskBlockView({ block: this.emptyBlock, emptyBody: true, placeholder: localizedText($r('app.string.text_paragraph')), disabled: this.disabled,
           showEmptyPrompt: this.showEmptyPrompt, addMenuRequest: this.addMenuRequest,
           openAddMenu: (request: number, y: number): boolean => this.openAddMenu(request, y),
           saveFirstChecklist: this.saveFirstChecklist,
@@ -389,7 +390,7 @@ export struct TaskContentEditor {
                   followRequest: this.followKey === slot.key ? this.followRequest : 0,
                   followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
                   followChecklist: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingChecklistItem(slot.key, finish),
-                  placeholder: '列表', readContent: (): void => { this.checklist((): number => this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
+                  placeholder: localizedText($r('app.string.text_list')), readContent: (): void => { this.checklist((): number => this.indexFor(slot.key)) }, begin: this.begin, save: this.save,
                   editingChanged: this.editingChanged }).width('100%')
               } else if (this.treeFor(this.blockFor(slot).id)) {
                 TaskBlockView({ block: this.blockFor(slot), readonly: this.readonly, disabled: this.disabled,
@@ -403,7 +404,7 @@ export struct TaskContentEditor {
                   followRequest: this.followKey === slot.key ? this.followRequest : 0,
                   followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
                   followChecklist: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingChecklistItem(slot.key, finish),
-                  placeholder: this.blockFor(slot).paragraph ? '段落' : '正文',
+                  placeholder: this.blockFor(slot).paragraph ? localizedText($r('app.string.text_paragraph')) : localizedText($r('app.string.text_text')),
                   editor: this.editor, linkEditor: this.linkEditor, nativeContent: (edit: () => void): void => { this.nativeBlock(slot, edit) },
                   begin: this.begin, save: this.save, editingChanged: this.editingChanged }).width('100%')
               } else {
@@ -413,14 +414,14 @@ export struct TaskContentEditor {
                   followRequest: this.followKey === slot.key ? this.followRequest : 0,
                   followParagraph: (finish: () => Promise<boolean>): Promise<void> => this.appendFollowingParagraph(slot.key, finish),
                   nextBlock: this.blocks[this.indexFor(slot.key) + 1],
-                  placeholder: this.blockFor(slot).paragraph ? '段落' : '正文',
+                  placeholder: this.blockFor(slot).paragraph ? localizedText($r('app.string.text_paragraph')) : localizedText($r('app.string.text_text')),
                   begin: this.begin, save: this.save, changeLink: this.changeLink, editingChanged: this.editingChanged,
                   linkEditingChanged: this.linkEditingChanged }).width('100%')
               }
             }.layoutWeight(1).enabled(!this.movingId)
             if (this.canDragBlock(slot)) {
               Image($r('app.media.ui_drag_handle')).width(20).height(20).fillColor(UiColor.secondary)
-                .draggable(false).accessibilityText(this.blockFor(slot).paragraph ? '拖动段落' : '拖动列表')
+                .draggable(false).accessibilityText(this.blockFor(slot).paragraph ? localizedText($r('app.string.text_drag_paragraph')) : localizedText($r('app.string.text_drag_list')))
                 .alignSelf(ItemAlign.Start).margin({ top: 12 })
             }
           }.width('100%').constraintSize({ minHeight: this.canDragBlock(slot) ? 44 : 0 })

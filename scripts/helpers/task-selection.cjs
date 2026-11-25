@@ -1,3 +1,4 @@
+const { transpileFixture } = require('./localized-resources.cjs');
 // 共享选择控件的宿主替身，真实执行控制器与操作组组装。
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
@@ -6,7 +7,7 @@ const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openhar
 function compile(name, mocks = {}) {
   const file = `entry/src/main/ets/${name}.ets`;
   const source = fs.readFileSync(file, 'utf8').replace(/^@Observed\n/gm, '');
-  const code = ts.transpileModule(source, {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code = transpileFixture(ts, source, {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module = {exports:{}};
   vm.runInThisContext('(function(require,module,exports,$r){'+code+'\n})', {filename:file})(dependency => {
     if (dependency.endsWith('/DangerousConfirmation')) return require('./dangerous-confirmation.cjs');

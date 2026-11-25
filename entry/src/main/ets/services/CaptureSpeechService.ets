@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { abilityAccessCtrl, common } from '@kit.AbilityKit'
 import { speechRecognizer } from '@kit.CoreSpeechKit'
 import { audio } from '@kit.AudioKit'
@@ -27,15 +28,15 @@ export class CaptureSpeechService implements CaptureSpeechControl {
     try {
       const permission = await abilityAccessCtrl.createAtManager().requestPermissionsFromUser(context, ['ohos.permission.MICROPHONE'])
       authResults = permission.authResults
-    } catch (error) { throw new CaptureSpeechError('无法请求麦克风权限，可以继续输入标题') }
+    } catch (error) { throw new CaptureSpeechError(localizedText($r('app.string.text_unable_to_request_microphone_permission_continue_with'))) }
     if (generation !== this.generation) return
-    if (authResults[0] !== 0) throw new CaptureSpeechError('未获得麦克风权限，可以继续输入标题')
+    if (authResults[0] !== 0) throw new CaptureSpeechError(localizedText($r('app.string.text_if_you_do_not_have_microphone_permission')))
     let engine: speechRecognizer.SpeechRecognitionEngine
     try { engine = await speechRecognizer.createEngine({ language: 'zh-CN', online: 1 }) }
     catch (e) {
       if (generation !== this.generation) return
       try { engine = await speechRecognizer.createEngine({ language: 'zh-CN', online: 0 }) }
-      catch (e) { throw new CaptureSpeechError('语音服务暂时不可用，可以继续输入标题') }
+      catch (e) { throw new CaptureSpeechError(localizedText($r('app.string.text_voice_services_are_not_available_for_the'))) }
     }
     if (generation !== this.generation) { engine.shutdown(); return }
     this.engine = engine
@@ -59,7 +60,7 @@ export class CaptureSpeechService implements CaptureSpeechControl {
             if (id !== this.sessionId) return
             events.started()
             this.resolveStart()
-          }).catch((): void => { this.fail(events, '麦克风暂时不可用，可以继续输入标题') })
+          }).catch((): void => { this.fail(events, localizedText($r('app.string.text_the_microphone_is_not_available_for_the'))) })
         },
         onEvent: (id: string, code: number, message: string): void => {},
         onResult: (id: string, result: speechRecognizer.SpeechRecognitionResult): void => {
@@ -70,7 +71,7 @@ export class CaptureSpeechService implements CaptureSpeechControl {
         },
         onComplete: (id: string, message: string): void => { if (id === this.sessionId) this.complete(events) },
         onError: (id: string, code: number, message: string): void => {
-          if (id === this.sessionId) this.fail(events, '语音识别暂时不可用，可以继续输入标题')
+          if (id === this.sessionId) this.fail(events, localizedText($r('app.string.text_voice_recognition_is_temporarily_unavailable_so_you')))
         }
       })
       microphone.on('readData', (data: ArrayBuffer): void => {
@@ -86,13 +87,13 @@ export class CaptureSpeechService implements CaptureSpeechControl {
             offset += 640
           }
           this.buffer = combined.slice(offset)
-        } catch (e) { this.fail(events, '语音识别中断，可以继续编辑已识别的标题') }
+        } catch (e) { this.fail(events, localizedText($r('app.string.text_voice_recognition_interrupted_to_continue_editing_recognized'))) }
       })
       engine.startListening({ sessionId: session,
         audioInfo: { audioType: 'pcm', sampleRate: 16000, soundChannel: 1, sampleBit: 16 } })
       if (this.sessionId === session) this.timeout = setTimeout((): void => { this.finish(events) }, 60000)
       await this.sessionStarted
-    } catch (e) { await this.cancel(); throw new CaptureSpeechError('语音识别暂时不可用，可以继续输入标题') }
+    } catch (e) { await this.cancel(); throw new CaptureSpeechError(localizedText($r('app.string.text_voice_recognition_is_temporarily_unavailable_so_you'))) }
   }
 
   async finish(events: CaptureSpeechEvents): Promise<boolean> {
@@ -112,7 +113,7 @@ export class CaptureSpeechService implements CaptureSpeechControl {
       const session = this.sessionId
       this.engine.finish(session)
       if (this.sessionId === session) this.timeout = setTimeout((): void => { this.complete(events) }, 5000)
-    } catch (e) { this.fail(events, '语音识别已结束，请检查标题后保存') }
+    } catch (e) { this.fail(events, localizedText($r('app.string.text_voice_recognition_is_over_please_check_the'))) }
     return await result
   }
 

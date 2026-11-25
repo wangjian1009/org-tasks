@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { showDangerousConfirmation } from '../components/controls/DangerousConfirmation'
 import { PageNavigator } from '../services/PageNavigator'
 import { AppShell } from '../components/AppShell'
@@ -88,11 +89,11 @@ struct ConflictFile {
       const context = this.getUIContext().getHostContext()!
       const config = await AppConfigService.load(context, false)
       const repository = config.repos.find(repo => repo.id === params.repoId)
-      if (!repository) throw new Error('此存储库已不存在')
+      if (!repository) throw new Error(localizedText($r('app.string.text_this_repository_does_not_exist')))
       const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
       if (params.coreRepoId !== undefined && repo.id !== params.coreRepoId) {
-        throw new Error('存储库已发生变化，请重新打开')
+        throw new Error(localizedText($r('app.string.text_the_repository_has_changed_reopen_it')))
       }
       await workspace.setPreviewRoot(`${context.cacheDir}/org-conflict-previews`)
       const file = await repo.file(params.path)
@@ -139,7 +140,7 @@ struct ConflictFile {
 
     } catch (e) {
       if (createdPreview) await createdPreview.discard().catch((): void => {})
-      if (request === this.requestId) this.message = `读取冲突文件失败：${coreErrorMessage(e as CoreBridgeError)}`
+      if (request === this.requestId) this.message = localizedText($r('app.string.text_failed_to_read_conflict_file'), String(coreErrorMessage(e as CoreBridgeError)))
     } finally { if (request === this.requestId) this.loading = false }
   }
 
@@ -164,7 +165,7 @@ struct ConflictFile {
     try {
       const projection = await preview.project({ conflictId, previewVersion: file.fileVersion, target })
       if (request !== this.requestId || preview.id !== this.preview?.id || conflictId !== this.selectedId) return
-      if (projection.conflictId !== conflictId || projection.workingVersion !== file.fileVersion) throw new Error('差异已失效，请重试')
+      if (projection.conflictId !== conflictId || projection.workingVersion !== file.fileVersion) throw new Error(localizedText($r('app.string.text_discrepancies_have_lapsed_please_try_again')))
       this.projection = projection
       this.changes = projection.changes
       this.beforeText = projection.beforeText
@@ -180,19 +181,19 @@ struct ConflictFile {
     try {
       if (this.stagedAction) await this.refreshPreview()
       else await this.readProjection(this.selectedTarget)
-    } catch (e) { this.handleError(e as CoreBridgeError, '读取差异失败') }
+    } catch (e) { this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_failed_to_read_difference'))) }
     finally { this.saving = false }
   }
 
   summaryText(before: boolean): string {
-    if (this.comparisonLoading) return '正在读取…'
-    if (!this.stagedAction && !this.projection) return '差异读取失败，请重试'
-    if (!this.stagedAction && this.projection?.status === 'unavailable') return before ? '保留当前文件内容' : '候选材料不完整，仅可保留当前'
+    if (this.comparisonLoading) return localizedText($r('app.string.text_reading'))
+    if (!this.stagedAction && !this.projection) return localizedText($r('app.string.text_discrepancies_read_failed_please_try_again'))
+    if (!this.stagedAction && this.projection?.status === 'unavailable') return before ? localizedText($r('app.string.text_keep_the_contents_of_the_current_document')) : localizedText($r('app.string.text_candidate_is_incomplete_only_the_current_one'))
     if (!this.stagedAction && this.projection?.status === 'targetRequired') {
-      return before ? '待选择目标后比较' : this.afterText.trim() || '本地删除意图，待选择目标'
+      return before ? localizedText($r('app.string.text_to_be_compared_after_selection_of_target')) : this.afterText.trim() || localizedText($r('app.string.text_delete_intent_locally_to_select_target'))
     }
-    if (this.mainChangeCount() === 0) return this.stagedAction === 'discard' ? '正文不变' : '与当前内容相同'
-    return (before ? this.beforeText : this.afterText).trim() || (before ? '此处没有内容' : '此处内容将被删除')
+    if (this.mainChangeCount() === 0) return this.stagedAction === 'discard' ? localizedText($r('app.string.text_the_text_remains_unchanged')) : localizedText($r('app.string.text_same_as_current_content'))
+    return (before ? this.beforeText : this.afterText).trim() || (before ? localizedText($r('app.string.text_there_s_nothing_here')) : localizedText($r('app.string.text_this_will_be_deleted')))
   }
 
   selectedConflict(): CoreFileConflict | undefined { return this.conflicts.find(item => item.id === this.selectedId) }
@@ -204,15 +205,15 @@ struct ConflictFile {
 
   reasonLabel(reason: string): string {
     switch (reason) {
-      case 'modify': return '本地与当前同时修改了内容，请确认采用哪一版。'
-      case 'create': return '本地新增了此节点，请选择插入位置。'
-      case 'delete': return '本地已删除此节点，当前仍有修改，请确认是否删除。'
-      case 'modify-missing': return '原节点已消失，本地修改需要重新放置。'
-      case 'missing-parent': return '原父节点已消失，请为本地内容选择放置位置。'
-      case 'reorder': return '两端同时调整了节点顺序，请确认采用的结构。'
-      case 'structure': return '文件结构发生冲突，请确认是否替换主树。'
-      case 'header': return '文件属性存在不同修改，请比较后选择采用本地或保留当前；重复声明有歧义时需逐项编辑。'
-      default: return '此处存在内容冲突，请核对应用前后的内容。'
+      case 'modify': return localizedText($r('app.string.text_locally_and_at_the_same_time_the'))
+      case 'create': return localizedText($r('app.string.text_locally_add_this_node_select_the_place'))
+      case 'delete': return localizedText($r('app.string.text_this_node_has_been_deleted_locally_and'))
+      case 'modify-missing': return localizedText($r('app.string.text_the_original_node_has_disappeared_and_local'))
+      case 'missing-parent': return localizedText($r('app.string.text_the_parent_node_has_disappeared_select_the'))
+      case 'reorder': return localizedText($r('app.string.text_the_order_of_nodes_has_been_adjusted'))
+      case 'structure': return localizedText($r('app.string.text_the_document_structure_is_in_conflict_and'))
+      case 'header': return localizedText($r('app.string.text_there_are_different_changes_to_the_document'))
+      default: return localizedText($r('app.string.text_there_is_a_conflict_of_content_here'))
     }
   }
 
@@ -221,8 +222,8 @@ struct ConflictFile {
       const kind = conflict.reason === 'delete' ? 'delete' :
         ['create', 'missing-parent', 'modify-missing'].includes(conflict.reason) ? 'create' : 'modify'
       return { id: conflict.id, title: conflict.title, kind,
-        kindLabel: kind === 'delete' ? '删除' : kind === 'create' ? '新增' : '修改',
-        applyLabel: conflict.reason === 'delete' ? '删除' : kind === 'create' ? '插入' : '应用',
+        kindLabel: kind === 'delete' ? localizedText($r('app.string.text_delete')) : kind === 'create' ? localizedText($r('app.string.text_add_3')) : localizedText($r('app.string.text_edit_2')),
+        applyLabel: conflict.reason === 'delete' ? localizedText($r('app.string.text_delete')) : kind === 'create' ? localizedText($r('app.string.text_insert')) : localizedText($r('app.string.text_apply')),
         content: conflict.candidateContent, html: conflict.candidateHtml,
         anchorStart: conflict.displayAnchor?.start.byte_offset ?? -1, atTarget: conflict.displayAtTarget,
         available: conflict.availableActions.includes('useLocal') }
@@ -253,7 +254,7 @@ struct ConflictFile {
     if (action === 'discard') { await this.discardChoice(); return }
     try {
       await this.applyChoice()
-    } catch (e) { this.handleError(e as CoreBridgeError, '读取候选失败') }
+    } catch (e) { this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_reading_candidate_failed'))) }
   }
 
   selectAdjacent(delta: number) {
@@ -266,9 +267,9 @@ struct ConflictFile {
 
   confirmAbandon(action: () => void) {
     if (!this.manuallyEdited) { action(); return }
-    showDangerousConfirmation(this.getUIContext(), { title: '放弃未应用的调整？',
-      message: '本项手动调整仅保存在预览中，继续会放弃这些调整。已经应用的结果不受影响。',
-      confirmLabel: '放弃调整', onConfirm: action })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_giving_up_unapplied_adjustments')),
+      message: localizedText($r('app.string.text_the_manual_adjustments_are_kept_in_the')),
+      confirmLabel: localizedText($r('app.string.text_waiver_of_adjustment')), onConfirm: action })
   }
 
   async prepare(conflict: CoreFileConflict, action: string, target?: CoreConflictTarget) {
@@ -308,7 +309,7 @@ struct ConflictFile {
       this.previewFile = copied
       this.present(copied)
       const copiedConflict = pending.find(item => item.id === conflict.id)
-      if (!copiedConflict) throw new Error('冲突点已变化，请重新读取')
+      if (!copiedConflict) throw new Error(localizedText($r('app.string.text_conflict_point_has_changed_read_again')))
       if (action === 'discard') await this.stage('discard')
       else if (action === 'useLocal') {
         if (target || copiedConflict.suggestedTarget) await this.stage('useLocal', target ?? copiedConflict.suggestedTarget!)
@@ -316,7 +317,7 @@ struct ConflictFile {
       } else await this.readProjection()
     } catch (e) {
       if (request !== this.requestId) return
-      this.handleError(e as CoreBridgeError, '创建预览失败')
+      this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_failed_to_create_preview')))
       // 失败可能发生在替换旧槽位之后，不继续使用旧的文件投影。
       if (this.preview) {
         try { this.previewFile = await this.preview.file() } catch (_) { this.preview = undefined; this.previewFile = undefined }
@@ -339,14 +340,14 @@ struct ConflictFile {
 
   applyLabel(): string {
     switch (this.selectedConflict()?.reason ?? '') {
-      case 'create': return '插入'
-      case 'delete': return '删除'
+      case 'create': return localizedText($r('app.string.text_insert'))
+      case 'delete': return localizedText($r('app.string.text_delete'))
       case 'modify-missing':
-      case 'missing-parent': return '放置'
+      case 'missing-parent': return localizedText($r('app.string.text_placement'))
       case 'reorder':
-      case 'structure': return '替换主树'
-      case 'header': return '采用文件属性'
-      default: return '应用'
+      case 'structure': return localizedText($r('app.string.text_replace_main_tree'))
+      case 'header': return localizedText($r('app.string.text_use_file_properties'))
+      default: return localizedText($r('app.string.text_apply'))
     }
   }
 
@@ -356,13 +357,13 @@ struct ConflictFile {
     if (!conflict?.availableActions.includes('useLocal') || this.comparisonLoading || this.message) return
     if (!this.stagedAction && !this.projection) {
       try { await this.readProjection(this.selectedTarget) }
-      catch (e) { this.handleError(e as CoreBridgeError, '读取候选失败'); return }
+      catch (e) { this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_reading_candidate_failed'))); return }
     }
     if (!this.stagedAction && this.projection?.status !== 'ready') { this.openTargets(); return }
     if (['reorder', 'structure'].includes(conflict.reason)) {
-      showDangerousConfirmation(this.getUIContext(), { title: '用本地内容替换主树？',
-        message: '将采用预览中的完整本地内容，替换文件前言和全部普通节点，其他冲突点继续保留。',
-        confirmLabel: '替换主树', onConfirm: (): void => { this.submitChoice('useLocal', { type: 'replaceMain' }) } })
+      showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_replace_the_main_tree_with_local_content')),
+        message: localizedText($r('app.string.text_the_full_local_content_of_the_preview')),
+        confirmLabel: localizedText($r('app.string.text_replace_main_tree')), onConfirm: (): void => { this.submitChoice('useLocal', { type: 'replaceMain' }) } })
     } else await this.submitChoice('useLocal', this.selectedTarget)
   }
 
@@ -380,7 +381,7 @@ struct ConflictFile {
     this.saving = true
     this.message = ''
     try { if (!this.stagedAction) await this.stage(action, target) }
-    catch (e) { this.handleError(e as CoreBridgeError, '处理冲突失败') }
+    catch (e) { this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_failure_to_address_conflict'))) }
     finally { this.saving = false }
     if (!this.message) await this.applyPreview()
   }
@@ -416,11 +417,11 @@ struct ConflictFile {
 
   selectedTargetLabel(): string {
     const target = this.selectedTarget ?? this.selectedConflict()?.suggestedTarget
-    if (!target) return '选择放置位置'
+    if (!target) return localizedText($r('app.string.text_select_placement'))
     if (target.type === 'existing') return target.data.titles.join(' / ')
-    if (target.type === 'insert') return target.data.after ? `${target.data.after.titles.join(' / ')} 之后` :
-      target.data.parent.titles.length ? `${target.data.parent.titles.join(' / ')} 下第一项` : '文件中第一个标题'
-    return this.selectedConflict()?.reason === 'header' ? '当前文件属性' : '完整主树'
+    if (target.type === 'insert') return target.data.after ? localizedText($r('app.string.text_after'), String(target.data.after.titles.join(' / '))) :
+      target.data.parent.titles.length ? localizedText($r('app.string.text_next'), String(target.data.parent.titles.join(' / '))) : localizedText($r('app.string.text_first_title_in_the_file'))
+    return this.selectedConflict()?.reason === 'header' ? localizedText($r('app.string.text_current_file_properties')) : localizedText($r('app.string.text_full_main_tree'))
   }
 
   async chooseTarget(row: ConflictTargetRow) {
@@ -435,7 +436,7 @@ struct ConflictFile {
         this.targetsVisible = false
       }
     }
-    catch (e) { this.handleError(e as CoreBridgeError, '无法采用此目标') }
+    catch (e) { this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_couldn_t_apply_to_this_target'))) }
     finally { this.saving = false }
   }
 
@@ -447,7 +448,7 @@ struct ConflictFile {
       const file = await preview.file()
       const changes = await preview.changes()
       if (request !== this.requestId || preview.id !== this.preview?.id) return
-      if (changes.previewVersion !== file.fileVersion) throw new Error('预览正在变化，请重新读取')
+      if (changes.previewVersion !== file.fileVersion) throw new Error(localizedText($r('app.string.text_preview_is_changing_read_again')))
       if (this.previewFile && file.fileVersion !== this.previewFile.fileVersion && checkSource) this.manuallyEdited = true
       this.previewFile = file
       if (!this.stagedAction && this.selectedId) await this.readProjection(this.selectedTarget)
@@ -461,7 +462,7 @@ struct ConflictFile {
         const current = await this.workspace.fileAt(preview.sourcePath)
         if (request === this.requestId && current.fileVersion !== preview.sourceVersion) this.stale = true
       }
-    } catch (e) { if (request === this.requestId) this.handleError(e as CoreBridgeError, '读取预览失败') }
+    } catch (e) { if (request === this.requestId) this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_reading_preview_failed'))) }
   }
 
   async applyPreview() {
@@ -475,14 +476,14 @@ struct ConflictFile {
       const position = await this.navigation.capturePosition()
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!, false)
       const repository = config.repos.find(item => item.id === this.configRepoId)
-      if (!repository) throw new Error('此存储库已不存在')
-      if (repository.rootDirectory !== this.sourceRootDirectory) throw new Error('仓库目录已改变，请重新读取')
+      if (!repository) throw new Error(localizedText($r('app.string.text_this_repository_does_not_exist')))
+      if (repository.rootDirectory !== this.sourceRootDirectory) throw new Error(localizedText($r('app.string.text_reread_repository_directory_change')))
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
-      if (repo.id !== this.coreRepoId) throw new Error('仓库已改变，请重新读取')
+      if (repo.id !== this.coreRepoId) throw new Error(localizedText($r('app.string.text_the_repository_has_changed_read_it_again')))
       const group = this.pendingGroup ?? await preview.finish({ previewVersion: file.fileVersion })
       this.pendingGroup = group
 
-      if (!this.workspace) throw new Error('工作区已失效')
+      if (!this.workspace) throw new Error(localizedText($r('app.string.text_workspace_expired')))
       await this.workspace.executeTaskOperations(group)
       this.pendingGroup = undefined
       committed = true
@@ -491,7 +492,7 @@ struct ConflictFile {
       this.restoredPosition = position
       await this.load(false)
     } catch (e) {
-      this.handleError(e as CoreBridgeError, committed ? '已应用，重新读取失败' : '应用失败')
+      this.handleError(e as CoreBridgeError, committed ? localizedText($r('app.string.text_applyd_reread_failed')) : localizedText($r('app.string.text_application_failed')))
       if (!committed && this.workspace) {
         try { const current = await this.workspace.fileAt(preview.sourcePath); if (current.fileVersion !== preview.sourceVersion) this.stale = true }
         catch (_) { this.stale = true }
@@ -502,14 +503,14 @@ struct ConflictFile {
 
   recreate() {
     if (this.saving) return
-    showDangerousConfirmation(this.getUIContext(), { title: '重新创建预览？', message: '将放弃本项未应用的取舍与手动调整，并重新读取当前文件。',
-      confirmLabel: '重新创建', onConfirm: (): void => { this.reloadDiscardingPreview() } })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_recreate_preview')), message: localizedText($r('app.string.text_discards_the_trade_offs_and_manual_adjustments')),
+      confirmLabel: localizedText($r('app.string.text_recreate')), onConfirm: (): void => { this.reloadDiscardingPreview() } })
   }
 
   async reloadDiscardingPreview() {
     this.saving = true
     try { if (this.preview) await this.preview.discard(); this.preview = undefined; this.pendingGroup = undefined; this.manuallyEdited = false; await this.load() }
-    catch (e) { this.handleError(e as CoreBridgeError, '重新读取失败') }
+    catch (e) { this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_reread_failed'))) }
     finally { this.saving = false }
   }
 
@@ -520,9 +521,9 @@ struct ConflictFile {
 
   confirmDiscard() {
     if (this.saving || !this.file || this.file.conflictIds.length === 0) return
-    showDangerousConfirmation(this.getUIContext(), { title: '丢弃全部冲突？',
-      message: `将移除“${this.path}”中的 ${this.file.conflictIds.length} 个冲突点，保留当前主树内容，并放弃尚未应用的预览调整。`,
-      confirmLabel: '丢弃全部', onConfirm: (): void => { this.discardAll() } })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_discarding_all_conflicts')),
+      message: localizedText($r('app.string.text_the_conflict_point_in_will_be_removed'), String(this.path), String(this.file.conflictIds.length)),
+      confirmLabel: localizedText($r('app.string.text_discard_all')), onConfirm: (): void => { this.discardAll() } })
   }
 
   async discardAll() {
@@ -533,10 +534,10 @@ struct ConflictFile {
     try {
       const config = await AppConfigService.load(this.getUIContext().getHostContext()!, false)
       const repository = config.repos.find(item => item.id === this.configRepoId)
-      if (!repository) throw new Error('此存储库已不存在')
-      if (repository.rootDirectory !== this.sourceRootDirectory) throw new Error('仓库目录已改变，请重新读取')
+      if (!repository) throw new Error(localizedText($r('app.string.text_this_repository_does_not_exist')))
+      if (repository.rootDirectory !== this.sourceRootDirectory) throw new Error(localizedText($r('app.string.text_reread_repository_directory_change')))
       const repo = await NativeCoreService.repository(config.repos, repository, config.todoDefaults, config.coreSettings)
-      if (repo.id !== this.coreRepoId) throw new Error('仓库已改变，请重新读取')
+      if (repo.id !== this.coreRepoId) throw new Error(localizedText($r('app.string.text_the_repository_has_changed_read_it_again')))
       if (this.preview) await this.preview.discard()
       this.preview = undefined
       await NativeCoreService.executeTaskOperations(config.repos, {
@@ -545,7 +546,7 @@ struct ConflictFile {
       }, config.todoDefaults, config.coreSettings)
       this.manuallyEdited = false
       await this.load()
-    } catch (e) { this.handleError(e as CoreBridgeError, '丢弃失败') }
+    } catch (e) { this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_discard_failed'))) }
     finally { this.saving = false }
   }
 
@@ -558,27 +559,27 @@ struct ConflictFile {
     this.leaving = true
     this.requestId++
     try { if (this.preview) await this.preview.discard(); this.preview = undefined; await PageNavigator.shared.back(this.getUIContext()) }
-    catch (e) { this.handleError(e as CoreBridgeError, '返回失败'); this.leaving = false }
+    catch (e) { this.handleError(e as CoreBridgeError, localizedText($r('app.string.text_failed_to_return'))); this.leaving = false }
   }
 
   @Builder
   targetTree() {
     Column({ space: 8 }) {
-      Text(['modify', 'delete'].includes(this.selectedConflict()?.reason ?? '') ? '选择对应节点' : '选择放置位置')
+      Text(['modify', 'delete'].includes(this.selectedConflict()?.reason ?? '') ? localizedText($r('app.string.text_select_the_corresponding_node')) : localizedText($r('app.string.text_select_placement')))
         .fontSize(15).fontColor(UiColor.text).width('100%').padding({ right: 48 })
-      Text('展开父节点，点击标题选择位置').fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ right: 48 })
+      Text($r('app.string.text_expand_parent_node_tap_on_the_title')).fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ right: 48 })
       Scroll() {
         Column() {
           ForEach(this.targetRows(), (row: ConflictTargetRow) => {
             Row({ space: 4 }) {
               Button(row.branch ? row.expanded ? '⌄' : '›' : '└').fontSize(16).width(36).height(44)
                 .backgroundColor(Color.Transparent).fontColor(UiColor.secondary).enabled(row.branch && !this.saving)
-                .accessibilityText(`${row.expanded ? '收起' : '展开'} ${row.label}`)
+                .accessibilityText(`${row.expanded ? localizedText($r('app.string.text_collapse')) : localizedText($r('app.string.text_expand'))} ${row.label}`)
                 .onClick((): void => { this.toggleTargetBranch(row) })
               Text(row.label).fontSize(14).fontColor(row.target ? UiColor.text : UiColor.secondary).layoutWeight(1)
                 .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
                 .onClick((): void => { this.chooseTarget(row) }).enabled(!!row.target && !this.saving)
-                .accessibilityText(`${row.label}，${row.target?.type === 'insert' && !row.key.endsWith(':after') ? '放在此节点下第一项' : '选择此目标'}`)
+                .accessibilityText(`${row.label}，${row.target?.type === 'insert' && !row.key.endsWith(':after') ? localizedText($r('app.string.text_first_at_this_node')) : localizedText($r('app.string.text_select_this_target'))}`)
             }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: Math.min(row.depth, 8) * 16, right: 4 })
           }, (row: ConflictTargetRow) => row.key)
         }.width('100%')
@@ -588,27 +589,27 @@ struct ConflictFile {
 
   build() {
     Column() {
-      AppShell({ title: this.title || this.path || '文件', titleParts: this.titleParts, titleIcon: $r('app.media.ui_conflict_resolve'),
+      AppShell({ title: this.title || this.path || localizedText($r('app.string.text_documentation')), titleParts: this.titleParts, titleIcon: $r('app.media.ui_conflict_resolve'),
         back: true, drawerOpen: $drawerOpen, busy: this.saving,
         backAction: (): void => { this.exit() },
-        actionIcon: $r('app.media.ui_more'), actionLabel: this.conflicts.length > 0 ? '更多操作' : '',
-        actionMenuItems: [{ title: '丢弃全部冲突…', dangerous: true, action: (): void => { this.confirmDiscard() } },
-          { title: '文档目录', action: (): void => { this.navigation.openOutline() } }] }) {
+        actionIcon: $r('app.media.ui_more'), actionLabel: this.conflicts.length > 0 ? localizedText($r('app.string.text_more_operations')) : '',
+        actionMenuItems: [{ title: localizedText($r('app.string.text_drop_all_conflicts')), dangerous: true, action: (): void => { this.confirmDiscard() } },
+          { title: localizedText($r('app.string.text_document_directory')), action: (): void => { this.navigation.openOutline() } }] }) {
         Column() {
           if (this.loading) {
-            EmptyState({ title: '正在读取冲突文件', busy: true })
+            EmptyState({ title: localizedText($r('app.string.text_reading_conflict_files')), busy: true })
           } else if (!this.file) {
-            EmptyState({ title: '无法处理冲突', detail: this.message, actionLabel: '重新读取', action: (): void => { this.load() } })
+            EmptyState({ title: localizedText($r('app.string.text_can_t_handle_the_conflict')), detail: this.message, actionLabel: localizedText($r('app.string.text_reread')), action: (): void => { this.load() } })
           } else {
             Text(this.fileContext).fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ left: 20, right: 20, top: 8, bottom: 8 })
             if (this.message || this.stale) {
               Column({ space: 4 }) {
-                Text(this.stale ? '原文件已变化，当前预览不能应用' : this.message).fontSize(13).fontColor(UiColor.error).width('100%')
+                Text(this.stale ? localizedText($r('app.string.text_the_original_file_has_changed_and_the')) : this.message).fontSize(13).fontColor(UiColor.error).width('100%')
                 if (this.stale && this.message) { Text(this.message).fontSize(12).fontColor(UiColor.secondary).width('100%') }
                 Row({ space: 12 }) {
-                  Button('重新读取').fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.recreate() })
-                  if (this.pendingGroup && !this.stale) { Button('重试应用').fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.message = ''; this.applyPreview() }) }
-                  if (this.preview && !this.pendingGroup) { Button('重试预览').fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.retryPreview() }) }
+                  Button($r('app.string.text_reread')).fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.recreate() })
+                  if (this.pendingGroup && !this.stale) { Button($r('app.string.text_retry_application')).fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.message = ''; this.applyPreview() }) }
+                  if (this.preview && !this.pendingGroup) { Button($r('app.string.text_retry_preview')).fontSize(12).backgroundColor(Color.Transparent).fontColor(UiColor.primary).onClick((): void => { this.retryPreview() }) }
                 }
               }.width('100%').padding({ left: 20, right: 20, bottom: 8 })
             }
@@ -624,18 +625,18 @@ struct ConflictFile {
               },
               failed: (message: string): void => { this.message = message } }).width('100%').layoutWeight(1)
             if (this.conflicts.length === 0) {
-              Text('此文件的冲突已全部处理').fontSize(14).fontColor(UiColor.secondary).padding(12)
-              Button('完成').height(44).margin({ bottom: 12 }).onClick((): void => { this.exit() })
+              Text($r('app.string.text_the_conflict_of_this_document_has_been')).fontSize(14).fontColor(UiColor.secondary).padding(12)
+              Button($r('app.string.text_done')).height(44).margin({ bottom: 12 }).onClick((): void => { this.exit() })
             } else {
               Row({ space: 8 }) {
                 Button('‹').fontSize(22).height(44).width(48).backgroundColor(UiColor.container)
                   .fontColor(UiColor.primary).enabled(!this.saving && !this.stale && !this.pendingGroup && this.conflicts.length > 1)
-                  .accessibilityText('上一个冲突').onClick((): void => { this.selectAdjacent(-1) })
+                  .accessibilityText($r('app.string.text_previous_conflict')).onClick((): void => { this.selectAdjacent(-1) })
                 Text(`${this.selectedId ? this.conflicts.findIndex(item => item.id === this.selectedId) + 1 : '—'} / ${this.conflicts.length}`)
                   .fontSize(13).fontColor(UiColor.primary).layoutWeight(1).textAlign(TextAlign.Center)
                 Button('›').fontSize(22).height(44).width(48).backgroundColor(UiColor.container)
                   .fontColor(UiColor.primary).enabled(!this.saving && !this.stale && !this.pendingGroup)
-                  .accessibilityText('下一个冲突').onClick((): void => { this.selectAdjacent(1) })
+                  .accessibilityText($r('app.string.text_next_conflict')).onClick((): void => { this.selectAdjacent(1) })
               }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 12 })
                 .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 32 }).onActionEnd((event: GestureEvent): void => {
                   this.selectAdjacent(event.offsetX < 0 ? 1 : -1)

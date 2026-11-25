@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreTaskOperationGroup, CoreRefileTarget, CoreTaskPlanningEdit } from '../services/NativeCoreService'
 
 // 编辑器提供具体操作接口；手势宿主负责把 Action 映射到这些接口。
@@ -29,7 +30,7 @@ export class TaskEditorController {
   constructor(listener?: (group: CoreTaskOperationGroup) => void) { this.listener = listener }
 
   emitOperation(group: CoreTaskOperationGroup): void {
-    if (!this.listener) throw new Error('未提供修改操作接收接口')
+    if (!this.listener) throw new Error(localizedText($r('app.string.text_no_modification_operation_reception_interface_provided')))
     this.listener(group)
   }
 

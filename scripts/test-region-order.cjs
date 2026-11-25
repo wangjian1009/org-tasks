@@ -1,4 +1,5 @@
 // 验证今天分区排序的持久化、延迟失效清理与编辑提交边界。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
@@ -14,7 +15,7 @@ function load(file, mocks = {}, sheet = false) {
   source = source.replace(/^@Component\n/gm, '').replace(/^  @(State|Prop|Link) /gm, '  ')
     .replace('export struct RegionOrderSheet', 'export class RegionOrderSheet');
   const module = { exports: {} };
-  vm.runInThisContext('(function(require,module,exports){' + ts.transpileModule(source, {
+  vm.runInThisContext('(function(require,module,exports){' + transpileFixture(ts, source, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText + '\n})')(name => {
     if (name.endsWith('/DangerousConfirmation')) return require('./helpers/dangerous-confirmation.cjs');

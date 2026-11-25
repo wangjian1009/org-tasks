@@ -1,4 +1,5 @@
 // 批量 Action 经共享控件规划、确认并通过 DataSet 一次提交。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert=require('node:assert/strict');
 const {test}=require('node:test');
 if(process.argv.includes('-h')||process.argv.includes('--help')){
@@ -74,7 +75,7 @@ function popup(name,selection){
   const ts=require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
   const source=fs.readFileSync('entry/src/main/ets/components/editors/'+name+'.ets','utf8')
     .replace(/@(Component|Builder)\n/g,'').replace(/@(ObjectLink|State|Prop)\s*/g,'').replace('export struct '+name,'export class '+name);
-  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code=transpileFixture(ts, source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module={exports:{}},dialogs=[];
   class Dialog{constructor(options){this.options=options;dialogs.push(options);}open(){}close(){this.options.cancel?.();}}
   vm.runInNewContext(code,{module,exports:module.exports,CustomDialogController:Dialog,DialogAlignment:{Center:'center'},

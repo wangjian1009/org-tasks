@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreTaskPriority, CorePeriodCategory } from '../services/NativeCoreService'
 
 // 分类来自 Core；字母仅用于显示，不参与颜色或最高分级计算。
@@ -17,7 +18,7 @@ export function priorityBackground(category: CorePeriodCategory | null | undefin
   }
 }
 export function priorityLabel(priority: CoreTaskPriority | null): string {
-  if (!priority) return '无优先级'
-  const category = priority.category === 'Hight' ? '最重要' : priority.category === 'Middle' ? '中等' : priority.category === 'Low' ? '较低' : '未分类'
-  return `优先级 ${priority.name}，${category}`
+  if (!priority) return localizedText($r('app.string.text_no_priority'))
+  const category = priority.category === 'Hight' ? localizedText($r('app.string.text_most_important')) : priority.category === 'Middle' ? localizedText($r('app.string.text_medium')) : priority.category === 'Low' ? localizedText($r('app.string.text_lower')) : localizedText($r('app.string.text_uncategorized'))
+  return localizedText($r('app.string.text_priority_3'), String(priority.name), String(category))
 }

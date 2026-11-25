@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { checklistEdgeScroll } from '../ui/TaskChecklistReorder'
 import { DataSet } from '../services/DataSet'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
@@ -24,7 +25,7 @@ export class OrgFileDocumentNavigation {
   locateSection: (path: CoreTaskPath) => Promise<boolean> = async (): Promise<boolean> => false
   locateCreated: (row: string, reveal: boolean) => Promise<boolean> = async () => false
   isValidInternalLink: (target: string) => Promise<boolean> = async (): Promise<boolean> => false
-  followInternalLink: (target: string) => Promise<void> = async (): Promise<void> => { throw new Error('项目文档尚未载入') }
+  followInternalLink: (target: string) => Promise<void> = async (): Promise<void> => { throw new Error(localizedText($r('app.string.text_project_document_not_loaded'))) }
 }
 
 // 原生标题和任务行与安全 HTML 正文共用一个滚动容器。
@@ -34,7 +35,7 @@ export struct OrgFileDocumentView {
   @Prop fileContext: string = ''
   dataSet: DataSet | undefined = undefined
   private taskDataSet(): DataSet {
-    if (!this.dataSet) throw new Error('项目文件数据集尚未载入')
+    if (!this.dataSet) throw new Error(localizedText($r('app.string.text_project_file_data_set_not_yet_loaded')))
     return this.dataSet
   }
 
@@ -159,10 +160,10 @@ export struct OrgFileDocumentView {
       this.active && this.showing && this.linkSection(target, false) !== undefined
     this.navigation.followInternalLink = async (target: string): Promise<void> => {
       const section = this.linkSection(target, false)
-      if (!section || !this.active || !this.showing) throw new Error('内部链接目标不存在或项目文档已隐藏')
-      if (!await TaskInlineSession.end(false)) throw new Error('请先完成当前编辑')
+      if (!section || !this.active || !this.showing) throw new Error(localizedText($r('app.string.text_internal_link_target_does_not_exist_or_2')))
+      if (!await TaskInlineSession.end(false)) throw new Error(localizedText($r('app.string.text_please_finish_the_current_editing_first')))
       const located = await this.locateRow(section.key, true)
-      if (!located) throw new Error('无法定位内部链接，请先完成当前编辑后重试')
+      if (!located) throw new Error(localizedText($r('app.string.text_unable_to_locate_internal_links_please_finish')))
     }
     this.pendingOffset = this.readOffset()
     this.navigation.captureReadingState = async (): Promise<string> => JSON.stringify({ scroll: this.scroller.currentOffset().yOffset })
@@ -435,7 +436,7 @@ export struct OrgFileDocumentView {
     const fraction = (pointerY - this.offsets.get(target.row)!) / (this.rowHeights.get(target.row) ?? 44)
     const placement = projectDropPlacement(fraction, this.orderDropTarget === target.row ? this.dropPlacement : undefined)
     if (this.orderDropTarget !== target.row || this.dropPlacement !== placement) {
-      const relation = placement === 'child' ? '成为子项' : placement === 'before' ? '移到前面' : '移到后面'
+      const relation = placement === 'child' ? localizedText($r('app.string.text_be_a_child')) : placement === 'before' ? localizedText($r('app.string.text_move_front')) : localizedText($r('app.string.text_move_back'))
       this.orderHintChanged(`${relation}\n${target.title}`)
       this.orderDropTarget = target.row
       this.dropPlacement = placement
@@ -479,9 +480,9 @@ export struct OrgFileDocumentView {
   @Builder
   outlineSheet() {
     Column({ space: 12 }) {
-      Text('文档目录').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).width('100%')
+      Text($r('app.string.text_document_directory')).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).width('100%')
       if (this.outlineItems.length === 0) {
-        Text('本文没有章节标题').fontSize(14).fontColor(UiColor.secondary).padding(24)
+        Text($r('app.string.text_this_document_does_not_have_a_chapter')).fontSize(14).fontColor(UiColor.secondary).padding(24)
       }
       List() {
         ForEach(this.outlineItems, (section: OrgFileReadingSection) => {
@@ -514,7 +515,7 @@ export struct OrgFileDocumentView {
                 .priorityGesture(TapGesture().onAction((): void => {
                   if (section.node) this.navigation.locateSection(section.node.fullPath)
                 }), GestureMask.IgnoreInternal)
-                .accessibilityDescription(`${section.node.level} 级章节，点击定位正文`)
+                .accessibilityDescription(localizedText($r('app.string.text_level_chapter_tap_on_the_location_body'), String(section.node.level)))
             }
           }
         }, (section: OrgFileReadingSection) => section.key)
@@ -542,7 +543,7 @@ export struct OrgFileDocumentView {
         ForEach(this.displayedSections, (section: OrgFileReadingSection) => {
           Column({ space: section.node ? 0 : 12 }) {
             if (!section.node && section.blocks.length > 0) {
-              Text('导言').fontSize(12).fontColor(UiColor.projectLabel).width('100%')
+              Text($r('app.string.text_introduction')).fontSize(12).fontColor(UiColor.projectLabel).width('100%')
             }
             if (section.node && this.readOnly) {
               if (section.node.state) {
@@ -595,10 +596,10 @@ export struct OrgFileDocumentView {
             })
         }, (section: OrgFileReadingSection) => `${this.revision}:${section.key}`)
         if (!this.edit.active && this.tagFiltered && !this.readingItems.some(item => item.visible && item.section.node?.state && !item.contextOnly)) {
-          Text('没有匹配标签的任务').fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
+          Text($r('app.string.no_tagged_tasks')).fontSize(14).fontColor(UiColor.secondary).padding({ top: 48, bottom: 48 })
         }
         if (this.sections.every((section: OrgFileReadingSection) => section.node === null && section.blocks.length === 0)) {
-          Text('文件还没有内容').fontSize(14).fontColor(UiColor.secondary).padding({ top: 64, bottom: 64 })
+          Text($r('app.string.text_the_file_is_not_available')).fontSize(14).fontColor(UiColor.secondary).padding({ top: 64, bottom: 64 })
         }
       }.width('100%').padding({ left: 12, right: 12, top: 4, bottom: 48 })
         .onAreaChange((_old: Area, area: Area): void => {

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { AppDataManager } from '../services/AppDataManager'
 import { PageNavigator } from '../services/PageNavigator'
 import { CaptureService } from '../services/CaptureService'
@@ -181,7 +182,7 @@ struct Inbox {
     if (this.captureSaving || !this.pageReady) return
     const title = this.captureTitle.trim()
     if (!title) {
-      this.captureMessage = '请输入标题'
+      this.captureMessage = localizedText($r('app.string.text_please_enter_the_title'))
       return
     }
     this.captureSaving = true
@@ -190,7 +191,7 @@ struct Inbox {
       const context = this.getUIContext().getHostContext()!
       await this.tasksDataSet!.operate((operationId: string): Promise<void> => CaptureService.save(context, title, operationId))
     } catch (e) {
-      this.captureMessage = `保存失败：${coreErrorMessage(e as CoreBridgeError)}`
+      this.captureMessage = localizedText($r('app.string.text_save_failed'), String(coreErrorMessage(e as CoreBridgeError)))
       return
     } finally {
       this.captureSaving = false
@@ -210,7 +211,7 @@ struct Inbox {
     Column({ space: 8 }) {
       Row({ space: 10 }) {
         Image($r('app.media.ui_recent_created')).width(22).height(22).accessibilityLevel('no')
-        Text('最近新增').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.primary)
+        Text($r('app.string.text_recent_new')).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.primary)
       }.width('100%')
       Divider().color(UiColor.outline).strokeWidth(0.5)
     }.height(52).width('100%').padding({ left: 20, right: 20 }).justifyContent(FlexAlign.Center)
@@ -250,7 +251,7 @@ struct Inbox {
 
   @Builder
   recentRegion(group: RecentTaskGroup) {
-    TaskRegion({ category: group.category || '未分类',
+    TaskRegion({ category: group.category || localizedText($r('app.string.text_uncategorized')),
       project: group.kind === 'project' ? group : null }) {
       ForEach(group.items, (task: CoreTask) => {
         TaskSwipeItem({ singleOperations: taskPageActionPolicy('recent').singleOperations, dataSet: this.taskDataSet('recent'), taskId: this.taskDataSet('recent').taskKey(task.id),
@@ -319,13 +320,13 @@ struct Inbox {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      AppShell({ title: '收件箱', titleIcon: $r('app.media.nav_inbox'),
+      AppShell({ title: localizedText($r('app.string.text_inbox')), titleIcon: $r('app.media.nav_inbox'),
         activeRoute: 'pages/Inbox', drawerOpen: $drawerOpen, requiresRepository: true,
         repositoryReadyChanged: (ready: boolean): void => { this.repositoryReady = ready },
         pullToSync: true, pullDisabled: this.selection.selecting, busy: this.actionBusy || this.selection.busy || this.selection.starting }) {
         Column() {
           if (this.loading) {
-            NotificationEmptyState({ title: '正在读取收件箱', busy: true })
+            NotificationEmptyState({ title: localizedText($r('app.string.text_reading_inbox')), busy: true })
           } else {
             List({ scroller: this.listScroller }) {
               if (this.showNotifications) {
@@ -334,13 +335,13 @@ struct Inbox {
               if (this.records.length === 0) {
                 ListItem() {
                   Column({ space: 8 }) {
-                    Text(this.message || '收件箱没有记录')
+                    Text(this.message || localizedText($r('app.string.text_there_s_no_record_in_the_inbox')))
                       .fontSize(18).fontColor(this.message ? UiColor.error : UiColor.secondary)
                       .width('100%').textAlign(TextAlign.Center)
                     if (this.message) {
-                      Button('重试').height(40).onClick((): void => { this.loadRecords(true) })
+                      Button($r('app.string.text_retry')).height(40).onClick((): void => { this.loadRecords(true) })
                     } else if (this.needsConfiguration) {
-                      Button('前往设置').height(40).onClick((): void => {
+                      Button($r('app.string.text_go_to_settings')).height(40).onClick((): void => {
                         PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
                       })
                     }
@@ -375,7 +376,7 @@ struct Inbox {
               }
               if (this.recentLayoutReady && this.recentMessage) {
                 ListItem() {
-                  Text(this.recentMessage + '，点击重试').fontSize(14).fontColor(UiColor.error).padding(16)
+                  Text(this.recentMessage + localizedText($r('app.string.text_tap_to_try_again'))).fontSize(14).fontColor(UiColor.error).padding(16)
                     .onClick((): void => { this.loadRecords(true) })
                 }.fullWidthItem()
               }
@@ -399,16 +400,16 @@ struct Inbox {
         .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
         .visibility(!this.repositoryReady || !this.pageReady || this.needsConfiguration || this.drawerOpen || this.captureOpen || this.inlineTyping ||
           this.selection.selecting || this.selection.starting ? Visibility.Hidden : Visibility.Visible)
-        .enabled(!this.actionBusy).accessibilityText('记一条')
+        .enabled(!this.actionBusy).accessibilityText($r('app.string.capture_text_shortcut'))
         .onClick((): void => { this.capture() })
       if (this.repositoryReady) {
         TaskSelectionToolbar({ selection: this.selection, operations: this.actionPolicy.bulkOperations, idPrefix: 'inbox' })
       }
       if (this.repositoryReady && this.captureOpen) {
         Column().width('100%').height('100%').backgroundColor('#66000000')
-          .accessibilityText('关闭并保留草稿').onClick((): void => { this.closeCapture() })
+          .accessibilityText($r('app.string.text_close_and_retain_the_draft')).onClick((): void => { this.closeCapture() })
         Column({ space: 12 }) {
-          TextInput({ text: this.captureTitle, placeholder: '记下一件事…' }).id('inbox_capture_title').height(60)
+          TextInput({ text: this.captureTitle, placeholder: localizedText($r('app.string.text_just_write_down_one_thing')) }).id('inbox_capture_title').height(60)
             .fontSize(20).fontColor(UiColor.text).placeholderColor(UiColor.secondary).backgroundColor(UiColor.field)
             .borderRadius(12).enterKeyType(EnterKeyType.Done)
             .enabled(!this.captureSaving)
@@ -418,7 +419,7 @@ struct Inbox {
           if (this.captureMessage.length > 0) {
             Text(this.captureMessage).width('100%').fontSize(13).fontColor(UiColor.error)
           }
-          Button(this.captureSaving ? '保存中…' : '保存').id('inbox_capture_save')
+          Button(this.captureSaving ? localizedText($r('app.string.text_saving_3')) : localizedText($r('app.string.text_save'))).id('inbox_capture_save')
             .width('100%').height(48).fontColor(UiColor.onPrimary).backgroundColor(UiColor.primary)
             .enabled(!this.captureSaving && this.captureTitle.trim().length > 0)
             .onClick((): void => { this.saveCapture() })

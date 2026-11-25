@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { showDangerousConfirmation } from '../controls/DangerousConfirmation'
 import { RegionOrder, ProjectOrder, OrderRegion, OrderProject, orderedRegionCatalog } from '../../ui/RegionOrderPresentation'
 import { coreErrorMessage, CoreBridgeError } from '../../services/NativeCoreService'
@@ -38,9 +39,9 @@ export struct RegionOrderSheet {
   cancel(): void {
     if (this.busy) return
     if (this.resetDraft || this.signature() !== this.original) {
-      showDangerousConfirmation(this.getUIContext(), { title: '放弃顺序调整？', message: '本次调整尚未保存。',
-        cancelLabel: '继续编辑',
-        confirmLabel: '放弃', onConfirm: (): void => { this.visible = false } })
+      showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_give_up_the_sequence')), message: localizedText($r('app.string.text_this_adjustment_has_not_been_saved')),
+        cancelLabel: localizedText($r('app.string.text_continue_editing')),
+        confirmLabel: localizedText($r('app.string.text_abandon')), onConfirm: (): void => { this.visible = false } })
     } else this.visible = false
   }
 
@@ -77,14 +78,14 @@ export struct RegionOrderSheet {
     if (this.busy || (!!this.readError && !this.readErrorCleared)) return
     this.busy = true; this.message = ''
     try { await this.save(this.draft, this.resetDraft); this.visible = false }
-    catch (error) { this.message = `保存失败：${coreErrorMessage(error as CoreBridgeError)}` }
+    catch (error) { this.message = localizedText($r('app.string.text_save_failed'), String(coreErrorMessage(error as CoreBridgeError))) }
     finally { this.busy = false }
   }
 
   @Builder
   handle(label: string) {
     Image($r('app.media.ui_drag_handle')).width(24).height(24).margin({ left: 8, right: 8 }).draggable(false)
-      .accessibilityText(`长按拖动${label}`)
+      .accessibilityText(localizedText($r('app.string.text_long_press_drag_2'), String(label)))
   }
 
   @Builder
@@ -95,7 +96,7 @@ export struct RegionOrderSheet {
       } else { Row().width(20) }
       Image($r('app.media.ui_category')).width(22).height(22).draggable(false)
       Text(region.title).fontSize(16).fontColor(UiColor.text).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      if (region.taskCount === 0) { Text('暂无任务').fontSize(12).fontColor(UiColor.secondary) }
+      if (region.taskCount === 0) { Text($r('app.string.text_no_tasks')).fontSize(12).fontColor(UiColor.secondary) }
       this.handle(region.title)
     }.id(`region_order_region:${region.key}`).height(56).width('100%')
       .onClick((): void => { this.toggle(region) })
@@ -105,7 +106,7 @@ export struct RegionOrderSheet {
   projectRow(project: OrderProject) {
     Row({ space: 8 }) {
       Text(project.title).fontSize(15).fontColor(UiColor.text).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      if (project.taskCount === 0) { Text('暂无任务').fontSize(12).fontColor(UiColor.secondary) }
+      if (project.taskCount === 0) { Text($r('app.string.text_no_tasks')).fontSize(12).fontColor(UiColor.secondary) }
       this.handle(project.title)
     }.id(`region_order_project:${project.key}`).height(48).width('100%').padding({ left: 56 })
   }
@@ -113,13 +114,13 @@ export struct RegionOrderSheet {
   build() {
     Column() {
       Row() {
-        Button('取消').id('region_order_cancel').fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+        Button($r('app.string.text_cancel')).id('region_order_cancel').fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .enabled(!this.busy).onClick((): void => { this.cancel() })
-        Text('排序').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1).textAlign(TextAlign.Center)
-        Button(this.busy ? '保存中' : '完成').id('region_order_done').fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+        Text($r('app.string.text_sort')).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1).textAlign(TextAlign.Center)
+        Button(this.busy ? localizedText($r('app.string.text_saving')) : localizedText($r('app.string.text_done'))).id('region_order_done').fontColor(UiColor.primary).backgroundColor(Color.Transparent)
           .enabled(!this.busy && (!this.readError || this.readErrorCleared)).onClick((): void => { this.confirm() })
       }.height(56).width('100%')
-      Text('长按拖动分类与项目；日程固定置顶，普通任务固定在项目下方。')
+      Text($r('app.string.text_long_grouping_and_items_by_drag_agenda'))
         .fontSize(13).fontColor(UiColor.secondary).padding({ left: 20, right: 20, bottom: 12 }).width('100%')
       if (this.message || (this.readError && !this.readErrorCleared)) {
         Text(this.message || this.readError).fontSize(13).fontColor(UiColor.error).padding(12).width('100%')
@@ -145,7 +146,7 @@ export struct RegionOrderSheet {
             { onDragStart: (_index: number): void => { this.expanded = [] } })
       }.id('region_order_list').layoutWeight(1).width('100%').padding({ left: 12, right: 12 })
         .enabled(!this.busy).edgeEffect(EdgeEffect.None).scrollBar(BarState.Off)
-      Button('恢复默认顺序').id('region_order_reset').height(48).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+      Button($r('app.string.text_restore_default_order')).id('region_order_reset').height(48).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
         .enabled(!this.busy).onClick((): void => { this.restoreDefaults() })
     }.width('100%').height('100%').padding({ bottom: 16 }).backgroundColor(UiColor.container)
   }

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { TaskSelectionController } from '../ui/TaskSelectionController'
 import { TaskRecordActionController } from '../ui/TaskRecordActionController'
 import { TaskRecordOperations, TaskRecordOperation } from '../services/TaskRecordOperations'
@@ -93,7 +94,7 @@ export struct TaskSwipeItem {
   aboutToDisappear(): void { this.active = false; this.recordActions.close(); this.closeProject(true); this.stopWatching?.(); this.stopWatching = undefined; this.controller.release() }
 
   private taskDataSet(): DataSet {
-    if (!this.dataSet) throw new Error('未提供页面数据管理对象')
+    if (!this.dataSet) throw new Error(localizedText($r('app.string.text_no_page_data_management_objects_provided')))
     return this.dataSet
   }
 
@@ -178,7 +179,7 @@ export struct TaskSwipeItem {
       if (!valid()) return
       if (dataSet.error) throw new Error(dataSet.error)
       const source = dataSet.getTask(this.taskId)
-      if (!source) throw new Error('任务已移除，请刷新后重试')
+      if (!source) throw new Error(localizedText($r('app.string.text_job_removed_please_refresh_and_try_again')))
       const result = await this.recordActions.execute(this.getUIContext(), dataSet, [source], action, valid)
       if (valid() && result.retainedKeys.length) {
         try { this.getUIContext().getPromptAction().showToast({ message: TaskRecordOperations.retainedMessage(result.retainedKeys.length), duration: 3000 }) }
@@ -280,7 +281,7 @@ export struct TaskSwipeItem {
   async submitOperationGroups(groups: CoreTaskOperationGroup[], allowed: () => boolean = () => true,
     waitForCompletion: boolean = false, moveDestination?: CoreTaskPath): Promise<void> {
     const canSubmit = (): boolean => !this.hostBlocked() && allowed()
-    if (!canSubmit()) throw new Error('操作已取消')
+    if (!canSubmit()) throw new Error(localizedText($r('app.string.text_operation_cancelled')))
     this.submitting = true
     try { await TaskSwipeOperations.submit(this.taskDataSet(), groups, canSubmit, waitForCompletion, moveDestination) }
     finally { this.submitting = false }
@@ -290,10 +291,10 @@ export struct TaskSwipeItem {
     const activate = (action: TaskOperation): void => { close?.(); this.activateOperation(action) }
     if (this.includeStructureActions) {
       const items = taskSingleMenu(this.singleOperations, activate, this.toggleStateCategory, this.toggleWaitCategory)
-      const refactor = this.structureActions(this.canOrderChildren).find(item => item.title === '重构')
-      if (refactor) items.unshift({ id: TaskOperation.Refactor, title: refactor.title, label: '重构任务', icon: refactor.icon!,
+      const refactor = this.structureActions(this.canOrderChildren).find(item => item.title === localizedText($r('app.string.text_reconstruct')))
+      if (refactor) items.unshift({ id: TaskOperation.Refactor, title: refactor.title, label: localizedText($r('app.string.text_reconstruct_task')), icon: refactor.icon!,
         action: (): void => { close?.(); refactor.action() } })
-      if (this.canAddContent) items.unshift({ id: 'addContent', title: '添加内容', label: '添加任务内容', icon: $r('app.media.ui_add'),
+      if (this.canAddContent) items.unshift({ id: 'addContent', title: localizedText($r('app.string.text_add')), label: localizedText($r('app.string.text_add_task_2')), icon: $r('app.media.ui_add'),
         action: (): void => { close?.(); if (!this.blocked()) this.addContent() } })
       return items
     }
@@ -379,6 +380,14 @@ export struct TaskSwipeItem {
       .margin({ left: -this.listOutset, right: -this.listOutset })
       .swipeAction(!this.leftSwipeAvailable() ? {} : {
         end: { builder: (): void => { this.menuContent((action: TaskOperation): void => { this.activateOperation(action) }) } }, edgeEffect: SwipeEdgeEffect.None })
+      .onGestureRecognizerJudgeBegin((_event: BaseGestureEvent, current: GestureRecognizer, others: GestureRecognizer[]): GestureJudgeResult => {
+        if (current.isBuiltIn() && current.getType() === GestureControl.GestureType.PAN_GESTURE &&
+          others.some((recognizer: GestureRecognizer): boolean =>
+            recognizer.getEventTargetInfo().getId() === `${this.menuIdPrefix}_horizontal_menu`)) {
+          return GestureJudgeResult.REJECT
+        }
+        return GestureJudgeResult.CONTINUE
+      })
       .shouldBuiltInRecognizerParallelWith((_current: GestureRecognizer, others: GestureRecognizer[]): GestureRecognizer => {
         for (const recognizer of others) {
           if (recognizer.getTag() === 'shared_right_swipe') return recognizer

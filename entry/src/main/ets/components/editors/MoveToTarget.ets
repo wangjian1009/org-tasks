@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { CoreRefileTarget } from '../../services/NativeCoreService'
 import { MoveTargetHistoryService } from '../../services/MoveTargetHistoryService'
 import { RefileRow, RefileSection, recentRefileRows, refileRows, refileTargetKey, searchRefileRows } from '../../ui/MoveToTargetPresentation'
@@ -50,7 +51,7 @@ export struct MoveToTarget {
       this.historyMessage = ''
       this.recentRows = recentRefileRows(this.rows, recent)
     } catch (_) {
-      if (!this.disposed) this.historyMessage = '最近位置读取失败，点击重试'
+      if (!this.disposed) this.historyMessage = localizedText($r('app.string.text_recent_position_reading_failed_tap_to_try'))
     }
   }
 
@@ -139,9 +140,9 @@ export struct MoveToTarget {
 
   @Builder
   moveButton(row: RefileRow) {
-    Button('移动').id('move_to_target').width(58).height(32).padding(0).borderRadius(8)
+    Button($r('app.string.text_move')).id('move_to_target').width(58).height(32).padding(0).borderRadius(8)
       .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary).fontSize(14)
-      .accessibilityText(`移动到${row.title}，${row.context}`)
+      .accessibilityText(localizedText($r('app.string.text_move_to'), String(row.title), String(row.context)))
       .enabled(!this.busy && !this.loading).onClick((): void => { this.move(row) })
   }
 
@@ -149,16 +150,16 @@ export struct MoveToTarget {
   searchBar() {
     Row({ space: 9 }) {
       Image($r('app.media.ui_search')).width(18).height(18).fillColor(UiColor.secondary).accessibilityLevel('no')
-      TextInput({ text: this.query, placeholder: '搜索位置、项目或分类' }).id('move_target_search')
+      TextInput({ text: this.query, placeholder: localizedText($r('app.string.text_search_location_item_or_category')) }).id('move_target_search')
         .layoutWeight(1).height('100%').padding(0).backgroundColor(Color.Transparent)
         .fontColor(UiColor.text).placeholderColor(UiColor.secondary).fontSize(14)
-        .accessibilityText('搜索移动位置').enterKeyType(EnterKeyType.Search)
+        .accessibilityText($r('app.string.move_destination_search')).enterKeyType(EnterKeyType.Search)
         .onFocus((): void => { this.searchFocused = true })
         .onBlur((): void => { this.searchFocused = false })
         .onChange((value: string): void => { this.changeQuery(value) })
       if (this.query) {
         Image($r('app.media.ui_close')).width(32).height(36).padding(7).fillColor(UiColor.secondary)
-          .accessibilityText('清除搜索').onClick((): void => { this.changeQuery('') })
+          .accessibilityText($r('app.string.text_clear_search')).onClick((): void => { this.changeQuery('') })
       }
     }.width('100%').height(40).padding({ left: 12, right: 4 }).borderRadius(9)
       .backgroundColor('#2D312F').border({ width: 1, color: UiColor.outline })
@@ -185,7 +186,7 @@ export struct MoveToTarget {
         Text(row.context).fontSize(11).fontColor(UiColor.secondary)
           .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
       }.alignItems(HorizontalAlign.Start).layoutWeight(1).constraintSize({ minWidth: 0 })
-        .accessibilityText(`${row.title}，${row.context}${this.selectedKey === row.key ? '，已选中' : ''}`)
+        .accessibilityText(`${row.title}，${row.context}${this.selectedKey === row.key ? localizedText($r('app.string.text_selected_2')) : ''}`)
         .onClick((): void => { this.select(row) })
       if (this.selectedKey === row.key) this.moveButton(row)
     }.width('100%').constraintSize({ minHeight: 46 }).padding({ left: 10 + indent, right: 8, top: 4, bottom: 4 })
@@ -201,7 +202,7 @@ export struct MoveToTarget {
         Image(section.kind === 'project' ? $r('app.media.ui_folder') : $r('app.media.ui_category_muted'))
           .width(16).height(16).fillColor(UiColor.secondary).accessibilityLevel('no')
         Column({ space: 1 }) {
-          Text(section.name || '未分类').fontSize(15).fontColor(UiColor.text).fontWeight(FontWeight.Medium)
+          Text(section.name || localizedText($r('app.string.text_uncategorized'))).fontSize(15).fontColor(UiColor.text).fontWeight(FontWeight.Medium)
             .width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           if (root && (root.context !== root.target.path || this.selectedKey === root.key)) {
             Text(root.context).fontSize(11).fontColor(UiColor.secondary)
@@ -209,7 +210,7 @@ export struct MoveToTarget {
           }
         }.alignItems(HorizontalAlign.Start).layoutWeight(1).constraintSize({ minWidth: 0 })
       }.layoutWeight(1).constraintSize({ minHeight: 44 }).padding({ left: 10 })
-        .accessibilityText(root ? `选择项目${section.name}根位置` : section.name || '未分类')
+        .accessibilityText(root ? localizedText($r('app.string.text_select_the_item_root_position'), String(section.name)) : section.name || localizedText($r('app.string.text_uncategorized')))
         .onClick((): void => { if (root) this.select(root); else this.toggle(section, search) })
       if (children.length) {
         if (root) Divider().vertical(true).height(22).color(UiColor.outline)
@@ -218,7 +219,7 @@ export struct MoveToTarget {
             .rotate({ angle: this.sectionExpanded(section, search) ? 90 : 0 }).fillColor(UiColor.secondary)
         }.width(42).height(44).justifyContent(FlexAlign.Center)
           .id(`move_expand:${section.name || '未分类'}`)
-          .accessibilityText(`${this.sectionExpanded(section, search) ? '收起' : '展开'}${section.name || '未分类'}`)
+          .accessibilityText(`${this.sectionExpanded(section, search) ? localizedText($r('app.string.text_collapse')) : localizedText($r('app.string.text_expand'))}${section.name || localizedText($r('app.string.text_uncategorized'))}`)
           .onClick((): void => { this.toggle(section, search) })
       }
       if (root && this.selectedKey === root.key) this.moveButton(root)
@@ -238,9 +239,9 @@ export struct MoveToTarget {
     Column() {
       Row({ space: 8 }) {
         Image($r('app.media.ui_move_to')).width(24).height(24).accessibilityLevel('no')
-        Text('移动到').fontSize(20).fontColor(UiColor.text).fontWeight(FontWeight.Medium).layoutWeight(1)
+        Text($r('app.string.text_move_to_2')).fontSize(20).fontColor(UiColor.text).fontWeight(FontWeight.Medium).layoutWeight(1)
         Image($r('app.media.ui_close')).width(40).height(40).padding(11).fillColor(UiColor.secondary)
-          .accessibilityText('关闭移动窗口').enabled(!this.busy).onClick(this.close)
+          .accessibilityText($r('app.string.text_close_mobile_window')).enabled(!this.busy).onClick(this.close)
       }.width('100%').height(48).padding({ left: 20, right: 20 })
       Scroll() {
         this.sourcePreview()
@@ -252,21 +253,21 @@ export struct MoveToTarget {
         Text(this.historyMessage).fontSize(13).fontColor(UiColor.error).padding(12).width('100%')
           .onClick((): void => { this.loadHistory() })
       }
-      if (this.busy) this.status('正在移动…')
+      if (this.busy) this.status(localizedText($r('app.string.text_moving')))
       if (this.message) {
         Text(this.message).fontSize(14).fontColor(UiColor.error).maxLines(3).padding(12).width('100%')
-        Button('刷新后重试').height(40).onClick((): void => { this.retry() }).enabled(!this.busy)
+        Button($r('app.string.text_refresh_and_try_again')).height(40).onClick((): void => { this.retry() }).enabled(!this.busy)
       }
       if (this.loading) {
-        this.status('正在读取任务目标…')
+        this.status(localizedText($r('app.string.text_reading_task_targets')))
       } else if (!this.rows.length) {
-        this.status('暂无任务目标')
+        this.status(localizedText($r('app.string.text_no_mission_objective_for_now')))
       } else {
         List({ scroller: this.scroller }) {
           if (this.query.trim()) {
-            ListItem() { this.caption(`搜索结果 · ${this.matching.length} 个位置`) }
+            ListItem() { this.caption(localizedText($r('app.string.text_search_results_location'), String(this.matching.length))) }
             if (!this.matching.length) {
-              ListItem() { this.status('没有匹配的位置') }
+              ListItem() { this.status(localizedText($r('app.string.text_no_match_locations'))) }
             }
             ForEach(this.searchSections(), (section: RefileSection) => {
               ListItemGroup({ header: this.sectionHeader(section, this.projectRow(section), this.searchSectionRows(section), true) }) {
@@ -281,12 +282,12 @@ export struct MoveToTarget {
               (row: RefileRow): string => row.key)
           } else {
             if (this.recentRows.length) {
-              ListItem() { this.caption('最近使用') }
+              ListItem() { this.caption(localizedText($r('app.string.text_recent_use'))) }
               ForEach(this.recentRows, (row: RefileRow) => { ListItem() { this.targetRow(row) } },
                 (row: RefileRow): string => row.key)
               ListItem() { Divider().color(UiColor.divider).margin({ left: 10, right: 10, top: 10 }) }
             }
-            ListItem() { this.caption('全部位置') }
+            ListItem() { this.caption(localizedText($r('app.string.text_all_locations'))) }
             if (this.defaultRow && !this.recentRows.some((row: RefileRow): boolean => row.key === this.defaultRow?.key)) {
               ListItem() { this.targetRow(this.defaultRow!) }
             }

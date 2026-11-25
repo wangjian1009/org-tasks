@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { DataSet } from '../services/DataSet'
 import { CoreTaskOperationGroup, CoreTaskPath } from '../services/NativeCoreService'
 import { mergeTaskOperationGroups } from '../services/TaskOperationGroups'
@@ -6,7 +7,7 @@ import { mergeTaskOperationGroups } from '../services/TaskOperationGroups'
 export class TaskSwipeOperations {
   static async submit(dataSet: DataSet, groups: CoreTaskOperationGroup[], allowed: () => boolean = () => true,
     waitForCompletion: boolean = false, moveDestination?: CoreTaskPath): Promise<void> {
-    if (!allowed()) throw new Error('操作已取消')
+    if (!allowed()) throw new Error(localizedText($r('app.string.text_operation_cancelled')))
     const group = mergeTaskOperationGroups(groups)
     if (!group.operations.length) return
     await dataSet.submitOperationGroup(group, allowed, waitForCompletion, moveDestination)

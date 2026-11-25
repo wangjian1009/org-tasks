@@ -1,4 +1,5 @@
 // 验证收件箱合并只规划操作组；共享选择控制器负责通过 DataSet 提交。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +13,7 @@ const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-St
 const task = (id, title = id) => ({ id, heading: title, repoId: 'core', filePath: 'inbox.org', fileVersion: 'v1',
   fullPath: { repoId: 'core', file: 'inbox.org', titles: [title], occurrence: 1 } });
 function compile(source, filename, mocks) {
-  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const code = transpileFixture(ts, source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports,ListScroller,setTimeout,clearTimeout){' + code + '\n})', { filename })(name => {
     if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};

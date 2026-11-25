@@ -1,4 +1,5 @@
 // 验证真实组件的回弹完成时序，动画由可手动完成的 UIContext 替身驱动。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -13,7 +14,7 @@ const source = fs.readFileSync('entry/src/main/ets/components/controls/RightSwip
 const fields = source.slice(source.indexOf('  @State'), source.indexOf('  @Builder\n'))
   .replaceAll('@State ', '');
 const methods = source.slice(source.indexOf('  aboutToAppear()'), source.indexOf('  build()'));
-const code = ts.transpileModule('class Swipe {' + fields + methods + '} globalThis.Swipe = Swipe;', {
+const code = transpileFixture(ts, 'class Swipe {' + fields + methods + '} globalThis.Swipe = Swipe;', {
   compilerOptions: { target: ts.ScriptTarget.ES2021 }
 }).outputText;
 const sandbox = { Curve: { EaseOut: 1 } };

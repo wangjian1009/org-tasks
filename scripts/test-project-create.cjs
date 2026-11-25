@@ -1,4 +1,5 @@
 // 验证项目转换只编排文件创建与完整子树移动，不在宿主解析模板或重建记录。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -9,7 +10,7 @@ if (process.argv.includes('-h') || process.argv.includes('--help')) {
 }
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
 function load(file, mocks = {}) {
-  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code = transpileFixture(ts, fs.readFileSync(file, 'utf8'), {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module = {exports:{}};
   vm.runInThisContext('(function(module,exports,require,$r){'+code+'\n})',{filename:file})(module,module.exports,name=>{if (name.endsWith('/SystemRepository')) return {SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org',isSystemRepository:repo=>repo.id==='org-tasks-system'};
     if (name.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
@@ -105,7 +106,7 @@ function locationForm() {
   const methods=['initializeFields','defaultRegion','selectRepository','regionOptions','selectRegion','saveRegion','isBusy','submit'].map(name=>{
     const match=source.match(new RegExp('  (?:async )?'+name+'\\([^\\n]*\\)(?::[^\\n{]+)? \\{[\\s\\S]*?\\n  \\}'));assert.ok(match,name);return match[0];
   });
-  const code=ts.transpileModule('exports.Form = class Form {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021}}).outputText;
+  const code=transpileFixture(ts, 'exports.Form = class Form {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021}}).outputText;
   const exports={};
   vm.runInThisContext('(function(exports,orgFileInputError,OrgFileCreateService,coreErrorMessage){'+code+'\n})')(exports,presentation.orgFileInputError,{operationGroup:async(_context,_source,...args)=>{if(_context.generate)return await _context.generate(...args);return {args}}},error=>error.message);
   const calls=[];

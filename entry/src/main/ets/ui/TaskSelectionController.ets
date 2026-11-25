@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { UIContext } from '@kit.ArkUI'
 import { DataSet } from '../services/DataSet'
 import { MoveTargetSnapshot } from '../services/MoveToTargetService'
@@ -149,7 +150,7 @@ export class TaskSelectionController {
       if (mainPath) {
         this.mergedPath = JSON.stringify(mainPath)
         this.merged(mainPath)
-        try { context.getPromptAction().showToast({ message: `已合并 ${tasks.length} 条记录` }) }
+        try { context.getPromptAction().showToast({ message: localizedText($r('app.string.text_merged_entry_records'), String(tasks.length)) }) }
         catch (_) { /* 页面退出后提示可能不可用。 */ }
       }
     } catch (error) {

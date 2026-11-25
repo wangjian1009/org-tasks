@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { PageNavigator } from '../services/PageNavigator'
 import { CoreBridgeError, CoreSyncFileRecord, CoreSyncHistoryError, CoreSyncRecordDetail,
   coreErrorMessage } from '../services/NativeCoreService'
@@ -28,7 +29,7 @@ export struct SyncLogDetails {
         if (!state.value && !state.message) return
         this.loading = false
         if (state.value) this.detail = state.value
-        this.message = state.message ? `读取日志详情失败：${state.message}` : ''
+        this.message = state.message ? localizedText($r('app.string.text_couldn_t_load_log_details'), String(state.message)) : ''
       })
     }
     if (reload) await this.dataManager.refresh()
@@ -37,7 +38,7 @@ export struct SyncLogDetails {
 
   async openFile(file: CoreSyncFileRecord) {
     try {
-      if (!file.path || !file.backup || file.outcome !== 'deleted') throw new Error('此记录没有可阅读的删除备份')
+      if (!file.path || !file.backup || file.outcome !== 'deleted') throw new Error(localizedText($r('app.string.text_there_is_no_readable_delete_backup_for')))
       await PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/OrgFileDetail',
         params: { repoId: this.repoId, syncId: this.syncId, path: file.path,
           repositoryName: this.repositoryName, backupTime: file.backup.modifiedAt, backupPath: file.backup.path } })
@@ -58,9 +59,9 @@ export struct SyncLogDetails {
   fileRow(file: CoreSyncFileRecord) {
     Row({ space: 8 }) {
       Column({ space: 3 }) {
-        Text(file.backup?.title || file.path || '文件路径未知').fontSize(15).fontColor(UiColor.text).maxLines(1)
+        Text(file.backup?.title || file.path || localizedText($r('app.string.text_file_path_unknown'))).fontSize(15).fontColor(UiColor.text).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-        Text(file.path || '文件路径未知').fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+        Text(file.path || localizedText($r('app.string.text_file_path_unknown'))).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
       }.layoutWeight(1)
       Text(syncLogFileOutcomeLabel(file)).fontSize(12).fontColor(this.color(file)).flexShrink(0)
@@ -68,17 +69,17 @@ export struct SyncLogDetails {
         Image($r('app.media.ui_next')).width(16).height(16)
       }
     }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: 8, right: 8, top: 6, bottom: 6 })
-      .accessibilityText(`${file.path}，${syncLogFileOutcomeLabel(file)}${file.backup && file.outcome === 'deleted' ? '，点击查看删除备份' : ''}`)
+      .accessibilityText(`${file.path}，${syncLogFileOutcomeLabel(file)}${file.backup && file.outcome === 'deleted' ? localizedText($r('app.string.text_tap_to_see_delete_backup')) : ''}`)
       .onClick((): void => { if (file.path && file.backup && file.outcome === 'deleted') this.openFile(file) })
   }
 
   build() {
     Column({ space: 8 }) {
       if (this.loading) {
-        Text('正在读取文件状态…').fontSize(13).fontColor(UiColor.secondary).padding(12)
+        Text($r('app.string.text_reading_file_state')).fontSize(13).fontColor(UiColor.secondary).padding(12)
       } else if (this.message) {
         Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%')
-        Button('重试').height(44).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+        Button($r('app.string.text_retry')).height(44).fontSize(13).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
           .onClick((): void => { this.load(true) })
       } else if (this.detail) {
         Text(`${syncLogTimeLabel(this.detail.summary.started_at)} · ${syncLogTriggerLabel(this.detail.summary)}`).fontSize(12).fontColor(UiColor.secondary)
@@ -87,7 +88,7 @@ export struct SyncLogDetails {
           this.fileRow(file)
         }, (file: CoreSyncFileRecord) => JSON.stringify(file))
         if (this.detail.files.length === 0) {
-          Text('本次没有文件处理记录').fontSize(13).fontColor(UiColor.secondary).width('100%').padding(8)
+          Text($r('app.string.text_there_s_no_record_of_this')).fontSize(13).fontColor(UiColor.secondary).width('100%').padding(8)
         }
         ForEach(this.detail.errors, (error: CoreSyncHistoryError, index: number) => {
           Text(`${error.path ? `${error.path}：` : ''}${error.message}`).fontSize(13).lineHeight(20)

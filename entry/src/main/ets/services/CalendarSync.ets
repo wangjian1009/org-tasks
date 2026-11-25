@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { BusinessError } from '@kit.BasicServicesKit'
 import { Context } from '@kit.AbilityKit'
 import { calendarManager } from '@kit.CalendarKit'
@@ -47,7 +48,7 @@ function readMarker(event: calendarManager.Event): EventMarker | undefined {
   catch (_) { return undefined }
   if (!marker || marker.owner !== OWNER) return undefined
   if (typeof marker.taskKey !== 'string' || typeof marker.contentHash !== 'string' || !/^[a-f0-9]{64}$/.test(marker.taskKey) || !/^[a-f0-9]{64}$/.test(marker.contentHash) || event.id === undefined) {
-    throw new Error('应用日历事件标记无效，已保留现有事件')
+    throw new Error(localizedText($r('app.string.text_the_calendar_event_marker_is_invalid_existing')))
   }
   return marker
 }
@@ -101,25 +102,25 @@ export class CalendarSync {
     const content = calendarEventContent(task, durationMinutes)
     const marker: EventMarker = { owner: OWNER, taskKey: await sha256(task.id), contentHash: await sha256(calendarEventKey(task, durationMinutes)) }
     const event: calendarManager.Event = { type: calendarManager.EventType.NORMAL, title: content.title,
-      description: '由小清单创建的任务提醒', startTime: content.startTime, endTime: content.endTime,
+      description: localizedText($r('app.string.calendar_event_description')), startTime: content.startTime, endTime: content.endTime,
       isAllDay: false, reminderTime: content.reminderTime, identifier: JSON.stringify(marker) }
     return { task, marker, event, notificationAt: content.notificationAt, cleanupAt: content.cleanupAt }
   }
 
   async checkRegistered(task: CoreTask, durationMinutes: number = DEFAULT_EVENT_DURATION_MINUTES): Promise<ReminderCheckResult> {
     try {
-      if (task.reminderAt !== null && task.reminderAt !== undefined && task.reminderAt <= Date.now()) return { registered: false, reason: '已过期' }
+      if (task.reminderAt !== null && task.reminderAt !== undefined && task.reminderAt <= Date.now()) return { registered: false, reason: localizedText($r('app.string.text_expired')) }
       const expected = await this.desired(task, durationMinutes)
       const calendar = this.calendar ?? await this.open(false)
-      if (!calendar) return { registered: false, reason: '系统中不存在“小清单提醒”日历' }
+      if (!calendar) return { registered: false, reason: localizedText($r('app.string.text_there_is_no_org_tasks_alarm_calendar')) }
       const known = this.events.get(expected.marker.taskKey)
       const filter = known?.id !== undefined ? calendarManager.EventFilter.filterById([known.id]) :
         calendarManager.EventFilter.filterByTime(expected.event.startTime, expected.event.endTime)
       const events = await calendar.getEvents(filter, ['id', 'type', 'title', 'startTime', 'endTime', 'isAllDay', 'reminderTime', 'identifier'])
       const actual = events.find((event: calendarManager.Event): boolean => readMarker(event)?.taskKey === expected.marker.taskKey)
-      if (!actual) return { registered: false, reason: '系统日历中未找到对应提醒，可能已被删除' }
-      if (!sameEvent(actual, expected.event)) return { registered: false, reason: '系统日历中的提醒时间或内容与任务不一致' }
-      if (calendar.getConfig().enableReminder === false) return { registered: false, reason: '系统日历中“小清单提醒”的提醒开关已关闭' }
+      if (!actual) return { registered: false, reason: localizedText($r('app.string.text_no_corresponding_alarm_was_found_in_the')) }
+      if (!sameEvent(actual, expected.event)) return { registered: false, reason: localizedText($r('app.string.text_the_alarm_time_or_content_in_the')) }
+      if (calendar.getConfig().enableReminder === false) return { registered: false, reason: localizedText($r('app.string.text_reminders_are_turned_off_for_the_org')) }
       return { registered: true, reason: '' }
     } catch (error) { throw error as Error }
   }
@@ -130,7 +131,7 @@ export class CalendarSync {
       const desired: Map<string, DesiredEvent> = new Map()
       for (const task of enabled ? tasks : []) {
         const item = await this.desired(task, durationMinutes)
-        if (desired.has(item.marker.taskKey)) throw new Error('提醒任务身份重复')
+        if (desired.has(item.marker.taskKey)) throw new Error(localizedText($r('app.string.calendar_duplicate_task_id')))
         desired.set(item.marker.taskKey, item)
       }
       if (!current()) return false
@@ -173,7 +174,7 @@ export class CalendarSync {
 
   async apply(removed: CoreTask[], changed: CoreTask[], current: () => boolean, record: CalendarOperationRecorder, durationMinutes: number = DEFAULT_EVENT_DURATION_MINUTES): Promise<boolean> {
     try {
-      if (!this.initialized) throw new Error('日历事件尚未完成初次同步')
+      if (!this.initialized) throw new Error(localizedText($r('app.string.text_calendar_event_not_completed_initial_sync')))
       const prepared: DesiredEvent[] = []
       for (const task of changed) prepared.push(await this.desired(task, durationMinutes))
       const removedKeys: string[] = []
@@ -204,8 +205,8 @@ export class CalendarSync {
         return
       }
       if (!current()) return
-      if (!this.calendar) throw new Error('应用提醒日历不可用')
-      if (this.calendar.getConfig().enableReminder === false) throw new Error('请在系统日历中开启“小清单提醒”的提醒')
+      if (!this.calendar) throw new Error(localizedText($r('app.string.text_the_alarm_calendar_is_not_available')))
+      if (this.calendar.getConfig().enableReminder === false) throw new Error(localizedText($r('app.string.text_turn_on_reminders_for_the_org_tasks')))
       if (existing && sameEvent(existing, item.event)) return
       if (existing) {
         item.event.id = existing.id
@@ -223,7 +224,7 @@ export class CalendarSync {
     try {
       const existing = this.events.get(taskKey)
       if (!existing) return
-      if (!this.calendar) throw new Error('应用提醒日历不可用')
+      if (!this.calendar) throw new Error(localizedText($r('app.string.text_the_alarm_calendar_is_not_available')))
       await this.removeEvent(existing, record)
       this.events.delete(taskKey)
 
@@ -241,7 +242,7 @@ export class CalendarSync {
       const code = (error as BusinessError).code
       record({ operation, heading: event.title ?? '', reminderAt: notificationAt(event), eventStartTime: event.startTime, eventEndTime: event.endTime, previousReminderAt,
         eventId: event.id ?? null, succeeded: false,
-        error: `${(error as Error).message || '系统日历写入失败'}${code === undefined ? '' : `（错误码 ${code}）`}` })
+        error: `${(error as Error).message || localizedText($r('app.string.text_system_calendar_writing_failed'))}${code === undefined ? '' : localizedText($r('app.string.text_error_code'), String(code))}` })
       throw error as Error
     }
     record({ operation, heading: event.title ?? '', reminderAt: notificationAt(event), eventStartTime: event.startTime, eventEndTime: event.endTime, previousReminderAt,

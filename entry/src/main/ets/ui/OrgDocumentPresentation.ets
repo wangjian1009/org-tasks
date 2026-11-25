@@ -1,3 +1,4 @@
+import { displayLocale, localizedText } from './LocalizedText'
 import { UiColor, UiSize } from './Theme'
 
 // 输入是 Core 生成的安全 HTML 片段，宿主只负责阅读版式和主题。
@@ -5,7 +6,7 @@ export function orgDocumentPage(fragment: string, empty: boolean, embedded: bool
   backgroundColor: string = UiColor.surface, embeddedPadding: number = 16,
   fileReading: boolean = false, compactLogs: boolean = false, projectReading: boolean = false): string {
   const reading = fileReading && !embedded
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+  return `<!doctype html><html lang="${displayLocale()}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; base-uri 'none'; form-action 'none'">
 <style>
@@ -195,5 +196,5 @@ body.compact-logs { padding: 0; color: ${UiColor.secondary}; font: 12px/1.5 sans
 .project-reading .metadata { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 340px) { .project-reading { padding-left: 16px; padding-right: 16px; } }
 
-</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}${projectReading && embedded ? ' embedded-section' : ''}">${empty ? '<p class="empty">空白 Org 文件</p>' : fragment}</body></html>`
+</style></head><body class="${reading ? 'file-reading' : embedded ? 'embedded' : ''}${compactLogs ? ' compact-logs' : ''}${projectReading ? ' project-reading' : ''}${projectReading && embedded ? ' embedded-section' : ''}">${empty ? `<p class="empty">${localizedText($r('app.string.document_empty'))}</p>` : fragment}</body></html>`
 }

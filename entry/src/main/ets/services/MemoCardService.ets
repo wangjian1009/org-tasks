@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context, Want } from '@kit.AbilityKit'
 import { preferences } from '@kit.ArkData'
 import { formInfo } from '@kit.FormKit'
@@ -28,11 +29,11 @@ export interface MemoCardSnapshot {
 export function memoCardData(tasks: CoreTask[] = [], tag: string = '', message: string = ''): MemoCardData {
   const items = tasks.filter((task: CoreTask): boolean => task.heading.trim().length > 0).slice(0, 3)
   return {
-    memoCardTitle: tag || '全部备忘',
+    memoCardTitle: tag || localizedText($r('app.string.text_all_notes')),
     memoCardItem1: items[0]?.heading.trim() ?? '', memoCardItem2: items[1]?.heading.trim() ?? '',
     memoCardItem3: items[2]?.heading.trim() ?? '',
     memoCardItemId1: items[0]?.id ?? '', memoCardItemId2: items[1]?.id ?? '', memoCardItemId3: items[2]?.id ?? '',
-    memoCardMessage: message || (tag ? '此标签下暂无备忘' : '暂无备忘')
+    memoCardMessage: message || (tag ? localizedText($r('app.string.text_no_note_under_this_tab')) : localizedText($r('app.string.text_no_note')))
   }
 }
 
@@ -42,7 +43,7 @@ export function memoCardFormId(want: Want): string {
 }
 
 function settingsName(formId: string): string {
-  if (!/^[0-9]{1,20}$/.test(formId) || formId === '0') throw new Error('无法识别此卡片，请从桌面长按卡片进入编辑')
+  if (!/^[0-9]{1,20}$/.test(formId) || formId === '0') throw new Error(localizedText($r('app.string.text_could_not_recognize_this_card_please_press')))
   return `org_tasks_memo_card_${formId}`
 }
 
@@ -57,7 +58,7 @@ export class MemoCardService {
     }
     const store = await PreferencesStore.open(context, name)
     const tag = await store.get('tag', '')
-    if (typeof tag !== 'string') throw new Error('卡片标签设置无效，请重新选择')
+    if (typeof tag !== 'string') throw new Error(localizedText($r('app.string.text_the_card_tag_setting_is_invalid_please')))
     return tag
   }
 
@@ -84,15 +85,15 @@ export class MemoCardService {
   static async snapshot(context: Context, tag: string): Promise<MemoCardSnapshot> {
     const config = await AppConfigService.load(context, false)
     if (!fileTargetRepository(config, 'memo')) {
-      return { data: memoCardData([], tag, '请先在应用中选择备忘文件'), tags: [], available: false }
+      return { data: memoCardData([], tag, localizedText($r('app.string.text_please_select_a_memo_file_for_application'))), tags: [], available: false }
     }
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     const target = FileTargetService.prepare(config, await workspace.repos(), 'memo')
-    if (!target) return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
+    if (!target) return { data: memoCardData([], tag, localizedText($r('app.string.note_file_unavailable_reselect'))), tags: [], available: false }
     const results = await workspace.query([{ type: 'task', repoIds: [target.reference.repoId],
       query: memoRecordQuery(target.reference, tag) }, target.file])
     const metadata = fileResult(results[1])[0]
-    if (!metadata) return { data: memoCardData([], tag, '备忘文件已失效，请在应用中重新选择'), tags: [], available: false }
+    if (!metadata) return { data: memoCardData([], tag, localizedText($r('app.string.note_file_unavailable_reselect'))), tags: [], available: false }
     const result = taskResult(results[0])
     return { data: memoCardData(result.tasks, tag), tags: taskTagOptions(result.tasks, metadata.tagOptions), available: true }
   }

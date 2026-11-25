@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { TaskPath, TitlePart, TaskState, TaskStateCategory, TaskPriority, PeriodCategory, SupportTags,
   QueryOrderPart, TaskEditContent, AddressLink, AppLink, TaskLog, TaskStateCount, TaskCategory, FileHeaderEntry } from 'liborg_tasks_harmony.so'
 import { CoreTask, CoreOrgFileMetadata, CoreQueryResult } from './NativeCoreService'
@@ -82,12 +83,12 @@ function priorities(value: CoreTask | CoreOrgFileMetadata): PagePriorityAnswer[]
 }
 function stateAnswer(answers: PageStateAnswer[], category: TaskStateCategory): TaskState | null {
   const answer = answers.find(item => item.category === category)
-  if (!answer) throw new Error('状态分类无效')
+  if (!answer) throw new Error(localizedText($r('app.string.text_the_status_classification_is_invalid')))
   return answer.value ? { name: answer.value.name, category: answer.value.category } : null
 }
 function priorityAnswer(answers: PagePriorityAnswer[], category: PeriodCategory): TaskPriority | null {
   const answer = answers.find(item => item.category === category)
-  if (!answer) throw new Error('优先级分类无效')
+  if (!answer) throw new Error(localizedText($r('app.string.text_the_priority_classification_is_invalid')))
   return answer.value ? { name: answer.value.name, category: answer.value.category } : null
 }
 
@@ -329,7 +330,7 @@ export interface CachedDataSet {
   files: MetadataRecord[]
 }
 export function cacheDataSet(name: string, data: CoreQueryResult): CachedDataSet {
-  if (data.type !== 'task' && data.type !== 'file') throw new Error('页面数据集类型无效')
+  if (data.type !== 'task' && data.type !== 'file') throw new Error(localizedText($r('app.string.text_invalid_page_data_set_type')))
   return { version: 0, name, type: data.type, tasks: data.type === 'task' ? data.result.tasks.map(taskRecord) : [],
     categories: data.type === 'task' ? data.result.categories : [], files: data.type === 'file' ? data.result.map(metadataRecord) : [] }
 }
@@ -338,15 +339,15 @@ export function restoreDataSet(data: CachedDataSet): CoreQueryResult {
     if (!Array.isArray(data.tasks) || !Array.isArray(data.categories) || data.tasks.some(item =>
       !item.value || typeof item.value.id !== 'string' || typeof item.value.fileVersion !== 'string' ||
       typeof item.value.heading !== 'string' || !item.value.fullPath || !item.value.editContent ||
-      !Array.isArray(item.states) || item.states.length !== 5 || !Array.isArray(item.priorities) || item.priorities.length !== 3)) throw new Error('页面任务缓存无效')
+      !Array.isArray(item.states) || item.states.length !== 5 || !Array.isArray(item.priorities) || item.priorities.length !== 3)) throw new Error(localizedText($r('app.string.text_the_page_job_cache_is_invalid')))
     return { type: 'task', result: { tasks: data.tasks.map(item => new PageTaskSnapshot(item)), categories: data.categories, fullFiles: [] } }
   }
   if (data.type === 'file') {
     if (!Array.isArray(data.files) || data.files.some(item => !item.value || typeof item.value.repoId !== 'string' ||
       typeof item.value.path !== 'string' || !Array.isArray(item.states) || item.states.length !== 5 ||
-      !Array.isArray(item.priorities) || item.priorities.length !== 3)) throw new Error('页面文件缓存无效')
+      !Array.isArray(item.priorities) || item.priorities.length !== 3)) throw new Error(localizedText($r('app.string.text_invalid_cache_of_page_file')))
     return { type: 'file', result: data.files.map(item => new PageMetadataSnapshot(item)) }
   }
-  throw new Error('页面缓存数据集类型无效')
+  throw new Error(localizedText($r('app.string.text_invalid_page_cache_data_set_type')))
 }
 export function copyDataSet(data: CoreQueryResult): CoreQueryResult { return restoreDataSet(cacheDataSet('', data)) }

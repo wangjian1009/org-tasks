@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { webview } from '@kit.ArkWeb'
 
 export interface InternalLinkProcessor {
@@ -31,8 +32,8 @@ export class DocumentInternalLinkProcessor implements InternalLinkProcessor {
   }
   async process(target: string): Promise<void> {
     try {
-      if (await this.controller.runJavaScript(documentInternalLinkScript(target, true)) !== 'true') throw new Error('内部链接目标不存在')
-    } catch (_) { throw new Error('内部链接目标不存在或文档尚未载入') }
+      if (await this.controller.runJavaScript(documentInternalLinkScript(target, true)) !== 'true') throw new Error(localizedText($r('app.string.text_internal_link_target_does_not_exist')))
+    } catch (_) { throw new Error(localizedText($r('app.string.text_internal_link_target_does_not_exist_or_3'))) }
   }
 }
 

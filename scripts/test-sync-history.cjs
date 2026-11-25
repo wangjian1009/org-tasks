@@ -1,4 +1,5 @@
 // 验证历史列表展开、通知定位、异步生命周期与备份导航；不访问真实仓库。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -15,7 +16,7 @@ function load(file, name, dependencies) {
   if (name) source = source.split('  @Builder')[0].split('  build()')[0]
     .replace(/@Entry\n|@Component\n|@State |@Prop |@StorageLink\('[^']+'\) /g, '')
     .replace('struct ' + name, 'class ' + name) + '\n}\nmodule.exports = ' + name;
-  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const code = transpileFixture(ts, source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
   vm.runInThisContext('(function(require,module,exports){' + code + '\n})')(
     id => { if (id.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock; assert.ok(id in dependencies, id); return dependencies[id]; }, module, module.exports);

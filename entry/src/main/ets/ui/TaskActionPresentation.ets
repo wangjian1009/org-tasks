@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { TaskStateCategory } from 'liborg_tasks_harmony.so'
 
 export type TaskActionPage = 'inbox' | 'today' | 'planned' | 'waiting' | 'anytime' | 'someday' | 'memo' | 'logbook' | 'recent'
@@ -86,58 +87,58 @@ function taskOperationMenu(operations: TaskMenuOperation[], activate: (action: T
       case TaskOperation.ToggleState:
         if (toggleStateCategory === 'Doing' || toggleStateCategory === 'Todo') {
           const start = toggleStateCategory === 'Doing'
-          items.push({ id: operation, title: start ? '开始' : '暂停', label: start ? '开始任务' : '暂停任务',
+          items.push({ id: operation, title: start ? localizedText($r('app.string.text_here_we_go')) : localizedText($r('app.string.text_pause')), label: start ? localizedText($r('app.string.text_start_the_mission')) : localizedText($r('app.string.text_pause_task')),
             icon: start ? $r('app.media.ui_task_start') : $r('app.media.ui_task_pause'), action: () => activate(operation) })
         }
         break
       case TaskOperation.ToggleWait:
         if (toggleWaitCategory === 'Wait' || toggleWaitCategory === 'Todo') {
           const waiting = toggleWaitCategory === 'Wait'
-          items.push({ id: operation, title: waiting ? '等待' : '待办', label: waiting ? '设为等待' : '恢复为待办',
+          items.push({ id: operation, title: waiting ? localizedText($r('app.string.text_waiting')) : localizedText($r('app.string.text_to_do')), label: waiting ? localizedText($r('app.string.text_set_as_waiting')) : localizedText($r('app.string.text_restore_to_to_do')),
             icon: waiting ? $r('app.media.ui_task_waiting') : $r('app.media.ui_action_restore'),
-            busyTitle: waiting ? '设置中…' : '处理中…', action: () => activate(operation) })
+            busyTitle: waiting ? localizedText($r('app.string.text_setting')) : localizedText($r('app.string.text_processing_2')), action: () => activate(operation) })
         }
         break
       case TaskOperation.Wait:
-        items.push({ id: operation, title: '等待', label: '设为等待', icon: $r('app.media.ui_task_waiting'), busyTitle: '设置中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_waiting')), label: localizedText($r('app.string.text_set_as_waiting')), icon: $r('app.media.ui_task_waiting'), busyTitle: localizedText($r('app.string.text_setting')), action: () => activate(operation) })
         break
       case TaskOperation.Cancel:
-        items.push({ id: operation, title: '取消', label: '取消任务', icon: $r('app.media.ui_action_cancel'),
-          busyTitle: '处理中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_cancel')), label: localizedText($r('app.string.text_cancel_task')), icon: $r('app.media.ui_action_cancel'),
+          busyTitle: localizedText($r('app.string.text_processing_2')), action: () => activate(operation) })
         break
       case TaskOperation.Project:
-        items.push({ id: operation, title: '项目', label: '转换为项目', icon: $r('app.media.ui_action_project'), busyTitle: '创建中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_project')), label: localizedText($r('app.string.text_convert_to_item')), icon: $r('app.media.ui_action_project'), busyTitle: localizedText($r('app.string.text_creating_3')), action: () => activate(operation) })
         break
       case TaskOperation.Move:
-        items.push({ id: operation, title: '移动', label: '移动到目标', icon: $r('app.media.ui_move_to'), busyTitle: '移动中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_move')), label: localizedText($r('app.string.text_move_to_target')), icon: $r('app.media.ui_move_to'), busyTitle: localizedText($r('app.string.text_moving_2')), action: () => activate(operation) })
         break
       case TaskOperation.Schedule:
-        items.push({ id: operation, title: '分配', label: '分配计划日期', icon: $r('app.media.ui_action_schedule'), busyTitle: '分配中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_allocation')), label: localizedText($r('app.string.text_distribution_plan_date')), icon: $r('app.media.ui_action_schedule'), busyTitle: localizedText($r('app.string.text_distributing')), action: () => activate(operation) })
         break
       case TaskOperation.Deadline:
-        items.push({ id: operation, title: '截止', label: '设置截止日期', icon: $r('app.media.ui_action_deadline'), busyTitle: '设置中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_cut_off')), label: localizedText($r('app.string.text_set_deadline')), icon: $r('app.media.ui_action_deadline'), busyTitle: localizedText($r('app.string.text_setting')), action: () => activate(operation) })
         break
       case TaskOperation.Someday:
-        items.push({ id: operation, title: '某天', label: '移入某天', icon: $r('app.media.ui_action_someday'), busyTitle: '整理中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_someday')), label: localizedText($r('app.string.text_move_to_a_day')), icon: $r('app.media.ui_action_someday'), busyTitle: localizedText($r('app.string.text_collating')), action: () => activate(operation) })
         break
       case TaskOperation.Memo:
-        items.push({ id: operation, title: '备忘', label: '转换为备忘', icon: $r('app.media.ui_action_memo'), busyTitle: '转换中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_notes')), label: localizedText($r('app.string.text_convert_to_note')), icon: $r('app.media.ui_action_memo'), busyTitle: localizedText($r('app.string.text_converting')), action: () => activate(operation) })
         break
       case TaskOperation.Delete:
-        items.push({ id: operation, title: '删除', label: '删除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '删除中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_delete')), label: localizedText($r('app.string.text_delete')), icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: localizedText($r('app.string.text_deleting_2')), action: () => activate(operation) })
         break
       case TaskOperation.Clear:
-        items.push({ id: operation, title: '清除', label: '永久清除', icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: '清除中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_clear')), label: localizedText($r('app.string.text_delete_permanently')), icon: $r('app.media.ui_delete'), style: 'danger', busyTitle: localizedText($r('app.string.text_clearing')), action: () => activate(operation) })
         break
       case TaskOperation.Reopen:
-        items.push({ id: operation, title: '待办', label: '恢复为待办', icon: $r('app.media.ui_action_restore'), busyTitle: '处理中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_to_do')), label: localizedText($r('app.string.text_restore_to_to_do')), icon: $r('app.media.ui_action_restore'), busyTitle: localizedText($r('app.string.text_processing_2')), action: () => activate(operation) })
         break
       case TaskOperation.Restore:
-        items.push({ id: operation, title: '归位', label: '恢复到原位置', icon: $r('app.media.ui_action_restore'), busyTitle: '归位中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_restore_2')), label: localizedText($r('app.string.text_restore_to_original_position')), icon: $r('app.media.ui_action_restore'), busyTitle: localizedText($r('app.string.text_returning')), action: () => activate(operation) })
         break
       case TaskOperation.Merge:
-        items.push({ id: operation, title: '合并', label: '按选择顺序合并记录', icon: $r('app.media.ui_merge_records'),
-          minimumSelection: 2, busyTitle: '合并中…', action: () => activate(operation) })
+        items.push({ id: operation, title: localizedText($r('app.string.text_merge')), label: localizedText($r('app.string.text_merge_records_in_the_order_of_selection')), icon: $r('app.media.ui_merge_records'),
+          minimumSelection: 2, busyTitle: localizedText($r('app.string.text_merged')), action: () => activate(operation) })
         break
     }
   }
@@ -164,7 +165,7 @@ export function taskSwipeMenu(policy: TaskPageActionPolicy, activate: (action: T
 }
 
 function taskSelectItem(action: () => void): TaskActionItem {
-  return { id: TaskOperation.Select, title: '多选', label: '进入批量编辑', icon: $r('app.media.ui_select_records'), style: 'selection', action }
+  return { id: TaskOperation.Select, title: localizedText($r('app.string.text_select_multiple')), label: localizedText($r('app.string.text_enter_batch_edit')), icon: $r('app.media.ui_select_records'), style: 'selection', action }
 }
 
 export function taskBatchMenu(policy: TaskPageActionPolicy, activate: (action: TaskBatchAction) => void): TaskActionItem[] {

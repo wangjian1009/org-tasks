@@ -1,4 +1,5 @@
 // 验证临时预览只记录操作，结束后由页面通过统一数据接口提交。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -9,7 +10,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 }
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents','sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const treeModule={exports:{}};
-vm.runInThisContext('(function(require,module,exports){'+ts.transpileModule(fs.readFileSync('entry/src/main/ets/ui/ConflictTargetTree.ets','utf8'),
+vm.runInThisContext('(function(require,module,exports){'+transpileFixture(ts, fs.readFileSync('entry/src/main/ets/ui/ConflictTargetTree.ets','utf8'),
  {compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText+'\n})')(()=>({}),treeModule,treeModule.exports);
 const targetTree=treeModule.exports;
 const sourcePath = { repoId: 'core', file: 'a.org', titles: [], occurrence: 1 };
@@ -18,7 +19,7 @@ const conflicts = ['first', 'second'].map(id => ({ id, title: id, reason: 'modif
 function fixture(params = {repoId:'config',path:'a.org'}) {
   const filename = path.resolve('entry/src/main/ets/pages/ConflictFile.ets');
   const source = fs.readFileSync(filename,'utf8').split('  @Builder\n')[0].replace(/@Entry\n|@Component\n|@State /g,'').replace('struct ConflictFile','class ConflictFile')+'}\nmodule.exports=ConflictFile;';
-  const code = ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code = transpileFixture(ts, source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const requests=[], dialogs=[], events=[], handles=[];
   let failure, submitWait, stageFailure, projectionFailure, projectionWait, targetRequired=false, coreId='core', backs=0, creates=0;
   const makeFile = (repoId='core', file='a.org', version='v1', ids=['first','second'], text) => ({
@@ -168,7 +169,7 @@ test('本地仓库直接提交操作，取消预览不提交真实操作',async(
 function repositoryRow(hasConflict, project = null) {
  const filename=path.resolve('entry/src/main/ets/components/NotebookFileRow.ets');
  const source=fs.readFileSync(filename,'utf8').split('  @Builder')[0].replace(/@Component\n|@Prop /g,'').replace('export struct NotebookFileRow','class NotebookFileRow')+'}\nmodule.exports=NotebookFileRow;';
- const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const code=transpileFixture(ts, source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  const module={exports:{}};
  vm.runInThisContext('(function(require,module,exports){'+code+'\n})')((name)=>name.endsWith('/PageNavigator')?require('./helpers/page-navigator.cjs').pageNavigatorMock:{},module,module.exports);
  const row=new module.exports();

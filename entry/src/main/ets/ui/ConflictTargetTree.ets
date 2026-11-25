@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreConflictTarget, CoreOrgFile, CoreTaskPath } from '../services/NativeCoreService'
 
 // 层级、路径与合法位置均来自 Core；这里只组装树形展示，不解析 Org。
@@ -56,7 +57,7 @@ export function conflictTargetRows(node: ConflictTargetNode, expanded: string[],
   if (open) {
     for (const child of node.children) {
       rows.push(...conflictTargetRows(child, expanded, depth + 1))
-      if (child.after) rows.push({ key: `${child.key}:after`, label: `${child.label} 之后`, depth: depth + 1,
+      if (child.after) rows.push({ key: `${child.key}:after`, label: localizedText($r('app.string.text_after'), String(child.label)), depth: depth + 1,
         branch: false, expanded: false, target: child.after })
     }
   }

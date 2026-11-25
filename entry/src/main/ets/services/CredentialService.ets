@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 // Stores sensitive WebDAV credentials outside the app preferences database.
 
 import { util } from '@kit.ArkTS'
@@ -60,14 +61,14 @@ async function readSecret(query: asset.AssetMap): Promise<string> {
     if (errorCode(error) === ASSET_NOT_FOUND) {
       return ''
     }
-    throw assetFailure('读取 WebDAV 密码失败', error)
+    throw assetFailure(localizedText($r('app.string.text_failed_to_read_webdav_password')), error)
   }
   if (records.length === 0) {
     return ''
   }
   const secret = records[0].get(asset.Tag.SECRET)
   if (!(secret instanceof Uint8Array)) {
-    throw new Error('安全存储中的 WebDAV 密码格式无效')
+    throw new Error(localizedText($r('app.string.text_invalid_webdav_password_format_in_secure_storage')))
   }
   return util.TextDecoder.create('utf-8').decodeToString(secret)
 }
@@ -80,7 +81,7 @@ async function writeSecret(attributes: asset.AssetMap, password: string): Promis
   try {
     await asset.add(attributes)
   } catch (error) {
-    throw assetFailure('保存 WebDAV 密码失败', error)
+    throw assetFailure(localizedText($r('app.string.text_failed_to_save_webdav_password')), error)
   }
 }
 
@@ -89,14 +90,14 @@ async function removeSecret(alias: asset.AssetMap): Promise<void> {
     await asset.remove(alias)
   } catch (error) {
     if (errorCode(error) !== ASSET_NOT_FOUND) {
-      throw assetFailure('删除 WebDAV 密码失败', error)
+      throw assetFailure(localizedText($r('app.string.text_failed_to_delete_webdav_password')), error)
     }
   }
 }
 
 function passwordAlias(repoId: string, reset: boolean = false): asset.AssetMap {
   if (!repoId.trim()) {
-    throw new Error('仓库 ID 不能为空')
+    throw new Error(localizedText($r('app.string.text_repository_id_cannot_be_empty')))
   }
   const attributes = new Map<asset.Tag, asset.Value>()
   const purpose = reset ? 'reset' : 'password'
@@ -114,5 +115,5 @@ function errorCode(error: Object): number {
 
 function assetFailure(action: string, error: Object): Error {
   const code = errorCode(error)
-  return new Error(code ? `${action}（错误码 ${code}）` : action)
+  return new Error(code ? localizedText($r('app.string.text_error_code_2'), String(action), String(code)) : action)
 }

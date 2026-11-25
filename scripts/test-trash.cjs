@@ -1,4 +1,5 @@
 // 验证废纸篓对原有批量入口、真实查询阶段和清理失败保留的接入。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
@@ -10,7 +11,7 @@ if (process.argv.includes('-h') || process.argv.includes('--help')) {
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
 function load(name, mocks) {
   const module = { exports: {} };
-  const source = ts.transpileModule(fs.readFileSync('entry/src/main/ets/' + name + '.ets', 'utf8'), {
+  const source = transpileFixture(ts, fs.readFileSync('entry/src/main/ets/' + name + '.ets', 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInThisContext('(function(require,module,exports){' + source + '\n})')(name => {
@@ -103,7 +104,7 @@ test('废纸篓已有共享快照时立即展示，过期检查仍在进行也�
  let release;const pending=new Promise(resolve=>release=resolve);
  const tasks={data:{type:'task',result:{tasks:[task('cached')]}},error:'',isReady:()=>true,subscribe:()=>()=>{}};
  const module={exports:{}};
- const code=ts.transpileModule('export class Page {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const code=transpileFixture(ts, 'export class Page {'+methods.join('\n')+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  vm.runInThisContext('(function(module,exports,TrashDataManager,logbookGroups,coreErrorMessage){'+code+'})')(module,module.exports,class{constructor(){this.tasks=tasks;}start(){return pending;}},rows=>rows,error=>error.message);
  const page=Object.assign(new module.exports.Page(),{active:true,loading:true,groups:[],getUIContext:()=>({getHostContext:()=>({})})});
  const loading=page.load();assert.equal(page.loading,false);assert.equal(page.ready,true);assert.equal(page.groups[0].id,'cached');release();await loading;

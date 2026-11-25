@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreTask } from '../services/NativeCoreService'
 import { UiColor } from '../ui/Theme'
 import { memoSummaryText } from '../ui/MemoListPresentation'
@@ -22,7 +23,7 @@ export struct MemoListItem {
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         .width('100%').padding({ left: 14 })
     }.width('100%').padding(16).backgroundColor(UiColor.taskCard).borderRadius(18)
-      .enabled(!this.busy).accessibilityText(`编辑备忘：${this.task.heading}`)
+      .enabled(!this.busy).accessibilityText(localizedText($r('app.string.text_edit_note'), String(this.task.heading)))
       .onClick((): void => { this.open() })
   }
 }

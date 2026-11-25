@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { CoreTaskLog } from '../../services/NativeCoreService'
 import { TaskLogItem } from './TaskLogItem'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
@@ -23,7 +24,7 @@ export struct TaskLogView {
       // 首次打开日志才创建阅读器；之后收起只裁切布局，保留测量高度。
       Column({ space: this.notesOnly ? 4 : 6 }) {
         Row({ space: 8 }) {
-          Text(this.notesOnly ? '备注' : '日志').fontSize(12).fontColor(UiColor.secondary).flexShrink(0)
+          Text(this.notesOnly ? localizedText($r('app.string.text_remarks')) : localizedText($r('app.string.text_log'))).fontSize(12).fontColor(UiColor.secondary).flexShrink(0)
           Divider().color(UiColor.outline).strokeWidth(1).layoutWeight(1)
         }.width('100%')
         ForEach(this.logs, (log: CoreTaskLog) => {

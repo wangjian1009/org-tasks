@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { TaskStateCategory } from '../ui/TaskStatePresentation'
 import { Context } from '@kit.AbilityKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
@@ -24,15 +25,15 @@ export class CaptureService {
   static removeDraft(context: Context, id: string): Promise<void> { return CaptureDraftStore.removeDraft(context, id) }
 
   static async save(context: Context, title: string, operationId?: string): Promise<void> {
-    if (!title.trim()) throw new Error('请输入标题')
+    if (!title.trim()) throw new Error(localizedText($r('app.string.text_please_enter_the_title')))
     const normalizedTitle = title.trim()
     const entities = await CaptureEntityService.recognize(normalizedTitle)
     const config = await AppConfigService.load(context, false)
     const target = await FileTargetService.resolve(config, 'inbox')
-    if (!target) throw new Error('收件箱文件未选择或已失效，请在设置中重新选择')
+    if (!target) throw new Error(localizedText($r('app.string.text_inbox_file_not_selected_or_expired_re')))
     const file = await target.repo.file(target.path)
     const state = target.metadata.taskStateOf(TaskStateCategory.Todo)
-    if (!state) throw new Error('目标文件没有可用的未完成状态，请检查 TODO 设置')
+    if (!state) throw new Error(localizedText($r('app.string.text_target_file_is_not_available_for_uncompleted')))
     const group: CoreTaskOperationGroup = {
       operations: [{ type: 'Creation', data: { position: { parent: file.fullPath }, title: normalizedTitle,
         body: entities.body, scheduled: entities.scheduled, state: state.name } }],

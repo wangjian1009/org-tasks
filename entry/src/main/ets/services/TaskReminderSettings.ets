@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { PreferencesStore } from './PreferencesStore'
 import { DEFAULT_EVENT_DURATION_MINUTES } from './CalendarEventProjection'
@@ -6,9 +7,9 @@ export interface TaskReminderConfiguration { enabled: boolean; eventDurationMinu
 export interface TaskReminderPatch { enabled?: boolean; eventDurationMinutes?: number }
 
 function validate(config: TaskReminderConfiguration): void {
-  if (typeof config.enabled !== 'boolean') throw new Error('任务提醒设置无效，请重新保存')
+  if (typeof config.enabled !== 'boolean') throw new Error(localizedText($r('app.string.text_task_alarm_settings_invalid_save')))
   if (!Number.isInteger(config.eventDurationMinutes) || config.eventDurationMinutes < 1 || config.eventDurationMinutes > 1440) {
-    throw new Error('事件持续时长须为 1 至 1440 分钟的整数')
+    throw new Error(localizedText($r('app.string.text_the_duration_of_the_event_must_be')))
   }
 }
 

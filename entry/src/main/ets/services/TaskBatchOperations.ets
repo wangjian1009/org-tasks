@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { CoreTask, CoreTaskOperationGroup, CoreTaskPath, CoreRefileTarget, CoreTaskPlanningEdit } from './NativeCoreService'
 import { InboxService } from './InboxService'
@@ -23,7 +24,7 @@ export class TaskBatchOperations {
         const groups = await InboxService.operationGroups(context, ordered, action, target, date)
         return { group: mergeTaskOperationGroups(groups) }
       }
-      default: throw new Error('此操作不支持批量规划')
+      default: throw new Error(localizedText($r('app.string.text_this_operation_does_not_support_batch_planning')))
     }
   }
 }

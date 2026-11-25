@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { ReminderManager, ReminderOperationLog } from '../services/ReminderManager'
 import { UiColor, localDate } from '../ui/Theme'
 
@@ -27,23 +28,35 @@ export struct ReminderOperationList {
     return this.timestamp(record.reminderAt)
   }
 
+  private triggerLabel(record: ReminderOperationLog): string {
+    switch (record.trigger) {
+      case '启动同步': return localizedText($r('app.string.reminder_log_startup'))
+      case '任务修改': return localizedText($r('app.string.reminder_log_task_change'))
+      case '设置变更': return localizedText($r('app.string.reminder_log_settings_change'))
+      case '恢复同步': return localizedText($r('app.string.reminder_log_resume'))
+      case '过期清理': return localizedText($r('app.string.reminder_log_cleanup'))
+    }
+  }
+
   build() {
     Column() {
       if (!this.records.length) {
-        Text('本次运行暂无提醒操作记录').id('reminder_operation_empty')
+        Text($r('app.string.text_there_is_no_record_of_alarm_operations')).id('reminder_operation_empty')
           .fontSize(14).fontColor(UiColor.secondary).padding(20)
       }
       ForEach(this.records, (record: ReminderOperationLog) => {
         Column({ space: 6 }) {
           Row({ space: 8 }) {
-            Text(record.operation).fontSize(14).fontColor(UiColor.text)
-            Text(record.succeeded ? '成功' : '失败').fontSize(12).fontColor(record.succeeded ? UiColor.primary : UiColor.error)
+            Text(record.operation === '修改' ? $r('app.string.text_edit') :
+              record.operation === '新增' ? $r('app.string.text_add') : $r('app.string.text_delete'))
+              .fontSize(14).fontColor(UiColor.text)
+            Text(record.succeeded ? localizedText($r('app.string.text_success')) : localizedText($r('app.string.text_failed'))).fontSize(12).fontColor(record.succeeded ? UiColor.primary : UiColor.error)
             Blank()
           }.width('100%')
-          Text(record.heading || '未命名提醒').fontSize(16).fontColor(UiColor.text).width('100%')
-          Text(`${record.trigger} · ${this.timestamp(record.at, true)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
-          Text(`提醒时间：${this.reminderTime(record)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
-          Text(`事件时间：${this.timestamp(record.eventStartTime)} → ${this.timestamp(record.eventEndTime)}`)
+          Text(record.heading || localizedText($r('app.string.text_unnamed_alarm'))).fontSize(16).fontColor(UiColor.text).width('100%')
+          Text(`${this.triggerLabel(record)} · ${this.timestamp(record.at, true)}`).fontSize(12).fontColor(UiColor.secondary).width('100%')
+          Text(localizedText($r('app.string.text_reminder'), String(this.reminderTime(record)))).fontSize(12).fontColor(UiColor.secondary).width('100%')
+          Text(localizedText($r('app.string.text_event_time'), String(this.timestamp(record.eventStartTime)), String(this.timestamp(record.eventEndTime))))
             .fontSize(12).fontColor(UiColor.secondary).width('100%')
           if (!record.succeeded) {
             Text(record.error).fontSize(12).fontColor(UiColor.error).width('100%')

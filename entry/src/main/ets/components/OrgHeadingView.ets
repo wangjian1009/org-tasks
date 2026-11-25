@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { InternalLinkProcessor } from '../ui/InternalLinkProcessor'
 import { CoreTask, CoreTaskModification } from '../services/NativeCoreService'
 import { TitleText } from './TitleText'
@@ -33,7 +34,7 @@ export struct OrgHeadingView {
     try {
       const tags = this.node.editContent.ownTags.filter((tag: string) => tag !== 'ARCHIVE')
       await this.modify([{ field: 'TAGS', value: this.archived() ? tags : tags.concat('ARCHIVE') }])
-    } catch (error) { this.message = `归档操作失败：${(error as Error).message}` }
+    } catch (error) { this.message = localizedText($r('app.string.text_archive_operation_failed'), String((error as Error).message)) }
     finally { this.working = false }
   }
 
@@ -44,7 +45,7 @@ export struct OrgHeadingView {
       await this.modify([{ field: 'PROPERTY', value: {
         name: 'VISIBILITY', value: this.node.property('VISIBILITY') === 'folded' ? null : 'folded'
       } }])
-    } catch (error) { this.message = `折叠操作失败：${(error as Error).message}` }
+    } catch (error) { this.message = localizedText($r('app.string.text_collapse_operation_failed'), String((error as Error).message)) }
     finally { this.working = false }
   }
 
@@ -52,9 +53,9 @@ export struct OrgHeadingView {
     const folded = this.node.property('VISIBILITY') === 'folded'
     const archived = this.archived()
     return [
-      { title: folded ? '展开' : '收起', icon: folded ? $r('app.media.ui_visibility') : $r('app.media.ui_visibility_off'),
+      { title: folded ? localizedText($r('app.string.text_expand')) : localizedText($r('app.string.text_collapse')), icon: folded ? $r('app.media.ui_visibility') : $r('app.media.ui_visibility_off'),
         disabled: archived, action: (): void => { this.toggleSubtree() } },
-      { title: archived ? '恢复' : '归档', icon: archived ? $r('app.media.ui_restore') : $r('app.media.ui_folder'),
+      { title: archived ? localizedText($r('app.string.text_restore')) : localizedText($r('app.string.text_archive')), icon: archived ? $r('app.media.ui_restore') : $r('app.media.ui_folder'),
         action: (): void => { this.archive() } }
     ]
   }
@@ -82,7 +83,7 @@ export struct OrgHeadingView {
         Button({ type: ButtonType.Normal }) {
           Image($r('app.media.ui_more')).width(18).height(18).fillColor(UiColor.secondary)
         }.width(44).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working)
-          .accessibilityText(`章节操作：${this.node.heading}`).onClick((): void => { this.menuOpen = !this.menuOpen })
+          .accessibilityText(localizedText($r('app.string.text_chapter_operations'), String(this.node.heading))).onClick((): void => { this.menuOpen = !this.menuOpen })
           .bindPopup(this.menuOpen, { builder: this.headingMenu, placement: Placement.BottomRight,
             popupColor: UiColor.menu, backgroundBlurStyle: BlurStyle.NONE, enableArrow: false,
             onStateChange: (event): void => { this.menuOpen = event.isVisible } })
@@ -101,9 +102,9 @@ export struct OrgHeadingView {
         menuWidth: this.swipeEnabled && !this.working ? taskSwipeMenuWidth(this.swipeActions(() => {})) : 0,
         canOpenMenu: (): boolean => this.swipeEnabled && !this.working && !this.menuOpen && !TaskInlineSession.active() })
       if (this.node.level === 1) { Divider().color(UiColor.divider).strokeWidth(1) }
-      if (this.archived()) { Text('已归档').fontSize(13).fontColor(UiColor.secondary).padding({ top: 4, bottom: 12 }) }
+      if (this.archived()) { Text($r('app.string.text_archived')).fontSize(13).fontColor(UiColor.secondary).padding({ top: 4, bottom: 12 }) }
       if (!this.archived() && (this.node.property('VISIBILITY') === 'folded')) {
-        Text('已收起').fontSize(12).fontColor(UiColor.secondary).onClick((): void => { this.toggleSubtree() })
+        Text($r('app.string.heading_collapsed')).fontSize(12).fontColor(UiColor.secondary).onClick((): void => { this.toggleSubtree() })
       }
       if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error) }
       if (!this.archived() && visibleProjectTags(this.node.ownTags, this.specialTags).length > 0) {
@@ -117,6 +118,6 @@ export struct OrgHeadingView {
       }
     }.width('100%').alignItems(HorizontalAlign.Start)
       .padding({ top: this.node.level === 1 ? 20 : 16, bottom: 8 })
-      .accessibilityGroup(true).accessibilityText(`${this.node.level} 级标题，${this.node.heading}`)
+      .accessibilityGroup(true).accessibilityText(localizedText($r('app.string.text_class_title_2'), String(this.node.level), String(this.node.heading)))
   }
 }

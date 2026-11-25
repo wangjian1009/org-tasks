@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context, common } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { fileIo, fileUri } from '@kit.CoreFileKit'
@@ -77,7 +78,7 @@ interface ImportPlan {
 
 function checkSize(text: string): void {
   if (text.length > MAX_BYTES || util.TextEncoder.create().encodeInto(text).length > MAX_BYTES) {
-    throw new Error('配置文件不能超过 64 KB')
+    throw new Error(localizedText($r('app.string.text_profile_cannot_exceed_64_kb')))
   }
 }
 
@@ -87,10 +88,10 @@ function looksLikeConfiguration(text: string): boolean {
 
 async function decodeConfiguration(text: string): Promise<ConfigDocument> {
   checkSize(text)
-  if (!looksLikeConfiguration(text)) throw new Error('未识别到小清单 YAML 配置')
+  if (!looksLikeConfiguration(text)) throw new Error(localizedText($r('app.string.text_no_org_tasks_recognized_yaml_configuration')))
   const doc = await decodeConfigurationYaml(text) as ConfigDocument
-  if (!doc || doc.format !== FORMAT) throw new Error('未识别到小清单配置')
-  if (doc.version !== VERSION) throw new Error('此版本的小清单无法读取该配置版本')
+  if (!doc || doc.format !== FORMAT) throw new Error(localizedText($r('app.string.text_org_tasks_configuration_not_recognized')))
+  if (doc.version !== VERSION) throw new Error(localizedText($r('app.string.text_the_org_tasks_of_this_version_cannot')))
   const settings = doc.settings
   if (!settings || !Array.isArray(settings.repos) ||
     ![settings.inboxFile, settings.inboxRepoId, settings.somedayFile, settings.somedayRepoId,
@@ -100,7 +101,7 @@ async function decodeConfiguration(text: string): Promise<ConfigDocument> {
     !Array.isArray(settings.coreSettings?.additionStates) ||
     settings.coreSettings.additionStates.some(state => !state || typeof state.name !== 'string' ||
       (state.category !== null && !['Todo', 'Doing', 'Wait', 'Done', 'Cancel'].includes(state.category)))) {
-    throw new Error('设置字段缺失或类型有误')
+    throw new Error(localizedText($r('app.string.text_set_fields_missing_or_wrong_type')))
   }
   const ids = new Set<string>()
   const roots = new Set<string>()
@@ -109,24 +110,24 @@ async function decodeConfiguration(text: string): Promise<ConfigDocument> {
       .every((value: string): boolean => typeof value === 'string') ||
       typeof repo.webdavEnabled !== 'boolean' || !Array.isArray(repo.excludedDirectories) ||
       !repo.excludedDirectories.every((value: string): boolean => typeof value === 'string')) {
-      throw new Error('存储库字段缺失或类型有误')
+      throw new Error(localizedText($r('app.string.text_missing_or_misdirected_repository_fields')))
     }
     repo.rootDirectory = normalizedRoot(repo.rootDirectory)
     repo.webdavUrl = repo.webdavUrl.trim()
     repo.webdavUsername = repo.webdavUsername.trim()
     if (!repo.id.trim() || repo.id === SYSTEM_REPOSITORY_ID || ids.has(repo.id) || roots.has(repo.rootDirectory)) {
-      throw new Error('配置中的存储库标识和目录必须有效且唯一')
+      throw new Error(localizedText($r('app.string.text_the_repository_identification_and_directory_in_the')))
     }
     if ((repo.webdavUrl || repo.webdavEnabled) && !shareableWebDavUrl(repo.webdavUrl) ||
       (repo.webdavEnabled && !repo.webdavUsername)) {
-      throw new Error('WebDAV 配置需要 HTTPS 目录地址和有效账号')
+      throw new Error(localizedText($r('app.string.text_webdav_configuration_requires_https_directory_address_and')))
     }
     ids.add(repo.id)
     roots.add(repo.rootDirectory)
   }
-  validateTarget(settings.inboxFile, settings.inboxRepoId, '收件箱', ids)
-  validateTarget(settings.somedayFile, settings.somedayRepoId, '某天', ids)
-  validateTarget(settings.memoFile, settings.memoRepoId, '备忘', ids)
+  validateTarget(settings.inboxFile, settings.inboxRepoId, localizedText($r('app.string.text_inbox')), ids)
+  validateTarget(settings.somedayFile, settings.somedayRepoId, localizedText($r('app.string.text_someday')), ids)
+  validateTarget(settings.memoFile, settings.memoRepoId, localizedText($r('app.string.text_notes')), ids)
   const prefs = settings.preferences
   if (prefs !== undefined && (!prefs || typeof prefs.reminders?.enabled !== 'boolean' ||
     !Number.isInteger(prefs.reminders.eventDurationMinutes) ||
@@ -136,7 +137,7 @@ async function decodeConfiguration(text: string): Promise<ConfigDocument> {
       !item || typeof item.name !== 'string' || !item.name.trim() ||
       typeof item.bundleName !== 'string' || !item.bundleName.trim()) ||
     (prefs.regionOrder !== null && !validRegionOrder(prefs.regionOrder)))) {
-    throw new Error('备份中的应用偏好设置无效')
+    throw new Error(localizedText($r('app.string.text_application_preferences_for_backup_are_invalid')))
   }
   return doc
 }
@@ -144,7 +145,7 @@ async function decodeConfiguration(text: string): Promise<ConfigDocument> {
 function validateTarget(path: string, id: string, name: string, ids: Set<string>): void {
   validateEntryFile(path)
   if ((path.trim() || id) && (!path.trim() || !ids.has(id))) {
-    throw new Error(name + '必须引用配置中的存储库和文件')
+    throw new Error(name + localizedText($r('app.string.text_repository_and_file_in_configuration_must_be')))
   }
 }
 
@@ -152,7 +153,7 @@ function normalizedRoot(path: string): string {
   const trimmed = path.trim()
   const components = trimmed.split('/').filter((part: string): boolean => part.length > 0 && part !== '.')
   if (!trimmed.startsWith('/') || components.length === 0 || components.includes('..') || /[\x00-\x1f\x7f]/.test(trimmed)) {
-    throw new Error('存储库目录必须是本机绝对路径')
+    throw new Error(localizedText($r('app.string.text_the_repository_directory_must_be_the_absolute')))
   }
   return '/' + components.join('/')
 }
@@ -201,7 +202,7 @@ export class ConfigTransfer {
     return ConfigTransfer.writeConfiguration(context, preview.document.settings.preferences, async (current: AppConfig): Promise<AppConfig> => {
       const plan = await ConfigTransfer.plan(context, current, preview.document)
       if (JSON.stringify(plan.warnings) !== JSON.stringify(preview.warnings)) {
-        throw new Error('本机配置或目录发生变化，请重新预览')
+        throw new Error(localizedText($r('app.string.text_changes_in_the_configuration_or_directory_please')))
       }
       return plan.config
     })
@@ -262,12 +263,12 @@ export class ConfigTransfer {
     const repos = current.repos.slice()
     for (const imported of settings.repos) {
       const existing = repos.find(repo => repo.rootDirectory.replace(/\/+$/, '') === imported.rootDirectory)
-      if (existing && isSystemRepository(existing)) throw new Error('系统存储库由应用管理')
-      if (existing?.webdavCleanupPending) throw new Error('请先完成“' + repositoryLabel(existing) + '”的同步信息清理')
+      if (existing && isSystemRepository(existing)) throw new Error(localizedText($r('app.string.text_system_repository_is_managed_by_application')))
+      if (existing?.webdavCleanupPending) throw new Error(localizedText($r('app.string.text_please_finish_first')) + repositoryLabel(existing) + localizedText($r('app.string.text_synchronise_message_cleanup')))
       const sameAccount = existing?.webdavUrl === imported.webdavUrl && existing?.webdavUsername === imported.webdavUsername
       if (existing && ((existing.webdavEnabled && !imported.webdavEnabled) ||
         ((existing.webdavEnabled || existing.webdavUsername) && !sameAccount))) {
-        throw new Error('请先在存储库设置中处理“' + repositoryLabel(existing) + '”的 WebDAV 连接变更')
+        throw new Error(localizedText($r('app.string.text_please_handle_this_first_in_the_repository')) + repositoryLabel(existing) + localizedText($r('app.string.text_webdav_connection_changes')))
       }
       const options = await normalizeSyncOptions({ excludedDirectories: imported.excludedDirectories })
       const repo = existing ?? AppConfigService.newRepository(imported.rootDirectory)
@@ -290,12 +291,12 @@ export class ConfigTransfer {
       if (existing) repos[repos.indexOf(existing)] = restored
       else repos.push(restored)
       if (imported.webdavEnabled && !restored.webdavEnabled) {
-        warnings.push('“' + repositoryLabel(restored) + '”需要在存储库设置中填写密码并启用 WebDAV。')
+        warnings.push(localizedText($r('app.string.config_import_webdav_password'), repositoryLabel(restored)))
       }
       try {
         if (!(await fileIo.stat(restored.rootDirectory)).isDirectory()) throw new Error()
       } catch (_) {
-        warnings.push('“' + repositoryLabel(restored) + '”的本地目录不可用，请在存储库设置中重新选择。')
+        warnings.push(localizedText($r('app.string.config_import_local_folder'), repositoryLabel(restored)))
       }
     }
     const config: AppConfig = {
@@ -312,7 +313,7 @@ export class ConfigTransfer {
     try {
       file = await fileIo.open(uri, fileIo.OpenMode.READ_ONLY)
       const stat = await fileIo.stat(file.fd)
-      if (!stat.isFile() || stat.size > MAX_BYTES) throw new Error('请选择 64 KB 以内的配置文本文件')
+      if (!stat.isFile() || stat.size > MAX_BYTES) throw new Error(localizedText($r('app.string.text_select_the_configuration_text_file_in_64')))
       const bytes = new Uint8Array(MAX_BYTES + 1)
       let offset = 0
       while (offset < bytes.byteLength) {
@@ -322,14 +323,14 @@ export class ConfigTransfer {
         bytes.set(new Uint8Array(chunk, 0, read), offset)
         offset += read
       }
-      if (offset > MAX_BYTES) throw new Error('配置文件不能超过 64 KB')
+      if (offset > MAX_BYTES) throw new Error(localizedText($r('app.string.text_profile_cannot_exceed_64_kb')))
       return util.TextDecoder.create('utf-8', { fatal: true }).decodeToString(bytes.subarray(0, offset))
     } catch (_) {
-      throw new Error('请选择 64 KB 以内的 UTF-8 配置文本文件')
+      throw new Error(localizedText($r('app.string.text_select_the_utf_8_configuration_text_file')))
     } finally {
       if (file) {
         try { await fileIo.close(file) }
-        catch (_) { throw new Error('关闭配置文件失败') }
+        catch (_) { throw new Error(localizedText($r('app.string.text_failed_to_close_profile'))) }
       }
     }
   }
@@ -342,15 +343,15 @@ export class ConfigTransfer {
       let offset = 0
       while (offset < buffer.byteLength) {
         const written = await fileIo.write(file.fd, buffer.slice(offset))
-        if (written <= 0) throw new Error('写入配置文件失败')
+        if (written <= 0) throw new Error(localizedText($r('app.string.text_writing_profile_failed')))
         offset += written
       }
     } catch (_) {
-      throw new Error('写入配置文件失败')
+      throw new Error(localizedText($r('app.string.text_writing_profile_failed')))
     } finally {
       if (file) {
         try { await fileIo.close(file) }
-        catch (_) { throw new Error('关闭配置文件失败') }
+        catch (_) { throw new Error(localizedText($r('app.string.text_failed_to_close_profile'))) }
       }
     }
   }
@@ -363,12 +364,12 @@ export class ConfigTransfer {
       const data = new systemShare.SharedData({ utd: 'general.file', title, uri: fileUri.getUriFromPath(path) })
       const controller = new systemShare.ShareController(data)
       await controller.show(context, { selectionMode: systemShare.SelectionMode.SINGLE })
-    } catch (_) { throw new Error('打开系统分享失败') }
+    } catch (_) { throw new Error(localizedText($r('app.string.text_failed_to_open_system_share'))) }
   }
 
   static backupTitle(date: Date = new Date()): string {
     const time = [date.getHours(), date.getMinutes(), date.getSeconds()]
       .map((value: number): string => value.toString().padStart(2, '0')).join('-')
-    return '小清单配置-' + localDate(date) + '_' + time
+    return localizedText($r('app.string.text_org_tasks_settings')) + localDate(date) + '_' + time
   }
 }

@@ -1,4 +1,5 @@
 // 验证笔记宿主请求保留逻辑路径、原文件版本和 Core 仓库身份。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -38,11 +39,11 @@ function fixture() {
     } } }
   };
   const trashModule={exports:{}};
-  const trashCode=ts.transpileModule(fs.readFileSync('entry/src/main/ets/services/TrashService.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const trashCode=transpileFixture(ts, fs.readFileSync('entry/src/main/ets/services/TrashService.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInThisContext('(function(require,module,exports){'+trashCode+'\n})')(name=> name==='../models/SystemRepository'?{SYSTEM_REPOSITORY_ID:'org-tasks-system',TRASH_FILE:'trash.org'}:mocks[name],trashModule,trashModule.exports);
   mocks['./TrashService']=trashModule.exports;
   const filename = path.resolve('entry/src/main/ets/services/NoteService.ets');
-  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const source = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -119,7 +120,7 @@ function page(name, service, router, findMemo = async () => undefined) {
   source = source.replace(/^@(Entry(?:\([^\n]*\))?|Component)\n/gm, '').replace(/^  @State /gm, '  ')
     .replace(/^  @(?:StorageLink|LocalStorageProp)\('[^']+'\) /gm, '  ').replace('struct ' + name, 'export class ' + name);
   const module = { exports: {} };
-  const compiled = ts.transpileModule(source, {
+  const compiled = transpileFixture(ts, source, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInThisContext('(function(require,module,exports){' + compiled + '\n})', { filename })(dependency => {

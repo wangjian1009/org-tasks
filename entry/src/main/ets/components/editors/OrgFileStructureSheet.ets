@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { util } from '@kit.ArkTS'
 import { CoreBridgeError, CoreTaskStructureEdit, coreErrorMessage } from '../../services/NativeCoreService'
 import { ProjectStructureDraft, OrgFileStructureNode, OrgFileStructureSnapshot, OrgFileStructureRow, OrgFilePlacement, projectSiblings } from '../../ui/OrgFileStructurePresentation'
@@ -26,7 +27,7 @@ export struct OrgFileStructureSheet {
   controller: OrgFileStructureSheetController = new OrgFileStructureSheetController()
   close: () => void = () => {}
   save: (snapshot: OrgFileStructureSnapshot, edits: CoreTaskStructureEdit[]) => Promise<string[]> = async () => []
-  reload: (force: boolean) => Promise<OrgFileStructureSnapshot> = async (_force: boolean) => { throw new Error('项目文件尚未载入') }
+  reload: (force: boolean) => Promise<OrgFileStructureSnapshot> = async (_force: boolean) => { throw new Error(localizedText($r('app.string.text_project_document_not_yet_loaded'))) }
   created: (row: string) => void = () => {}
 
   @State parent: string | null = null
@@ -90,8 +91,8 @@ export struct OrgFileStructureSheet {
   private back(): void {
     if (this.busy) return
     if (this.mode === 'order' && this.orderChanged) {
-      showDangerousConfirmation(this.getUIContext(), { title: '放弃顺序调整？', message: '本次调整尚未保存。',
-        cancelLabel: '继续排序', confirmLabel: '放弃', onConfirm: (): void => { this.discardOrder() } })
+      showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_give_up_the_sequence')), message: localizedText($r('app.string.text_this_adjustment_has_not_been_saved')),
+        cancelLabel: localizedText($r('app.string.text_continue_sorting')), confirmLabel: localizedText($r('app.string.text_abandon')), onConfirm: (): void => { this.discardOrder() } })
     } else {
       this.close()
     }
@@ -109,7 +110,7 @@ export struct OrgFileStructureSheet {
       const latest = await this.reload(true)
       if (oldParent) {
         const current = latest.nodes.find(node => node.row === oldParent.row)
-        if (!current) throw new Error('父节点已移除，请关闭面板后重新选择')
+        if (!current) throw new Error(localizedText($r('app.string.text_parent_node_removed_please_reselect_after_closing')))
         this.parent = current.id
       }
       this.source = latest
@@ -159,7 +160,7 @@ export struct OrgFileStructureSheet {
     const index = siblings.findIndex(node => node.id === id)
     const previous = index > 0 ? siblings[index - 1].id : null
     if (source.parent === destination.parent && previous === destination.after) {
-      this.message = '已在此位置，请选择其他位置'
+      this.message = localizedText($r('app.string.text_this_is_the_location_please_select_another'))
       return
     }
     this.commit([{ type: 'move', ids: [id], parent: destination.parent, after: destination.after }])
@@ -173,12 +174,12 @@ export struct OrgFileStructureSheet {
   @Builder
   movePanel() {
     Row() {
-      Text('调整位置').fontSize(19).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
-      OrgFileStructureAction({ title: '取消', available: !this.busy, action: (): void => { this.back() } })
+      Text($r('app.string.text_reposition')).fontSize(19).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
+      OrgFileStructureAction({ title: localizedText($r('app.string.text_cancel')), available: !this.busy, action: (): void => { this.back() } })
     }.width('100%')
     Text(this.source.nodes.find(node => node.id === this.parent)?.title ?? '')
       .fontSize(13).fontColor(UiColor.secondary).width('100%').maxLines(2)
-    TextInput({ text: this.moveQuery, placeholder: '搜索任务或章节' }).id('project_move_search')
+    TextInput({ text: this.moveQuery, placeholder: localizedText($r('app.string.text_search_tasks_or_sections')) }).id('project_move_search')
       .height(40).width('100%').fontSize(14).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
       .backgroundColor(UiColor.field).enterKeyType(EnterKeyType.Search).enabled(!this.busy)
       .onChange((value: string): void => { this.moveQuery = value; this.moveTarget = null; this.moveTargetChosen = false; this.refresh() })
@@ -186,7 +187,7 @@ export struct OrgFileStructureSheet {
     List() {
       if (!this.moveQuery.trim()) {
         ListItem() {
-          Text('文档顶层').id('project_move_root').fontSize(15).fontColor(UiColor.text).width('100%').height(44)
+          Text($r('app.string.text_top_level_of_document')).id('project_move_root').fontSize(15).fontColor(UiColor.text).width('100%').height(44)
             .padding({ left: 10 }).borderRadius(8)
             .backgroundColor(this.moveTargetChosen && this.moveTarget === null ? '#3F514A' : Color.Transparent)
             .onClick((): void => { this.chooseMoveTarget(null) })
@@ -210,7 +211,7 @@ export struct OrgFileStructureSheet {
         }
       }, (row: OrgFileStructureRow): string => row.node.id)
       if (this.moveQuery.trim() && !this.moveRows.length) {
-        ListItem() { Text('没有匹配的位置').fontSize(13).fontColor(UiColor.secondary).height(44) }
+        ListItem() { Text($r('app.string.text_no_match_locations')).fontSize(13).fontColor(UiColor.secondary).height(44) }
       }
     }.width('100%').layoutWeight(1).enabled(!this.busy && !this.stale())
     if (this.moveTargetChosen) {
@@ -218,12 +219,12 @@ export struct OrgFileStructureSheet {
         .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
       Row() {
         if (this.moveTarget === null) {
-          this.movePosition('移到开头', 'first')
-          this.movePosition('移到末尾', 'last')
+          this.movePosition(localizedText($r('app.string.text_move_to_the_beginning')), 'first')
+          this.movePosition(localizedText($r('app.string.text_move_to_the_end')), 'last')
         } else {
-          this.movePosition('移到前面', 'before')
-          this.movePosition('移到后面', 'after')
-          this.movePosition('移为子项', 'child')
+          this.movePosition(localizedText($r('app.string.text_move_front')), 'before')
+          this.movePosition(localizedText($r('app.string.text_move_back')), 'after')
+          this.movePosition(localizedText($r('app.string.text_move_to_subpoint')), 'child')
         }
       }.width('100%').justifyContent(FlexAlign.SpaceEvenly)
     }
@@ -314,10 +315,10 @@ export struct OrgFileStructureSheet {
       Text(this.message).fontSize(13).fontColor(UiColor.error).width('100%').padding({ bottom: 8 })
     }
     if (this.stale()) {
-      Text(this.mode === 'order' ? '文件已更新，请放弃本次调整后重新进入排序。' : '文件已更新，请重新载入结构')
+      Text(this.mode === 'order' ? localizedText($r('app.string.text_the_document_has_been_updated_and_please')) : localizedText($r('app.string.text_document_updated_please_reload_structure')))
         .fontSize(13).fontColor(UiColor.error).width('100%')
       if (this.mode !== 'order') {
-        OrgFileStructureAction({ title: '重新载入结构', available: !this.busy, action: (): void => { this.loadCurrent() } })
+        OrgFileStructureAction({ title: localizedText($r('app.string.text_reload_structure')), available: !this.busy, action: (): void => { this.loadCurrent() } })
       }
     }
   }
@@ -338,7 +339,7 @@ export struct OrgFileStructureSheet {
       Row() {
         Image($r('app.media.ui_drag_handle')).width(24).height(24).draggable(false).accessibilityLevel('no')
       }.width(44).height(44).justifyContent(FlexAlign.Center)
-        .accessibilityText(`长按拖动，${node.title}`)
+        .accessibilityText(localizedText($r('app.string.text_long_press_drag'), String(node.title)))
         .gesture(GestureGroup(GestureMode.Sequence, LongPressGesture({ repeat: false, duration: 300 }),
           PanGesture({ direction: PanDirection.Vertical, distance: 4 })
             .onActionStart((event: GestureEvent): void => { this.startOrderDrag(node.id, event) })
@@ -367,7 +368,7 @@ export struct OrgFileStructureSheet {
         this.nodeIcon(node.task)
         TitleText({ text: node.title, parts: node.titleParts, textSize: 16, lineLimit: 1, openLinks: false }).layoutWeight(1)
       }
-      if (node.hidden) { Text('筛选隐藏').fontSize(12).fontColor(UiColor.secondary) }
+      if (node.hidden) { Text($r('app.string.text_filter_hidden')).fontSize(12).fontColor(UiColor.secondary) }
       if (lifted) {
         Row() {
           Image($r('app.media.ui_drag_handle')).width(24).height(24)
@@ -382,7 +383,7 @@ export struct OrgFileStructureSheet {
   @Builder
   inputPanel() {
     Column({ space: 12 }) {
-      TextInput({ text: this.titleInput, placeholder: this.initialKind === 'task' ? '任务标题' : '章节标题' })
+      TextInput({ text: this.titleInput, placeholder: this.initialKind === 'task' ? localizedText($r('app.string.text_task_title')) : localizedText($r('app.string.text_chapter_title')) })
         .id('project_structure_title').height(46)
         .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
         .enterKeyType(EnterKeyType.Done).enabled(!this.busy)
@@ -395,10 +396,10 @@ export struct OrgFileStructureSheet {
   @Builder
   inputActions() {
     Row() {
-      Text(this.initialKind === 'task' ? '添加任务' : '添加章节')
+      Text(this.initialKind === 'task' ? localizedText($r('app.string.text_add_task')) : localizedText($r('app.string.text_add_chapter')))
         .fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
-      OrgFileStructureAction({ title: '取消', available: !this.busy, action: (): void => { this.back() } })
-      Button(this.busy ? '正在保存' : '保存')
+      OrgFileStructureAction({ title: localizedText($r('app.string.text_cancel')), available: !this.busy, action: (): void => { this.back() } })
+      Button(this.busy ? localizedText($r('app.string.text_saving_2')) : localizedText($r('app.string.text_save')))
         .id('project_structure_save').height(44).fontColor(UiColor.surface).backgroundColor(UiColor.primary)
         .enabled(!this.busy && !this.stale() && !!this.titleInput.trim()).onClick((): void => { this.applyForm() })
     }.width('100%')
@@ -406,17 +407,17 @@ export struct OrgFileStructureSheet {
 
   private formLocation(): string {
     const location = this.draft?.path(this.parent) ?? this.source.title
-    return `${location} › ${this.parent === null ? '顶层首位' : '子节点首位'}`
+    return `${location} › ${this.parent === null ? localizedText($r('app.string.text_top_level_first')) : localizedText($r('app.string.text_first_of_the_child_node'))}`
   }
 
   @Builder
   orderPanel() {
     Row() {
-      Text('调整子节点顺序')
+      Text($r('app.string.text_reorder_subpoints'))
         .fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
-      Button('放弃').id('project_child_order_discard').height(44).fontColor(UiColor.secondary)
+      Button($r('app.string.text_abandon')).id('project_child_order_discard').height(44).fontColor(UiColor.secondary)
         .backgroundColor(Color.Transparent).enabled(!this.busy).onClick((): void => { this.discardOrder() })
-      Button(this.busy ? '正在保存' : '保存').id('project_child_order_save').height(44)
+      Button(this.busy ? localizedText($r('app.string.text_saving_2')) : localizedText($r('app.string.text_save'))).id('project_child_order_save').height(44)
         .fontColor(UiColor.surface).backgroundColor(UiColor.primary)
         .enabled(this.orderChanged && !this.busy && !this.stale() && !this.dragId)
         .onClick((): void => { this.saveOrder() })
@@ -424,7 +425,7 @@ export struct OrgFileStructureSheet {
     Text(this.draft?.path(this.parent) ?? this.source.title).fontSize(14).fontColor(UiColor.secondary).width('100%')
     this.status()
     if (this.source.hasConflict) {
-      Text('文件包含受保护的同步冲突').fontSize(13).fontColor(UiColor.secondary).width('100%').padding({top: 6, bottom: 6})
+      Text($r('app.string.text_file_contains_protected_sync_conflicts')).fontSize(13).fontColor(UiColor.secondary).width('100%').padding({top: 6, bottom: 6})
     }
     Stack({ alignContent: Alignment.TopStart }) {
       List({ scroller: this.orderScroller }) {

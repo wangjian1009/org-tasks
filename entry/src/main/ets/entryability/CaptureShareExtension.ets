@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { ShareExtensionAbility, UIExtensionContentSession, Want } from '@kit.AbilityKit'
 import { systemShare } from '@kit.ShareKit'
 import { captureTitle } from '../services/CaptureInput'
@@ -28,10 +29,10 @@ export default class CaptureShareExtension extends ShareExtensionAbility {
       const urlMatch = combined.match(/https?:\/\/\S+/i)
       const sharedUrl = urlMatch ? urlMatch[0].replace(/[)\]}>，。]+$/, '') : ''
       const title = captureTitle(sharedUrl ? combined.replace(sharedUrl, '') : combined)
-      if (!title) throw new Error('请选择文字或链接进行分享')
+      if (!title) throw new Error(localizedText($r('app.string.text_please_select_a_text_or_link_for')))
       storage.set('sharedTitle', title)
       storage.set('sharedUrl', sharedUrl)
       storage.set('shareReady', true)
-    } catch (e) { storage.set('shareError', '无法读取分享内容，请选择文字或链接后重试') }
+    } catch (e) { storage.set('shareError', localizedText($r('app.string.text_unable_to_read_shared_content_try_again'))) }
   }
 }

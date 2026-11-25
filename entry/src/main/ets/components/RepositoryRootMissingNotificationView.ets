@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreRepositoryRootMissingNotification } from '../services/NativeCoreService'
 import { NotificationRepository } from '../services/NotificationManager'
 import { PageNavigator } from '../services/PageNavigator'
@@ -15,8 +16,8 @@ export struct RepositoryRootMissingNotificationView {
   }
 
   private message(): string {
-    const name = this.repository()?.name || '存储库'
-    return `${name}的本地目录不存在`
+    const name = this.repository()?.name || localizedText($r('app.string.text_repositories'))
+    return localizedText($r('app.string.text_local_directories_for_do_not_exist'), String(name))
   }
 
   private async openSettings(): Promise<void> {
@@ -29,7 +30,7 @@ export struct RepositoryRootMissingNotificationView {
       })
     } catch (_) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '无法打开存储库设置' })
+        this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_cannot_open_repository_settings')) })
       } catch (_) {
         console.error('显示存储库设置打开失败提示失败')
       }
@@ -50,7 +51,7 @@ export struct RepositoryRootMissingNotificationView {
       }.width('100%').height(32).padding({ left: 18, right: 12 }).alignItems(VerticalAlign.Center)
     }.width('100%').height(32).padding(0).backgroundColor(Color.Transparent).borderRadius(0)
       .enabled(!this.disabled && !this.opening && this.repository() !== undefined)
-      .accessibilityText(`${this.message()}，点击打开存储库设置`)
+      .accessibilityText(localizedText($r('app.string.text_tap_to_open_repository_settings'), String(this.message())))
       .onClick((): void => { this.openSettings() })
   }
 }

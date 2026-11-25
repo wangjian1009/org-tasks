@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { SYSTEM_REPOSITORY_ID, TRASH_FILE } from '../models/SystemRepository'
 import { PageNavigator } from '../services/PageNavigator'
 import { CoreOrgFileMetadata, CoreTitlePart } from '../services/NativeCoreService'
@@ -38,8 +39,8 @@ export struct NotebookFileRow {
     const labels = [this.title(), fileModifiedLabel(this.file.modifiedAt, true)]
     if (!this.isTrashEntry()) {
       for (const kind of this.usages) labels.push(fileTargetName(kind))
-      if (this.file.project() !== null) labels.push('项目')
-      if (this.file.hasConflict) labels.push('冲突')
+      if (this.file.project() !== null) labels.push(localizedText($r('app.string.text_project')))
+      if (this.file.hasConflict) labels.push(localizedText($r('app.string.text_conflict')))
     }
     return labels.join('，')
   }
@@ -68,11 +69,11 @@ export struct NotebookFileRow {
 
   private actions(): TaskActionItem[] {
     return [
-      { id: 'edit', title: '编辑', label: '编辑文件', icon: $r('app.media.ui_link_edit'),
+      { id: 'edit', title: localizedText($r('app.string.text_edit')), label: localizedText($r('app.string.text_edit_file')), icon: $r('app.media.ui_link_edit'),
         action: (): void => { this.closeSwipe(); this.openFile() } },
-      { id: 'rename', title: '改名', label: '改文件名', icon: $r('app.media.ui_note_action'),
+      { id: 'rename', title: localizedText($r('app.string.text_change_name')), label: localizedText($r('app.string.text_change_file_name')), icon: $r('app.media.ui_note_action'),
         action: (): void => { this.closeSwipe(); this.rename() } },
-      { id: 'delete', title: '删除', label: '删除文件', icon: $r('app.media.ui_delete'), style: 'danger',
+      { id: 'delete', title: localizedText($r('app.string.text_delete')), label: localizedText($r('app.string.text_delete_file')), icon: $r('app.media.ui_delete'), style: 'danger',
         action: (): void => { this.closeSwipe(); this.remove() } }
     ]
   }
@@ -100,8 +101,8 @@ export struct NotebookFileRow {
             ForEach(this.usages, (kind: FileTargetKind) => {
               this.badge(fileTargetName(kind), this.usageColor(kind))
             }, (kind: FileTargetKind) => kind)
-            if (this.file.project() !== null) this.badge('项目', '#3A536A')
-            if (this.file.hasConflict) this.badge('冲突', UiColor.conflictBadge, UiColor.error)
+            if (this.file.project() !== null) this.badge(localizedText($r('app.string.text_project')), '#3A536A')
+            if (this.file.hasConflict) this.badge(localizedText($r('app.string.text_conflict')), UiColor.conflictBadge, UiColor.error)
           }.flexShrink(0)
         }
         Text(fileModifiedLabel(this.file.modifiedAt, true)).fontSize(12).fontColor(UiColor.secondary)
@@ -116,7 +117,7 @@ export struct NotebookFileRow {
     }.width('100%').constraintSize({ minHeight: 44 }).padding({ left: 8, right: 8, top: 6, bottom: 6 })
       .backgroundColor(Color.Transparent).borderRadius(8)
       .accessibilityText(this.summaryLabel())
-      .accessibilityDescription(this.isTrashEntry() ? '打开废纸篓' : this.expanded ? '收起文件详情' : '展开文件详情')
+      .accessibilityDescription(this.isTrashEntry() ? localizedText($r('app.string.text_open_scrap')) : this.expanded ? localizedText($r('app.string.text_close_file_details')) : localizedText($r('app.string.text_expand_file_details')))
       .onClick((): void => { this.activateSummary() })
   }
 
@@ -125,7 +126,7 @@ export struct NotebookFileRow {
     Column({ space: 4 }) {
       Text(filePathLabel(this.file.path)).fontSize(13).fontColor(UiColor.text)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-      Text(`${fileTaskCount(this.file)} 个任务 · ${fileSizeLabel(this.file.byteLength)}`)
+      Text(localizedText($r('app.string.text_tasks'), String(fileTaskCount(this.file)), String(fileSizeLabel(this.file.byteLength))))
         .fontSize(12).fontColor(UiColor.secondary)
     }.width('100%').padding({ left: 8, right: 8, bottom: 12 }).alignItems(HorizontalAlign.Start)
       .transition(TransitionEffect.translate({ y: -8 }).combine(TransitionEffect.OPACITY))

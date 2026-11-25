@@ -1,4 +1,5 @@
 // 验证收件箱的目标分组和宿主调用编排；写入语义由 Rust 集成测试覆盖。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +13,7 @@ const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents
 const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function load(file, mocks) {
   const filename = path.resolve('entry/src/main/ets', file + '.ets');
-  const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const output = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -28,7 +29,7 @@ function snapshotFixture() {
   const source = fs.readFileSync('entry/src/main/ets/pages/Inbox.ets', 'utf8');
   const methods = ['applyPageSnapshot', 'prepareRecentLayout'].map(name =>
     source.match(new RegExp('  ' + name + '\\(\\): void \\{[\\s\\S]*?\\n  \\}'))[0]).join('\n');
-  const code = ts.transpileModule('export class InboxSnapshot {' + methods + '}', {
+  const code = transpileFixture(ts, 'export class InboxSnapshot {' + methods + '}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} }, frames = [];
@@ -148,7 +149,7 @@ function captureFixture() {
   const source = fs.readFileSync(filename, 'utf8');
   const method = source.match(/  async capture\(\) \{[\s\S]*?\n  \}\n/)[0];
   const visibility = source.slice(source.indexOf("}.id('inbox_capture')")).match(/\.visibility\(([\s\S]*?)\)\s*\.enabled/)[1];
-  const code = ts.transpileModule('export class InboxCapture {' + method + '\nbuttonVisibility() { return ' + visibility + '; }\n}', {
+  const code = transpileFixture(ts, 'export class InboxCapture {' + method + '\nbuttonVisibility() { return ' + visibility + '; }\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} }, messages = [], calls = [];

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { showDangerousConfirmation } from './controls/DangerousConfirmation'
 import { AppDataManager } from '../services/AppDataManager'
 import { PageNavigator } from '../services/PageNavigator'
@@ -142,8 +143,8 @@ export struct TaskPageContent {
 
   confirmDeleteMemo(task: CoreTask) {
     if (this.deletingMemo || !this.pageReady) return
-    showDangerousConfirmation(this.getUIContext(), { title: '删除这条备忘？', message: `“${task.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
-      confirmLabel: '删除', onConfirm: (): void => { this.deleteMemo(task) } })
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_remove_this_memo')), message: localizedText($r('app.string.text_will_be_moved_to_the_waste_paper'), String(task.heading)),
+      confirmLabel: localizedText($r('app.string.text_delete')), onConfirm: (): void => { this.deleteMemo(task) } })
   }
 
   async deleteMemo(task: CoreTask) {
@@ -164,7 +165,7 @@ export struct TaskPageContent {
       Button({ type: ButtonType.Circle }) {
         Image($r('app.media.ui_delete')).width(24).height(24)
       }.width(44).height(44).padding(0).backgroundColor('#513A40').enabled(!this.deletingMemo)
-        .accessibilityText('删除备忘').onClick((): void => { this.confirmDeleteMemo(task) })
+        .accessibilityText($r('app.string.text_delete_note')).onClick((): void => { this.confirmDeleteMemo(task) })
     }.height('100%').padding({ left: 8, right: 16 })
   }
 
@@ -193,7 +194,7 @@ export struct TaskPageContent {
   }
 
   todayActions(): PopupMenuItem[] {
-    return this.view === 'today' ? [{ title: '排序', icon: $r('app.media.ui_sort'), disabled: !this.pageReady,
+    return this.view === 'today' ? [{ title: localizedText($r('app.string.text_sort')), icon: $r('app.media.ui_sort'), disabled: !this.pageReady,
       action: (): void => { this.openRegionOrder() } }] : []
   }
 
@@ -201,7 +202,7 @@ export struct TaskPageContent {
     if (this.orderSheetOpen || this.orderSaving || !this.pageReady || !await TaskInlineSession.end(true)) return
     if (!this.orderLoaded) await this.loadRegionOrder()
     if (!this.orderFilesDataSet?.isReady() || this.orderFilesDataSet.error) {
-      try { this.getUIContext().getPromptAction().showToast({ message: '分类与项目尚未读取完成，请稍后重试' }) }
+      try { this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_classes_and_items_are_not_yet_read')) }) }
       catch (_) { console.error('显示分区读取提示失败') }
       return
     }
@@ -210,7 +211,7 @@ export struct TaskPageContent {
   }
 
   async saveRegionOrder(draft: OrderRegion[], reset: boolean): Promise<void> {
-    if (!this.orderFilesDataSet?.isReady() || this.orderFilesDataSet.error) throw new Error('分类与项目尚未读取完成，请稍后重试')
+    if (!this.orderFilesDataSet?.isReady() || this.orderFilesDataSet.error) throw new Error(localizedText($r('app.string.text_classes_and_items_are_not_yet_read')))
     const order = reset ? null : regionOrderFromDraft(draft, this.orderCatalog)
     await RegionOrderService.save(this.getUIContext().getHostContext()!, order)
     if (!this.orderActive) return
@@ -353,15 +354,15 @@ export struct TaskPageContent {
           .enabled(!this.selection.selecting && !this.selection.blocked())
       }
       if (this.loading) {
-        NotificationEmptyState({ title: '正在读取任务', busy: true })
+        NotificationEmptyState({ title: localizedText($r('app.string.text_reading_tasks')), busy: true })
       } else if (this.message) {
-        NotificationEmptyState({ title: '任务读取失败', detail: this.message, actionLabel: '重试', action: (): void => {
+        NotificationEmptyState({ title: localizedText($r('app.string.text_job_reading_failed')), detail: this.message, actionLabel: localizedText($r('app.string.text_retry')), action: (): void => {
           const dataSet = this.targetDataSet?.error ? this.targetDataSet : this.rangeDataSet?.error ? this.rangeDataSet : this.priorityDataSet?.error ? this.priorityDataSet : this.taskDataSet()
           dataSet.refresh().catch((error: Error): void => { this.message = error.message })
         } })
       } else if (this.needsConfiguration) {
-        NotificationEmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
-          actionLabel: '前往设置', action: (): void => {
+        NotificationEmptyState({ title: this.view === 'memo' ? localizedText($r('app.string.text_no_memo_record')) : localizedText($r('app.string.text_no_eligible_tasks')),
+          actionLabel: localizedText($r('app.string.text_go_to_settings')), action: (): void => {
             PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Settings', params: { section: '文件入口' } })
           } })
       } else {
@@ -373,12 +374,12 @@ export struct TaskPageContent {
             } }).enabled(!this.selection.selecting && !this.selection.blocked())
         }
         if (this.tasks.length === 0) {
-          NotificationEmptyState({ title: this.view === 'memo' ? '没有备忘记录' : '没有符合条件的任务',
-            detail: this.view === 'memo' ? '配置文件中的所有标题记录都会显示在这里。' : this.view === 'today' ? '今天没有到期或过期任务。' : '下拉同步后可刷新此列表。' })
+          NotificationEmptyState({ title: this.view === 'memo' ? localizedText($r('app.string.text_no_memo_record')) : localizedText($r('app.string.text_no_eligible_tasks')),
+            detail: this.view === 'memo' ? localizedText($r('app.string.text_all_title_records_in_the_configuration_file')) : this.view === 'today' ? localizedText($r('app.string.text_there_are_no_expired_or_expired_mandates')) : localizedText($r('app.string.text_you_can_refresh_this_list_by_synchronizing')) })
         } else if (this.visibleTasks.length === 0) {
-          NotificationEmptyState({ title: this.runningOnly ? '没有符合筛选条件的进行中任务' : '没有匹配标签的任务',
-            detail: this.runningOnly ? '调整筛选条件，或点击“全部”查看当前页面的所有任务。' : '选择其他标签，或点击“全部”查看当前页面的所有任务。',
-            actionLabel: '显示全部', action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
+          NotificationEmptyState({ title: this.runningOnly ? localizedText($r('app.string.text_no_ongoing_tasks_eligible_for_screening')) : localizedText($r('app.string.no_tagged_tasks')),
+            detail: this.runningOnly ? localizedText($r('app.string.text_adjusts_the_filter_conditions_or_tap_all')) : localizedText($r('app.string.text_select_another_tab_or_tap_all_to')),
+            actionLabel: localizedText($r('app.string.text_show_all')), action: (): void => { this.applyTagFilter({ tags: [], includeUntagged: false }) } })
         } else if (this.view === 'today' || this.view === 'anytime' || this.view === 'waiting') {
           TodayTaskList({ sections: this.sections, timedItems: this.timedItems, referenceTime: this.referenceTime, singleOperations: taskPageActionPolicy(this.view).singleOperations,
             bulkOperations: taskPageActionPolicy(this.view).bulkOperations, selection: this.selection,
@@ -429,7 +430,7 @@ export struct TaskPageContent {
       AppShell({ title: overviewTitle(this.view), activeRoute: this.pageRoute, activeOverview: this.view,
         titleIcon: this.overviewIcon(), requiresRepository: true,
         repositoryReadyChanged: (ready: boolean): void => { this.repositoryReady = ready },
-        actionLabel: this.view === 'today' ? '今天更多操作' : '', actionMenuItems: this.todayActions(),
+        actionLabel: this.view === 'today' ? localizedText($r('app.string.text_more_operations_today')) : '', actionMenuItems: this.todayActions(),
         drawerOpen: $drawerOpen, pullToSync: true, busy: this.deletingMemo || this.orderSaving || this.supportsBatchActions() && this.selection.blocked(),
         pullDisabled: this.orderSheetOpen || this.supportsBatchActions() && this.selection.selecting }) {
         ForEach([this.taskDataSet()], (_dataSet: DataSet) => { this.overviewContent() }, (dataSet: DataSet) => dataSet.identity)
@@ -442,7 +443,7 @@ export struct TaskPageContent {
           Image($r('app.media.ui_add_memo')).width(28).height(28)
         }.id('memo_create').width(56).height(56).backgroundColor(UiColor.primary)
           .shadow({ radius: 12, color: '#33000000', offsetY: 4 }).margin({ bottom: 24 })
-          .accessibilityText('新增备忘')
+          .accessibilityText($r('app.string.note_create'))
           .enabled(!this.deletingMemo)
           .onClick((): void => {
             PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/MemoEdit', params: { create: true } })

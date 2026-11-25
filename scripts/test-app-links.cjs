@@ -1,4 +1,5 @@
 // 验证应用目录、安装检测和应用绑定。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -10,7 +11,7 @@ if (process.argv.includes('-h') || process.argv.includes('--help')) {
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
 function compile(source, mocks = {}, bindings = {}) {
   const module = { exports: {} };
-  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
+  const code = transpileFixture(ts, source, { compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS } }).outputText;
   vm.runInThisContext('(function(require,module,exports,' + Object.keys(bindings).join(',') + '){' + code + '\n})')(name => {
     assert.ok(name in mocks, name); return mocks[name];
   }, module, module.exports, ...Object.values(bindings));

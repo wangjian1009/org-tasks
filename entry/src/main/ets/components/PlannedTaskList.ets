@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { DataSet } from '../services/DataSet'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { NotificationManager } from '../services/NotificationManager'
@@ -18,7 +19,7 @@ import { TaskOperation, TaskSingleOperation, TaskBatchAction } from '../ui/TaskA
 export struct PlannedTaskList {
   dataSet: DataSet | undefined = undefined
   private taskDataSet(): DataSet {
-    if (!this.dataSet) throw new Error('未提供页面数据管理对象')
+    if (!this.dataSet) throw new Error(localizedText($r('app.string.text_no_page_data_management_objects_provided')))
     return this.dataSet
   }
 
@@ -125,7 +126,7 @@ export struct PlannedTaskList {
 
   @Builder
   regionGroup(groupKey: string, regionKey: string) {
-    TaskRegion({ category: this.region(groupKey, regionKey)?.kind === 'project' ? null : this.region(groupKey, regionKey)?.category || '未分类',
+    TaskRegion({ category: this.region(groupKey, regionKey)?.kind === 'project' ? null : this.region(groupKey, regionKey)?.category || localizedText($r('app.string.text_uncategorized')),
       project: this.region(groupKey, regionKey)?.kind === 'project' ? this.region(groupKey, regionKey) ?? null : null }) {
       ForEach(this.region(groupKey, regionKey)?.items ?? [], (item: PlannedTaskItem) => {
         this.taskItem(this.taskKey(item.task), groupKey)
@@ -144,7 +145,7 @@ export struct PlannedTaskList {
     }
     if (this.group(groupKey).kind === 'day') {
       if (this.group(groupKey).scheduleItems.length > 0) {
-        TaskRegion({ category: '日程' }) {
+        TaskRegion({ category: localizedText($r('app.string.text_schedule')) }) {
           ForEach(this.group(groupKey).scheduleItems, (item: PlannedScheduleItem) => {
             this.scheduleTaskItem(this.taskKey(item.task), groupKey)
           }, (item: PlannedScheduleItem) => this.taskKey(item.task))

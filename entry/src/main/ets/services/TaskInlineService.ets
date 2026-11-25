@@ -1,5 +1,6 @@
+import { localizedText } from '../ui/LocalizedText'
 export class TaskInlineMissingError extends Error {
-  constructor() { super('任务已删除或改名，请返回列表重新打开') }
+  constructor() { super(localizedText($r('app.string.text_task_deleted_or_renamed_please_return_list'))) }
 }
 
 // 当前窗口只保留一个展开编辑会话；列表重排推迟到会话结束，卡片快照与通知继续刷新。

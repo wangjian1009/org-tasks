@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { PreferencesStore } from './PreferencesStore'
 
@@ -8,14 +9,14 @@ export class TrashSettingsService {
   static async retentionDays(context: Context): Promise<number> {
     const store = await PreferencesStore.open(context, 'org_tasks_config')
     const days = await store.get(TRASH_RETENTION_KEY, DEFAULT_TRASH_RETENTION_DAYS) as number
-    if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error('废纸篓保留天数必须在 1 至 3650 之间')
+    if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error(localizedText($r('app.string.text_waste_paper_retention_days_must_be_between')))
     return days
   }
 
   private static queue: Promise<void> = Promise.resolve()
   static saveRetentionDays(context: Context, days: number): Promise<void> {
     const work = TrashSettingsService.queue.then(async (): Promise<void> => {
-      if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error('请输入 1 至 3650 之间的保留天数')
+      if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error(localizedText($r('app.string.text_enter_the_number_of_days_to_keep')))
       const store = await PreferencesStore.open(context, 'org_tasks_config')
       const previous = await store.get(TRASH_RETENTION_KEY, DEFAULT_TRASH_RETENTION_DAYS)
       try { await store.put(TRASH_RETENTION_KEY, days); await store.flush() }

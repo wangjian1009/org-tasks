@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { fileIo } from '@kit.CoreFileKit'
 import { UiColor, repositoryName } from '../../ui/Theme'
 import { coreErrorMessage, CoreBridgeError } from '../../services/NativeCoreService'
@@ -28,7 +29,7 @@ export struct LocalDirectorySheet {
     if (this.disposed || request !== this.request) return
     await this.browse(accessible ? initial : this.getUIContext().getHostContext()!.filesDir)
     if (initial && !accessible && !this.disposed && this.request === request + 1) {
-      this.message = '原目录不存在或无法访问，请重新选择'
+      this.message = localizedText($r('app.string.text_the_original_folder_is_unavailable_select_a'))
     }
   }
 
@@ -55,7 +56,7 @@ export struct LocalDirectorySheet {
       this.folders = folders.sort((left: string, right: string) => left.localeCompare(right))
       this.creating = false
       this.folderName = ''
-    } catch (e) { if (request === this.request) this.message = `无法浏览此目录：${coreErrorMessage(e as CoreBridgeError)}` }
+    } catch (e) { if (request === this.request) this.message = localizedText($r('app.string.text_could_not_browse_this_directory'), String(coreErrorMessage(e as CoreBridgeError))) }
     finally { if (request === this.request) this.loading = false }
   }
 
@@ -63,7 +64,7 @@ export struct LocalDirectorySheet {
     if (this.busy || this.loading) return
     const name = this.folderName.trim()
     if (!name || name === '.' || name === '..' || /[/\\\x00-\x1f\x7f]/.test(name)) {
-      this.message = '请输入有效的文件夹名称，不包含路径分隔符'
+      this.message = localizedText($r('app.string.text_please_enter_a_valid_folder_name_without'))
       return
     }
     const destination = `${this.directory === '/' ? '' : this.directory}/${name}`
@@ -72,7 +73,7 @@ export struct LocalDirectorySheet {
     try {
       await fileIo.mkdir(destination)
     } catch (e) {
-      this.message = `新建文件夹失败：${coreErrorMessage(e as CoreBridgeError)}`
+      this.message = localizedText($r('app.string.text_couldn_t_create_the_folder'), String(coreErrorMessage(e as CoreBridgeError)))
       return
     } finally { this.busy = false }
     await this.browse(destination)
@@ -80,36 +81,36 @@ export struct LocalDirectorySheet {
 
   build() {
     Column() {
-      Text('选择目录').fontSize(18).fontColor(UiColor.text).width('100%').padding({ left: 20, right: 48, top: 12, bottom: 20 })
+      Text($r('app.string.text_select_directory')).fontSize(18).fontColor(UiColor.text).width('100%').padding({ left: 20, right: 48, top: 12, bottom: 20 })
       Divider().color(UiColor.divider)
       Row() {
-        Button('应用文件').height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+        Button($r('app.string.text_apply_file')).height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
           .onClick((): void => { this.browse(this.getUIContext().getHostContext()!.filesDir) })
         Blank()
-        Button('＋ 新建文件夹').height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+        Button($r('app.string.text_new_folder')).height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
           .enabled(!this.loading && !this.busy && this.directory.length > 0)
           .onClick((): void => { this.creating = !this.creating; this.folderName = '' })
       }.width('100%').padding({ left: 8, right: 8 }).enabled(!this.busy)
       Row({ space: 8 }) {
         Button('‹').height(44).width(44).fontSize(26).backgroundColor(Color.Transparent).fontColor(UiColor.text)
           .enabled(!this.loading && !this.busy && this.directory !== '/' && this.directory.length > 0)
-          .accessibilityText('上一级目录').onClick((): void => { this.browse(this.parent()) })
-        Text(this.directory || '正在读取…').fontSize(13).fontColor(UiColor.secondary).layoutWeight(1).maxLines(3)
+          .accessibilityText($r('app.string.text_upper_directory')).onClick((): void => { this.browse(this.parent()) })
+        Text(this.directory || localizedText($r('app.string.text_reading'))).fontSize(13).fontColor(UiColor.secondary).layoutWeight(1).maxLines(3)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }.width('100%').padding({ right: 20 })
       if (this.message) {
         Row() {
           Text(this.message).fontSize(13).lineHeight(21).fontColor(UiColor.error).layoutWeight(1)
-          Button('重试').height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
+          Button($r('app.string.text_retry')).height(44).fontSize(14).backgroundColor(Color.Transparent).fontColor(UiColor.primary)
             .onClick((): void => { if (this.directory) this.browse(this.directory); else this.openInitialDirectory() })
         }.width('100%').padding({ left: 20, right: 12 })
       }
       if (this.creating) {
         Row({ space: 8 }) {
-          TextInput({ text: this.folderName, placeholder: '文件夹名称' }).layoutWeight(1).height(44)
+          TextInput({ text: this.folderName, placeholder: localizedText($r('app.string.text_folder_name')) }).layoutWeight(1).height(44)
             .backgroundColor(UiColor.field).fontColor(UiColor.text).placeholderColor(UiColor.secondary)
             .onChange((value: string): void => { this.folderName = value })
-          Button(this.busy ? '创建中' : '创建').height(44).fontSize(14).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
+          Button(this.busy ? localizedText($r('app.string.text_creating')) : localizedText($r('app.string.text_create'))).height(44).fontSize(14).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
             .onClick((): void => { this.createFolder() })
         }.width('100%').padding({ left: 20, right: 20, bottom: 12 }).enabled(!this.busy)
       }
@@ -118,7 +119,7 @@ export struct LocalDirectorySheet {
       } else {
         List() {
           if (this.folders.length === 0) {
-            ListItem() { Text('此目录没有子文件夹').fontSize(14).fontColor(UiColor.secondary).padding(16) }
+            ListItem() { Text($r('app.string.text_there_are_no_subfolders_in_this_directory')).fontSize(14).fontColor(UiColor.secondary).padding(16) }
           }
           ForEach(this.folders, (name: string) => {
             ListItem() {
@@ -135,11 +136,11 @@ export struct LocalDirectorySheet {
       }
       Column({ space: 12 }) {
         Row() {
-          Text('当前目录').fontSize(13).fontColor(UiColor.secondary)
+          Text($r('app.string.text_current_directory')).fontSize(13).fontColor(UiColor.secondary)
           Blank()
           Text(repositoryName(this.directory)).fontSize(13).fontColor(UiColor.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).constraintSize({ maxWidth: '70%' })
         }.width('100%')
-        Button('使用此目录').width('100%').height(48).borderRadius(12).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
+        Button($r('app.string.text_use_this_directory')).width('100%').height(48).borderRadius(12).backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
           .enabled(!this.busy && !this.loading && this.directory.length > 0)
           .onClick((): void => { this.selected(this.directory) })
       }.width('100%').padding({ left: 20, right: 20, top: 16, bottom: 28 })

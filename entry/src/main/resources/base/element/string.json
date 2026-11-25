@@ -1,10 +1,6 @@
 {
   "string": [
     {
-      "name": "module_desc",
-      "value": "小清单任务管理与 WebDAV 同步"
-    },
-    {
       "name": "EntryAbility_desc",
       "value": "小清单"
     },
@@ -13,44 +9,48 @@
       "value": "小清单"
     },
     {
-      "name": "calendar_permission_reason",
-      "value": "用于在小清单专用日历中创建、更新和删除任务提醒"
-    },
-    {
-      "name": "file_permission_reason",
-      "value": "用于读取坚果云同步的 org 文件"
+      "name": "app_link_bound",
+      "value": "已绑定"
     },
     {
       "name": "background_permission_reason",
       "value": "用于退出到后台后同步本地修改"
     },
     {
-      "name": "capture_label",
-      "value": "快速捕捉"
+      "name": "block_copied",
+      "value": "区块已拷贝"
     },
     {
-      "name": "capture_description",
-      "value": "只需一个标题，保存到小清单收件箱"
+      "name": "calendar_duplicate_task_id",
+      "value": "提醒任务身份重复"
+    },
+    {
+      "name": "calendar_event_description",
+      "value": "由小清单创建的任务提醒"
+    },
+    {
+      "name": "calendar_permission_reason",
+      "value": "用于在小清单专用日历中创建、更新和删除任务提醒"
     },
     {
       "name": "capture_card_description",
       "value": "快速记下标题，或用语音录入到收件箱"
     },
     {
-      "name": "memo_card_label",
-      "value": "备忘录"
+      "name": "capture_description",
+      "value": "只需一个标题，保存到小清单收件箱"
     },
     {
-      "name": "memo_card_description",
-      "value": "在桌面查看最近的备忘记录"
-    },
-    {
-      "name": "capture_share_label",
-      "value": "记到收件箱"
+      "name": "capture_label",
+      "value": "快速捕捉"
     },
     {
       "name": "capture_microphone_reason",
       "value": "用于将说出的任务内容转换为标题"
+    },
+    {
+      "name": "capture_share_label",
+      "value": "记到收件箱"
     },
     {
       "name": "capture_text_shortcut",
@@ -59,6 +59,5106 @@
     {
       "name": "capture_voice_shortcut",
       "value": "说一句"
+    },
+    {
+      "name": "config_import_description",
+      "value": "预览并导入小清单配置"
+    },
+    {
+      "name": "config_import_local_folder",
+      "value": "“%1$s”的本地目录不可用，请在存储库设置中重新选择。"
+    },
+    {
+      "name": "config_import_webdav_password",
+      "value": "“%1$s”需要在存储库设置中填写密码并启用 WebDAV。"
+    },
+    {
+      "name": "conflict_apply",
+      "value": "应用"
+    },
+    {
+      "name": "conflict_candidate_unavailable",
+      "value": "候选材料不可用，可丢弃此冲突"
+    },
+    {
+      "name": "conflict_discard",
+      "value": "丢弃"
+    },
+    {
+      "name": "conflict_untitled",
+      "value": "未命名节点"
+    },
+    {
+      "name": "date_with_weekday",
+      "value": "%1$s %2$s"
+    },
+    {
+      "name": "document_empty",
+      "value": "空白 Org 文件"
+    },
+    {
+      "name": "document_untitled",
+      "value": "无标题"
+    },
+    {
+      "name": "file_permission_reason",
+      "value": "用于读取坚果云同步的 org 文件"
+    },
+    {
+      "name": "heading_collapsed",
+      "value": "已收起"
+    },
+    {
+      "name": "link_editor_display_text",
+      "value": "显示文字"
+    },
+    {
+      "name": "link_editor_link_title",
+      "value": "链接标题"
+    },
+    {
+      "name": "link_editor_other_protocol",
+      "value": "其他协议"
+    },
+    {
+      "name": "link_editor_protocol_picker",
+      "value": "选择链接协议，当前为%1$s"
+    },
+    {
+      "name": "link_editor_title",
+      "value": "标题"
+    },
+    {
+      "name": "link_editor_title_placeholder",
+      "value": "无标题时显示链接地址"
+    },
+    {
+      "name": "link_editor_url",
+      "value": "链接"
+    },
+    {
+      "name": "link_editor_url_placeholder",
+      "value": "链接地址"
+    },
+    {
+      "name": "logbook_time_not_recorded",
+      "value": "时间未记录"
+    },
+    {
+      "name": "memo_card_config_description",
+      "value": "编辑桌面备忘卡片显示的标签"
+    },
+    {
+      "name": "memo_card_description",
+      "value": "在桌面查看最近的备忘记录"
+    },
+    {
+      "name": "memo_card_label",
+      "value": "备忘录"
+    },
+    {
+      "name": "missing_task_snapshot",
+      "value": "数据事件缺少任务显示快照"
+    },
+    {
+      "name": "module_desc",
+      "value": "小清单任务管理与 WebDAV 同步"
+    },
+    {
+      "name": "move_destination_search",
+      "value": "搜索移动位置"
+    },
+    {
+      "name": "no_tagged_tasks",
+      "value": "没有匹配标签的任务"
+    },
+    {
+      "name": "note_create",
+      "value": "新增备忘"
+    },
+    {
+      "name": "note_deleted_return_failed",
+      "value": "备忘已删除，返回失败"
+    },
+    {
+      "name": "note_file_unavailable_reselect",
+      "value": "备忘文件已失效，请在应用中重新选择"
+    },
+    {
+      "name": "note_saved_return_failed",
+      "value": "备忘已保存，返回失败"
+    },
+    {
+      "name": "notes_back_to_list",
+      "value": "返回备忘列表"
+    },
+    {
+      "name": "reminder_log_cleanup",
+      "value": "过期清理"
+    },
+    {
+      "name": "reminder_log_resume",
+      "value": "恢复同步"
+    },
+    {
+      "name": "reminder_log_settings_change",
+      "value": "设置变更"
+    },
+    {
+      "name": "reminder_log_startup",
+      "value": "启动同步"
+    },
+    {
+      "name": "reminder_log_task_change",
+      "value": "任务修改"
+    },
+    {
+      "name": "reminder_menu",
+      "value": "提醒…"
+    },
+    {
+      "name": "reminder_set",
+      "value": "已设置提醒"
+    },
+    {
+      "name": "reminder_task_list",
+      "value": "有提醒的任务"
+    },
+    {
+      "name": "reminder_time",
+      "value": "提醒时间"
+    },
+    {
+      "name": "repeat_after_completion",
+      "value": "完成 %1$s后重复"
+    },
+    {
+      "name": "repeat_day",
+      "value": "天"
+    },
+    {
+      "name": "repeat_days_interval",
+      "value": "%1$s 天"
+    },
+    {
+      "name": "repeat_every",
+      "value": "每 %1$s"
+    },
+    {
+      "name": "repeat_hour",
+      "value": "小时"
+    },
+    {
+      "name": "repeat_hours_interval",
+      "value": "%1$s 小时"
+    },
+    {
+      "name": "repeat_month",
+      "value": "月"
+    },
+    {
+      "name": "repeat_months_interval",
+      "value": "%1$s 月"
+    },
+    {
+      "name": "repeat_none",
+      "value": "不重复"
+    },
+    {
+      "name": "repeat_skip_past",
+      "value": "跳过已错过的日期"
+    },
+    {
+      "name": "repeat_week",
+      "value": "周"
+    },
+    {
+      "name": "repeat_weeks_interval",
+      "value": "%1$s 周"
+    },
+    {
+      "name": "repeat_year",
+      "value": "年"
+    },
+    {
+      "name": "repeat_years_interval",
+      "value": "%1$s 年"
+    },
+    {
+      "name": "share_location_description",
+      "value": "从地图分享地点创建或更新任务"
+    },
+    {
+      "name": "task_clock",
+      "value": "计时"
+    },
+    {
+      "name": "task_collapse",
+      "value": "收起任务"
+    },
+    {
+      "name": "task_edit_tags",
+      "value": "设置标签"
+    },
+    {
+      "name": "text_a_has_the_text",
+      "value": "有正文；"
+    },
+    {
+      "name": "text_a_new_version_of_the_document_is",
+      "value": "文件已有新版本，当前修改已保留；请取消后重新进入编辑。"
+    },
+    {
+      "name": "text_abandon",
+      "value": "放弃"
+    },
+    {
+      "name": "text_about_org_tasks",
+      "value": "关于小清单"
+    },
+    {
+      "name": "text_add",
+      "value": "添加内容"
+    },
+    {
+      "name": "text_add_2",
+      "value": "添加"
+    },
+    {
+      "name": "text_add_3",
+      "value": "新增"
+    },
+    {
+      "name": "text_add_body",
+      "value": "添加正文"
+    },
+    {
+      "name": "text_add_category",
+      "value": "添加分类"
+    },
+    {
+      "name": "text_add_chapter",
+      "value": "添加章节"
+    },
+    {
+      "name": "text_add_chapter_2",
+      "value": "添加章节内容"
+    },
+    {
+      "name": "text_add_end_time",
+      "value": "＋ 添加结束时间"
+    },
+    {
+      "name": "text_add_entry",
+      "value": "+  添加条目"
+    },
+    {
+      "name": "text_add_entry_2",
+      "value": "添加条目"
+    },
+    {
+      "name": "text_add_label",
+      "value": "添加 %1$s 标签"
+    },
+    {
+      "name": "text_add_list",
+      "value": "添加列表"
+    },
+    {
+      "name": "text_add_list_below",
+      "value": "在下方添加列表"
+    },
+    {
+      "name": "text_add_list_item",
+      "value": "+  添加清单项"
+    },
+    {
+      "name": "text_add_notes",
+      "value": "添加说明"
+    },
+    {
+      "name": "text_add_paragraph",
+      "value": "添加段落"
+    },
+    {
+      "name": "text_add_paragraph_below",
+      "value": "在下方添加段落"
+    },
+    {
+      "name": "text_add_remarks",
+      "value": "添加备注"
+    },
+    {
+      "name": "text_add_remote_repository",
+      "value": "新增远程仓库"
+    },
+    {
+      "name": "text_add_repository",
+      "value": "添加存储库"
+    },
+    {
+      "name": "text_add_repository_2",
+      "value": "添加仓库"
+    },
+    {
+      "name": "text_add_repository_first_please",
+      "value": "请先添加存储库"
+    },
+    {
+      "name": "text_add_status_to",
+      "value": "为%1$s添加状态"
+    },
+    {
+      "name": "text_add_task",
+      "value": "添加任务"
+    },
+    {
+      "name": "text_add_task_2",
+      "value": "添加任务内容"
+    },
+    {
+      "name": "text_add_time",
+      "value": "＋ 添加时间"
+    },
+    {
+      "name": "text_add_to_current_task_after_creation",
+      "value": "创建后添加到当前任务"
+    },
+    {
+      "name": "text_added",
+      "value": "已添加"
+    },
+    {
+      "name": "text_address",
+      "value": "地址"
+    },
+    {
+      "name": "text_address_identified",
+      "value": "地址已识别"
+    },
+    {
+      "name": "text_address_link_missing_q_search_parameters",
+      "value": "地址链接缺少 q 搜索参数"
+    },
+    {
+      "name": "text_address_search_is_unavailable",
+      "value": "暂不支持地址搜索"
+    },
+    {
+      "name": "text_address_updated_failed_to_open_inbox_try",
+      "value": "地址已更新，打开收件箱失败，请重试"
+    },
+    {
+      "name": "text_adjusting_deadlines",
+      "value": "调整截止日期"
+    },
+    {
+      "name": "text_adjustment_plan",
+      "value": "调整计划"
+    },
+    {
+      "name": "text_adjusts_the_filter_conditions_or_tap_all",
+      "value": "调整筛选条件，或点击“全部”查看当前页面的所有任务。"
+    },
+    {
+      "name": "text_after",
+      "value": "%1$s 之后"
+    },
+    {
+      "name": "text_after_completion",
+      "value": "完成后"
+    },
+    {
+      "name": "text_after_completion_move_forward_to_the_next",
+      "value": "完成后推进到今天之后的下一个日期。"
+    },
+    {
+      "name": "text_alarm_manager_registered_other_data_sets",
+      "value": "提醒管理器已注册其他数据集"
+    },
+    {
+      "name": "text_all",
+      "value": "全部"
+    },
+    {
+      "name": "text_all_locations",
+      "value": "全部位置"
+    },
+    {
+      "name": "text_all_notes",
+      "value": "全部备忘"
+    },
+    {
+      "name": "text_all_tags",
+      "value": "全部标签"
+    },
+    {
+      "name": "text_all_title_records_in_the_configuration_file",
+      "value": "配置文件中的所有标题记录都会显示在这里。"
+    },
+    {
+      "name": "text_allocation",
+      "value": "分配"
+    },
+    {
+      "name": "text_amap",
+      "value": "高德地图"
+    },
+    {
+      "name": "text_anytime",
+      "value": "随时"
+    },
+    {
+      "name": "text_app",
+      "value": "应用程序"
+    },
+    {
+      "name": "text_app_links",
+      "value": "应用关联"
+    },
+    {
+      "name": "text_application_cannot_be_opened",
+      "value": "应用无法打开"
+    },
+    {
+      "name": "text_application_connection_manager_not_started",
+      "value": "应用关联管理器尚未启动"
+    },
+    {
+      "name": "text_application_directory_does_not_have_a_startup",
+      "value": "应用目录中没有此应用的启动配置"
+    },
+    {
+      "name": "text_application_failed",
+      "value": "应用失败"
+    },
+    {
+      "name": "text_application_preferences_for_backup_are_invalid",
+      "value": "备份中的应用偏好设置无效"
+    },
+    {
+      "name": "text_apply",
+      "value": "应用"
+    },
+    {
+      "name": "text_apply_a_special_directory",
+      "value": "应用专用目录"
+    },
+    {
+      "name": "text_apply_configuration",
+      "value": "应用配置"
+    },
+    {
+      "name": "text_apply_file",
+      "value": "应用文件"
+    },
+    {
+      "name": "text_apply_startup",
+      "value": "应用启动"
+    },
+    {
+      "name": "text_applyd_reread_failed",
+      "value": "已应用，重新读取失败"
+    },
+    {
+      "name": "text_applying_links_cannot_be_empty",
+      "value": "应用链接关联不能为空"
+    },
+    {
+      "name": "text_applying_the_list_to_read_failed_try",
+      "value": "应用列表读取失败，请重试。"
+    },
+    {
+      "name": "text_archive",
+      "value": "归档"
+    },
+    {
+      "name": "text_archive_operation_failed",
+      "value": "归档操作失败：%1$s"
+    },
+    {
+      "name": "text_archived",
+      "value": "已归档"
+    },
+    {
+      "name": "text_authentication_failed",
+      "value": "认证失败"
+    },
+    {
+      "name": "text_automatically_check_events_on_start_up_and",
+      "value": "\n\n启动时自动核对事件，之后随任务新增、修改、完成、取消和同步结果自动维护；关闭开关会删除本应用创建的日历事件，不修改任务原文。"
+    },
+    {
+      "name": "text_back",
+      "value": "返回"
+    },
+    {
+      "name": "text_back_to_org_tasks",
+      "value": "返回小清单"
+    },
+    {
+      "name": "text_backstage",
+      "value": "退到后台"
+    },
+    {
+      "name": "text_backup",
+      "value": "备份"
+    },
+    {
+      "name": "text_backup_configuration_failed_please_try_again",
+      "value": "备份配置失败，请重试"
+    },
+    {
+      "name": "text_basic_information",
+      "value": "基本信息"
+    },
+    {
+      "name": "text_be_a_child",
+      "value": "成为子项"
+    },
+    {
+      "name": "text_before_moving_to_block",
+      "value": "移到区块之前：%1$s"
+    },
+    {
+      "name": "text_bind",
+      "value": "绑定%1$s"
+    },
+    {
+      "name": "text_blank_org_file",
+      "value": "空白 Org 文件"
+    },
+    {
+      "name": "text_bottom_connection_not_available",
+      "value": "底层连接不可用"
+    },
+    {
+      "name": "text_bottom_connection_not_established",
+      "value": "底层连接尚未建立"
+    },
+    {
+      "name": "text_browse_the_org_notebook_view_the_tasks",
+      "value": "浏览 Org 笔记本、按日期查看任务，支持 WebDAV 同步和快速捕捉。"
+    },
+    {
+      "name": "text_by_default_use_the_application_directory_or",
+      "value": "默认使用应用专用目录，也可选择应用可访问的其他目录。"
+    },
+    {
+      "name": "text_calendar_access_was_denied",
+      "value": "未获得日历读写权限"
+    },
+    {
+      "name": "text_calendar_access_was_denied_reminders_are_off",
+      "value": "未获得日历读写权限，提醒未开启"
+    },
+    {
+      "name": "text_calendar_alarm_set",
+      "value": "已设置 %1$s 项日历提醒"
+    },
+    {
+      "name": "text_calendar_event_not_completed_initial_sync",
+      "value": "日历事件尚未完成初次同步"
+    },
+    {
+      "name": "text_calendar_is_not_authorized_for_reading_and",
+      "value": "日历读写未授权，请在设置中授权"
+    },
+    {
+      "name": "text_calendar_reading_and_writing_is_allowed",
+      "value": "日历读写已允许"
+    },
+    {
+      "name": "text_can_t_handle_the_conflict",
+      "value": "无法处理冲突"
+    },
+    {
+      "name": "text_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "text_cancel_date_time_changes",
+      "value": "取消日期与时间修改"
+    },
+    {
+      "name": "text_cancel_edit",
+      "value": "取消编辑"
+    },
+    {
+      "name": "text_cancel_new_tab",
+      "value": "取消新建标签"
+    },
+    {
+      "name": "text_cancel_task",
+      "value": "取消任务"
+    },
+    {
+      "name": "text_canceled",
+      "value": "已取消"
+    },
+    {
+      "name": "text_candidate_is_incomplete_only_the_current_one",
+      "value": "候选材料不完整，仅可保留当前"
+    },
+    {
+      "name": "text_cannot_open_repository_settings",
+      "value": "无法打开存储库设置"
+    },
+    {
+      "name": "text_cannot_read_repository_configuration",
+      "value": "无法读取仓库配置"
+    },
+    {
+      "name": "text_cannot_read_shared_content_please_return_map",
+      "value": "无法读取分享内容，请返回地图重新分享"
+    },
+    {
+      "name": "text_cannot_select_profile_please_try_again",
+      "value": "无法选择配置文件，请重试"
+    },
+    {
+      "name": "text_card_preview",
+      "value": "卡片预览"
+    },
+    {
+      "name": "text_catalogue_name",
+      "value": "分类名称"
+    },
+    {
+      "name": "text_catalogue_name_separated_by_comma",
+      "value": "目录名，用逗号分隔"
+    },
+    {
+      "name": "text_catalogues_are_separated_by_commas_to_match",
+      "value": "目录名用逗号分隔，匹配任意层级。过滤目录不参与同步，已下载文件会保留。"
+    },
+    {
+      "name": "text_categories_are_still_loading_try_again_shortly",
+      "value": "分类候选尚未读取完成，请稍后重试"
+    },
+    {
+      "name": "text_categorization_of_items",
+      "value": "项目分类，%1$s"
+    },
+    {
+      "name": "text_category_5",
+      "value": "5 类"
+    },
+    {
+      "name": "text_category_name_cannot_contain_line_breaks_or",
+      "value": "分类名称不能包含换行或控制字符"
+    },
+    {
+      "name": "text_cells",
+      "value": "单元格"
+    },
+    {
+      "name": "text_change_body_failed_please_try_again",
+      "value": "修改正文失败，请重试"
+    },
+    {
+      "name": "text_change_file_name",
+      "value": "改文件名"
+    },
+    {
+      "name": "text_change_group_versions_of_the_same_document",
+      "value": "同一文件的修改组版本不一致，请刷新后重试"
+    },
+    {
+      "name": "text_change_name",
+      "value": "改名"
+    },
+    {
+      "name": "text_changed_content_please_cancel_editing_and_reload",
+      "value": "内容已变化，请取消编辑并重新载入后重试。"
+    },
+    {
+      "name": "text_changes_in_the_configuration_or_directory_please",
+      "value": "本机配置或目录发生变化，请重新预览"
+    },
+    {
+      "name": "text_chapter_operations",
+      "value": "章节操作：%1$s"
+    },
+    {
+      "name": "text_chapter_title",
+      "value": "章节标题"
+    },
+    {
+      "name": "text_chapters",
+      "value": "%1$s · %2$s 个章节"
+    },
+    {
+      "name": "text_check_and_sync_local_changes",
+      "value": "检查并同步本地修改"
+    },
+    {
+      "name": "text_check_failed",
+      "value": "检查失败"
+    },
+    {
+      "name": "text_checked_tap_to_confirm_application",
+      "value": "，已选中，点击确认应用"
+    },
+    {
+      "name": "text_checking",
+      "value": "正在检查…"
+    },
+    {
+      "name": "text_checking_system_alarms",
+      "value": "正在检查系统提醒"
+    },
+    {
+      "name": "text_class_title",
+      "value": "%1$s 级标题，%2$s%3$s"
+    },
+    {
+      "name": "text_class_title_2",
+      "value": "%1$s 级标题，%2$s"
+    },
+    {
+      "name": "text_classes_and_items_are_not_yet_read",
+      "value": "分类与项目尚未读取完成，请稍后重试"
+    },
+    {
+      "name": "text_classification",
+      "value": "分类："
+    },
+    {
+      "name": "text_classification_2",
+      "value": "分类"
+    },
+    {
+      "name": "text_clear",
+      "value": "清除"
+    },
+    {
+      "name": "text_clear_date",
+      "value": "清除日期"
+    },
+    {
+      "name": "text_clear_filter_and_locate",
+      "value": "清除筛选并定位"
+    },
+    {
+      "name": "text_clear_search",
+      "value": "清除搜索"
+    },
+    {
+      "name": "text_clear_time",
+      "value": "清除时间"
+    },
+    {
+      "name": "text_clearing",
+      "value": "清除中…"
+    },
+    {
+      "name": "text_clears_all_local_files_sync_history_and",
+      "value": "将清空“%1$s”的全部本地文件、同步历史和未上传修改。%2$s此操作无法撤销。\n%3$s"
+    },
+    {
+      "name": "text_close",
+      "value": "关闭"
+    },
+    {
+      "name": "text_close_and_retain_the_draft",
+      "value": "关闭并保留草稿"
+    },
+    {
+      "name": "text_close_file_details",
+      "value": "收起文件详情"
+    },
+    {
+      "name": "text_close_mobile_window",
+      "value": "关闭移动窗口"
+    },
+    {
+      "name": "text_close_remarks_window",
+      "value": "关闭备注窗口"
+    },
+    {
+      "name": "text_close_tab_window",
+      "value": "关闭标签窗口"
+    },
+    {
+      "name": "text_closed",
+      "value": "已关闭"
+    },
+    {
+      "name": "text_closing_the_shared_window_failed_please_try",
+      "value": "关闭分享窗口失败，请重试"
+    },
+    {
+      "name": "text_collapse",
+      "value": "收起"
+    },
+    {
+      "name": "text_collapse_all_tab_filters",
+      "value": "收起全部标签筛选"
+    },
+    {
+      "name": "text_collapse_classification_and_filter_items",
+      "value": "收起分类与项目筛选"
+    },
+    {
+      "name": "text_collapse_operation_failed",
+      "value": "折叠操作失败：%1$s"
+    },
+    {
+      "name": "text_collapse_subnodes",
+      "value": "折叠子节点"
+    },
+    {
+      "name": "text_collating",
+      "value": "整理中…"
+    },
+    {
+      "name": "text_completed",
+      "value": "已完成"
+    },
+    {
+      "name": "text_completed_2",
+      "value": "完成：%1$s"
+    },
+    {
+      "name": "text_completed_item_total_item",
+      "value": "已完成 %1$s 项，共 %2$s 项"
+    },
+    {
+      "name": "text_completed_total_tasks",
+      "value": "%1$s，已完成/总任务数 %2$s"
+    },
+    {
+      "name": "text_completion_date",
+      "value": "完成日期 %1$s"
+    },
+    {
+      "name": "text_configure_applied_cannot_return_org_tasks_for",
+      "value": "配置已应用，暂时无法返回小清单"
+    },
+    {
+      "name": "text_configure_cannot_temporarily_import",
+      "value": "配置暂时无法导入"
+    },
+    {
+      "name": "text_configure_imported",
+      "value": "配置已导入"
+    },
+    {
+      "name": "text_configured_repository",
+      "value": "已配置的存储库"
+    },
+    {
+      "name": "text_confirm",
+      "value": "确认"
+    },
+    {
+      "name": "text_conflict",
+      "value": "冲突"
+    },
+    {
+      "name": "text_conflict_2",
+      "value": "冲突 %1$s"
+    },
+    {
+      "name": "text_conflict_point_has_changed_read_again",
+      "value": "冲突点已变化，请重新读取"
+    },
+    {
+      "name": "text_conflict_tap_to_open_the_conflict_resolution",
+      "value": "%1$s，%2$s 有冲突，点击打开冲突解决界面"
+    },
+    {
+      "name": "text_connection_test_failed",
+      "value": "连接测试失败：%1$s"
+    },
+    {
+      "name": "text_content_has_changed_please_reload_and_edit",
+      "value": "内容已变化，请重新载入后编辑"
+    },
+    {
+      "name": "text_continue_changing_status_without_adding_notes",
+      "value": "不添加备注，继续修改状态"
+    },
+    {
+      "name": "text_continue_editing",
+      "value": "继续编辑"
+    },
+    {
+      "name": "text_continue_sorting",
+      "value": "继续排序"
+    },
+    {
+      "name": "text_convert_to_item",
+      "value": "转换为项目"
+    },
+    {
+      "name": "text_convert_to_note",
+      "value": "转换为备忘"
+    },
+    {
+      "name": "text_converting",
+      "value": "转换中…"
+    },
+    {
+      "name": "text_coordinate",
+      "value": "坐标：%1$s, %2$s"
+    },
+    {
+      "name": "text_coordinate_2",
+      "value": "坐标 %1$s, %2$s"
+    },
+    {
+      "name": "text_coordinate_identified",
+      "value": "坐标已识别"
+    },
+    {
+      "name": "text_coordinates",
+      "value": "坐标"
+    },
+    {
+      "name": "text_copy",
+      "value": "拷贝"
+    },
+    {
+      "name": "text_copy_blocks",
+      "value": "拷贝区块"
+    },
+    {
+      "name": "text_copy_failed_try_again",
+      "value": "拷贝失败，请重试"
+    },
+    {
+      "name": "text_copy_link",
+      "value": "拷贝链接"
+    },
+    {
+      "name": "text_copy_title",
+      "value": "拷贝标题"
+    },
+    {
+      "name": "text_could_not_browse_this_directory",
+      "value": "无法浏览此目录：%1$s"
+    },
+    {
+      "name": "text_could_not_open_file",
+      "value": "无法打开文件"
+    },
+    {
+      "name": "text_could_not_open_org_tasks_capture_window",
+      "value": "无法打开小清单捕捉窗口，请重试"
+    },
+    {
+      "name": "text_could_not_open_please_confirm_that_the",
+      "value": "无法打开“%1$s”。请确认目标应用已安装，或在应用关联设置中修改绑定。"
+    },
+    {
+      "name": "text_could_not_open_repository_configuration_please_try",
+      "value": "无法打开仓库配置，请重试"
+    },
+    {
+      "name": "text_could_not_open_the_map_please_confirm",
+      "value": "无法打开地图，请确认已安装对应应用后重试。"
+    },
+    {
+      "name": "text_could_not_open_this_configuration_please_check",
+      "value": "无法打开此配置，请检查文件后重新打开"
+    },
+    {
+      "name": "text_could_not_read_the_template_please_try",
+      "value": "无法读取%1$s模板，请重试"
+    },
+    {
+      "name": "text_could_not_recognize_this_card_please_press",
+      "value": "无法识别此卡片，请从桌面长按卡片进入编辑"
+    },
+    {
+      "name": "text_could_not_recognize_this_configuration",
+      "value": "无法识别该配置"
+    },
+    {
+      "name": "text_couldn_t_apply_to_this_target",
+      "value": "无法采用此目标"
+    },
+    {
+      "name": "text_couldn_t_change_the_link_type_try",
+      "value": "无法切换链接协议，请重试。"
+    },
+    {
+      "name": "text_couldn_t_create_the_folder",
+      "value": "新建文件夹失败：%1$s"
+    },
+    {
+      "name": "text_couldn_t_delete_check_the_file_version",
+      "value": "删除失败，请确认文件版本后重试"
+    },
+    {
+      "name": "text_couldn_t_delete_the_note",
+      "value": "删除备忘失败"
+    },
+    {
+      "name": "text_couldn_t_keep_the_draft_try_closing",
+      "value": "保留草稿失败，请重试关闭"
+    },
+    {
+      "name": "text_couldn_t_load_log_details",
+      "value": "读取日志详情失败：%1$s"
+    },
+    {
+      "name": "text_couldn_t_load_notes",
+      "value": "暂时无法读取备忘"
+    },
+    {
+      "name": "text_couldn_t_load_notes_tap_to_open",
+      "value": "暂时无法读取备忘，点击打开应用"
+    },
+    {
+      "name": "text_couldn_t_load_tap_to_retry",
+      "value": "读取失败，点击重试"
+    },
+    {
+      "name": "text_couldn_t_load_the_note_return_to",
+      "value": "读取备忘失败，请返回列表重试"
+    },
+    {
+      "name": "text_couldn_t_open_app_links_settings_try",
+      "value": "无法打开应用关联设置，请重试。"
+    },
+    {
+      "name": "text_couldn_t_open_quick_capture_try_again",
+      "value": "打开快速捕捉失败，请重试"
+    },
+    {
+      "name": "text_couldn_t_open_the_conflicting_file",
+      "value": "无法打开冲突文件：%1$s"
+    },
+    {
+      "name": "text_couldn_t_open_the_link_check_the",
+      "value": "无法打开链接，请确认地址有效且已安装对应应用。"
+    },
+    {
+      "name": "text_couldn_t_open_the_link_editor_try",
+      "value": "无法展开链接编辑，请重试。"
+    },
+    {
+      "name": "text_couldn_t_open_the_link_make_sure",
+      "value": "无法打开链接，请确认已安装对应应用。"
+    },
+    {
+      "name": "text_couldn_t_open_the_link_type_menu",
+      "value": "无法打开协议菜单，请重试。"
+    },
+    {
+      "name": "text_couldn_t_open_the_page_try_again",
+      "value": "打开页面失败，请重试"
+    },
+    {
+      "name": "text_couldn_t_open_the_project_try_again",
+      "value": "暂时无法打开项目，请重试。"
+    },
+    {
+      "name": "text_couldn_t_open_this_note",
+      "value": "无法打开此备忘"
+    },
+    {
+      "name": "text_couldn_t_read_the_link_reload_the",
+      "value": "无法读取链接，请重新载入正文。"
+    },
+    {
+      "name": "text_couldn_t_read_the_settings_file_check",
+      "value": "无法读取配置文件，请检查文件是否仍可访问"
+    },
+    {
+      "name": "text_couldn_t_save_the_note",
+      "value": "保存备忘失败"
+    },
+    {
+      "name": "text_couldn_t_save_the_notebook_shortcut",
+      "value": "保存文件入口失败：%1$s"
+    },
+    {
+      "name": "text_couldn_t_save_the_task_try_again",
+      "value": "保存任务失败，请重试。"
+    },
+    {
+      "name": "text_couldn_t_schedule_the_calendar_reminder",
+      "value": "安排日历提醒失败：%1$s"
+    },
+    {
+      "name": "text_couldn_t_update_calendar_permissions",
+      "value": "更新日历授权失败：%1$s"
+    },
+    {
+      "name": "text_couldn_t_update_tags",
+      "value": "未能修改标签"
+    },
+    {
+      "name": "text_create",
+      "value": "创建"
+    },
+    {
+      "name": "text_create_and_add_labels",
+      "value": "创建并添加标签"
+    },
+    {
+      "name": "text_create_file",
+      "value": "创建文件"
+    },
+    {
+      "name": "text_create_item",
+      "value": "创建项目"
+    },
+    {
+      "name": "text_create_needs_to_include_target_file_metadata",
+      "value": "创建需要在页面数据集中包含目标文件元信息"
+    },
+    {
+      "name": "text_create_target_is_not_a_task_data",
+      "value": "创建目标不是任务数据集"
+    },
+    {
+      "name": "text_create_task",
+      "value": "创建任务"
+    },
+    {
+      "name": "text_create_tasks_and_save_original_links",
+      "value": "创建任务并保存原始链接"
+    },
+    {
+      "name": "text_creating",
+      "value": "创建中"
+    },
+    {
+      "name": "text_creating_2",
+      "value": "正在创建…"
+    },
+    {
+      "name": "text_creating_3",
+      "value": "创建中…"
+    },
+    {
+      "name": "text_current",
+      "value": "，当前章节"
+    },
+    {
+      "name": "text_current_2",
+      "value": "当前：%1$s"
+    },
+    {
+      "name": "text_current_binding",
+      "value": "当前绑定"
+    },
+    {
+      "name": "text_current_binding_2",
+      "value": "%1$s，当前绑定"
+    },
+    {
+      "name": "text_current_chapter_removed",
+      "value": "当前章节已移除"
+    },
+    {
+      "name": "text_current_directory",
+      "value": "当前目录"
+    },
+    {
+      "name": "text_current_file_properties",
+      "value": "当前文件属性"
+    },
+    {
+      "name": "text_current_run",
+      "value": "本次运行"
+    },
+    {
+      "name": "text_current_status",
+      "value": "\n\n当前状态：%1$s"
+    },
+    {
+      "name": "text_customary_missions",
+      "value": "习惯任务"
+    },
+    {
+      "name": "text_customised_task_status",
+      "value": "自定义任务状态"
+    },
+    {
+      "name": "text_cut_off",
+      "value": "截止"
+    },
+    {
+      "name": "text_data_event_missing_files_to_display_snapshots",
+      "value": "数据事件缺少文件显示快照"
+    },
+    {
+      "name": "text_data_event_missing_snapshot_and_recovering",
+      "value": "数据事件缺少显示快照，正在恢复"
+    },
+    {
+      "name": "text_data_set_manager_closed",
+      "value": "数据集管理器已关闭"
+    },
+    {
+      "name": "text_data_set_unconfigured_query",
+      "value": "数据集未配置查询：%1$s"
+    },
+    {
+      "name": "text_data_set_without_subscription_manager",
+      "value": "数据集缺少订阅管理器"
+    },
+    {
+      "name": "text_data_subscription_is_invalid_refreshing_page",
+      "value": "数据订阅已失效，正在刷新页面"
+    },
+    {
+      "name": "text_data_sync",
+      "value": "数据与同步"
+    },
+    {
+      "name": "text_dataset_is_not_yet_configured",
+      "value": "数据集尚未配置"
+    },
+    {
+      "name": "text_dataset_query_changed",
+      "value": "数据集查询已变化"
+    },
+    {
+      "name": "text_date_not_available",
+      "value": "日期不可用"
+    },
+    {
+      "name": "text_day",
+      "value": "%1$s天"
+    },
+    {
+      "name": "text_day_2",
+      "value": "%1$s 天"
+    },
+    {
+      "name": "text_days_left",
+      "value": "剩下 %1$s 天"
+    },
+    {
+      "name": "text_deadline",
+      "value": "截止日期"
+    },
+    {
+      "name": "text_deadline_2",
+      "value": "截止日期 %1$s"
+    },
+    {
+      "name": "text_default_read_only",
+      "value": "%1$s，默认，只读"
+    },
+    {
+      "name": "text_default_same_title",
+      "value": "默认同标题"
+    },
+    {
+      "name": "text_default_status_fixes_custom_state_with_x",
+      "value": "默认状态固定；带 × 的自定义状态可点击移除。点击 + 添加状态，新增状态还需在笔记本的 TODO 声明中启用。"
+    },
+    {
+      "name": "text_delete",
+      "value": "删除"
+    },
+    {
+      "name": "text_delete_file",
+      "value": "删除文件"
+    },
+    {
+      "name": "text_delete_files",
+      "value": "删除文件？"
+    },
+    {
+      "name": "text_delete_intent_locally_to_select_target",
+      "value": "本地删除意图，待选择目标"
+    },
+    {
+      "name": "text_delete_list_entry",
+      "value": "删除清单条目：%1$s"
+    },
+    {
+      "name": "text_delete_note",
+      "value": "删除备忘"
+    },
+    {
+      "name": "text_delete_permanently",
+      "value": "永久清除"
+    },
+    {
+      "name": "text_delete_record",
+      "value": "删除 %1$s 条记录？"
+    },
+    {
+      "name": "text_delete_the_repository",
+      "value": "删除存储库？"
+    },
+    {
+      "name": "text_delete_this_note",
+      "value": "删除备忘？"
+    },
+    {
+      "name": "text_delete_this_record",
+      "value": "删除这条记录？"
+    },
+    {
+      "name": "text_deleting",
+      "value": "正在删除…"
+    },
+    {
+      "name": "text_deleting_2",
+      "value": "删除中…"
+    },
+    {
+      "name": "text_disabled",
+      "value": "已停用"
+    },
+    {
+      "name": "text_discard_all",
+      "value": "丢弃全部"
+    },
+    {
+      "name": "text_discard_changes",
+      "value": "放弃修改"
+    },
+    {
+      "name": "text_discard_changes_and_return",
+      "value": "放弃修改并返回"
+    },
+    {
+      "name": "text_discard_failed",
+      "value": "丢弃失败"
+    },
+    {
+      "name": "text_discarding_all_conflicts",
+      "value": "丢弃全部冲突？"
+    },
+    {
+      "name": "text_discarding_attribute_modifications",
+      "value": "放弃属性修改？"
+    },
+    {
+      "name": "text_discards_the_trade_offs_and_manual_adjustments",
+      "value": "将放弃本项未应用的取舍与手动调整，并重新读取当前文件。"
+    },
+    {
+      "name": "text_discrepancies_have_lapsed_please_try_again",
+      "value": "差异已失效，请重试"
+    },
+    {
+      "name": "text_discrepancies_read_failed_please_try_again",
+      "value": "差异读取失败，请重试"
+    },
+    {
+      "name": "text_displays_the_new_modified_and_deleted_records",
+      "value": "按最新操作在前显示系统提醒的新增、修改和删除记录，包括触发原因、执行结果和失败原因。仅保留本次运行的最近 500 条记录，重启应用后清空。"
+    },
+    {
+      "name": "text_distributing",
+      "value": "分配中…"
+    },
+    {
+      "name": "text_distribution_plan_date",
+      "value": "分配计划日期"
+    },
+    {
+      "name": "text_do_not_set_this_entry",
+      "value": "不设置此入口"
+    },
+    {
+      "name": "text_do_not_sync",
+      "value": "不同步"
+    },
+    {
+      "name": "text_document",
+      "value": "文档"
+    },
+    {
+      "name": "text_document_changed_list_entered_retained_reload_and",
+      "value": "文件已变化，清单输入已保留，请重新载入后继续编辑"
+    },
+    {
+      "name": "text_document_directory",
+      "value": "文档目录"
+    },
+    {
+      "name": "text_document_has_changed_please_reconfirm_deletion",
+      "value": "文件已变化，请重新确认删除"
+    },
+    {
+      "name": "text_document_updated_please_reload_structure",
+      "value": "文件已更新，请重新载入结构"
+    },
+    {
+      "name": "text_documentation",
+      "value": "文件"
+    },
+    {
+      "name": "text_done",
+      "value": "完成"
+    },
+    {
+      "name": "text_download",
+      "value": "下载%1$s"
+    },
+    {
+      "name": "text_download_files",
+      "value": "下载%1$s个文件"
+    },
+    {
+      "name": "text_draft_cannot_be_saved_please_keep_the",
+      "value": "草稿暂时无法保存，请保持当前窗口并重试"
+    },
+    {
+      "name": "text_draft_text_changed_please_try_again_after",
+      "value": "文字草稿已变化，请取消后重试"
+    },
+    {
+      "name": "text_drag_list",
+      "value": "拖动列表"
+    },
+    {
+      "name": "text_drag_paragraph",
+      "value": "拖动段落"
+    },
+    {
+      "name": "text_drag_to_target_position_or_dot_by",
+      "value": "拖到目标位置，或点按圆点"
+    },
+    {
+      "name": "text_drag_to_the_middle_of_the_line",
+      "value": "拖到行中间成为子项\n拖到上下缘调整顺序"
+    },
+    {
+      "name": "text_drop_all_conflicts",
+      "value": "丢弃全部冲突…"
+    },
+    {
+      "name": "text_duration_of_events_minutes",
+      "value": "事件持续时长（分钟）"
+    },
+    {
+      "name": "text_edit",
+      "value": "编辑"
+    },
+    {
+      "name": "text_edit_2",
+      "value": "修改"
+    },
+    {
+      "name": "text_edit_blocks",
+      "value": "编辑区块"
+    },
+    {
+      "name": "text_edit_checklist",
+      "value": "编辑检查清单"
+    },
+    {
+      "name": "text_edit_file",
+      "value": "编辑文件"
+    },
+    {
+      "name": "text_edit_note",
+      "value": "编辑备忘：%1$s"
+    },
+    {
+      "name": "text_edit_repeat_rules",
+      "value": "编辑%1$s重复规则"
+    },
+    {
+      "name": "text_editing",
+      "value": "编辑中"
+    },
+    {
+      "name": "text_enable_synchronization",
+      "value": "启用同步"
+    },
+    {
+      "name": "text_enable_task_alarm",
+      "value": "启用任务提醒"
+    },
+    {
+      "name": "text_enable_webdav_sync",
+      "value": "启用 WebDAV 同步？"
+    },
+    {
+      "name": "text_enabled",
+      "value": "已开启"
+    },
+    {
+      "name": "text_end_edit",
+      "value": "结束编辑"
+    },
+    {
+      "name": "text_end_time",
+      "value": "结束时间"
+    },
+    {
+      "name": "text_enter_batch_edit",
+      "value": "进入批量编辑"
+    },
+    {
+      "name": "text_enter_remarks",
+      "value": "输入备注"
+    },
+    {
+      "name": "text_enter_status_value",
+      "value": "输入状态值"
+    },
+    {
+      "name": "text_enter_the_number_of_days_to_keep",
+      "value": "请输入 1 至 3650 之间的保留天数"
+    },
+    {
+      "name": "text_entry",
+      "value": "条目"
+    },
+    {
+      "name": "text_entry_notebook",
+      "value": "入口笔记本"
+    },
+    {
+      "name": "text_error_code",
+      "value": "（错误码 %1$s）"
+    },
+    {
+      "name": "text_error_code_2",
+      "value": "%1$s（错误码 %2$s）"
+    },
+    {
+      "name": "text_event_time",
+      "value": "事件时间：%1$s → %2$s"
+    },
+    {
+      "name": "text_every",
+      "value": "每隔"
+    },
+    {
+      "name": "text_expand",
+      "value": "展开"
+    },
+    {
+      "name": "text_expand_all",
+      "value": "全部展开"
+    },
+    {
+      "name": "text_expand_all_categories_and_project_filters",
+      "value": "展开全部分类与项目筛选"
+    },
+    {
+      "name": "text_expand_all_tab_filters",
+      "value": "展开全部标签筛选"
+    },
+    {
+      "name": "text_expand_file_details",
+      "value": "展开文件详情"
+    },
+    {
+      "name": "text_expand_parent_and_position",
+      "value": "展开父项并定位"
+    },
+    {
+      "name": "text_expand_parent_node_tap_on_the_title",
+      "value": "展开父节点，点击标题选择位置"
+    },
+    {
+      "name": "text_expand_subpoints",
+      "value": "展开子节点"
+    },
+    {
+      "name": "text_expired",
+      "value": "已过期"
+    },
+    {
+      "name": "text_failed",
+      "value": "失败"
+    },
+    {
+      "name": "text_failed_to_close_import_page_please_try",
+      "value": "关闭导入页面失败，请重试"
+    },
+    {
+      "name": "text_failed_to_close_profile",
+      "value": "关闭配置文件失败"
+    },
+    {
+      "name": "text_failed_to_create_preview",
+      "value": "创建预览失败"
+    },
+    {
+      "name": "text_failed_to_create_task",
+      "value": "创建任务失败"
+    },
+    {
+      "name": "text_failed_to_delete_application_connection",
+      "value": "删除应用关联失败：%1$s"
+    },
+    {
+      "name": "text_failed_to_delete_file",
+      "value": "删除文件失败：%1$s"
+    },
+    {
+      "name": "text_failed_to_delete_repository",
+      "value": "删除存储库失败：%1$s"
+    },
+    {
+      "name": "text_failed_to_delete_webdav_password",
+      "value": "删除 WebDAV 密码失败"
+    },
+    {
+      "name": "text_failed_to_open_local_storage",
+      "value": "打开本地存储失败"
+    },
+    {
+      "name": "text_failed_to_open_system_share",
+      "value": "打开系统分享失败"
+    },
+    {
+      "name": "text_failed_to_read_conflict_file",
+      "value": "读取冲突文件失败：%1$s"
+    },
+    {
+      "name": "text_failed_to_read_difference",
+      "value": "读取差异失败"
+    },
+    {
+      "name": "text_failed_to_read_draft_still_enter_and",
+      "value": "读取草稿失败，仍可输入并重试保存"
+    },
+    {
+      "name": "text_failed_to_read_file",
+      "value": "读取文件失败：%1$s"
+    },
+    {
+      "name": "text_failed_to_read_notification_status",
+      "value": "读取通知状态失败"
+    },
+    {
+      "name": "text_failed_to_read_notification_status_error_code",
+      "value": "读取通知状态失败（错误码 %1$s）"
+    },
+    {
+      "name": "text_failed_to_read_webdav_password",
+      "value": "读取 WebDAV 密码失败"
+    },
+    {
+      "name": "text_failed_to_remove_local_storage",
+      "value": "删除本地存储失败"
+    },
+    {
+      "name": "text_failed_to_return",
+      "value": "返回失败"
+    },
+    {
+      "name": "text_failed_to_return_try_again",
+      "value": "返回失败，请重试"
+    },
+    {
+      "name": "text_failed_to_save_application_connection",
+      "value": "保存应用关联失败：%1$s"
+    },
+    {
+      "name": "text_failed_to_save_webdav_password",
+      "value": "保存 WebDAV 密码失败"
+    },
+    {
+      "name": "text_failed_to_submit",
+      "value": "提交失败"
+    },
+    {
+      "name": "text_failed_to_update_address",
+      "value": "更新地址失败"
+    },
+    {
+      "name": "text_failure_to_address_conflict",
+      "value": "处理冲突失败"
+    },
+    {
+      "name": "text_file_contains_protected_sync_conflicts",
+      "value": "文件包含受保护的同步冲突"
+    },
+    {
+      "name": "text_file_deleted",
+      "value": "文件已删除"
+    },
+    {
+      "name": "text_file_does_not_have_available_cancellation_status",
+      "value": "文件没有可用的取消状态，请检查 TODO 流程"
+    },
+    {
+      "name": "text_file_has_changed_please_re_select",
+      "value": "文件已变化，请重新选择"
+    },
+    {
+      "name": "text_file_has_changed_please_refresh_and_reorder",
+      "value": "文件已变化，请刷新后重新排序"
+    },
+    {
+      "name": "text_file_has_changed_please_refresh_the_move",
+      "value": "文件已变化，请刷新移动位置后重试"
+    },
+    {
+      "name": "text_file_has_changed_re_select_move_position",
+      "value": "文件已变化，请重新选择移动位置"
+    },
+    {
+      "name": "text_file_name_cannot_contain_directory_separator_or",
+      "value": "文件名不能包含目录分隔符或换行"
+    },
+    {
+      "name": "text_file_path_unknown",
+      "value": "文件路径未知"
+    },
+    {
+      "name": "text_file_template_reading_failed_please_try_again",
+      "value": "文件模板读取失败，请重试"
+    },
+    {
+      "name": "text_file_unchanged",
+      "value": "%1$s个文件无变化"
+    },
+    {
+      "name": "text_file_version_for_creation_location",
+      "value": "创建位置需要对应的文件版本"
+    },
+    {
+      "name": "text_file_version_not_continuous_recovering",
+      "value": "文件版本不连续，正在恢复"
+    },
+    {
+      "name": "text_file_view",
+      "value": "文件展示方式"
+    },
+    {
+      "name": "text_filename",
+      "value": "文件名"
+    },
+    {
+      "name": "text_filter_directory",
+      "value": "过滤目录"
+    },
+    {
+      "name": "text_filter_failed_tap_to_try_again",
+      "value": "筛选失败：%1$s，点击重试"
+    },
+    {
+      "name": "text_filter_hidden",
+      "value": "筛选隐藏"
+    },
+    {
+      "name": "text_filtering",
+      "value": "正在筛选"
+    },
+    {
+      "name": "text_finishing_sync",
+      "value": "正在整理同步结果…"
+    },
+    {
+      "name": "text_first_at_this_node",
+      "value": "放在此节点下第一项"
+    },
+    {
+      "name": "text_first_of_the_child_node",
+      "value": "子节点首位"
+    },
+    {
+      "name": "text_first_title_in_the_file",
+      "value": "文件中第一个标题"
+    },
+    {
+      "name": "text_folder_name",
+      "value": "文件夹名称"
+    },
+    {
+      "name": "text_for_the_time_being_last_read",
+      "value": "%1$s。当前保留上次读取的内容。"
+    },
+    {
+      "name": "text_fri",
+      "value": "五"
+    },
+    {
+      "name": "text_from_shared_content",
+      "value": "来自分享内容"
+    },
+    {
+      "name": "text_from_the_actual_date_of_completion_arrangements",
+      "value": "从实际完成日期起，间隔一段时间后再次安排。"
+    },
+    {
+      "name": "text_from_the_parent_title",
+      "value": "，从父标题继承"
+    },
+    {
+      "name": "text_full_main_tree",
+      "value": "完整主树"
+    },
+    {
+      "name": "text_give_up_the_sequence",
+      "value": "放弃顺序调整？"
+    },
+    {
+      "name": "text_giving_up_unapplied_adjustments",
+      "value": "放弃未应用的调整？"
+    },
+    {
+      "name": "text_go_to_settings",
+      "value": "前往设置"
+    },
+    {
+      "name": "text_go_to_system_settings",
+      "value": "前往系统设置"
+    },
+    {
+      "name": "text_go_to_task_alarm_settings",
+      "value": "前往任务提醒设置"
+    },
+    {
+      "name": "text_got_it",
+      "value": "知道了"
+    },
+    {
+      "name": "text_has_not_been_bound_for_application_select",
+      "value": "“%1$s”还没有绑定应用。请在应用关联设置中选择目标。"
+    },
+    {
+      "name": "text_here_we_go",
+      "value": "开始"
+    },
+    {
+      "name": "text_hide_no_change_log",
+      "value": "隐藏无变化日志"
+    },
+    {
+      "name": "text_hide_the_hidden_file_of_the_configuration",
+      "value": "隐藏配置的隐藏文件"
+    },
+    {
+      "name": "text_historical_backup",
+      "value": "历史备份 · %1$s"
+    },
+    {
+      "name": "text_history",
+      "value": "历史"
+    },
+    {
+      "name": "text_http_web_page",
+      "value": "HTTP 网页"
+    },
+    {
+      "name": "text_https_web_page",
+      "value": "HTTPS 网页"
+    },
+    {
+      "name": "text_if_you_do_not_have_microphone_permission",
+      "value": "未获得麦克风权限，可以继续输入标题"
+    },
+    {
+      "name": "text_implementation_failed",
+      "value": "执行失败"
+    },
+    {
+      "name": "text_implementation_success",
+      "value": "执行成功"
+    },
+    {
+      "name": "text_import_backup_configuration",
+      "value": "导入备份配置"
+    },
+    {
+      "name": "text_import_configuration",
+      "value": "导入配置"
+    },
+    {
+      "name": "text_in_the_future_perhaps_the_file_is",
+      "value": "将来，也许文件已失效，请在设置中重新选择"
+    },
+    {
+      "name": "text_inbox",
+      "value": "收件箱"
+    },
+    {
+      "name": "text_inbox_configuration_changed_please_refresh_and_reselect",
+      "value": "收件箱配置已变更，请刷新后重新选择"
+    },
+    {
+      "name": "text_inbox_file_not_selected_or_expired_re",
+      "value": "收件箱文件未选择或已失效，请在设置中重新选择"
+    },
+    {
+      "name": "text_inbox_files_are_not_selected_or_are",
+      "value": "收件箱文件未选择或已失效，请先在设置中选择"
+    },
+    {
+      "name": "text_inbox_identity_changed_please_refresh_and_recheck",
+      "value": "收件箱身份已变化，请刷新后重新选择"
+    },
+    {
+      "name": "text_inboxes_one_day_and_memo_files_must",
+      "value": "收件箱、某天和备忘文件必须是存储库中的安全相对 .org 路径，未配置时可留空"
+    },
+    {
+      "name": "text_inconsistent_number_of_batch_subscriptions",
+      "value": "批量订阅结果数量不一致"
+    },
+    {
+      "name": "text_individual",
+      "value": "%1$s 个"
+    },
+    {
+      "name": "text_initialization_failed_try_saving_again",
+      "value": "初始化失败，请重试保存"
+    },
+    {
+      "name": "text_initialize_a_new_repository",
+      "value": "初始化新仓库"
+    },
+    {
+      "name": "text_insert",
+      "value": "插入"
+    },
+    {
+      "name": "text_insert_link",
+      "value": "插入链接"
+    },
+    {
+      "name": "text_internal_document",
+      "value": "文档内部"
+    },
+    {
+      "name": "text_internal_link_index_not_confirmed_please_try",
+      "value": "内部链接索引尚未确认，请稍后重试"
+    },
+    {
+      "name": "text_internal_link_jump_failed_please_confirm_that",
+      "value": "内部链接跳转失败，请确认目标仍然存在并完成当前编辑"
+    },
+    {
+      "name": "text_internal_link_target_changed_or_current_edit",
+      "value": "内部链接目标已变化或当前编辑尚未保存"
+    },
+    {
+      "name": "text_internal_link_target_does_not_exist",
+      "value": "内部链接目标不存在"
+    },
+    {
+      "name": "text_internal_link_target_does_not_exist_or",
+      "value": "内部链接目标不存在或当前视图无法跳转"
+    },
+    {
+      "name": "text_internal_link_target_does_not_exist_or_2",
+      "value": "内部链接目标不存在或项目文档已隐藏"
+    },
+    {
+      "name": "text_internal_link_target_does_not_exist_or_3",
+      "value": "内部链接目标不存在或文档尚未载入"
+    },
+    {
+      "name": "text_interrupted",
+      "value": "已中断"
+    },
+    {
+      "name": "text_introduction",
+      "value": "导言"
+    },
+    {
+      "name": "text_invalid_cache_of_page_file",
+      "value": "页面文件缓存无效"
+    },
+    {
+      "name": "text_invalid_page_cache_data_set_type",
+      "value": "页面缓存数据集类型无效"
+    },
+    {
+      "name": "text_invalid_page_cache_name",
+      "value": "页面缓存名称无效"
+    },
+    {
+      "name": "text_invalid_page_data_set_definition",
+      "value": "页面数据集定义无效"
+    },
+    {
+      "name": "text_invalid_page_data_set_name",
+      "value": "页面数据集名称无效"
+    },
+    {
+      "name": "text_invalid_page_data_set_type",
+      "value": "页面数据集类型无效"
+    },
+    {
+      "name": "text_invalid_sort_configuration",
+      "value": "无效排序配置"
+    },
+    {
+      "name": "text_invalid_task_reminder_time",
+      "value": "任务提醒时间无效"
+    },
+    {
+      "name": "text_invalid_webdav_password_format_in_secure_storage",
+      "value": "安全存储中的 WebDAV 密码格式无效"
+    },
+    {
+      "name": "text_is_in_conflict",
+      "value": "%1$s · %2$s 有冲突"
+    },
+    {
+      "name": "text_it_s_closed_today",
+      "value": "今天截止"
+    },
+    {
+      "name": "text_it_s_downloaded",
+      "value": "有下载"
+    },
+    {
+      "name": "text_it_s_important",
+      "value": "【重要】"
+    },
+    {
+      "name": "text_it_s_uploaded",
+      "value": "有上传"
+    },
+    {
+      "name": "text_item_name_cannot_contain_line_breaks_or",
+      "value": "项目名称不能包含换行或控制字符"
+    },
+    {
+      "name": "text_item_page_left",
+      "value": "项目页面已离开"
+    },
+    {
+      "name": "text_job_created_inbox_opened_failed_tap_open",
+      "value": "任务已创建，打开收件箱失败，请点击“打开收件箱”重试"
+    },
+    {
+      "name": "text_job_reading_failed",
+      "value": "任务读取失败"
+    },
+    {
+      "name": "text_job_removed_please_refresh_and_try_again",
+      "value": "任务已移除，请刷新后重试"
+    },
+    {
+      "name": "text_jump_to_the_future",
+      "value": "跳到未来"
+    },
+    {
+      "name": "text_just_write_down_one_thing",
+      "value": "记下一件事…"
+    },
+    {
+      "name": "text_keep_the_contents_of_the_current_document",
+      "value": "保留当前文件内容"
+    },
+    {
+      "name": "text_label",
+      "value": "，%1$s 条"
+    },
+    {
+      "name": "text_label_2",
+      "value": "标签：%1$s"
+    },
+    {
+      "name": "text_last_month",
+      "value": "上个月"
+    },
+    {
+      "name": "text_level_chapter_tap_on_the_location_body",
+      "value": "%1$s 级章节，点击定位正文"
+    },
+    {
+      "name": "text_link",
+      "value": "链接"
+    },
+    {
+      "name": "text_link_cannot_be_empty",
+      "value": "链接不能为空"
+    },
+    {
+      "name": "text_link_control_has_failed_to_load_please",
+      "value": "链接控件加载失败，请重新载入正文。"
+    },
+    {
+      "name": "text_link_copied",
+      "value": "链接已拷贝"
+    },
+    {
+      "name": "text_link_url",
+      "value": "链接地址"
+    },
+    {
+      "name": "text_list",
+      "value": "列表"
+    },
+    {
+      "name": "text_list_entry_cannot_be_empty",
+      "value": "清单条目不能为空"
+    },
+    {
+      "name": "text_list_entry_changed_reload",
+      "value": "清单条目已变化，请重新载入"
+    },
+    {
+      "name": "text_listed",
+      "value": "有列表"
+    },
+    {
+      "name": "text_listening",
+      "value": "正在聆听…"
+    },
+    {
+      "name": "text_load_remaining_tasks_in_the_area",
+      "value": "加载%1$s%2$s区域剩余的 %3$s 个任务"
+    },
+    {
+      "name": "text_local_changes",
+      "value": "本地变化"
+    },
+    {
+      "name": "text_local_directories_for_do_not_exist",
+      "value": "%1$s的本地目录不存在"
+    },
+    {
+      "name": "text_local_directory",
+      "value": "本地目录"
+    },
+    {
+      "name": "text_local_directory_has_been_reset_sync_is",
+      "value": "本地目录已重置，同步未完成：%1$s"
+    },
+    {
+      "name": "text_local_directory_modified_tap_ok_before_resetting",
+      "value": "本地目录已修改，请先点击“确定”保存后再重置"
+    },
+    {
+      "name": "text_local_directory_resetd",
+      "value": "本地目录已重置"
+    },
+    {
+      "name": "text_local_org_files_of_the_same_path",
+      "value": "首次同步时，同路径的本地 Org 文件会被远端版本覆盖，未被远端版本保留的本地任务会在同步后移入废纸篓。本地独有文件会保留并上传。"
+    },
+    {
+      "name": "text_local_repository",
+      "value": "本地仓库"
+    },
+    {
+      "name": "text_local_storage_failed",
+      "value": "本地存储失败"
+    },
+    {
+      "name": "text_local_upload",
+      "value": "本地上传"
+    },
+    {
+      "name": "text_local_warehouses_use_only_their_own_machine",
+      "value": "本地仓库仅使用本机文件。WebDAV 仓库切换为不同步时，需要确认清理同步信息。"
+    },
+    {
+      "name": "text_locally_add_this_node_select_the_place",
+      "value": "本地新增了此节点，请选择插入位置。"
+    },
+    {
+      "name": "text_locally_and_at_the_same_time_the",
+      "value": "本地与当前同时修改了内容，请确认采用哪一版。"
+    },
+    {
+      "name": "text_locally_modified_tap_sync",
+      "value": "本地有修改，点击同步"
+    },
+    {
+      "name": "text_locally_modified_tap_to_sync_all_repositories",
+      "value": "本地有修改，点击同步所有存储库"
+    },
+    {
+      "name": "text_location",
+      "value": "位置 "
+    },
+    {
+      "name": "text_log",
+      "value": "日志"
+    },
+    {
+      "name": "text_log_records_are_incomplete",
+      "value": "日志记录不完整"
+    },
+    {
+      "name": "text_logbook",
+      "value": "日志簿"
+    },
+    {
+      "name": "text_long_grouping_and_items_by_drag_agenda",
+      "value": "长按拖动分类与项目；日程固定置顶，普通任务固定在项目下方。"
+    },
+    {
+      "name": "text_long_press_drag",
+      "value": "长按拖动，%1$s"
+    },
+    {
+      "name": "text_long_press_drag_2",
+      "value": "长按拖动%1$s"
+    },
+    {
+      "name": "text_long_range_inspection_of_repository_is_missing",
+      "value": "仓库远端检查结果缺失"
+    },
+    {
+      "name": "text_loop_tasks",
+      "value": "循环任务"
+    },
+    {
+      "name": "text_lower",
+      "value": "较低"
+    },
+    {
+      "name": "text_mail",
+      "value": "邮件"
+    },
+    {
+      "name": "text_manages_local_file_directories_and_webdav_connections",
+      "value": "管理本地文件目录和 WebDAV 连接。浏览文件请使用侧边栏的“笔记本”。"
+    },
+    {
+      "name": "text_mandate_closed",
+      "value": "任务已结束"
+    },
+    {
+      "name": "text_medium",
+      "value": "中等"
+    },
+    {
+      "name": "text_merge",
+      "value": "合并"
+    },
+    {
+      "name": "text_merge_records_in_the_order_of_selection",
+      "value": "按选择顺序合并记录"
+    },
+    {
+      "name": "text_merged",
+      "value": "合并中…"
+    },
+    {
+      "name": "text_merged_entry_records",
+      "value": "已合并 %1$s 条记录"
+    },
+    {
+      "name": "text_missing_date",
+      "value": "错过日期时"
+    },
+    {
+      "name": "text_missing_or_misdirected_repository_fields",
+      "value": "存储库字段缺失或类型有误"
+    },
+    {
+      "name": "text_mission_planning_time_is_invalid",
+      "value": "任务规划时间无效"
+    },
+    {
+      "name": "text_modified_date_only",
+      "value": "修改后仅保留日期"
+    },
+    {
+      "name": "text_modified_on",
+      "value": "修改于 %1$s-%2$s-%3$s %4$s:%5$s"
+    },
+    {
+      "name": "text_modify_saved_to_read_latest_content_failed",
+      "value": "修改已保存，读取最新内容失败：%1$s"
+    },
+    {
+      "name": "text_modifying_configuration_please_try_again_later",
+      "value": "正在修改配置，请稍后重试"
+    },
+    {
+      "name": "text_modifying_the_link_failed_please_try_again",
+      "value": "修改链接失败，请重试"
+    },
+    {
+      "name": "text_mon",
+      "value": "一"
+    },
+    {
+      "name": "text_more",
+      "value": "%1$s：更多"
+    },
+    {
+      "name": "text_more_2",
+      "value": "更多"
+    },
+    {
+      "name": "text_more_document_operations",
+      "value": "更多文档操作"
+    },
+    {
+      "name": "text_more_operations",
+      "value": "更多操作"
+    },
+    {
+      "name": "text_more_operations_today",
+      "value": "今天更多操作"
+    },
+    {
+      "name": "text_more_project_operations",
+      "value": "更多项目操作"
+    },
+    {
+      "name": "text_more_task_operations",
+      "value": "更多任务操作"
+    },
+    {
+      "name": "text_most_important",
+      "value": "最重要"
+    },
+    {
+      "name": "text_move",
+      "value": "移动"
+    },
+    {
+      "name": "text_move_back",
+      "value": "移到后面"
+    },
+    {
+      "name": "text_move_blocks",
+      "value": "移动区块"
+    },
+    {
+      "name": "text_move_down",
+      "value": "下移"
+    },
+    {
+      "name": "text_move_front",
+      "value": "移到前面"
+    },
+    {
+      "name": "text_move_tasks",
+      "value": "移动任务"
+    },
+    {
+      "name": "text_move_to",
+      "value": "移动到%1$s，%2$s"
+    },
+    {
+      "name": "text_move_to_2",
+      "value": "移动到"
+    },
+    {
+      "name": "text_move_to_a_day",
+      "value": "移入某天"
+    },
+    {
+      "name": "text_move_to_subpoint",
+      "value": "移为子项"
+    },
+    {
+      "name": "text_move_to_target",
+      "value": "移动到目标"
+    },
+    {
+      "name": "text_move_to_the_beginning",
+      "value": "移到开头"
+    },
+    {
+      "name": "text_move_to_the_end",
+      "value": "移到末尾"
+    },
+    {
+      "name": "text_move_to_the_end_of_the_body",
+      "value": "移到正文末尾"
+    },
+    {
+      "name": "text_move_up",
+      "value": "上移"
+    },
+    {
+      "name": "text_moving",
+      "value": "正在移动…"
+    },
+    {
+      "name": "text_moving_2",
+      "value": "移动中…"
+    },
+    {
+      "name": "text_moving_target_is_not_available_re_select",
+      "value": "移动目标不可用，请重新选择"
+    },
+    {
+      "name": "text_name",
+      "value": "名称"
+    },
+    {
+      "name": "text_needs_processing_after_import",
+      "value": "导入后需要处理"
+    },
+    {
+      "name": "text_network_failure",
+      "value": "网络失败"
+    },
+    {
+      "name": "text_new_category",
+      "value": "新建分类"
+    },
+    {
+      "name": "text_new_document",
+      "value": "新增文件"
+    },
+    {
+      "name": "text_new_folder",
+      "value": "＋ 新建文件夹"
+    },
+    {
+      "name": "text_new_repository",
+      "value": "新建仓库"
+    },
+    {
+      "name": "text_new_tab",
+      "value": "新建标签"
+    },
+    {
+      "name": "text_new_tab_2",
+      "value": "新建标签…"
+    },
+    {
+      "name": "text_next",
+      "value": "%1$s 下第一项"
+    },
+    {
+      "name": "text_next_conflict",
+      "value": "下一个冲突"
+    },
+    {
+      "name": "text_next_date",
+      "value": "下次日期"
+    },
+    {
+      "name": "text_next_month",
+      "value": "下个月"
+    },
+    {
+      "name": "text_no_application_available",
+      "value": "没有可用的应用"
+    },
+    {
+      "name": "text_no_cause_of_trigger_recorded",
+      "value": "未记录触发原因"
+    },
+    {
+      "name": "text_no_change",
+      "value": "无变化"
+    },
+    {
+      "name": "text_no_connection_applied_yet",
+      "value": "还没有应用关联"
+    },
+    {
+      "name": "text_no_corresponding_alarm_was_found_in_the",
+      "value": "系统日历中未找到对应提醒，可能已被删除"
+    },
+    {
+      "name": "text_no_directory_set",
+      "value": "未设置目录"
+    },
+    {
+      "name": "text_no_eligible_tasks",
+      "value": "没有符合条件的任务"
+    },
+    {
+      "name": "text_no_label",
+      "value": "无标签"
+    },
+    {
+      "name": "text_no_match_locations",
+      "value": "没有匹配的位置"
+    },
+    {
+      "name": "text_no_memo_record",
+      "value": "没有备忘记录"
+    },
+    {
+      "name": "text_no_mission_objective_for_now",
+      "value": "暂无任务目标"
+    },
+    {
+      "name": "text_no_modification_operation_reception_interface_provided",
+      "value": "未提供修改操作接收接口"
+    },
+    {
+      "name": "text_no_note",
+      "value": "暂无备忘"
+    },
+    {
+      "name": "text_no_note_under_this_tab",
+      "value": "此标签下暂无备忘"
+    },
+    {
+      "name": "text_no_ongoing_tasks_eligible_for_screening",
+      "value": "没有符合筛选条件的进行中任务"
+    },
+    {
+      "name": "text_no_optional_file_please_configure_the_repository",
+      "value": "没有可选文件，请先在设置中配置存储库。"
+    },
+    {
+      "name": "text_no_org_file_available",
+      "value": "暂无 Org 文件"
+    },
+    {
+      "name": "text_no_org_tasks_recognized_yaml_configuration",
+      "value": "未识别到小清单 YAML 配置"
+    },
+    {
+      "name": "text_no_page_data_management_objects_provided",
+      "value": "未提供页面数据管理对象"
+    },
+    {
+      "name": "text_no_priority",
+      "value": "无优先级"
+    },
+    {
+      "name": "text_no_repository_in_file",
+      "value": "文件中没有存储库"
+    },
+    {
+      "name": "text_no_repository_yet",
+      "value": "还没有存储库"
+    },
+    {
+      "name": "text_no_selection",
+      "value": "未选择"
+    },
+    {
+      "name": "text_no_selection_2",
+      "value": "，未选择"
+    },
+    {
+      "name": "text_no_status",
+      "value": "无状态"
+    },
+    {
+      "name": "text_no_such_application_in_directory",
+      "value": "目录中无此应用"
+    },
+    {
+      "name": "text_no_tasks",
+      "value": "暂无任务"
+    },
+    {
+      "name": "text_no_text",
+      "value": "没有正文内容"
+    },
+    {
+      "name": "text_no_uploads_or_downloads_at_this_time",
+      "value": "暂无上传或下载记录"
+    },
+    {
+      "name": "text_no_valid_count_yet",
+      "value": "尚无有效计数"
+    },
+    {
+      "name": "text_node_operations",
+      "value": "节点操作"
+    },
+    {
+      "name": "text_node_removed_please_recheck",
+      "value": "节点已移除，请重新选择"
+    },
+    {
+      "name": "text_none",
+      "value": "无"
+    },
+    {
+      "name": "text_not_completed",
+      "value": "未完成"
+    },
+    {
+      "name": "text_not_installed",
+      "value": "未安装"
+    },
+    {
+      "name": "text_not_seen_org_file",
+      "value": "暂无可见 Org 文件"
+    },
+    {
+      "name": "text_not_selected",
+      "value": "未选中"
+    },
+    {
+      "name": "text_not_selected_2",
+      "value": "，未选中"
+    },
+    {
+      "name": "text_note_no_task",
+      "value": "笔记，无任务状态"
+    },
+    {
+      "name": "text_notebook_reading_failed",
+      "value": "笔记本读取失败"
+    },
+    {
+      "name": "text_notebook_shortcuts",
+      "value": "文件入口"
+    },
+    {
+      "name": "text_notebooks",
+      "value": "笔记本"
+    },
+    {
+      "name": "text_notes",
+      "value": "备忘"
+    },
+    {
+      "name": "text_notification_authorization_and_type_of_notification_can",
+      "value": "通知授权和通知类型可在系统设置中管理；数字角标还需在系统设置中开启桌面角标。"
+    },
+    {
+      "name": "text_notification_is_open_management_systems_notification_settings",
+      "value": "通知已开启 · 管理系统通知设置"
+    },
+    {
+      "name": "text_notifications_and_corner_signs",
+      "value": "通知与角标"
+    },
+    {
+      "name": "text_notifier_not_started_go_to_system_settings",
+      "value": "通知未开启 · 前往系统设置"
+    },
+    {
+      "name": "text_number_of_days_retained",
+      "value": "保留天数"
+    },
+    {
+      "name": "text_obsolete_records_not_read_yet_completed",
+      "value": "过期记录尚未读取完成"
+    },
+    {
+      "name": "text_ok",
+      "value": "确定"
+    },
+    {
+      "name": "text_once_a_file_is_synchronized_the_records",
+      "value": "完成一次文件同步后，记录会显示在这里。"
+    },
+    {
+      "name": "text_one",
+      "value": " 个"
+    },
+    {
+      "name": "text_one_extension",
+      "value": "顺延一次"
+    },
+    {
+      "name": "text_ongoing",
+      "value": "进行中"
+    },
+    {
+      "name": "text_ongoing_days",
+      "value": "持续 %1$s 天"
+    },
+    {
+      "name": "text_only_one_interval_will_be_moved_forward",
+      "value": "完成后只向前推进一个间隔，可能仍是过期日期。"
+    },
+    {
+      "name": "text_only_the_same_version_of_the_same",
+      "value": "只能合并同一文件的同一版本，请刷新后重新选择"
+    },
+    {
+      "name": "text_only_when_the_date_is_changed_each",
+      "value": "只改日期时，各任务保留原时间；添加或清除时间将应用到全部选中任务。"
+    },
+    {
+      "name": "text_open_coordinates_on_the_map",
+      "value": "在地图中打开坐标"
+    },
+    {
+      "name": "text_open_inbox",
+      "value": "打开收件箱"
+    },
+    {
+      "name": "text_open_navigator",
+      "value": "打开导航，%1$s"
+    },
+    {
+      "name": "text_open_notification",
+      "value": "开启通知"
+    },
+    {
+      "name": "text_open_scrap",
+      "value": "打开废纸篓"
+    },
+    {
+      "name": "text_opening_file",
+      "value": "正在打开文件"
+    },
+    {
+      "name": "text_opening_quick_capture",
+      "value": "正在打开快速捕捉…"
+    },
+    {
+      "name": "text_operation_cancelled",
+      "value": "操作已取消"
+    },
+    {
+      "name": "text_operation_not_completed_please_try_again",
+      "value": "操作未完成，请重试"
+    },
+    {
+      "name": "text_order_saved_reading_the_latest_content_failed",
+      "value": "顺序已保存，读取最新内容失败，请重新载入"
+    },
+    {
+      "name": "text_org_tasks_configuration_file",
+      "value": "小清单配置文件|%1$s"
+    },
+    {
+      "name": "text_org_tasks_configuration_not_recognized",
+      "value": "未识别到小清单配置"
+    },
+    {
+      "name": "text_org_tasks_settings",
+      "value": "小清单配置-"
+    },
+    {
+      "name": "text_organisation",
+      "value": "暂无可选 Org 文件"
+    },
+    {
+      "name": "text_organisation_2",
+      "value": "日历授权"
+    },
+    {
+      "name": "text_organisation_3",
+      "value": "日历提醒已设置"
+    },
+    {
+      "name": "text_original_cut_off",
+      "value": "原截止 %1$s"
+    },
+    {
+      "name": "text_original_plan",
+      "value": "原计划 %1$s"
+    },
+    {
+      "name": "text_original_repository_removed",
+      "value": "原存储库已移除 · %1$s"
+    },
+    {
+      "name": "text_other_agreements",
+      "value": "其他协议"
+    },
+    {
+      "name": "text_other_configurations",
+      "value": "其他配置"
+    },
+    {
+      "name": "text_overdue_days",
+      "value": "逾期 %1$s 天"
+    },
+    {
+      "name": "text_page_cache_exceeding_size_limit",
+      "value": "页面缓存超过大小限制"
+    },
+    {
+      "name": "text_page_cache_not_fully_written",
+      "value": "页面缓存未完整写入"
+    },
+    {
+      "name": "text_page_data_range_changed",
+      "value": "页面数据范围已变化"
+    },
+    {
+      "name": "text_page_data_range_changed_please_reopen_the",
+      "value": "页面数据范围已变化，请重新打开页面"
+    },
+    {
+      "name": "text_page_data_set_closed",
+      "value": "页面数据集已关闭"
+    },
+    {
+      "name": "text_page_dataset_is_currently_unedited",
+      "value": "页面数据集当前不可编辑"
+    },
+    {
+      "name": "text_page_path_invalid",
+      "value": "页面路径无效"
+    },
+    {
+      "name": "text_paragraph",
+      "value": "段落"
+    },
+    {
+      "name": "text_parent_has_been_removed_re_select",
+      "value": "父节点已移除，请重新选择"
+    },
+    {
+      "name": "text_parent_node_removed_please_reselect_after_closing",
+      "value": "父节点已移除，请关闭面板后重新选择"
+    },
+    {
+      "name": "text_partially_completed",
+      "value": "部分完成"
+    },
+    {
+      "name": "text_partition_and_item_sequence_configuration_not_readable",
+      "value": "分区与项目顺序配置无法读取，请恢复默认顺序后重新保存"
+    },
+    {
+      "name": "text_password_or_application_of_a_specific_password",
+      "value": "密码或应用专用密码"
+    },
+    {
+      "name": "text_pause",
+      "value": "暂停"
+    },
+    {
+      "name": "text_pause_task",
+      "value": "暂停任务"
+    },
+    {
+      "name": "text_periodic",
+      "value": "定期"
+    },
+    {
+      "name": "text_permanent_clearance_of_entry_records",
+      "value": "永久清除 %1$s 条记录？"
+    },
+    {
+      "name": "text_petal_maps",
+      "value": "花瓣地图"
+    },
+    {
+      "name": "text_placement",
+      "value": "放置"
+    },
+    {
+      "name": "text_planned",
+      "value": "计划"
+    },
+    {
+      "name": "text_planned_date",
+      "value": "计划日期 %1$s"
+    },
+    {
+      "name": "text_please_complete_the_hotsync_info_cleanup_and",
+      "value": "请先完成同步信息清理，再修改本地目录"
+    },
+    {
+      "name": "text_please_complete_the_sync_message_first",
+      "value": "请先完成同步信息清理"
+    },
+    {
+      "name": "text_please_confirm_the_title_and_save_it",
+      "value": "请确认标题并保存到小清单"
+    },
+    {
+      "name": "text_please_enter_a_filename",
+      "value": "请输入文件名"
+    },
+    {
+      "name": "text_please_enter_a_status_value",
+      "value": "请输入状态值"
+    },
+    {
+      "name": "text_please_enter_a_valid_filename_which_does",
+      "value": "请输入有效的文件名，文件名不能包含目录分隔符"
+    },
+    {
+      "name": "text_please_enter_a_valid_folder_name_without",
+      "value": "请输入有效的文件夹名称，不包含路径分隔符"
+    },
+    {
+      "name": "text_please_enter_a_valid_repeat_interval_greater",
+      "value": "请输入大于零的有效重复间隔"
+    },
+    {
+      "name": "text_please_enter_an_absolute_path_to_the",
+      "value": "请输入本地 Org 文件目录的绝对路径"
+    },
+    {
+      "name": "text_please_enter_from_the_memoranda_list",
+      "value": "请从备忘列表进入。"
+    },
+    {
+      "name": "text_please_enter_the_classification_name",
+      "value": "请输入分类名称"
+    },
+    {
+      "name": "text_please_enter_the_full_number_of_days",
+      "value": "请输入整数天数"
+    },
+    {
+      "name": "text_please_enter_the_title",
+      "value": "请输入标题"
+    },
+    {
+      "name": "text_please_expand_the_editable_task_before_changing",
+      "value": "请展开可编辑任务后再修改链接"
+    },
+    {
+      "name": "text_please_fill_in_https_webdav_address_username",
+      "value": "请填写 HTTPS WebDAV 地址、用户名和密码"
+    },
+    {
+      "name": "text_please_finish_first",
+      "value": "请先完成“"
+    },
+    {
+      "name": "text_please_finish_the_current_editing_first",
+      "value": "请先完成当前编辑"
+    },
+    {
+      "name": "text_please_finish_the_current_editing_first_2",
+      "value": "请先结束当前编辑"
+    },
+    {
+      "name": "text_please_handle_this_first_in_the_repository",
+      "value": "请先在存储库设置中处理“"
+    },
+    {
+      "name": "text_please_save_or_cancel_the_attribute_changes",
+      "value": "请先保存或取消属性修改"
+    },
+    {
+      "name": "text_please_select_a_memo_file_for_application",
+      "value": "请先在应用中选择备忘文件"
+    },
+    {
+      "name": "text_please_select_a_mission_target",
+      "value": "请选择任务目标"
+    },
+    {
+      "name": "text_please_select_a_text_or_link_for",
+      "value": "请选择文字或链接进行分享"
+    },
+    {
+      "name": "text_please_select_a_valid_individual_reminder_time",
+      "value": "请选择单个有效的提醒时间"
+    },
+    {
+      "name": "text_please_select_at_least_two_records",
+      "value": "请至少选择两条记录"
+    },
+    {
+      "name": "text_please_select_the_date",
+      "value": "请选择日期"
+    },
+    {
+      "name": "text_please_select_the_record",
+      "value": "请选择记录"
+    },
+    {
+      "name": "text_please_select_the_repository",
+      "value": "请选择仓库"
+    },
+    {
+      "name": "text_please_try_again",
+      "value": "请重试"
+    },
+    {
+      "name": "text_preparing_synchronization",
+      "value": "正在准备同步…"
+    },
+    {
+      "name": "text_preparing_voice",
+      "value": "正在准备语音…"
+    },
+    {
+      "name": "text_preview_is_changing_read_again",
+      "value": "预览正在变化，请重新读取"
+    },
+    {
+      "name": "text_previous_conflict",
+      "value": "上一个冲突"
+    },
+    {
+      "name": "text_priority",
+      "value": "优先"
+    },
+    {
+      "name": "text_priority_2",
+      "value": "优先级…"
+    },
+    {
+      "name": "text_priority_3",
+      "value": "优先级 %1$s，%2$s"
+    },
+    {
+      "name": "text_processed",
+      "value": "已处理 %1$s"
+    },
+    {
+      "name": "text_processing",
+      "value": "正在处理…"
+    },
+    {
+      "name": "text_processing_2",
+      "value": "处理中…"
+    },
+    {
+      "name": "text_processing_of",
+      "value": "，需处理 %1$s 个"
+    },
+    {
+      "name": "text_profile_cannot_exceed_64_kb",
+      "value": "配置文件不能超过 64 KB"
+    },
+    {
+      "name": "text_profile_saved",
+      "value": "配置文件已保存"
+    },
+    {
+      "name": "text_project",
+      "value": "项目"
+    },
+    {
+      "name": "text_project_document_not_loaded",
+      "value": "项目文档尚未载入"
+    },
+    {
+      "name": "text_project_document_not_yet_loaded",
+      "value": "项目文件尚未载入"
+    },
+    {
+      "name": "text_project_document_version_not_confirmed",
+      "value": "项目文件版本尚未确认"
+    },
+    {
+      "name": "text_project_file_data_set_not_yet_loaded",
+      "value": "项目文件数据集尚未载入"
+    },
+    {
+      "name": "text_project_file_path_is_empty",
+      "value": "项目文件路径为空"
+    },
+    {
+      "name": "text_project_name",
+      "value": "项目名称"
+    },
+    {
+      "name": "text_projects",
+      "value": "项目："
+    },
+    {
+      "name": "text_protocol_or_data_error",
+      "value": "协议或数据错误"
+    },
+    {
+      "name": "text_put_away_the_rest_of_the_job",
+      "value": "收起其余任务"
+    },
+    {
+      "name": "text_put_it_all_away",
+      "value": "全部收起"
+    },
+    {
+      "name": "text_put_it_in",
+      "value": "放入"
+    },
+    {
+      "name": "text_query_results_are_not_the_result_of",
+      "value": "查询结果不是任务结果"
+    },
+    {
+      "name": "text_quit_multiple_selection",
+      "value": "退出多选"
+    },
+    {
+      "name": "text_re_select_applications_when_you_tap_the",
+      "value": "以后点击“%1$s”的链接时需要重新选择应用。"
+    },
+    {
+      "name": "text_re_select_from_the_memo_list",
+      "value": "请从备忘列表重新选择。"
+    },
+    {
+      "name": "text_read_task_failed_re_shared_and_try",
+      "value": "读取任务失败，请重新分享后重试"
+    },
+    {
+      "name": "text_reading",
+      "value": "正在读取…"
+    },
+    {
+      "name": "text_reading_2",
+      "value": "读取中"
+    },
+    {
+      "name": "text_reading_alarms",
+      "value": "正在读取提醒任务…"
+    },
+    {
+      "name": "text_reading_application_list",
+      "value": "正在读取应用列表"
+    },
+    {
+      "name": "text_reading_candidate_failed",
+      "value": "读取候选失败"
+    },
+    {
+      "name": "text_reading_configuration",
+      "value": "正在读取配置"
+    },
+    {
+      "name": "text_reading_configuration_failed",
+      "value": "读取配置失败：%1$s"
+    },
+    {
+      "name": "text_reading_conflict_document_failed",
+      "value": "读取冲突文档失败：%1$s"
+    },
+    {
+      "name": "text_reading_conflict_files",
+      "value": "正在读取冲突文件"
+    },
+    {
+      "name": "text_reading_default_filter_directory_failed",
+      "value": "读取默认过滤目录失败：%1$s"
+    },
+    {
+      "name": "text_reading_failed_reload",
+      "value": "；读取失败，请重新载入"
+    },
+    {
+      "name": "text_reading_failed_tap_to_try_again",
+      "value": "读取失败 · 点击重试"
+    },
+    {
+      "name": "text_reading_file_list_failed",
+      "value": "读取文件列表失败：%1$s"
+    },
+    {
+      "name": "text_reading_file_state",
+      "value": "正在读取文件状态…"
+    },
+    {
+      "name": "text_reading_files",
+      "value": "正在读取文件"
+    },
+    {
+      "name": "text_reading_inbox",
+      "value": "正在读取收件箱"
+    },
+    {
+      "name": "text_reading_local_files",
+      "value": "正在读取本地文件…"
+    },
+    {
+      "name": "text_reading_local_storage_failed",
+      "value": "读取本地存储失败"
+    },
+    {
+      "name": "text_reading_memo",
+      "value": "正在读取备忘…"
+    },
+    {
+      "name": "text_reading_memo_2",
+      "value": "正在读取备忘"
+    },
+    {
+      "name": "text_reading_notebook_failed",
+      "value": "读取笔记本失败：%1$s"
+    },
+    {
+      "name": "text_reading_notebooks",
+      "value": "正在读取笔记本"
+    },
+    {
+      "name": "text_reading_operation_failed",
+      "value": "阅读操作失败：%1$s"
+    },
+    {
+      "name": "text_reading_preview_failed",
+      "value": "读取预览失败"
+    },
+    {
+      "name": "text_reading_repository_configuration",
+      "value": "正在读取仓库配置"
+    },
+    {
+      "name": "text_reading_settings_failed",
+      "value": "读取设置失败：%1$s"
+    },
+    {
+      "name": "text_reading_shared_content",
+      "value": "正在读取分享内容…"
+    },
+    {
+      "name": "text_reading_sync_log_failed",
+      "value": "读取同步日志失败：%1$s"
+    },
+    {
+      "name": "text_reading_synchronization_log",
+      "value": "正在读取同步日志"
+    },
+    {
+      "name": "text_reading_task_targets",
+      "value": "正在读取任务目标…"
+    },
+    {
+      "name": "text_reading_tasks",
+      "value": "正在读取任务"
+    },
+    {
+      "name": "text_reading_view_loading_failed",
+      "value": "阅读视图加载失败：%1$s"
+    },
+    {
+      "name": "text_reading_waste_paper",
+      "value": "正在读取废纸篓"
+    },
+    {
+      "name": "text_reading_webdav_file_list",
+      "value": "正在读取 WebDAV 文件列表…"
+    },
+    {
+      "name": "text_recent_new",
+      "value": "最近新增"
+    },
+    {
+      "name": "text_recent_position_reading_failed_tap_to_try",
+      "value": "最近位置读取失败，点击重试"
+    },
+    {
+      "name": "text_recent_use",
+      "value": "最近使用"
+    },
+    {
+      "name": "text_reconstruct",
+      "value": "重构"
+    },
+    {
+      "name": "text_reconstruct_chapter",
+      "value": "重构章节"
+    },
+    {
+      "name": "text_reconstruct_task",
+      "value": "重构任务"
+    },
+    {
+      "name": "text_records_the_original_location_which_is_not",
+      "value": "%1$s 条记录原位置不可用，已保留在当前位置"
+    },
+    {
+      "name": "text_recreate",
+      "value": "重新创建"
+    },
+    {
+      "name": "text_recreate_preview",
+      "value": "重新创建预览？"
+    },
+    {
+      "name": "text_refresh",
+      "value": "刷新"
+    },
+    {
+      "name": "text_refresh_and_try_again",
+      "value": "刷新后重试"
+    },
+    {
+      "name": "text_refresh_reselect",
+      "value": "刷新重选"
+    },
+    {
+      "name": "text_refreshing_files",
+      "value": "正在刷新文件"
+    },
+    {
+      "name": "text_registered",
+      "value": "✓ 已登记"
+    },
+    {
+      "name": "text_reload",
+      "value": "重新载入"
+    },
+    {
+      "name": "text_reload_structure",
+      "value": "重新载入结构"
+    },
+    {
+      "name": "text_reload_the_mission",
+      "value": "重新载入任务？"
+    },
+    {
+      "name": "text_remarks",
+      "value": "备注"
+    },
+    {
+      "name": "text_remarks_2",
+      "value": "备注…"
+    },
+    {
+      "name": "text_reminder",
+      "value": "提醒时间：%1$s"
+    },
+    {
+      "name": "text_reminder_2",
+      "value": "提醒"
+    },
+    {
+      "name": "text_reminder_activity",
+      "value": "提醒操作日志"
+    },
+    {
+      "name": "text_reminders_are_available_for_tasks",
+      "value": "非任务记录不安排提醒"
+    },
+    {
+      "name": "text_reminders_are_turned_off_for_the_org",
+      "value": "系统日历中“小清单提醒”的提醒开关已关闭"
+    },
+    {
+      "name": "text_remote_change",
+      "value": "远端变化"
+    },
+    {
+      "name": "text_remote_files_found",
+      "value": "已发现 %1$s 个远端文件"
+    },
+    {
+      "name": "text_remove",
+      "value": "移除"
+    },
+    {
+      "name": "text_remove_blocks",
+      "value": "删除区块"
+    },
+    {
+      "name": "text_remove_custom_status",
+      "value": "移除自定义状态 %1$s"
+    },
+    {
+      "name": "text_remove_due_date",
+      "value": "移除截止日期"
+    },
+    {
+      "name": "text_remove_label",
+      "value": "删除标签 %1$s"
+    },
+    {
+      "name": "text_remove_repository",
+      "value": "删除存储库"
+    },
+    {
+      "name": "text_remove_schedule",
+      "value": "移除计划"
+    },
+    {
+      "name": "text_remove_this_memo",
+      "value": "删除这条备忘？"
+    },
+    {
+      "name": "text_rendered",
+      "value": "渲染"
+    },
+    {
+      "name": "text_reopen_repository_configuration_please",
+      "value": "仓库配置已改变，请重新打开"
+    },
+    {
+      "name": "text_reopen_repository_sync_mode_changed",
+      "value": "仓库同步方式已改变，请重新打开"
+    },
+    {
+      "name": "text_reorder_subpoints",
+      "value": "调整子节点顺序"
+    },
+    {
+      "name": "text_reordering",
+      "value": "调整顺序：%1$s"
+    },
+    {
+      "name": "text_repeat",
+      "value": "重复"
+    },
+    {
+      "name": "text_repeat_2",
+      "value": "重复…"
+    },
+    {
+      "name": "text_repeat_interval",
+      "value": "重复间隔"
+    },
+    {
+      "name": "text_repeats_the_rules",
+      "value": "%1$s重复规则"
+    },
+    {
+      "name": "text_replace_main_tree",
+      "value": "替换主树"
+    },
+    {
+      "name": "text_replace_the_main_tree_with_local_content",
+      "value": "用本地内容替换主树？"
+    },
+    {
+      "name": "text_reposition",
+      "value": "调整位置"
+    },
+    {
+      "name": "text_repositories",
+      "value": "存储库"
+    },
+    {
+      "name": "text_repository",
+      "value": "存储库，%1$s"
+    },
+    {
+      "name": "text_repository_2",
+      "value": "仓库"
+    },
+    {
+      "name": "text_repository_3",
+      "value": "存储库 %1$s"
+    },
+    {
+      "name": "text_repository_and_file_in_configuration_must_be",
+      "value": "必须引用配置中的存储库和文件"
+    },
+    {
+      "name": "text_repository_created_sync_not_completed",
+      "value": "仓库已创建，同步未完成：%1$s"
+    },
+    {
+      "name": "text_repository_id_cannot_be_empty",
+      "value": "仓库 ID 不能为空"
+    },
+    {
+      "name": "text_repository_management",
+      "value": "仓库管理"
+    },
+    {
+      "name": "text_repository_not_configured_yet",
+      "value": "尚未配置仓库"
+    },
+    {
+      "name": "text_repository_sync_not_completed",
+      "value": "仓库同步未完成：%1$s"
+    },
+    {
+      "name": "text_repository_synchronized",
+      "value": "仓库已同步"
+    },
+    {
+      "name": "text_repository_to_import",
+      "value": "将导入的存储库"
+    },
+    {
+      "name": "text_request_for_notification_of_authorization_failed",
+      "value": "请求通知授权失败"
+    },
+    {
+      "name": "text_request_for_notification_of_authorization_failed_error",
+      "value": "请求通知授权失败（错误码 %1$s）"
+    },
+    {
+      "name": "text_reread",
+      "value": "重新读取"
+    },
+    {
+      "name": "text_reread_failed",
+      "value": "重新读取失败"
+    },
+    {
+      "name": "text_reread_repository_directory_change",
+      "value": "仓库目录已改变，请重新读取"
+    },
+    {
+      "name": "text_reread_settings",
+      "value": "重新读取设置"
+    },
+    {
+      "name": "text_reset",
+      "value": "重置"
+    },
+    {
+      "name": "text_reset_and_synchronized_repository",
+      "value": "仓库已重置并同步"
+    },
+    {
+      "name": "text_reset_failed",
+      "value": "重置失败：%1$s"
+    },
+    {
+      "name": "text_reset_local_directories",
+      "value": "重置本地目录？"
+    },
+    {
+      "name": "text_reset_local_directory",
+      "value": "重置本地目录"
+    },
+    {
+      "name": "text_reset_repository",
+      "value": "重置仓库"
+    },
+    {
+      "name": "text_reset_settings",
+      "value": "重置设置？"
+    },
+    {
+      "name": "text_reset_will_empty_local_files_deleting_the",
+      "value": "重置会清空本地文件；删除存储库仅移除配置和密码。操作前均需确认。"
+    },
+    {
+      "name": "text_reseting",
+      "value": "正在重置…"
+    },
+    {
+      "name": "text_restore",
+      "value": "恢复"
+    },
+    {
+      "name": "text_restore_2",
+      "value": "归位"
+    },
+    {
+      "name": "text_restore_default_filter_directory",
+      "value": "恢复默认过滤目录"
+    },
+    {
+      "name": "text_restore_default_order",
+      "value": "恢复默认顺序"
+    },
+    {
+      "name": "text_restore_incomplete",
+      "value": "恢复未完成：%1$s"
+    },
+    {
+      "name": "text_restore_to_original_position",
+      "value": "恢复到原位置"
+    },
+    {
+      "name": "text_restore_to_to_do",
+      "value": "恢复为待办"
+    },
+    {
+      "name": "text_retry",
+      "value": "重试"
+    },
+    {
+      "name": "text_retry_application",
+      "value": "重试应用"
+    },
+    {
+      "name": "text_retry_clearing_sync_data",
+      "value": "重试清理同步信息"
+    },
+    {
+      "name": "text_retry_initializing_entry_files",
+      "value": "重试初始化入口文件"
+    },
+    {
+      "name": "text_retry_preview",
+      "value": "重试预览"
+    },
+    {
+      "name": "text_retry_repository_sync",
+      "value": "重试仓库同步"
+    },
+    {
+      "name": "text_returning",
+      "value": "归位中…"
+    },
+    {
+      "name": "text_same_as_current_content",
+      "value": "与当前内容相同"
+    },
+    {
+      "name": "text_sat",
+      "value": "六"
+    },
+    {
+      "name": "text_save",
+      "value": "保存"
+    },
+    {
+      "name": "text_save_changes_to_local_directories_and_switch",
+      "value": "请先保存本地目录的修改，再切换为本地仓库"
+    },
+    {
+      "name": "text_save_configuration_failed_re_prefer",
+      "value": "保存配置失败，请重新预览"
+    },
+    {
+      "name": "text_save_failed",
+      "value": "保存失败：%1$s"
+    },
+    {
+      "name": "text_save_failed_2",
+      "value": "保存失败"
+    },
+    {
+      "name": "text_save_failed_please_try_again",
+      "value": "保存失败，请重试"
+    },
+    {
+      "name": "text_save_link_failed_please_try_again",
+      "value": "保存链接失败，请重试。"
+    },
+    {
+      "name": "text_save_note",
+      "value": "保存备忘"
+    },
+    {
+      "name": "text_saved",
+      "value": "已保存"
+    },
+    {
+      "name": "text_saved_but_page_update_failed_please_finish",
+      "value": "已保存，但页面更新失败。请结束编辑后刷新查看。"
+    },
+    {
+      "name": "text_saving",
+      "value": "保存中"
+    },
+    {
+      "name": "text_saving_2",
+      "value": "正在保存"
+    },
+    {
+      "name": "text_saving_3",
+      "value": "保存中…"
+    },
+    {
+      "name": "text_saving_4",
+      "value": "正在保存…"
+    },
+    {
+      "name": "text_saving_local_storage_failed",
+      "value": "保存本地存储失败"
+    },
+    {
+      "name": "text_saving_order",
+      "value": "正在保存顺序"
+    },
+    {
+      "name": "text_schedule",
+      "value": "日程"
+    },
+    {
+      "name": "text_scheduled_date",
+      "value": "计划日期"
+    },
+    {
+      "name": "text_search",
+      "value": "搜索：%1$s"
+    },
+    {
+      "name": "text_search_for_addresses_in_maps",
+      "value": "在地图中搜索地址"
+    },
+    {
+      "name": "text_search_location_item_or_category",
+      "value": "搜索位置、项目或分类"
+    },
+    {
+      "name": "text_search_results_location",
+      "value": "搜索结果 · %1$s 个位置"
+    },
+    {
+      "name": "text_search_tasks_or_sections",
+      "value": "搜索任务或章节"
+    },
+    {
+      "name": "text_section",
+      "value": "章节"
+    },
+    {
+      "name": "text_secure_connection_failed",
+      "value": "安全连接失败"
+    },
+    {
+      "name": "text_select_an_existing_category",
+      "value": "选择已有分类"
+    },
+    {
+      "name": "text_select_another_tab_or_tap_all_to",
+      "value": "选择其他标签，或点击“全部”查看当前页面的所有任务。"
+    },
+    {
+      "name": "text_select_application",
+      "value": "选择应用"
+    },
+    {
+      "name": "text_select_category",
+      "value": "选择分类"
+    },
+    {
+      "name": "text_select_directory",
+      "value": "选择目录"
+    },
+    {
+      "name": "text_select_file",
+      "value": "选择%1$s文件"
+    },
+    {
+      "name": "text_select_fill",
+      "value": "选填"
+    },
+    {
+      "name": "text_select_link_protocol_currently",
+      "value": "选择链接协议，当前为%1$s"
+    },
+    {
+      "name": "text_select_map",
+      "value": "选择地图"
+    },
+    {
+      "name": "text_select_multiple",
+      "value": "多选"
+    },
+    {
+      "name": "text_select_placement",
+      "value": "选择放置位置"
+    },
+    {
+      "name": "text_select_repository",
+      "value": "选择仓库"
+    },
+    {
+      "name": "text_select_tab_set_the_memos_to_display",
+      "value": "选择标签，设置卡片显示的备忘"
+    },
+    {
+      "name": "text_select_the_configuration_text_file_in_64",
+      "value": "请选择 64 KB 以内的配置文本文件"
+    },
+    {
+      "name": "text_select_the_corresponding_node",
+      "value": "选择对应节点"
+    },
+    {
+      "name": "text_select_the_day_file_in_the_settings",
+      "value": "请在设置中选择“某天”文件，作为将来，也许的目标"
+    },
+    {
+      "name": "text_select_the_direction_to_move",
+      "value": "选择移动方向"
+    },
+    {
+      "name": "text_select_the_item_root_position",
+      "value": "选择项目%1$s根位置"
+    },
+    {
+      "name": "text_select_the_utf_8_configuration_text_file",
+      "value": "请选择 64 KB 以内的 UTF-8 配置文本文件"
+    },
+    {
+      "name": "text_select_this_target",
+      "value": "选择此目标"
+    },
+    {
+      "name": "text_select_to_move_up_or_down_after",
+      "value": "激活后选择上移或下移"
+    },
+    {
+      "name": "text_selected",
+      "value": "已选中"
+    },
+    {
+      "name": "text_selected_2",
+      "value": "，已选中"
+    },
+    {
+      "name": "text_selected_3",
+      "value": "已选：%1$s"
+    },
+    {
+      "name": "text_selected_art",
+      "value": "已选择，第 %1$s 条"
+    },
+    {
+      "name": "text_selected_article",
+      "value": "已选 %1$s 条"
+    },
+    {
+      "name": "text_selected_tap_to_remove_filter",
+      "value": "已选中，点击取消筛选"
+    },
+    {
+      "name": "text_server_address",
+      "value": "服务器地址"
+    },
+    {
+      "name": "text_set_as_waiting",
+      "value": "设为等待"
+    },
+    {
+      "name": "text_set_deadline",
+      "value": "设置截止日期"
+    },
+    {
+      "name": "text_set_fields_missing_or_wrong_type",
+      "value": "设置字段缺失或类型有误"
+    },
+    {
+      "name": "text_set_or_modify_the_deadline",
+      "value": "设置或修改截止日期"
+    },
+    {
+      "name": "text_set_or_modify_the_planned_date",
+      "value": "设置或修改计划日期"
+    },
+    {
+      "name": "text_setting",
+      "value": "设置中…"
+    },
+    {
+      "name": "text_settings",
+      "value": "设置"
+    },
+    {
+      "name": "text_settings_saved_cards_updated_or_returned_failed",
+      "value": "设置已保存，更新卡片或返回失败"
+    },
+    {
+      "name": "text_share",
+      "value": "分享"
+    },
+    {
+      "name": "text_share_location",
+      "value": "分享地点"
+    },
+    {
+      "name": "text_shared_from_amap",
+      "value": "来自高德地图"
+    },
+    {
+      "name": "text_shared_from_petal_maps",
+      "value": "来自花瓣地图"
+    },
+    {
+      "name": "text_shares_the_same_task_data_set_with",
+      "value": "与全局事件管理器共用同一任务数据集，展示设置了提醒时间的未完成任务，保留提醒时间已过的记录，排除完成和取消状态；按提醒时间排序，点击可修改或清除。"
+    },
+    {
+      "name": "text_show_all",
+      "value": "显示全部"
+    },
+    {
+      "name": "text_show_all_logs",
+      "value": "显示全部日志"
+    },
+    {
+      "name": "text_show_all_logs_by_tap_on_the",
+      "value": "点击右上角显示全部日志"
+    },
+    {
+      "name": "text_show_also",
+      "value": "还显示 %1$s 个"
+    },
+    {
+      "name": "text_show_link_address_untitled",
+      "value": "无标题时显示链接地址"
+    },
+    {
+      "name": "text_show_remaining",
+      "value": "查看其余 %1$s 条"
+    },
+    {
+      "name": "text_show_text",
+      "value": "显示文字"
+    },
+    {
+      "name": "text_show_the_hidden_files_of_the_configuration",
+      "value": "显示配置的隐藏文件"
+    },
+    {
+      "name": "text_skipped",
+      "value": "已跳过"
+    },
+    {
+      "name": "text_someday",
+      "value": "某天"
+    },
+    {
+      "name": "text_sort",
+      "value": "排序"
+    },
+    {
+      "name": "text_sort_unsaved_please_try_again",
+      "value": "排序未保存，请重试"
+    },
+    {
+      "name": "text_source",
+      "value": "原文"
+    },
+    {
+      "name": "text_source_not_recorded",
+      "value": "来源未记录"
+    },
+    {
+      "name": "text_start_the_mission",
+      "value": "开始任务"
+    },
+    {
+      "name": "text_start_time",
+      "value": "开始时间"
+    },
+    {
+      "name": "text_status_classification",
+      "value": "状态分类"
+    },
+    {
+      "name": "text_status_reading_failed_tap_to_try_again",
+      "value": "状态读取失败 · 点击重试"
+    },
+    {
+      "name": "text_status_unknown",
+      "value": "状态未知"
+    },
+    {
+      "name": "text_stop_repeating",
+      "value": "停止重复"
+    },
+    {
+      "name": "text_stores_files_using_an_application_directory",
+      "value": "使用应用专用目录存放文件。"
+    },
+    {
+      "name": "text_subsequent_sync_may_delete_the_corresponding_file",
+      "value": "后续同步可能删除 WebDAV 上的对应文件。"
+    },
+    {
+      "name": "text_success",
+      "value": "成功"
+    },
+    {
+      "name": "text_succession",
+      "value": "继承"
+    },
+    {
+      "name": "text_sun",
+      "value": "日"
+    },
+    {
+      "name": "text_switch_to_local",
+      "value": "切换为本地"
+    },
+    {
+      "name": "text_switch_to_local_repository",
+      "value": "切换为本地仓库？"
+    },
+    {
+      "name": "text_switch_to_local_repository_not_completed",
+      "value": "切换为本地仓库未完成：%1$s"
+    },
+    {
+      "name": "text_sync",
+      "value": "同步"
+    },
+    {
+      "name": "text_sync_corrected_by_elderman_elder_man",
+      "value": "{\"error\":{\"code\":\"unavailable\",\"message\":\"主窗口尚未就绪\"}}"
+    },
+    {
+      "name": "text_sync_corrected_by_elderman_elder_man_2",
+      "value": "{\"error\":{\"code\":\"unavailable\",\"message\":\"主窗口不可用\"}}"
+    },
+    {
+      "name": "text_sync_log_reading_failed",
+      "value": "同步日志读取失败"
+    },
+    {
+      "name": "text_sync_progress",
+      "value": "同步进度 %1$s"
+    },
+    {
+      "name": "text_synchronisable_repository_is_not_yet_configured",
+      "value": "尚未配置可同步的存储库。"
+    },
+    {
+      "name": "text_synchronisation_log_not_available",
+      "value": "暂无同步日志"
+    },
+    {
+      "name": "text_synchronisation_method",
+      "value": "同步方式"
+    },
+    {
+      "name": "text_synchronise_filter_directory",
+      "value": "同步过滤目录"
+    },
+    {
+      "name": "text_synchronise_manually",
+      "value": "手动同步"
+    },
+    {
+      "name": "text_synchronise_message_cleanup",
+      "value": "”的同步信息清理"
+    },
+    {
+      "name": "text_synchronising",
+      "value": "正在同步"
+    },
+    {
+      "name": "text_synchronising_failed",
+      "value": "同步失败"
+    },
+    {
+      "name": "text_synchronising_failed_2",
+      "value": "同步失败：%1$s"
+    },
+    {
+      "name": "text_synchronization_baseline_abnormal_not_yet_possible",
+      "value": "%1$s同步基线异常，暂时无法同步"
+    },
+    {
+      "name": "text_synchronization_complete",
+      "value": "同步完成"
+    },
+    {
+      "name": "text_synchronization_information_cleanup_not_completed",
+      "value": "同步信息清理未完成"
+    },
+    {
+      "name": "text_synchronization_log",
+      "value": "%1$s · 同步日志"
+    },
+    {
+      "name": "text_synchronization_log_2",
+      "value": "同步日志"
+    },
+    {
+      "name": "text_synchronization_not_accepted_please_try_again",
+      "value": "同步未受理，请重试"
+    },
+    {
+      "name": "text_synchronization_not_completed",
+      "value": "同步未完成"
+    },
+    {
+      "name": "text_syncing",
+      "value": "同步 %1$s"
+    },
+    {
+      "name": "text_syncing_2",
+      "value": "正在同步 %1$s/%2$s：%3$s"
+    },
+    {
+      "name": "text_syncing_webdav",
+      "value": "正在同步 WebDAV…"
+    },
+    {
+      "name": "text_system_alarm_query_failed",
+      "value": "系统提醒查询失败"
+    },
+    {
+      "name": "text_system_calendar_writing_failed",
+      "value": "系统日历写入失败"
+    },
+    {
+      "name": "text_system_repository",
+      "value": "系统仓库"
+    },
+    {
+      "name": "text_system_repository_cannot_add_files",
+      "value": "系统仓库不能新增文件"
+    },
+    {
+      "name": "text_system_repository_cannot_be_deleted",
+      "value": "系统仓库不能删除"
+    },
+    {
+      "name": "text_system_repository_initialization_failed_try_again",
+      "value": "系统仓库初始化失败，请重试"
+    },
+    {
+      "name": "text_system_repository_is_managed_by_application",
+      "value": "系统存储库由应用管理"
+    },
+    {
+      "name": "text_system_repository_is_not_available_to_protect",
+      "value": "系统仓库不可用，无法保护首次同步的本地任务"
+    },
+    {
+      "name": "text_system_repository_not_yet_initialized",
+      "value": "系统仓库尚未初始化"
+    },
+    {
+      "name": "text_tab_name",
+      "value": "标签名称"
+    },
+    {
+      "name": "text_tags",
+      "value": "标签"
+    },
+    {
+      "name": "text_tap",
+      "value": "%1$s，点击%2$s"
+    },
+    {
+      "name": "text_tap_on_selection",
+      "value": "，点击选择"
+    },
+    {
+      "name": "text_tap_to_change_alarm_time",
+      "value": "%1$s，%2$s，点击修改提醒时间"
+    },
+    {
+      "name": "text_tap_to_close_file_details",
+      "value": "点击收起文件详情"
+    },
+    {
+      "name": "text_tap_to_expand",
+      "value": "%1$s，点击展开"
+    },
+    {
+      "name": "text_tap_to_expand_file_details",
+      "value": "点击展开文件详情"
+    },
+    {
+      "name": "text_tap_to_filter_by_this_tag",
+      "value": "未选中，点击加入筛选"
+    },
+    {
+      "name": "text_tap_to_finish_the_job",
+      "value": "点击完成任务"
+    },
+    {
+      "name": "text_tap_to_open_repository_settings",
+      "value": "%1$s，点击打开存储库设置"
+    },
+    {
+      "name": "text_tap_to_restart_the_task",
+      "value": "点击重新打开任务"
+    },
+    {
+      "name": "text_tap_to_see_delete_backup",
+      "value": "，点击查看删除备份"
+    },
+    {
+      "name": "text_tap_to_try_again",
+      "value": "，点击重试"
+    },
+    {
+      "name": "text_tap_to_try_again_2",
+      "value": "%1$s · 点击重试"
+    },
+    {
+      "name": "text_target_file_is_not_available_for_uncompleted",
+      "value": "目标文件没有可用的未完成状态，请检查 TODO 设置"
+    },
+    {
+      "name": "text_target_file_not_available_uncompleted",
+      "value": "目标文件没有可用的未完成状态"
+    },
+    {
+      "name": "text_target_repository_does_not_exist",
+      "value": "目标仓库不存在"
+    },
+    {
+      "name": "text_target_repository_does_not_exist_or_is",
+      "value": "目标仓库不存在或未启用 WebDAV"
+    },
+    {
+      "name": "text_target_repository_is_dead_please_re_select",
+      "value": "目标存储库已失效，请重新选择"
+    },
+    {
+      "name": "text_target_repository_not_available",
+      "value": "目标仓库不可用"
+    },
+    {
+      "name": "text_task_alarm_settings_invalid_save",
+      "value": "任务提醒设置无效，请重新保存"
+    },
+    {
+      "name": "text_task_data_management_objects_not_provided",
+      "value": "未提供任务数据管理对象"
+    },
+    {
+      "name": "text_task_deleted_or_renamed_please_return_list",
+      "value": "任务已删除或改名，请返回列表重新打开"
+    },
+    {
+      "name": "text_task_does_not_set_alarm_time",
+      "value": "任务未设置提醒时间"
+    },
+    {
+      "name": "text_task_has_left_the_current_data_set",
+      "value": "任务已离开当前数据集"
+    },
+    {
+      "name": "text_task_reminders",
+      "value": "任务提醒"
+    },
+    {
+      "name": "text_task_reminders_are_off_on_this_device",
+      "value": "本机任务提醒已关闭"
+    },
+    {
+      "name": "text_task_reminders_on_this_device",
+      "value": "本机任务提醒"
+    },
+    {
+      "name": "text_task_saved_tap_outside_the_panel_again",
+      "value": "任务已保存，请再次点击面板外关闭"
+    },
+    {
+      "name": "text_task_status_categories",
+      "value": "任务状态分类"
+    },
+    {
+      "name": "text_task_title",
+      "value": "任务标题"
+    },
+    {
+      "name": "text_tasks",
+      "value": "%1$s 个任务 · %2$s"
+    },
+    {
+      "name": "text_tasks_2",
+      "value": "任务"
+    },
+    {
+      "name": "text_tasks_and_notes",
+      "value": "任务与笔记"
+    },
+    {
+      "name": "text_tasks_are_not_currently_in_data_collection",
+      "value": "任务不在当前数据集中"
+    },
+    {
+      "name": "text_tasks_to_be_moved",
+      "value": "待移动任务"
+    },
+    {
+      "name": "text_telephone",
+      "value": "电话"
+    },
+    {
+      "name": "text_test_connection",
+      "value": "测试连接"
+    },
+    {
+      "name": "text_testing_connection",
+      "value": "正在测试连接…"
+    },
+    {
+      "name": "text_testing_connection_2",
+      "value": "测试连接中…"
+    },
+    {
+      "name": "text_tests_the_connection_to_verify_authentication_and",
+      "value": "测试连接验证认证与目录访问，不保存配置或同步文件；上传权限在实际同步时验证。"
+    },
+    {
+      "name": "text_text",
+      "value": "正文"
+    },
+    {
+      "name": "text_text_2",
+      "value": "文本"
+    },
+    {
+      "name": "text_text_and_sub_entry_will_be_saved",
+      "value": "正文与子条目会保留到新项目。"
+    },
+    {
+      "name": "text_the_alarm_calendar_is_not_available",
+      "value": "应用提醒日历不可用"
+    },
+    {
+      "name": "text_the_alarm_manager_is_not_registered_yet",
+      "value": "提醒管理器尚未注册"
+    },
+    {
+      "name": "text_the_alarm_time_or_content_in_the",
+      "value": "系统日历中的提醒时间或内容与任务不一致"
+    },
+    {
+      "name": "text_the_application_association_has_not_been_configured",
+      "value": "尚未配置应用关联"
+    },
+    {
+      "name": "text_the_application_link_is_missing_the_application",
+      "value": "应用链接缺少应用名称。"
+    },
+    {
+      "name": "text_the_application_settings_and_repository_configuration_will",
+      "value": "应用设置和存储库配置将被清空。本地目录和文件将保留，可打开之前的备份重新加载存储库。"
+    },
+    {
+      "name": "text_the_calendar_event_marker_is_invalid_existing",
+      "value": "应用日历事件标记无效，已保留现有事件"
+    },
+    {
+      "name": "text_the_card_tag_setting_is_invalid_please",
+      "value": "卡片标签设置无效，请重新选择"
+    },
+    {
+      "name": "text_the_change_time_is_unknown",
+      "value": "修改时间未知"
+    },
+    {
+      "name": "text_the_conflict_of_this_document_has_been",
+      "value": "此文件的冲突已全部处理"
+    },
+    {
+      "name": "text_the_conflict_point_in_will_be_removed",
+      "value": "将移除“%1$s”中的 %2$s 个冲突点，保留当前主树内容，并放弃尚未应用的预览调整。"
+    },
+    {
+      "name": "text_the_contents_have_changed_please_reload_the",
+      "value": "内容已变化，请把草稿拷贝后重新载入"
+    },
+    {
+      "name": "text_the_current_link_cannot_be_modified_please",
+      "value": "当前链接无法修改，请取消编辑并重新载入。"
+    },
+    {
+      "name": "text_the_current_page_cannot_execute_internal_jumps",
+      "value": "当前页面无法执行内部跳转"
+    },
+    {
+      "name": "text_the_date_of_the_mandate_is_used",
+      "value": "以任务日期为基准，按固定间隔重复。"
+    },
+    {
+      "name": "text_the_default_saves_30_days_setting_1",
+      "value": "默认保留 30 天，可设置 1 至 3650 天。打开废纸篓或笔记本时，按删除时间自动永久清除过期记录。删除时间缺失的记录会保留。"
+    },
+    {
+      "name": "text_the_deleted_records_are_stored_here_left",
+      "value": "删除的记录会暂存于此。左滑可归位、永久清除或多选。"
+    },
+    {
+      "name": "text_the_directory_is_invalid_please_reopen_the",
+      "value": "目录已失效，请重新打开文件"
+    },
+    {
+      "name": "text_the_document_has_been_changed_and_the",
+      "value": "文件已变化，区块草稿已保留。"
+    },
+    {
+      "name": "text_the_document_has_been_renamed_and_the",
+      "value": "文件已改名，入口更新失败。"
+    },
+    {
+      "name": "text_the_document_has_been_updated_and_please",
+      "value": "文件已更新，请放弃本次调整后重新进入排序。"
+    },
+    {
+      "name": "text_the_document_node_does_not_match_the",
+      "value": "文档节点与正文版本不一致，请刷新项目。"
+    },
+    {
+      "name": "text_the_document_structure_is_in_conflict_and",
+      "value": "文件结构发生冲突，请确认是否替换主树。"
+    },
+    {
+      "name": "text_the_document_version_has_changed_please_refresh",
+      "value": "文件版本已变化，请刷新后重新选择"
+    },
+    {
+      "name": "text_the_duration_of_the_event_must_be",
+      "value": "事件持续时长须为 1 至 1440 分钟的整数"
+    },
+    {
+      "name": "text_the_editor_did_not_access_the_modify",
+      "value": "编辑器未接入修改操作接收接口"
+    },
+    {
+      "name": "text_the_end_must_be_later_than_the",
+      "value": "结束时间必须晚于开始时间"
+    },
+    {
+      "name": "text_the_event_is_preferred_to_scheduled_followed",
+      "value": "\n\n事件优先采用 SCHEDULED，其次 DEADLINE；都没有时使用提醒时间。日期没有时刻时按零点处理，两项都有时优先 SCHEDULED。最高优先级在日历标题标记为【重要】。"
+    },
+    {
+      "name": "text_the_event_lasts_for_5_minutes_with",
+      "value": "\n\n事件持续时长默认 5 分钟，可设为 1 至 1440 分钟，修改后自动保存。提醒晚于事件开始时，结束时间至少保留到提醒后的配置时长；清理同时等待提醒过去 30 分钟和事件结束。"
+    },
+    {
+      "name": "text_the_execution_result_is_unknown",
+      "value": "执行结果未知"
+    },
+    {
+      "name": "text_the_file_has_been_updated_and_entered",
+      "value": "文件已更新，输入已保留。请取消后重新进入编辑。"
+    },
+    {
+      "name": "text_the_file_has_changed_the_draft_link",
+      "value": "文件已变化，链接草稿已保留，请取消编辑并重新载入后继续"
+    },
+    {
+      "name": "text_the_file_has_no_available_waiting_status",
+      "value": "文件没有可用的等待状态，请检查 TODO 流程"
+    },
+    {
+      "name": "text_the_file_has_no_status_available_check",
+      "value": "“%1$s”所在文件没有可用的%2$s状态，请检查 TODO 流程"
+    },
+    {
+      "name": "text_the_file_is_not_available",
+      "value": "文件还没有内容"
+    },
+    {
+      "name": "text_the_files_or_records_involved_in_the",
+      "value": "操作涉及的文件或记录已移除"
+    },
+    {
+      "name": "text_the_full_local_content_of_the_preview",
+      "value": "将采用预览中的完整本地内容，替换文件前言和全部普通节点，其他冲突点继续保留。"
+    },
+    {
+      "name": "text_the_gothic_map_does_not_support_an",
+      "value": "高德地图暂不支持地址搜索，请选择花瓣地图。"
+    },
+    {
+      "name": "text_the_in_and_all_its_contents_will",
+      "value": "将删除“%1$s”中的“%2$s”及其全部内容。整份文件无法通过废纸篓恢复。%3$s"
+    },
+    {
+      "name": "text_the_inbox_one_day_memo_and_my",
+      "value": "随后从模板重新创建收件箱、某天、备忘和我的任务文件。"
+    },
+    {
+      "name": "text_the_item_has_been_updated_and_please",
+      "value": "项目已更新，请放弃本次调整后重新进入排序。"
+    },
+    {
+      "name": "text_the_label_has_been_inherited_from_the",
+      "value": "该标签已从父标题继承"
+    },
+    {
+      "name": "text_the_manual_adjustments_are_kept_in_the",
+      "value": "本项手动调整仅保存在预览中，继续会放弃这些调整。已经应用的结果不受影响。"
+    },
+    {
+      "name": "text_the_memo_file_is_not_selected_or",
+      "value": "备忘文件未选择或已失效，请在设置中重新选择"
+    },
+    {
+      "name": "text_the_microphone_is_not_available_for_the",
+      "value": "麦克风暂时不可用，可以继续输入标题"
+    },
+    {
+      "name": "text_the_mission_s_repository_is_not_available",
+      "value": "任务所属仓库不可用"
+    },
+    {
+      "name": "text_the_order_of_nodes_has_been_adjusted",
+      "value": "两端同时调整了节点顺序，请确认采用的结构。"
+    },
+    {
+      "name": "text_the_org_tasks_of_this_version_cannot",
+      "value": "此版本的小清单无法读取该配置版本"
+    },
+    {
+      "name": "text_the_original_file_has_changed_and_the",
+      "value": "原文件已变化，当前预览不能应用"
+    },
+    {
+      "name": "text_the_original_folder_is_unavailable_select_a",
+      "value": "原目录不存在或无法访问，请重新选择"
+    },
+    {
+      "name": "text_the_original_node_has_disappeared_and_local",
+      "value": "原节点已消失，本地修改需要重新放置。"
+    },
+    {
+      "name": "text_the_original_record_is_invalid_please_reopen",
+      "value": "原记录已失效，请重新打开"
+    },
+    {
+      "name": "text_the_page_job_cache_is_invalid",
+      "value": "页面任务缓存无效"
+    },
+    {
+      "name": "text_the_parent_node_has_disappeared_select_the",
+      "value": "原父节点已消失，请为本地内容选择放置位置。"
+    },
+    {
+      "name": "text_the_plan_is_today",
+      "value": "计划于今天"
+    },
+    {
+      "name": "text_the_previous_selection_is_unavailable_select_it",
+      "value": "原选择已失效或暂时无法读取，请重新选择或重试"
+    },
+    {
+      "name": "text_the_priority_classification_is_invalid",
+      "value": "优先级分类无效"
+    },
+    {
+      "name": "text_the_query_result_is_not_a_file",
+      "value": "查询结果不是文件结果"
+    },
+    {
+      "name": "text_the_reminder_service_stopped_reopen_the_task",
+      "value": "提醒管理器已停止，请重新展开任务"
+    },
+    {
+      "name": "text_the_repository_directory_must_be_the_absolute",
+      "value": "存储库目录必须是本机绝对路径"
+    },
+    {
+      "name": "text_the_repository_has_changed_read_it_again",
+      "value": "仓库已改变，请重新读取"
+    },
+    {
+      "name": "text_the_repository_has_changed_reopen_it",
+      "value": "存储库已发生变化，请重新打开"
+    },
+    {
+      "name": "text_the_repository_has_not_been_configured",
+      "value": "尚未配置存储库"
+    },
+    {
+      "name": "text_the_repository_identification_and_directory_in_the",
+      "value": "配置中的存储库标识和目录必须有效且唯一"
+    },
+    {
+      "name": "text_the_repository_is_synchronized_please_try_again",
+      "value": "仓库正在同步，请重试"
+    },
+    {
+      "name": "text_the_selected_file_is_invalid_please_re",
+      "value": "所选%1$s文件已失效，请重新选择"
+    },
+    {
+      "name": "text_the_selected_task_will_be_moved_to",
+      "value": "所选任务将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。"
+    },
+    {
+      "name": "text_the_shared_content_does_not_confirm_the",
+      "value": "分享内容无法确认地址，可保存原始链接或返回地图重新分享。"
+    },
+    {
+      "name": "text_the_simultaneous_log_for_notification_no_longer",
+      "value": "通知对应的同步记录已不存在"
+    },
+    {
+      "name": "text_the_status_classification_is_invalid",
+      "value": "状态分类无效"
+    },
+    {
+      "name": "text_the_system_repository_is_managed_by_application",
+      "value": "系统仓库由应用管理，不能修改"
+    },
+    {
+      "name": "text_the_system_repository_is_not_a_file",
+      "value": "系统仓库不能作为文件入口"
+    },
+    {
+      "name": "text_the_system_repository_is_not_available_please",
+      "value": "系统仓库不可用，请重启应用后重试"
+    },
+    {
+      "name": "text_the_text_has_changed_re_select_the",
+      "value": "正文已变化，请重新选择移动位置"
+    },
+    {
+      "name": "text_the_text_remains_unchanged",
+      "value": "正文不变"
+    },
+    {
+      "name": "text_the_unsaved_input_in_the_card_will",
+      "value": "将放弃卡片中未保存的输入，读取文件中的最新内容。"
+    },
+    {
+      "name": "text_the_webdav_address_account_numbers_passwords_sync",
+      "value": "将清除本机保存的 WebDAV 地址、账号、密码、同步历史和待上传记录。本机与远端的文件都会保留。以后重新开启同步时，同路径文件将采用远端版本。"
+    },
+    {
+      "name": "text_then_re_sync_from_webdav",
+      "value": "随后从 WebDAV 重新同步。"
+    },
+    {
+      "name": "text_there_are_different_changes_to_the_document",
+      "value": "文件属性存在不同修改，请比较后选择采用本地或保留当前；重复声明有歧义时需逐项编辑。"
+    },
+    {
+      "name": "text_there_are_no_expired_or_expired_mandates",
+      "value": "今天没有到期或过期任务。"
+    },
+    {
+      "name": "text_there_are_no_subfolders_in_this_directory",
+      "value": "此目录没有子文件夹"
+    },
+    {
+      "name": "text_there_is_a_conflict_of_content_here",
+      "value": "此处存在内容冲突，请核对应用前后的内容。"
+    },
+    {
+      "name": "text_there_is_no_org_tasks_alarm_calendar",
+      "value": "系统中不存在“小清单提醒”日历"
+    },
+    {
+      "name": "text_there_is_no_readable_delete_backup_for",
+      "value": "此记录没有可阅读的删除备份"
+    },
+    {
+      "name": "text_there_is_no_record_of_alarm_operations",
+      "value": "本次运行暂无提醒操作记录"
+    },
+    {
+      "name": "text_there_s_no_record_in_the_inbox",
+      "value": "收件箱没有记录"
+    },
+    {
+      "name": "text_there_s_no_record_of_this",
+      "value": "本次没有文件处理记录"
+    },
+    {
+      "name": "text_there_s_nothing_here",
+      "value": "此处没有内容"
+    },
+    {
+      "name": "text_this_adjustment_has_not_been_saved",
+      "value": "本次调整尚未保存。"
+    },
+    {
+      "name": "text_this_document_does_not_exist_please_return",
+      "value": "此文件已不存在，请返回。"
+    },
+    {
+      "name": "text_this_document_does_not_have_a_chapter",
+      "value": "本文没有章节标题"
+    },
+    {
+      "name": "text_this_group_has_inherited_please_change_under",
+      "value": "该组已继承“%1$s”，请在父标题修改"
+    },
+    {
+      "name": "text_this_is_the_location_please_select_another",
+      "value": "已在此位置，请选择其他位置"
+    },
+    {
+      "name": "text_this_label_is_managed_by_the_system",
+      "value": "该标签由系统管理"
+    },
+    {
+      "name": "text_this_link_is_not_supported_for_opening",
+      "value": "此链接暂不支持打开"
+    },
+    {
+      "name": "text_this_local_directory_belongs_to_another_repository",
+      "value": "此本地目录已属于另一个存储库"
+    },
+    {
+      "name": "text_this_node_has_been_deleted_locally_and",
+      "value": "本地已删除此节点，当前仍有修改，请确认是否删除。"
+    },
+    {
+      "name": "text_this_note_has_been_changed_or_deleted",
+      "value": "此备忘已变更或删除，请从列表重新选择"
+    },
+    {
+      "name": "text_this_operation_does_not_support_batch_planning",
+      "value": "此操作不支持批量规划"
+    },
+    {
+      "name": "text_this_removes_settings_the_password_and_notebook",
+      "value": "将移除“%1$s”的配置、密码和指向该仓库的文件入口，保留本地 Org 文件及远端文件。"
+    },
+    {
+      "name": "text_this_repository_does_not_exist",
+      "value": "此存储库已不存在"
+    },
+    {
+      "name": "text_this_repository_does_not_exist_please_give",
+      "value": "此存储库已不存在，请放弃修改并返回"
+    },
+    {
+      "name": "text_this_repository_does_not_exist_please_return",
+      "value": "此存储库已不存在，请返回存储库列表"
+    },
+    {
+      "name": "text_this_repository_does_not_exist_please_try",
+      "value": "此存储库已不存在，请重试"
+    },
+    {
+      "name": "text_this_status_sets_a_note_alert_closes",
+      "value": "此状态设置了备注提示，关闭窗口将不添加备注并继续修改状态"
+    },
+    {
+      "name": "text_this_unsaved_change_will_be_discarded",
+      "value": "本次未保存的修改将被丢弃。"
+    },
+    {
+      "name": "text_this_view_cannot_open_links_within_the",
+      "value": "当前视图无法跳转到文档内部目标"
+    },
+    {
+      "name": "text_this_will_be_deleted",
+      "value": "此处内容将被删除"
+    },
+    {
+      "name": "text_thu",
+      "value": "四"
+    },
+    {
+      "name": "text_time",
+      "value": "时间"
+    },
+    {
+      "name": "text_time_unknown",
+      "value": "时间未知"
+    },
+    {
+      "name": "text_timing",
+      "value": " · 计时中"
+    },
+    {
+      "name": "text_title",
+      "value": "标题"
+    },
+    {
+      "name": "text_title_cannot_be_empty",
+      "value": "标题不能为空"
+    },
+    {
+      "name": "text_title_cannot_contain_line_breaks_or_control",
+      "value": "标题不能包含换行或控制字符"
+    },
+    {
+      "name": "text_title_copied",
+      "value": "标题已拷贝"
+    },
+    {
+      "name": "text_to",
+      "value": "到%1$s"
+    },
+    {
+      "name": "text_to_be_compared_after_selection_of_target",
+      "value": "待选择目标后比较"
+    },
+    {
+      "name": "text_to_be_moved",
+      "value": "待移动任务 · %1$s 条"
+    },
+    {
+      "name": "text_to_do",
+      "value": "待办"
+    },
+    {
+      "name": "text_today",
+      "value": "今天"
+    },
+    {
+      "name": "text_today_2",
+      "value": "，今天"
+    },
+    {
+      "name": "text_toggle_page_failed_please_try_again",
+      "value": "切换页面失败，请重试"
+    },
+    {
+      "name": "text_tomorrow",
+      "value": "明天"
+    },
+    {
+      "name": "text_top_level_first",
+      "value": "顶层首位"
+    },
+    {
+      "name": "text_top_level_of_document",
+      "value": "文档顶层"
+    },
+    {
+      "name": "text_total_words",
+      "value": "共 %1$s 字"
+    },
+    {
+      "name": "text_transfer_information_is_unknown",
+      "value": "传输信息未知"
+    },
+    {
+      "name": "text_trash",
+      "value": "废纸篓"
+    },
+    {
+      "name": "text_try_again_to_update_the_portal",
+      "value": "重试更新入口"
+    },
+    {
+      "name": "text_tue",
+      "value": "二"
+    },
+    {
+      "name": "text_turn_on_reminders_for_the_org_tasks",
+      "value": "请在系统日历中开启“小清单提醒”的提醒"
+    },
+    {
+      "name": "text_unable_to_confirm_address",
+      "value": "无法确认地址"
+    },
+    {
+      "name": "text_unable_to_locate_internal_links_please_finish",
+      "value": "无法定位内部链接，请先完成当前编辑后重试"
+    },
+    {
+      "name": "text_unable_to_locate_repository_pending_cleanup_try",
+      "value": "无法定位待清理的仓库，请重试"
+    },
+    {
+      "name": "text_unable_to_modify_duplicate_settings",
+      "value": "未能修改重复设置"
+    },
+    {
+      "name": "text_unable_to_read_shared_content_try_again",
+      "value": "无法读取分享内容，请选择文字或链接后重试"
+    },
+    {
+      "name": "text_unable_to_recover_after_removal_determines_to",
+      "value": "清除后无法恢复。确定永久删除所选记录？"
+    },
+    {
+      "name": "text_unable_to_request_microphone_permission_continue_with",
+      "value": "无法请求麦克风权限，可以继续输入标题"
+    },
+    {
+      "name": "text_unable_to_save_changes",
+      "value": "无法保存修改"
+    },
+    {
+      "name": "text_unauthorized_tap_authorization",
+      "value": "未授权 · 点击授权"
+    },
+    {
+      "name": "text_unbound",
+      "value": "未绑定"
+    },
+    {
+      "name": "text_uncategorized",
+      "value": "未分类"
+    },
+    {
+      "name": "text_unconfigured",
+      "value": "未配置"
+    },
+    {
+      "name": "text_undefined_data_set",
+      "value": "未定义数据集：%1$s"
+    },
+    {
+      "name": "text_unfinished_without_alarm_time",
+      "value": "暂无设置提醒时间的未完成任务"
+    },
+    {
+      "name": "text_unidentified_address",
+      "value": "未识别地址"
+    },
+    {
+      "name": "text_unknown_number_of_conflicts",
+      "value": "冲突数量未知"
+    },
+    {
+      "name": "text_unknown_number_of_files",
+      "value": "文件数量未知"
+    },
+    {
+      "name": "text_unknown_trigger_cause",
+      "value": "未知触发原因"
+    },
+    {
+      "name": "text_unlabeled_tap_to_add_a_new_tab",
+      "value": "暂无标签，可点击下方新建标签添加"
+    },
+    {
+      "name": "text_unnamed_alarm",
+      "value": "未命名提醒"
+    },
+    {
+      "name": "text_unnamed_location",
+      "value": "未命名位置"
+    },
+    {
+      "name": "text_unnamed_repository",
+      "value": "未命名存储库"
+    },
+    {
+      "name": "text_unopened",
+      "value": "未开启"
+    },
+    {
+      "name": "text_unremovable",
+      "value": "%1$s，不可移除"
+    },
+    {
+      "name": "text_untie",
+      "value": "解除绑定"
+    },
+    {
+      "name": "text_untie_the_application",
+      "value": "解除应用绑定？"
+    },
+    {
+      "name": "text_untitled_project",
+      "value": "未命名项目"
+    },
+    {
+      "name": "text_update",
+      "value": "更新"
+    },
+    {
+      "name": "text_update_address",
+      "value": "更新地址"
+    },
+    {
+      "name": "text_update_of_notification_settings_failed",
+      "value": "更新通知设置失败：%1$s"
+    },
+    {
+      "name": "text_update_selected_addresses",
+      "value": "更新选中的地址"
+    },
+    {
+      "name": "text_update_status_classification_failed",
+      "value": "更新状态分类失败：%1$s"
+    },
+    {
+      "name": "text_upload",
+      "value": "上传%1$s"
+    },
+    {
+      "name": "text_uploading_files",
+      "value": "上传%1$s个文件"
+    },
+    {
+      "name": "text_upon_opening_write_uncompleted_alarms_into_a",
+      "value": "开启后，把未完成任务的提醒时间写入“小清单提醒”专用日历，由系统日历在到点时通知，应用退出后已登记事件仍由系统处理。"
+    },
+    {
+      "name": "text_upper_directory",
+      "value": "上一级目录"
+    },
+    {
+      "name": "text_use_file_properties",
+      "value": "采用文件属性"
+    },
+    {
+      "name": "text_use_this_directory",
+      "value": "使用此目录"
+    },
+    {
+      "name": "text_username",
+      "value": "用户名"
+    },
+    {
+      "name": "text_view_notes",
+      "value": "%1$s：查看说明"
+    },
+    {
+      "name": "text_voice_is_temporarily_unavailable_so_you_can",
+      "value": "语音暂时不可用，可以继续输入标题"
+    },
+    {
+      "name": "text_voice_recognition_interrupted_to_continue_editing_recognized",
+      "value": "语音识别中断，可以继续编辑已识别的标题"
+    },
+    {
+      "name": "text_voice_recognition_is_over_please_check_the",
+      "value": "语音识别已结束，请检查标题后保存"
+    },
+    {
+      "name": "text_voice_recognition_is_temporarily_unavailable_so_you",
+      "value": "语音识别暂时不可用，可以继续输入标题"
+    },
+    {
+      "name": "text_voice_services_are_not_available_for_the",
+      "value": "语音服务暂时不可用，可以继续输入标题"
+    },
+    {
+      "name": "text_waiting",
+      "value": "等待"
+    },
+    {
+      "name": "text_waiver_of_adjustment",
+      "value": "放弃调整"
+    },
+    {
+      "name": "text_waste_paper_expiry_cleanup_failed_to_open",
+      "value": "废纸篓过期清理失败，可打开废纸篓重试"
+    },
+    {
+      "name": "text_waste_paper_is_empty",
+      "value": "废纸篓为空"
+    },
+    {
+      "name": "text_waste_paper_retention_days_must_be_between",
+      "value": "废纸篓保留天数必须在 1 至 3650 之间"
+    },
+    {
+      "name": "text_we_ve_got_a_specific_moment_to",
+      "value": "按小时重复需要任务已有具体时刻"
+    },
+    {
+      "name": "text_webdav_configuration_requires_https_directory_address_and",
+      "value": "WebDAV 配置需要 HTTPS 目录地址和有效账号"
+    },
+    {
+      "name": "text_webdav_connection",
+      "value": "WebDAV 连接"
+    },
+    {
+      "name": "text_webdav_connection_changes",
+      "value": "”的 WebDAV 连接变更"
+    },
+    {
+      "name": "text_webdav_password",
+      "value": "WebDAV 密码"
+    },
+    {
+      "name": "text_webdav_repository",
+      "value": "WebDAV 仓库"
+    },
+    {
+      "name": "text_webdav_sync_not_completed_please_try_again",
+      "value": "WebDAV 同步未完成，请重试"
+    },
+    {
+      "name": "text_webdav_username",
+      "value": "WebDAV 用户名"
+    },
+    {
+      "name": "text_wed",
+      "value": "三"
+    },
+    {
+      "name": "text_when_applied_the_file_entry_task_status",
+      "value": "应用后会更新文件入口、任务状态和展示方式，并按本地目录更新或添加存储库。"
+    },
+    {
+      "name": "text_when_you_select_a_notebook_the_records",
+      "value": "选择笔记本后，对应入口展示其中的记录。点选文件并确认后生效。"
+    },
+    {
+      "name": "text_will_be_moved_to_the_waste_paper",
+      "value": "“%1$s”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。"
+    },
+    {
+      "name": "text_workspace_expired",
+      "value": "工作区已失效"
+    },
+    {
+      "name": "text_writing_profile_failed",
+      "value": "写入配置文件失败"
+    },
+    {
+      "name": "text_writing_to_local_storage_failed",
+      "value": "写入本地存储失败"
+    },
+    {
+      "name": "text_yesterday",
+      "value": "昨天"
+    },
+    {
+      "name": "text_you_can_access_the_directory",
+      "value": "连接成功，可以访问该目录。"
+    },
+    {
+      "name": "text_you_can_leave_a_name_empty_and",
+      "value": "名称可留空，默认使用目录名称。修改后点击底部“确定”保存。"
+    },
+    {
+      "name": "text_you_can_refresh_this_list_by_synchronizing",
+      "value": "下拉同步后可刷新此列表。"
+    },
+    {
+      "name": "text_you_need_to_give_calendar_reading_and",
+      "value": "\n\n需要授予日历读写权限。首次使用请打开系统日历完成初始化，并允许系统日历发送通知；小清单自身的通知开关不能替代它。声音和响铃时长由系统日历控制。"
     }
   ]
 }

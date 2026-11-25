@@ -1,3 +1,4 @@
+import { localizedDate, localizedText } from './LocalizedText'
 import { CoreTask } from '../services/NativeCoreService'
 import { localDate } from './Theme'
 import { TaskRegionGroup, taskRegionGroups } from './TaskRegionPresentation'
@@ -20,8 +21,6 @@ export interface LogbookGroup {
   groups: LogbookTaskGroup[]
 }
 
-const weekdays: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-
 // 任务范围由 Core 的 it.done 决定；每个已完成或已取消任务仅按 closedAt 编排一次。
 export function logbookGroups(tasks: CoreTask[], now: Date = new Date(), timestampOf: (task: CoreTask) => number | null = task => task.closedAt,
   keyOf: (task: CoreTask) => string = task => task.id): LogbookGroup[] {
@@ -40,9 +39,11 @@ export function logbookGroups(tasks: CoreTask[], now: Date = new Date(), timesta
     const key = kind === 'day' ? day : kind === 'month' ? day.slice(0, 7) : kind === 'year' ? day.slice(0, 4) : 'unknown'
     let group = groups.find((item: LogbookGroup) => item.key === key)
     if (!group) {
-      const title = !valid ? '时间未记录' : kind === 'day' ? `${date!.getDate()}日` : kind === 'month' ?
-        `${date!.getFullYear() === now.getFullYear() ? '' : `${date!.getFullYear()}年`}${date!.getMonth() + 1}月` : `${date!.getFullYear()}年`
-      const subtitle = kind !== 'day' ? '' : day === today ? '今天' : day === yesterday ? '昨天' : weekdays[date!.getDay()]
+      const title = !valid ? localizedText($r('app.string.logbook_time_not_recorded')) :
+        kind === 'day' ? localizedDate(date!, { day: 'numeric' }) :
+        kind === 'month' ? localizedDate(date!, { month: 'long', year: date!.getFullYear() === now.getFullYear() ? undefined : 'numeric' }) :
+        localizedDate(date!, { year: 'numeric' })
+      const subtitle = kind !== 'day' ? '' : day === today ? localizedText($r('app.string.text_today')) : day === yesterday ? localizedText($r('app.string.text_yesterday')) : localizedDate(date!, { weekday: 'long' })
       group = { key, kind, date: day, title, subtitle, items: [], groups: [] }
       groups.push(group)
     }

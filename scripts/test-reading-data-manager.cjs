@@ -1,4 +1,5 @@
 // 验证完整阅读数据管理对象的订阅、合并、配置切换与迟到结果边界。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const {test}=require('node:test');
 if(process.argv.includes('-h')||process.argv.includes('--help')){console.log('用法: node scripts/test-reading-data-manager.cjs\n验证阅读快照管理的外部更新、请求合并、错误保留、配置重绑、同步完成与关闭。');process.exit(0);}
@@ -14,7 +15,7 @@ function fixture(){let configChanged,syncChanged,current=1,reads=0,failure,hold,
   './NativeCoreService':{NativeCoreService:{async workspaceFor(){return workspace}}},
   './RepositorySyncService':{RepositorySyncService:{watch(fn){syncChanged=fn;fn({running:false})},stopWatching(fn){if(syncChanged===fn)syncChanged=undefined}}}
  };
- const source=ts.transpileModule(fs.readFileSync('entry/src/main/ets/services/SnapshotDataManager.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const source=transpileFixture(ts, fs.readFileSync('entry/src/main/ets/services/SnapshotDataManager.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  vm.runInNewContext(source,{module,exports:module.exports,setTimeout,clearTimeout,console,require:name=>{assert.ok(name in mocks,name);return mocks[name]}});
  const manager=new module.exports.SnapshotDataManager({},async()=>{reads++;const value=current;if(hold){const pending=hold;hold=undefined;await pending.promise;}if(failure)throw failure;return{value};},event=>event.repoId==='target');
  manager.subscribe(state=>states.push(state));
@@ -35,7 +36,7 @@ test('笔记本复用 App 元信息、仓库上下文和订阅，关闭只释放
    dataSet:name=>{assert.equal(name,'notebookFiles');return {data:{type:'file',result:[file]},error:'',subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)},refresh:async()=>{refreshes++;}}},start:async()=>{starts++;}};
  const module={exports:{}};
  const mocks={'./AppDataManager':{AppDataManager:{shared:()=>app}},'./NotebookService':{},'./SnapshotDataManager':{SnapshotDataManager:class{}},'../ui/Theme':{repositoryLabel:repo=>repo.name},'./NativeCoreService':{}};
- const code=ts.transpileModule(fs.readFileSync('entry/src/main/ets/services/ReadingDataManager.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const code=transpileFixture(ts, fs.readFileSync('entry/src/main/ets/services/ReadingDataManager.ets','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  vm.runInThisContext('(function(module,exports,require){'+code+'})')(module,module.exports,name=>{assert.ok(name in mocks,name);return mocks[name]});
  const manager=new module.exports.NotebookDataManager({});let state;manager.subscribe(value=>state=value);await manager.start();
  assert.equal(state.value.groups[0].files[0],file);assert.equal(state.value.groups[0].configId,'host');assert.equal(starts,1);

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { FrameCallback } from '@ohos.arkui.UIContext'
 import { CoreTask } from '../services/NativeCoreService'
 import { TaskSelectionController } from '../ui/TaskSelectionController'
@@ -139,7 +140,7 @@ export struct TodayTaskList {
   }
 
   private taskDataSet(): DataSet {
-    if (!this.dataSet) throw new Error('未提供页面数据管理对象')
+    if (!this.dataSet) throw new Error(localizedText($r('app.string.text_no_page_data_management_objects_provided')))
     return this.dataSet
   }
 
@@ -198,13 +199,13 @@ export struct TodayTaskList {
   loadMore(sectionKey: string, groupKey: string) {
     ListItem() {
       Button({ type: ButtonType.Normal }) {
-        Text(`还显示 ${this.remainingCount(sectionKey, groupKey)} 个`)
+        Text(localizedText($r('app.string.text_show_also'), String(this.remainingCount(sectionKey, groupKey))))
           .fontSize(12).fontColor(UiColor.secondary).width('100%').textAlign(TextAlign.Start)
       }
         .id(`region_more:${todayRegionKey(sectionKey, groupKey)}`)
         .backgroundColor(Color.Transparent).borderRadius(0)
         .width('100%').height(40).padding({ left: 8, right: 8 })
-        .accessibilityText(`加载${this.sections.find(section => section.key === sectionKey)?.category || '未分类'}${groupKey ? '项目' : ''}区域剩余的 ${this.remainingCount(sectionKey, groupKey)} 个任务`)
+        .accessibilityText(localizedText($r('app.string.text_load_remaining_tasks_in_the_area'), String(this.sections.find(section => section.key === sectionKey)?.category || localizedText($r('app.string.text_uncategorized'))), String(groupKey ? localizedText($r('app.string.text_project')) : ''), String(this.remainingCount(sectionKey, groupKey))))
         .onClick((): void => { this.expandRegion(sectionKey, groupKey) })
     }
   }
@@ -232,7 +233,7 @@ export struct TodayTaskList {
 
   @Builder
   categoryBlock(section: TodaySection) {
-    ListItem() { CategoryRegion({ category: section.category || '未分类' }) }
+    ListItem() { CategoryRegion({ category: section.category || localizedText($r('app.string.text_uncategorized')) }) }
     ForEach(this.sectionGroups(section.key), (group: TodayTaskGroup) => {
       if (group.project !== null) {
         this.projectBlock(section.key, group.key)

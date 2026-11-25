@@ -1,4 +1,5 @@
 // 验证卡片编辑的版本约束、最新任务投影和月历自然日行为。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +12,7 @@ if (process.argv.includes('-h') || process.argv.includes('--help')) {
 const sdk = '/Applications/DevEco-Studio.app/Contents';
 const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function load(file, mocks = {}) {
-  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS } }).outputText;
+  const code = transpileFixture(ts, fs.readFileSync(file, 'utf8'), { compilerOptions: { target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS } }).outputText;
   const result = {exports:{}};
   vm.runInThisContext('(function(require,module,exports){'+code+'\n})',{filename:file})(name=>{
     assert.ok(Object.hasOwn(mocks,name),name);return mocks[name];
@@ -28,7 +29,7 @@ test('任务链接仅在展开且可写时允许修改，收起后的旧编辑�
     assert.ok(match, name);return match[0];
   }).join('\n');
   const module = { exports: {} };
-  const code = ts.transpileModule('export class Card {' + methods + '}', {
+  const code = transpileFixture(ts, 'export class Card {' + methods + '}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInThisContext('(function(module,exports){' + code + '\n})')(module, module.exports);
@@ -72,7 +73,7 @@ function cardRefreshFixture(emit = true) {
   const remove = source.match(/  removeDeletedTask\(\) \{[\s\S]*?\n  \}\n/)[0];
   const complete = source.match(/  async complete\(\) \{[\s\S]*?\n  \}\n/)[0];
   const adapters = ['currentTask', 'modifyTask'].map(name => source.match(new RegExp('  private async ' + name + '\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
-  const code = ts.transpileModule('export class CardRefresh {' + adapters + appear + apply + persist + save + remove + complete + '\n}', {
+  const code = transpileFixture(ts, 'export class CardRefresh {' + adapters + appear + apply + persist + save + remove + complete + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -274,7 +275,7 @@ test('展开标题保留原文草稿，点按后聚焦，保存失败仍保留�
     assert.ok(match, name);
     return match[0];
   }).join('\n');
-  const code = ts.transpileModule('export class Card {' + methods + '}', {
+  const code = transpileFixture(ts, 'export class Card {' + methods + '}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -309,7 +310,7 @@ function finishFixture(textSaved = true, checkSaved = true) {
   const source = fs.readFileSync(filename, 'utf8');
   const collapse = source.match(/  private collapseAnimated\(\): void \{[\s\S]*?\n  \}/)[0];
   const method = source.match(/  async finish\(collapse: boolean\): Promise<boolean> \{[\s\S]*?\n  \}\n(?=  inputFocus)/)[0];
-  const code = ts.transpileModule('export class InlineFinish {' + method + collapse + '\n}', {
+  const code = transpileFixture(ts, 'export class InlineFinish {' + method + collapse + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} }, released = [];
@@ -454,7 +455,7 @@ function sortFixture({writeError,reloadError}={}) {
   const source=fs.readFileSync(filename,'utf8');
   const method=source.match(/  async sortCheck\(id: string, beforeId: string \| null\) \{[\s\S]*?\n  \}\n(?=  accessibleCheckOrder)/)[0];
   const adapters=['currentTask','modifyTask','listItems'].map(name=>source.match(new RegExp('  (?:private async )?'+name+'\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
-  const code=ts.transpileModule('export class SortCheck {'+adapters+method+'\n}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code=transpileFixture(ts, 'export class SortCheck {'+adapters+method+'\n}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module={exports:{}}, requests=[];
   const items=[checklistItem('a'),checklistItem('b')];
   let current={fileVersion:'old',heading:'Title',editContent:{notes:'Notes',checklist:items}};
@@ -492,7 +493,7 @@ function completionFixture(methodName = 'complete') {
   const source = fs.readFileSync(filename, 'utf8');
   const method = source.match(new RegExp('  async ' + methodName + '\\(\\) \\{[\\s\\S]*?\\n  \\}\\n'))[0];
   const helper = source.match(/  private async withStateNote\([\s\S]*?\n  \}\n/)[0];
-  const code = ts.transpileModule('export class Completion {' + method + helper + '\n}', {
+  const code = transpileFixture(ts, 'export class Completion {' + method + helper + '\n}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -634,7 +635,7 @@ function priorityFixture() {
   const filename = 'entry/src/main/ets/components/editors/TaskEditor.ets';
   const source = fs.readFileSync(filename, 'utf8');
   const methods = source.slice(source.indexOf('  async priorities()'), source.indexOf('  @Builder\n  priorityPopup()'));
-  const code = ts.transpileModule('export class Priority {' + methods + '}', {
+  const code = transpileFixture(ts, 'export class Priority {' + methods + '}', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -687,7 +688,7 @@ test('数据集编辑只提交实际修改字段，不把未改的旧标题覆�
 test('本地管理回调的错误只更新当前编辑器并保留被拒绝的用户草稿',()=>{
  const source=fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets','utf8');
  const method=source.match(/  aboutToAppear\(\) \{[\s\S]*?\n  \}\n/)[0];
- const code=ts.transpileModule('export class Card {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const code=transpileFixture(ts, 'export class Card {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  const module={exports:{}};vm.runInThisContext('(function(module,exports){'+code+'\n})')(module,module.exports);
  let notify;const card=Object.assign(new module.exports.Card(),{instanceKey:'row-A',dataChanges:{revision:0},refreshRequest:1,message:'',heading:'我的标题',
   localDataSet:()=>({key:'row-A'}),localDataSet:()=>({taskSource:()=>({rowId:'row-A',monitor(callback){notify=callback;return()=>{};}})}),applySnapshot(){}});
@@ -705,7 +706,7 @@ test('编辑器本地保存不等待确认，内嵌控件提交的字段通过�
 test('编辑器只向传入的 DataManager 注册一个 DataSet，变化回调立即应用，不等待提交队列',()=>{
  const source=fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets','utf8');
  const method=source.match(/  aboutToAppear\(\) \{[\s\S]*?\n  \}\n/)[0];
- const code=ts.transpileModule('export class Card {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+ const code=transpileFixture(ts, 'export class Card {'+method+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
  const module={exports:{}};vm.runInThisContext('(function(module,exports){'+code+'\n})')(module,module.exports);
  let notify,applies=0;const dataSet={key:'record-A'},current={heading:'新的标题'};
  const card=Object.assign(new module.exports.Card(),{dataChanges:{revision:0},refreshRequest:0,pending:new Promise(()=>{}),localDataSet:()=>dataSet,
@@ -734,7 +735,7 @@ test('备注窗口键盘不锁住宿主操作，窗口消失后恢复卡片键�
   const keyboard=source.match(/  private keyboardChanged = \(height: number\): void => \{[\s\S]*?\n  \}/)[0];
   const module={exports:{}};let dialog;
   class Controller {constructor(options){dialog=options}open(){}}
-  const code=ts.transpileModule('export class NoteInput {'+method+keyboard+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code=transpileFixture(ts, 'export class NoteInput {'+method+keyboard+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   vm.runInThisContext('(function(module,exports,CustomDialogController,TaskNoteDialog,DialogAlignment){'+code+'\n})')(module,module.exports,Controller,options=>options,{Center:0});
   const card=Object.assign(new module.exports.NoteInput(),{expanded:true,typing:false});
   const pending=card.requestNote(true);card.keyboardChanged(600);
@@ -747,7 +748,7 @@ test('开始、暂停和等待复用备注提示；取消保留原字段，填�
   const source=fs.readFileSync('entry/src/main/ets/components/editors/TaskEditor.ets','utf8');
   const methods=['changeState','withStateNote','start','stop','wait'].map(name=>source.match(new RegExp('  (?:private )?async '+name+'\\([\\s\\S]*?\\n  \\}\\n'))[0]).join('\n');
   const module={exports:{}};
-  const code=ts.transpileModule('export class StateActions {'+methods+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code=transpileFixture(ts, 'export class StateActions {'+methods+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const group=(task,modifications)=>({operations:[{type:'Modification',data:{path:task.fullPath,modifications}}],fileVersions:[{version:'v1'}]});
   vm.runInThisContext('(function(module,exports,TaskStateCategory,TaskInlineSession,taskModificationGroup){'+code+'\n})')(module,module.exports,{Todo:'Todo',Doing:'Doing',Wait:'Wait'},{release(){}},group);
   for(const [method,from,to] of [['start','Todo','Doing'],['stop','Doing','Todo'],['wait','Todo','Wait']]){

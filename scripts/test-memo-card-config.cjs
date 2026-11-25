@@ -1,4 +1,5 @@
 // 验证卡片实例配置隔离、Core 标签查询和确认／取消边界。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -13,7 +14,7 @@ const sdk = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents
 const ts = require(path.join(sdk, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function load(name, mocks, transform = source => source) {
   const filename = path.resolve('entry/src/main/ets/' + name + '.ets');
-  const source = ts.transpileModule(transform(fs.readFileSync(filename, 'utf8')), {
+  const source = transpileFixture(ts, transform(fs.readFileSync(filename, 'utf8')), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const module = { exports: {} };
@@ -186,7 +187,7 @@ test('实际编译页面从 WindowStage 的共享存储取得当前卡片身份'
     finalizeConstruction() {}
     createLocalStorageProp(key, fallback) { return new Property(this.storage?.[key] ?? fallback); }
   }
-  const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const source = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInNewContext(source, {

@@ -1,4 +1,5 @@
 // 验证各任务页面、最近新增、侧边栏与角标消费同一应用级数据集。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -93,7 +94,7 @@ function fixture() {
     if (!source && cache.has(filename)) return cache.get(filename).exports;
     const module={exports:{}};
     if (!source) cache.set(filename,module);
-    const code=ts.transpileModule(source||fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+    const code=transpileFixture(ts, source||fs.readFileSync(filename,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
     const requireLocal=dependency=>{
       if (dependency==='@ohos.arkui.UIContext') return {FrameCallback:class{}};
       if (dependency.endsWith('/RegionOrderService')) return {RegionOrderService:{async load(){return regionOrder;},watchChanges(fn){orderCallbacks.add(fn);},stopWatchingChanges(fn){orderCallbacks.delete(fn);}}};

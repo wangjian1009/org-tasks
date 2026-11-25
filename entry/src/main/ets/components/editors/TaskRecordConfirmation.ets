@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { UIContext } from '@kit.ArkUI'
 import { CoreTask } from '../../services/NativeCoreService'
 import { TaskRecordOperation } from '../../services/TaskRecordOperations'
@@ -21,11 +22,11 @@ export class TaskRecordConfirmation {
       this.cancelConfirmation = (): void => { finish(false) }
       try {
         showDangerousConfirmation(context, {
-          title: clear ? `永久清除 ${tasks.length} 条记录？` : tasks.length === 1 ? '删除这条记录？' : `删除 ${tasks.length} 条记录？`,
-          message: clear ? '清除后无法恢复。确定永久删除所选记录？' : tasks.length === 1 ?
-            `“${tasks[0].heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。` :
-            '所选任务将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。',
-          confirmLabel: clear ? '清除' : '删除',
+          title: clear ? localizedText($r('app.string.text_permanent_clearance_of_entry_records'), String(tasks.length)) : tasks.length === 1 ? localizedText($r('app.string.text_delete_this_record')) : localizedText($r('app.string.text_delete_record'), String(tasks.length)),
+          message: clear ? localizedText($r('app.string.text_unable_to_recover_after_removal_determines_to')) : tasks.length === 1 ?
+            localizedText($r('app.string.text_will_be_moved_to_the_waste_paper'), String(tasks[0].heading)) :
+            localizedText($r('app.string.text_the_selected_task_will_be_moved_to')),
+          confirmLabel: clear ? localizedText($r('app.string.text_delete_permanently')) : localizedText($r('app.string.text_delete')),
           onCancel: (): void => { finish(false) },
           onConfirm: (): void => { finish(true) }
         })

@@ -1,3 +1,4 @@
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +12,7 @@ const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-St
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 function load(name, mocks = {}) {
   const file = path.resolve('entry/src/main/ets/services', name + '.ets');
-  const output = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: {
+  const output = transpileFixture(ts, fs.readFileSync(file, 'utf8'), { compilerOptions: {
     target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS
   } }).outputText;
   const module = { exports: {} };

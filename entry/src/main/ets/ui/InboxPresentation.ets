@@ -1,3 +1,4 @@
+import { localizedDate } from './LocalizedText'
 import { CoreTask } from '../services/NativeCoreService'
 import { TaskRegionGroup, taskRegionGroups } from './TaskRegionPresentation'
 
@@ -7,14 +8,14 @@ export interface RecentDay { key: string; date: string; weekday: string; tasks: 
 // 查询已由 Core 排序与筛选；这里只按本地创建日期及平级分类／项目组织展示，不丢弃记录。
 export function recentDays(tasks: CoreTask[], reference: Date = new Date()): RecentDay[] {
   const days = new Map<string, RecentDay>()
-  const weekdays: string[] = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
   for (const task of tasks) {
     const date = new Date(task.createdAt!)
     const key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
     let day = days.get(key)
     if (!day) {
-      day = { key, date: `${date.getFullYear() !== reference.getFullYear() ? `${date.getFullYear()}年` : ''}${date.getMonth() + 1}月${date.getDate()}日`,
-        weekday: weekdays[date.getDay()], tasks: [], groups: [] }
+      day = { key, date: localizedDate(date, { month: 'long', day: 'numeric',
+        year: date.getFullYear() !== reference.getFullYear() ? 'numeric' : undefined }),
+        weekday: localizedDate(date, { weekday: 'short' }), tasks: [], groups: [] }
       days.set(key, day)
     }
     day.tasks.push(task)

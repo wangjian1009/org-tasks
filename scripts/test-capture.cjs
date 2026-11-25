@@ -1,4 +1,5 @@
 // 用本机 SDK 转译宿主编排，平台服务使用内存替身；设备交互仍需模拟器验收。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -22,7 +23,7 @@ function etsLoader(mocks = {}, globals = {}) {
     if (modules.has(filename)) return modules.get(filename).exports;
     const module = { exports: {} };
     modules.set(filename, module);
-    const result = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    const result = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
       compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
     });
     const localRequire = dependency => {
@@ -871,7 +872,7 @@ function addressUpdateFixture() {
   const filename = path.resolve(sourceRoot, 'pages/ShareLocation.ets');
   const source = fs.readFileSync(filename, 'utf8');
   const method = source.slice(source.indexOf('  async updateTask()'), source.indexOf('\n  @Builder', source.indexOf('  async updateTask()')));
-  const code = ts.transpileModule('class ShareLocation {\n' + method + '\n}\nmodule.exports = ShareLocation;', {
+  const code = transpileFixture(ts, 'class ShareLocation {\n' + method + '\n}\nmodule.exports = ShareLocation;', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const requests = [], destinations = [];

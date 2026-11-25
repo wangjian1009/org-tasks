@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { DataSet } from '../services/DataSet'
 import { CoreNotificationsView } from './CoreNotificationsView'
 import { NotificationManager } from '../services/NotificationManager'
@@ -19,7 +20,7 @@ import { UiColor } from '../ui/Theme'
 export struct LogbookTaskList {
   dataSet: DataSet | undefined = undefined
   private taskDataSet(): DataSet {
-    if (!this.dataSet) throw new Error('未提供页面数据管理对象')
+    if (!this.dataSet) throw new Error(localizedText($r('app.string.text_no_page_data_management_objects_provided')))
     return this.dataSet
   }
 
@@ -88,7 +89,7 @@ export struct LogbookTaskList {
           regionAreaPolicy: this.trashMode || group.kind === 'day' ? RegionAreaPolicy.None : RegionAreaPolicy.CategoryProject,
           referenceTime: this.referenceTime, scrollHost: this.listScroller, scrollHostId: 'logbook_task_list' })
         if (this.trashMode) {
-          Text([item.task.property('SOURCE_CATEGORY'), item.task.property('SOURCE_PROJECT_NAME')].filter((value: string | null): boolean => value !== null && value.length > 0).join(' · ') || '来源未记录')
+          Text([item.task.property('SOURCE_CATEGORY'), item.task.property('SOURCE_PROJECT_NAME')].filter((value: string | null): boolean => value !== null && value.length > 0).join(' · ') || localizedText($r('app.string.text_source_not_recorded')))
             .fontSize(12).fontColor(UiColor.secondary).width('100%').padding({ left: 26, bottom: 8 }).maxLines(2)
         }
         }.width('100%')
@@ -106,7 +107,7 @@ export struct LogbookTaskList {
   groupItems(group: LogbookGroup) {
     if (group.kind === 'day' && !this.trashMode) {
       ForEach(this.currentGroup(group).groups, (region: LogbookTaskGroup) => {
-        TaskRegion({ category: region.category || '未分类', project: region.kind === 'project' ? region : null }) {
+        TaskRegion({ category: region.category || localizedText($r('app.string.text_uncategorized')), project: region.kind === 'project' ? region : null }) {
           ForEach(this.currentItems(group, region.key), (item: LogbookTaskItem) => {
             this.itemRow(item, group)
           }, (item: LogbookTaskItem) => item.key)

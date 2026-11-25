@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CenteredPanel } from '../components/controls/CenteredPanel'
 import { PageNavigator } from '../services/PageNavigator'
 import { DataManager, DataSet, DataSetEvent } from '../services/DataManager'
@@ -94,8 +95,8 @@ struct OrgFileDetail {
       this.pageVisible && !this.sourceMode && !this.refreshing && !this.structureEdit.active &&
         await this.ensureLinkSnapshot() && await this.navigation.isValidInternalLink(target),
     async (target: string): Promise<void> => {
-      if (!this.pageVisible || this.sourceMode || this.refreshing || this.editSession) throw new Error('当前页面无法执行内部跳转')
-      if (!await this.ensureLinkSnapshot()) throw new Error('内部链接索引尚未确认，请稍后重试')
+      if (!this.pageVisible || this.sourceMode || this.refreshing || this.editSession) throw new Error(localizedText($r('app.string.text_the_current_page_cannot_execute_internal_jumps')))
+      if (!await this.ensureLinkSnapshot()) throw new Error(localizedText($r('app.string.text_internal_link_index_not_confirmed_please_try')))
       await this.navigation.followInternalLink(target)
     }
   )
@@ -250,7 +251,7 @@ struct OrgFileDetail {
     if (!this.historyManager) {
       this.repoId = params.repoId || ''
       this.path = params.path || ''
-      const label = `历史备份 · ${params.backupPath || this.path}`
+      const label = localizedText($r('app.string.text_historical_backup'), String(params.backupPath || this.path))
       const time = params.backupTime ? ` · ${syncLogTimeLabel(params.backupTime)}` : ''
       this.historyLabel = `${label}\n${params.repositoryName || ''}${time}`
       this.historyManager = new HistoryFileDataManager(this.getUIContext().getHostContext()!,
@@ -350,7 +351,7 @@ struct OrgFileDetail {
   }
 
   async saveHeader(changes: CoreFileHeaderValueChange[], version: string): Promise<void> {
-    if (!this.fileDataSet || !this.pageVisible) throw new Error('项目页面已离开')
+    if (!this.fileDataSet || !this.pageVisible) throw new Error(localizedText($r('app.string.text_item_page_left')))
     await this.fileDataSet.updateFileHeader({ repoId: this.repoId, path: this.path }, changes, version)
     this.refreshDocument()
   }
@@ -358,12 +359,12 @@ struct OrgFileDetail {
   private currentStructure(): OrgFileStructureSnapshot {
     const dataSet = this.fileDataSet
     const confirmed = dataSet?.getConfirmed()?.data
-    if (!dataSet || confirmed?.type !== 'task' || !this.pageVisible) throw new Error('项目文件尚未载入')
+    if (!dataSet || confirmed?.type !== 'task' || !this.pageVisible) throw new Error(localizedText($r('app.string.text_project_document_not_yet_loaded')))
     const metadata = this.dataManager?.dataSet('metadata').getConfirmed()?.data
     const file = metadata?.type === 'file' ? metadata.result[0] : undefined
     const tasks = confirmed.result.tasks
     const version = tasks[0]?.fileVersion ?? file?.fileVersion ?? this.headerVersion
-    if (!version) throw new Error('项目文件版本尚未确认')
+    if (!version) throw new Error(localizedText($r('app.string.text_project_document_version_not_confirmed')))
     const matched = this.selectedTags.length || this.selectedCategory ? this.matchedIds : null
     return { file: { repoId: this.repoId, file: this.path, titles: [] }, version, title: this.title,
       nodes: projectStructureNodes(tasks, (task: CoreTask): string => dataSet.taskKey(task.id), matched),
@@ -378,7 +379,7 @@ struct OrgFileDetail {
       if (this.structureOpen || this.structureDialog || this.editSession || this.editBusy || this.refreshing || this.sourceMode || !this.pageVisible) return
       const snapshot = this.currentStructure()
       const parent = row ? snapshot.nodes.find(node => node.row === row) : undefined
-      if (row && !parent) throw new Error('父节点已移除，请重新选择')
+      if (row && !parent) throw new Error(localizedText($r('app.string.text_parent_has_been_removed_re_select')))
       if (mode === 'add' && parent?.task) return
       if (mode === 'order' && snapshot.nodes.filter(node => node.parent === (parent?.id ?? null)).length < 2) return
       this.navigation.closePanel()
@@ -400,7 +401,7 @@ struct OrgFileDetail {
 
   private async commitStructure(snapshot: OrgFileStructureSnapshot, edits: CoreTaskStructureEdit[]): Promise<string[]> {
     const dataSet = this.fileDataSet
-    if (!dataSet || (!this.structureOpen && !this.structureDialog) || !this.pageVisible) throw new Error('项目页面已离开')
+    if (!dataSet || (!this.structureOpen && !this.structureDialog) || !this.pageVisible) throw new Error(localizedText($r('app.string.text_item_page_left')))
     const rows = await dataSet.commitStructure({ file: snapshot.file, fileVersion: snapshot.version, edits })
     return dataSet === this.fileDataSet && this.pageVisible ? rows : []
   }
@@ -416,7 +417,7 @@ struct OrgFileDetail {
       await dataSet?.settle()
       if (!this.pageVisible || dataSet !== this.fileDataSet || scope !== dataSet?.identity || this.structureOpen || this.structureDialog || this.refreshing || this.sourceMode) return
       const snapshot = this.currentStructure()
-      if (row && !snapshot.nodes.some(node => node.row === row)) throw new Error('节点已移除，请重新选择')
+      if (row && !snapshot.nodes.some(node => node.row === row)) throw new Error(localizedText($r('app.string.text_node_removed_please_recheck')))
       this.navigation.closePanel()
       this.drawerOpen = false
       this.editSession = new OrgFileEditSession(snapshot, row)
@@ -451,8 +452,8 @@ struct OrgFileDetail {
   private backStructureEdit(): void {
     if (!this.editSession || this.editBusy) return
     if (this.structureEdit.changed) {
-      showDangerousConfirmation(this.getUIContext(), { title: '放弃顺序调整？', message: '本次调整尚未保存。',
-        cancelLabel: '继续排序', confirmLabel: '放弃', onConfirm: (): void => { this.discardStructureEdit() } })
+      showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_give_up_the_sequence')), message: localizedText($r('app.string.text_this_adjustment_has_not_been_saved')),
+        cancelLabel: localizedText($r('app.string.text_continue_sorting')), confirmLabel: localizedText($r('app.string.text_abandon')), onConfirm: (): void => { this.discardStructureEdit() } })
     } else {
       this.exitStructureEdit()
     }
@@ -505,11 +506,11 @@ struct OrgFileDetail {
     if (!task) return []
     const actions: PopupMenuItem[] = task.state ? [] : this.addStructureActions(row)
     if (task.state) {
-      actions.push({ title: '移动', icon: $r('app.media.ui_move_to'), action: (): void => { this.openStructure('move', row) } })
+      actions.push({ title: localizedText($r('app.string.text_move')), icon: $r('app.media.ui_move_to'), action: (): void => { this.openStructure('move', row) } })
     }
-    actions.push({ title: '重构', icon: $r('app.media.ui_move_to'), action: (): void => { this.beginStructureEdit(row) } })
+    actions.push({ title: localizedText($r('app.string.text_reconstruct')), icon: $r('app.media.ui_move_to'), action: (): void => { this.beginStructureEdit(row) } })
     if (task.state && canOrder) {
-      actions.push({ title: '排序', icon: $r('app.media.ui_drag_handle'), action: (): void => { this.openStructure('order', row) } })
+      actions.push({ title: localizedText($r('app.string.text_sort')), icon: $r('app.media.ui_drag_handle'), action: (): void => { this.openStructure('order', row) } })
     }
     return actions
   }
@@ -535,19 +536,19 @@ struct OrgFileDetail {
 
   private projectMenu(): PopupMenuItem[] {
     const actions: PopupMenuItem[] = []
-    const refresh: PopupMenuItem = { title: '刷新', icon: $r('app.media.ui_sync'), action: (): void => { this.refreshFile() } }
+    const refresh: PopupMenuItem = { title: localizedText($r('app.string.text_refresh')), icon: $r('app.media.ui_sync'), action: (): void => { this.refreshFile() } }
     if (this.sourceMode) {
-      actions.push({ title: '文档', icon: $r('app.media.ui_document_outline'), action: (): void => { this.toggleSource() } }, refresh)
+      actions.push({ title: localizedText($r('app.string.text_document')), icon: $r('app.media.ui_document_outline'), action: (): void => { this.toggleSource() } }, refresh)
     } else {
-      actions.push(refresh, { title: '原文', icon: $r('app.media.ui_body'), action: (): void => { this.toggleSource() } })
+      actions.push(refresh, { title: localizedText($r('app.string.text_source')), icon: $r('app.media.ui_body'), action: (): void => { this.toggleSource() } })
     }
     return actions
   }
 
   private addStructureActions(row: string): PopupMenuItem[] {
     return [
-      { title: '任务', icon: $r('app.media.ui_add_task'), action: (): void => { this.openStructure('add', row, 'task') } },
-      { title: '章节', icon: $r('app.media.ui_add_section'), action: (): void => { this.openStructure('add', row, 'section') } }
+      { title: localizedText($r('app.string.text_tasks_2')), icon: $r('app.media.ui_add_task'), action: (): void => { this.openStructure('add', row, 'task') } },
+      { title: localizedText($r('app.string.text_section')), icon: $r('app.media.ui_add_section'), action: (): void => { this.openStructure('add', row, 'section') } }
     ]
   }
 
@@ -606,7 +607,7 @@ struct OrgFileDetail {
       const repoId = this.repoId, path = this.path
       const file = snapshot.file
       if (revision !== this.loadRevision) return
-      if (!file) throw new Error('此文件已不存在，请返回。')
+      if (!file) throw new Error(localizedText($r('app.string.text_this_document_does_not_exist_please_return')))
       const sections = projectReadingSections(file, snapshot.tasks)
       for (const section of sections) {
         if (section.node && this.fileDataSet) section.key = this.fileDataSet.taskKey(section.node.id)
@@ -644,8 +645,8 @@ struct OrgFileDetail {
       this.refreshMessage = ''
     } catch (e) {
       if (revision !== this.loadRevision) return
-      const message = `读取文件失败：${coreErrorMessage(e as CoreBridgeError)}`
-      if (hasSnapshot) this.refreshMessage = `${message}。当前保留上次读取的内容。`
+      const message = localizedText($r('app.string.text_failed_to_read_file'), String(coreErrorMessage(e as CoreBridgeError)))
+      if (hasSnapshot) this.refreshMessage = localizedText($r('app.string.text_for_the_time_being_last_read'), String(message))
       else this.message = message
     } finally {
       if (revision === this.loadRevision) { this.loading = false; this.refreshing = false; this.refreshDocument() }
@@ -654,41 +655,41 @@ struct OrgFileDetail {
 
   build() {
     Column() {
-      AppShell({ title: this.title || (this.hasParent ? '文件' : '项目'), titleParts: this.titleParts,
+      AppShell({ title: this.title || (this.hasParent ? localizedText($r('app.string.text_documentation')) : localizedText($r('app.string.text_project'))), titleParts: this.titleParts,
         titleIcon: this.projectFile ? '' : $r('app.media.ui_folder'), activeRoute: 'pages/OrgFileDetail',
         back: this.hasParent, drawerOpen: $drawerOpen,
         pullToSync: !this.historyLabel, pullDisabled: this.refreshing || this.fileDeleted || this.structureOpen || this.structureEdit.active,
         busy: this.editBusy || this.structureEdit.active,
         backAction: (): void => { this.onBackPress() },
         secondaryActionIcon: $r('app.media.ui_document_outline'),
-        secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing && !this.structureEdit.active ? '文档目录' : '',
+        secondaryActionLabel: this.renderReady && !this.sourceMode && !this.refreshing && !this.structureEdit.active ? localizedText($r('app.string.text_document_directory')) : '',
         secondaryAction: (): void => { this.navigation.openOutline() },
         actionIcon: $r('app.media.ui_more'),
         actionLabel: this.loading || this.message || this.refreshing || this.fileDeleted || this.structureEdit.active ? '' :
-          this.projectFile ? '更多项目操作' : '更多文档操作',
+          this.projectFile ? localizedText($r('app.string.text_more_project_operations')) : localizedText($r('app.string.text_more_document_operations')),
         actionMenuItems: this.projectMenu() }) {
         Column() {
           if (!this.historyLabel) { CoreNotificationsView({ disabled: this.refreshing }) }
           if (this.fileDeleted) {
-            EmptyState({ title: '文件已删除', actionLabel: '返回', action: (): void => { this.leaveDeletedFile() } })
+            EmptyState({ title: localizedText($r('app.string.text_file_deleted')), actionLabel: localizedText($r('app.string.text_back')), action: (): void => { this.leaveDeletedFile() } })
           } else if (this.loading) {
-            EmptyState({ title: '正在打开文件', busy: true })
+            EmptyState({ title: localizedText($r('app.string.text_opening_file')), busy: true })
           } else if (this.message) {
-            EmptyState({ title: '无法打开文件', detail: this.message, actionLabel: '重试', action: (): void => { this.loadFile(true) } })
+            EmptyState({ title: localizedText($r('app.string.text_could_not_open_file')), detail: this.message, actionLabel: localizedText($r('app.string.text_retry')), action: (): void => { this.loadFile(true) } })
           } else {
             if (this.refreshing) {
               Row({ space: 8 }) {
                 LoadingProgress().width(16).height(16).color(UiColor.primary)
-                Text('正在刷新文件').fontSize(12).fontColor(UiColor.secondary)
+                Text($r('app.string.text_refreshing_files')).fontSize(12).fontColor(UiColor.secondary)
               }.width('100%').padding({ left: 20, top: 8, bottom: 8 })
             }
             if (this.refreshMessage) {
               Text(this.refreshMessage).fontSize(12).fontColor(UiColor.error).width('100%').padding(12)
                 .onClick((): void => { this.loadFile() })
             }
-            if (this.filtering) { Text('正在筛选').fontSize(12).fontColor(UiColor.secondary).padding(8) }
+            if (this.filtering) { Text($r('app.string.text_filtering')).fontSize(12).fontColor(UiColor.secondary).padding(8) }
             if (this.filterMessage) {
-              Text(`筛选失败：${this.filterMessage}，点击重试`).fontSize(12).fontColor(UiColor.error).padding(8)
+              Text(localizedText($r('app.string.text_filter_failed_tap_to_try_again'), String(this.filterMessage))).fontSize(12).fontColor(UiColor.error).padding(8)
                 .onClick((): void => { this.updateTagQuery() })
             }
             if (this.structureMessage) {
@@ -696,8 +697,8 @@ struct OrgFileDetail {
             }
             if (this.createdRow && !this.sourceMode && !this.structureEdit.active) {
               Row() {
-                Text('已添加').fontSize(14).fontColor(UiColor.text).layoutWeight(1)
-                Button(this.selectedTags.length || this.selectedCategory ? '清除筛选并定位' : '展开父项并定位')
+                Text($r('app.string.text_added')).fontSize(14).fontColor(UiColor.text).layoutWeight(1)
+                Button(this.selectedTags.length || this.selectedCategory ? localizedText($r('app.string.text_clear_filter_and_locate')) : localizedText($r('app.string.text_expand_parent_and_position')))
                   .fontColor(UiColor.primary).backgroundColor(Color.Transparent)
                   .onClick((): void => { this.locateNewRow(this.createdRow, true) })
               }.width('100%').padding({ left: 16, right: 16 })
@@ -733,7 +734,7 @@ struct OrgFileDetail {
                     if (this.historyLabel) {
                       Text(this.historyLabel).fontSize(12).fontColor(UiColor.secondary).width('100%')
                     }
-                    Text(this.content || '空白 Org 文件').fontSize(14).fontFamily('monospace')
+                    Text(this.content || localizedText($r('app.string.text_blank_org_file'))).fontSize(14).fontFamily('monospace')
                       .fontColor(UiColor.text).width('100%').copyOption(CopyOptions.LocalDevice)
                   }.width('100%').padding(20)
                 }.width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Off)

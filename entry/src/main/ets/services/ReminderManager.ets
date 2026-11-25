@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { BusinessError } from '@kit.BasicServicesKit'
 import { CoreTask } from './NativeCoreService'
@@ -39,7 +40,7 @@ export class ReminderManager {
   private static enabled: boolean | undefined = undefined
   private static permission: CalendarPermissionState | undefined = undefined
   private static eventDurationMinutes: number = DEFAULT_EVENT_DURATION_MINUTES
-  private static message: string = '正在读取提醒任务…'
+  private static message: string = ''
   private static timer: number = -1
   private static operationHistory: ReminderOperationLog[] = []
   private static operationListeners: Set<() => void> = new Set()
@@ -49,7 +50,7 @@ export class ReminderManager {
 
   static register(context: Context, source: DataSet): void {
     if (ReminderManager.source === source) return
-    if (ReminderManager.source) throw new Error('提醒管理器已注册其他数据集')
+    if (ReminderManager.source) throw new Error(localizedText($r('app.string.text_alarm_manager_registered_other_data_sets')))
     ReminderManager.context = context
     ReminderManager.source = source
     ReminderManager.calendar = new CalendarSync(context)
@@ -60,12 +61,12 @@ export class ReminderManager {
   }
 
   static dataSet(): DataSet {
-    if (!ReminderManager.source) throw new Error('提醒管理器尚未注册')
+    if (!ReminderManager.source) throw new Error(localizedText($r('app.string.text_the_alarm_manager_is_not_registered_yet')))
     return ReminderManager.source
   }
 
   private static hostContext(): Context {
-    if (!ReminderManager.context) throw new Error('提醒管理器尚未注册')
+    if (!ReminderManager.context) throw new Error(localizedText($r('app.string.text_the_alarm_manager_is_not_registered_yet')))
     return ReminderManager.context
   }
 
@@ -79,7 +80,7 @@ export class ReminderManager {
   }
   static async setEnabled(enabled: boolean): Promise<void> {
     const context = ReminderManager.hostContext()
-    if (enabled && !await CalendarPermissionService.request(context)) throw new Error('未获得日历读写权限，提醒未开启')
+    if (enabled && !await CalendarPermissionService.request(context)) throw new Error(localizedText($r('app.string.text_calendar_access_was_denied_reminders_are_off')))
     await TaskReminderSettings.save(context, { enabled })
     ReminderManager.refresh('设置变更').catch((error: Error): void => { console.error(`刷新任务提醒失败：${error.message}`) })
   }
@@ -105,8 +106,8 @@ export class ReminderManager {
 
   // 合并同一任务的在途核实；每次展开仍读取系统状态，不把上次同步成功当成当前登记事实。
   static checkRegistered(task: CoreTask): Promise<ReminderCheckResult> {
-    if (task.reminderAt === null || task.reminderAt === undefined) return Promise.resolve<ReminderCheckResult>({ registered: false, reason: '任务未设置提醒时间' })
-    if (task.reminderAt !== null && task.reminderAt !== undefined && task.reminderAt <= Date.now()) return Promise.resolve<ReminderCheckResult>({ registered: false, reason: '已过期' })
+    if (task.reminderAt === null || task.reminderAt === undefined) return Promise.resolve<ReminderCheckResult>({ registered: false, reason: localizedText($r('app.string.text_task_does_not_set_alarm_time')) })
+    if (task.reminderAt !== null && task.reminderAt !== undefined && task.reminderAt <= Date.now()) return Promise.resolve<ReminderCheckResult>({ registered: false, reason: localizedText($r('app.string.text_expired')) })
     const key = JSON.stringify([ReminderManager.generation, ReminderManager.revision, task.id, ReminderManager.contentKey(task), task.state])
     const pending = ReminderManager.checks.get(key)
     if (pending) return pending
@@ -115,18 +116,18 @@ export class ReminderManager {
       while (ReminderManager.running) await ReminderManager.running
       const context = ReminderManager.hostContext()
       const config = await TaskReminderSettings.load(context)
-      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar) throw new Error('提醒管理器已停止，请重新展开任务')
-      if (!config.enabled) return { registered: false, reason: '本机任务提醒已关闭' }
+      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar) throw new Error(localizedText($r('app.string.text_the_reminder_service_stopped_reopen_the_task')))
+      if (!config.enabled) return { registered: false, reason: localizedText($r('app.string.text_task_reminders_are_off_on_this_device')) }
       const permission = await ReminderManager.permissionState()
-      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar || !calendar) throw new Error('提醒管理器已停止，请重新展开任务')
-      if (permission !== 'enabled') return { registered: false, reason: '未获得日历读写权限' }
-      if (task.reminderAt === null || task.reminderAt === undefined) return { registered: false, reason: '任务未设置提醒时间' }
+      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar || !calendar) throw new Error(localizedText($r('app.string.text_the_reminder_service_stopped_reopen_the_task')))
+      if (permission !== 'enabled') return { registered: false, reason: localizedText($r('app.string.text_calendar_access_was_denied')) }
+      if (task.reminderAt === null || task.reminderAt === undefined) return { registered: false, reason: localizedText($r('app.string.text_task_does_not_set_alarm_time')) }
       const result = await calendar.checkRegistered(task, config.eventDurationMinutes)
-      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar) throw new Error('提醒管理器已停止，请重新展开任务')
+      if (generation !== ReminderManager.generation || calendar !== ReminderManager.calendar) throw new Error(localizedText($r('app.string.text_the_reminder_service_stopped_reopen_the_task')))
       return result
     })().catch((error: BusinessError): ReminderCheckResult => {
-      const code = error.code === undefined ? '' : `（错误码 ${error.code}）`
-      throw new Error(`${error.message || '系统提醒查询失败'}${code}`)
+      const code = error.code === undefined ? '' : localizedText($r('app.string.text_error_code'), String(error.code))
+      throw new Error(`${error.message || localizedText($r('app.string.text_system_alarm_query_failed'))}${code}`)
     }).finally((): void => { if (ReminderManager.checks.get(key) === work) ReminderManager.checks.delete(key) })
     ReminderManager.checks.set(key, work)
     return work
@@ -144,7 +145,7 @@ export class ReminderManager {
     ReminderManager.operationHistory = []; ReminderManager.operationSequence = 0
     ReminderManager.initialSyncCompleted = false; ReminderManager.pendingTrigger = '启动同步'
     ReminderManager.publishOperations()
-    ReminderManager.message = '正在读取提醒任务…'
+    ReminderManager.message = localizedText($r('app.string.text_reading_alarms'))
     if (ReminderManager.timer !== -1) clearTimeout(ReminderManager.timer)
     ReminderManager.timer = -1
     await running
@@ -174,16 +175,16 @@ export class ReminderManager {
     ReminderManager.listeners.add(listener)
     return (): void => { ReminderManager.listeners.delete(listener) }
   }
-  static summary(): string { return ReminderManager.message }
+  static summary(): string { return ReminderManager.message || localizedText($r('app.string.text_reading_alarms')) }
   static status(task: CoreTask): string {
     if (task.reminderAt === null || task.reminderAt === undefined) return ''
-    if (task.state === null) return '非任务记录不安排提醒'
-    if (task.isDone()) return '任务已结束'
-    if (task.reminderAt <= Date.now()) return '已过期'
+    if (task.state === null) return localizedText($r('app.string.text_reminders_are_available_for_tasks'))
+    if (task.isDone()) return localizedText($r('app.string.text_mandate_closed'))
+    if (task.reminderAt <= Date.now()) return localizedText($r('app.string.text_expired'))
     const applied = ReminderManager.applied.get(task.id)
     if (applied && applied.key === ReminderManager.contentKey(task) &&
-      ReminderManager.enabled && ReminderManager.permission === 'enabled' && ReminderManager.calendar?.isReady()) return '日历提醒已设置'
-    return ReminderManager.message
+      ReminderManager.enabled && ReminderManager.permission === 'enabled' && ReminderManager.calendar?.isReady()) return localizedText($r('app.string.text_organisation_3'))
+    return ReminderManager.summary()
   }
   private static publish(): void { for (const listener of ReminderManager.listeners) listener() }
 
@@ -209,7 +210,7 @@ export class ReminderManager {
       catch (error) {
         if (!current()) continue
         ReminderManager.calendar?.invalidate()
-        ReminderManager.message = (error as BusinessError).code === 201 ? '日历读写未授权，请在设置中授权' : `安排日历提醒失败：${(error as Error).message}`
+        ReminderManager.message = (error as BusinessError).code === 201 ? localizedText($r('app.string.text_calendar_is_not_authorized_for_reading_and')) : localizedText($r('app.string.text_couldn_t_schedule_the_calendar_reminder'), String((error as Error).message))
         ReminderManager.publish()
       }
     }
@@ -226,19 +227,19 @@ export class ReminderManager {
     ReminderManager.enabled = config.enabled; ReminderManager.permission = permission
     ReminderManager.eventDurationMinutes = config.eventDurationMinutes
     if (permission !== 'enabled') {
-      ReminderManager.message = config.enabled ? '日历读写未授权，请在设置中授权' : '本机任务提醒已关闭'
+      ReminderManager.message = config.enabled ? localizedText($r('app.string.text_calendar_is_not_authorized_for_reading_and')) : localizedText($r('app.string.text_task_reminders_are_off_on_this_device'))
       ReminderManager.publish(); return
     }
     const source = ReminderManager.source!
     const confirmed = source.getConfirmed()
     if (config.enabled && (!source.hasValidScope() || !source.isReady() || source.error || !confirmed || confirmed.version === 0 || confirmed.data.type !== 'task')) {
-      ReminderManager.message = source.error || '正在读取提醒任务…'
+      ReminderManager.message = source.error || localizedText($r('app.string.text_reading_alarms'))
       ReminderManager.publish(); return
     }
     const tasks = config.enabled && confirmed?.data.type === 'task' ? confirmed.data.result.tasks : []
     const desired: Map<string, AppliedReminder> = new Map()
     for (const task of tasks) {
-      if (desired.has(task.id)) throw new Error('提醒任务身份重复')
+      if (desired.has(task.id)) throw new Error(localizedText($r('app.string.calendar_duplicate_task_id')))
       desired.set(task.id, { task, key: calendarEventKey(task, config.eventDurationMinutes) })
     }
     const calendar = ReminderManager.calendar!
@@ -261,7 +262,7 @@ export class ReminderManager {
     ReminderManager.applied = desired
     ReminderManager.initialSyncCompleted = true
     if (!current()) return
-    ReminderManager.message = config.enabled ? `已设置 ${tasks.filter(task => task.reminderAt! > Date.now()).length} 项日历提醒` : '本机任务提醒已关闭'
+    ReminderManager.message = config.enabled ? localizedText($r('app.string.text_calendar_alarm_set'), String(tasks.filter(task => task.reminderAt! > Date.now()).length)) : localizedText($r('app.string.text_task_reminders_are_off_on_this_device'))
     ReminderManager.updateTimer(tasks)
     ReminderManager.publish()
   }

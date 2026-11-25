@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { LengthMetrics } from '@kit.ArkUI'
 import { TaskRegionData } from '../ui/TaskRegionPresentation'
 import { UiColor } from '../ui/Theme'
@@ -22,7 +23,7 @@ export struct RegionProjectFilter {
 
   overflows(): boolean {
     if (this.availableWidth <= 0) return false
-    let width = this.chipWidth('全部')
+    let width = this.chipWidth(localizedText($r('app.string.text_all')))
     for (const region of this.options) width += 6 + this.chipWidth(region.title)
     return width > this.availableWidth
   }
@@ -34,7 +35,7 @@ export struct RegionProjectFilter {
     const selected = this.options.find((region: TaskRegionData) => region.key === this.selectedKey)
     // 收起时优先保留当前选择，避免筛选条件藏在展开区域。
     const candidates = selected ? [selected].concat(this.options.filter((region: TaskRegionData) => region.key !== selected.key)) : this.options
-    let remaining = this.availableWidth - this.chipWidth('全部') - this.toggleWidth() - 12
+    let remaining = this.availableWidth - this.chipWidth(localizedText($r('app.string.text_all'))) - this.toggleWidth() - 12
     const visible: TaskRegionData[] = []
     for (const region of candidates) {
       const width = this.collapsedChipWidth(region)
@@ -46,7 +47,7 @@ export struct RegionProjectFilter {
   }
 
   collapsedChipWidth(region: TaskRegionData): number {
-    const remaining = this.availableWidth - this.chipWidth('全部') - this.toggleWidth() - 12
+    const remaining = this.availableWidth - this.chipWidth(localizedText($r('app.string.text_all'))) - this.toggleWidth() - 12
     return Math.min(this.chipWidth(region.title), Math.max(0, remaining))
   }
 
@@ -68,7 +69,7 @@ export struct RegionProjectFilter {
         .borderRadius(16)
     }.width(region !== null && !this.expanded && this.overflows() ? this.collapsedChipWidth(region) : this.chipWidth(label))
       .height(44).padding(0).borderRadius(18).backgroundColor(Color.Transparent).flexShrink(0)
-      .accessibilityText(`${region === null ? '' : region.kind === 'project' ? '项目：' : '分类：'}${label}，${selected ? '已选中' : '未选中'}`)
+      .accessibilityText(`${region === null ? '' : region.kind === 'project' ? localizedText($r('app.string.text_projects')) : localizedText($r('app.string.text_classification'))}${label}，${selected ? localizedText($r('app.string.text_selected')) : localizedText($r('app.string.text_not_selected'))}`)
       .onClick((): void => { this.changed(selected ? null : region) })
   }
 
@@ -79,7 +80,7 @@ export struct RegionProjectFilter {
         .width(14).height(14).fillColor(UiColor.secondary).accessibilityLevel('no')
     }.width(this.toggleWidth()).height(44).padding(0)
       .backgroundColor(Color.Transparent).borderRadius(16).flexShrink(0)
-      .accessibilityText(this.expanded ? '收起分类与项目筛选' : '展开全部分类与项目筛选')
+      .accessibilityText(this.expanded ? localizedText($r('app.string.text_collapse_classification_and_filter_items')) : localizedText($r('app.string.text_expand_all_categories_and_project_filters')))
       .onClick((): void => { this.expanded = !this.expanded })
   }
 
@@ -87,7 +88,7 @@ export struct RegionProjectFilter {
     Row({ space: 6 }) {
       Flex({ wrap: this.expanded ? FlexWrap.Wrap : FlexWrap.NoWrap, alignItems: ItemAlign.Center,
         space: { main: LengthMetrics.vp(6) } }) {
-        this.chip('全部', this.selectedKey.length === 0, null)
+        this.chip(localizedText($r('app.string.text_all')), this.selectedKey.length === 0, null)
         ForEach(this.expanded ? this.options : this.collapsedOptions(), (region: TaskRegionData) => {
           this.chip(region.title, this.selectedKey === region.key, region)
         }, (region: TaskRegionData) => region.key)

@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { UiColor, UiSize } from '../../ui/Theme'
 
 export interface PopupMenuItem {
@@ -116,7 +117,7 @@ struct PopupMenuRow {
       // 透明原生按钮覆盖整行，统一触摸、键盘焦点、按压反馈与无障碍名称。
       Button({ type: ButtonType.Normal }) {}.padding(0).backgroundColor(Color.Transparent).borderRadius(UiSize.menuRadius)
           .enabled(!this.disabled && !this.item.disabled).defaultFocus(this.first)
-          .accessibilityText(`${this.item.title}${this.item.checked === undefined ? '' : this.item.checked ? '，已选中' : '，未选中'}`)
+          .accessibilityText(`${this.item.title}${this.item.checked === undefined ? '' : this.item.checked ? localizedText($r('app.string.text_selected_2')) : localizedText($r('app.string.text_not_selected_2'))}`)
           .onClick((): void => { if (!this.disabled && !this.item.disabled) this.activate(this.item) })
     }, (item: PopupMenuItem) => item.title)
   }

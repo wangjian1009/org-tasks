@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { ReminderManager } from './ReminderManager'
 import { TaskRegionData } from '../ui/TaskRegionPresentation'
 import { TrashService } from './TrashService'
@@ -119,12 +120,12 @@ export class AppDataManager {
     await this.start()
     const days = await TrashSettingsService.retentionDays(this.context)
     const trash = this.dataSet('trash')
-    if (trash.query?.type !== 'task') throw new Error('系统仓库尚未初始化')
+    if (trash.query?.type !== 'task') throw new Error(localizedText($r('app.string.text_system_repository_not_yet_initialized')))
     const query = trashExpirationQuery(trash.query.query.includeFiles, days)
     const expired = this.dataSet('trashExpired')
     if (JSON.stringify(expired.query) !== JSON.stringify(query)) await this.manager.setQuery('trashExpired', query, trash.repositoryBindings)
     else if (expired.error) await expired.refresh()
-    if (!expired.isReady() || expired.version === 0 || expired.error) throw new Error(expired.error || '过期记录尚未读取完成')
+    if (!expired.isReady() || expired.version === 0 || expired.error) throw new Error(expired.error || localizedText($r('app.string.text_obsolete_records_not_read_yet_completed')))
     const data = expired.data
     if (data?.type === 'task' && data.result.tasks.length) {
       await trash.operate((operationId: string): Promise<void> => TrashService.perform(this.context, data.result.tasks, 'clear', operationId))

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { PageNavigator, primaryPage } from '../services/PageNavigator'
 import { LinkEditController } from './LinkView'
 import { TaskInlineSession } from '../services/TaskInlineService'
@@ -173,7 +174,7 @@ export struct AppShell {
   async navigate(route: string) {
     this.drawerOpen = false
     if (!await PageNavigator.shared.openPrimary(this.getUIContext(), { url: route })) {
-      this.navMessage = '打开页面失败，请重试'; this.drawerOpen = true
+      this.navMessage = localizedText($r('app.string.text_couldn_t_open_the_page_try_again')); this.drawerOpen = true
     }
   }
 
@@ -213,7 +214,7 @@ export struct AppShell {
     }.width('100%').height(UiSize.drawerRow).padding({ left: 12, right: 12 }).borderRadius(12)
       .backgroundColor(view === 'inbox' ? (this.activeRoute === 'pages/Inbox' ? UiColor.drawerSelected : Color.Transparent)
         : this.activeRoute === primaryPage(view).url ? UiColor.drawerSelected : Color.Transparent)
-      .accessibilityText(`${title}${this.primaryCount(view) >= 0 ? `，${this.primaryCount(view)} 条` : ''}${view === 'today' && this.todayAttentionCount > 0 ? `，需处理 ${this.todayAttentionCount} 个` : ''}`)
+      .accessibilityText(`${title}${this.primaryCount(view) >= 0 ? localizedText($r('app.string.text_label'), String(this.primaryCount(view))) : ''}${view === 'today' && this.todayAttentionCount > 0 ? localizedText($r('app.string.text_processing_of'), String(this.todayAttentionCount)) : ''}`)
       .onClick((): void => { this.openPrimary(view) })
   }
 
@@ -221,10 +222,10 @@ export struct AppShell {
   projectItem(file: CoreOrgFileMetadata) {
     Row({ space: 12 }) {
       OrgFileProgressIcon({ completed: fileCompletedTaskCount(file), total: fileTaskCount(file) }).flexShrink(0)
-      Text(file.project() || '未命名项目').fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
+      Text(file.project() || localizedText($r('app.string.text_untitled_project'))).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
         .fontColor(UiColor.drawerText).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
     }.width('100%').height(UiSize.drawerRow).padding({ left: 12, right: 12 }).borderRadius(12)
-      .accessibilityGroup(true).accessibilityText(`${file.project() || '未命名项目'}，已完成/总任务数 ${fileTaskProgress(file)}`)
+      .accessibilityGroup(true).accessibilityText(localizedText($r('app.string.text_completed_total_tasks'), String(file.project() || localizedText($r('app.string.text_untitled_project'))), String(fileTaskProgress(file))))
       .onClick((): void => { this.openProject(file) })
   }
 
@@ -234,10 +235,10 @@ export struct AppShell {
       Row({ space: 12 }) {
         Image($r('app.media.nav_project_category')).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
           .accessibilityLevel('no')
-        Text(section.category || '未分类').fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
+        Text(section.category || localizedText($r('app.string.text_uncategorized'))).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
           .fontColor(UiColor.drawerText).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.width('100%').height(40).padding({ left: 12, right: 12 }).margin({ bottom: 4 })
-        .accessibilityText(`项目分类，${section.category || '未分类'}`)
+        .accessibilityText(localizedText($r('app.string.text_categorization_of_items'), String(section.category || localizedText($r('app.string.text_uncategorized')))))
       ForEach(section.files, (file: CoreOrgFileMetadata) => {
         this.projectItem(file)
       }, (file: CoreOrgFileMetadata) => JSON.stringify([file.repoId, file.path, file.project(), file.taskStateCounts]))
@@ -255,7 +256,7 @@ export struct AppShell {
       }
     }.width('100%').height(UiSize.drawerRow).padding({ left: 16, right: 16 }).borderRadius(12)
       .backgroundColor(selected ? UiColor.drawerSelected : Color.Transparent)
-      .accessibilityText(`${title}${this.navigationCount(route) >= 0 ? `，${this.navigationCount(route)} 条` : ''}`)
+      .accessibilityText(`${title}${this.navigationCount(route) >= 0 ? localizedText($r('app.string.text_label'), String(this.navigationCount(route))) : ''}`)
       .onClick((): void => { this.navigate(route) })
   }
 
@@ -266,17 +267,17 @@ export struct AppShell {
     Column() {
       Scroll() {
         Column({ space: 2 }) {
-          this.primaryItem('收件箱', $r('app.media.nav_inbox'), 'inbox')
+          this.primaryItem(localizedText($r('app.string.text_inbox')), $r('app.media.nav_inbox'), 'inbox')
           Row().height(6)
-          this.primaryItem('今天', $r('app.media.nav_today'), 'today')
-          this.primaryItem('计划', $r('app.media.nav_planned'), 'planned')
-          this.primaryItem('等待', $r('app.media.nav_waiting'), 'waiting')
-          this.primaryItem('随时', $r('app.media.nav_anytime'), 'anytime')
-          this.primaryItem('某天', $r('app.media.nav_someday'), 'someday')
-          this.primaryItem('备忘', $r('app.media.nav_memo'), 'memo')
+          this.primaryItem(localizedText($r('app.string.text_today')), $r('app.media.nav_today'), 'today')
+          this.primaryItem(localizedText($r('app.string.text_planned')), $r('app.media.nav_planned'), 'planned')
+          this.primaryItem(localizedText($r('app.string.text_waiting')), $r('app.media.nav_waiting'), 'waiting')
+          this.primaryItem(localizedText($r('app.string.text_anytime')), $r('app.media.nav_anytime'), 'anytime')
+          this.primaryItem(localizedText($r('app.string.text_someday')), $r('app.media.nav_someday'), 'someday')
+          this.primaryItem(localizedText($r('app.string.text_notes')), $r('app.media.nav_memo'), 'memo')
           Row().height(12)
-          this.primaryItem('日志簿', $r('app.media.nav_logbook'), 'logbook')
-          this.navItem('废纸篓', $r('app.media.ui_delete'), 'pages/Trash', this.activeRoute === 'pages/Trash')
+          this.primaryItem(localizedText($r('app.string.text_logbook')), $r('app.media.nav_logbook'), 'logbook')
+          this.navItem(localizedText($r('app.string.text_trash')), $r('app.media.ui_delete'), 'pages/Trash', this.activeRoute === 'pages/Trash')
           Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
           if (this.projectGroups.length > 0) {
             Column({ space: 32 }) {
@@ -286,14 +287,14 @@ export struct AppShell {
             }.width('100%').padding({ top: 8, bottom: 8 })
             Divider().color(UiColor.drawerOutline).margin({ top: 4, bottom: 4 })
           }
-          this.navItem('笔记本', $r('app.media.nav_repository'), 'pages/Files', this.activeRoute === 'pages/Files')
+          this.navItem(localizedText($r('app.string.text_notebooks')), $r('app.media.nav_repository'), 'pages/Files', this.activeRoute === 'pages/Files')
           if (this.navMessage.length > 0) {
             Text(this.navMessage).fontSize(UiSize.drawerFont).fontColor(UiColor.error).padding(16)
           }
         }.width('100%').padding({ left: 12, right: 12, bottom: 16 })
       }.layoutWeight(1).width('100%').padding({ top: 16 }).align(Alignment.TopStart).scrollBar(BarState.Off)
       Divider().color(UiColor.drawerOutline)
-      this.navItem('设置', $r('app.media.nav_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
+      this.navItem(localizedText($r('app.string.text_settings')), $r('app.media.nav_settings'), 'pages/Settings', this.activeRoute === 'pages/Settings')
     }.width('84%').constraintSize({ maxWidth: 340 }).height('100%').backgroundColor(UiColor.drawer)
       .borderRadius({ topRight: 20, bottomRight: 20 })
       .onClick((): void => { this.drawerOpen = false })
@@ -304,18 +305,18 @@ export struct AppShell {
       Column() {
         Row() {
           if (this.back) {
-            IconButton({ icon: $r('app.media.ui_back'), label: '返回', disabled: this.busy,
+            IconButton({ icon: $r('app.media.ui_back'), label: localizedText($r('app.string.text_back')), disabled: this.busy,
               action: () => { this.backAction() } })
           }
           Row({ space: 8 }) {
             if (this.titleIcon !== '') {
               Image(this.titleIcon).width(26).height(26).enabled(!this.busy)
-                .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`)
+                .accessibilityText(this.back ? this.titleLabel() : localizedText($r('app.string.text_open_navigator'), String(this.titleLabel())))
                 .onClick((): void => { this.openDrawer() })
             }
             TitleText({ text: this.title, parts: this.titleParts, textSize: 22, weight: FontWeight.Medium, lineLimit: 1,
               openLinks: this.back, activate: (): void => { this.openDrawer() } }).flexShrink(1)
-              .accessibilityText(this.back ? this.titleLabel() : `打开导航，${this.titleLabel()}`).enabled(!this.busy)
+              .accessibilityText(this.back ? this.titleLabel() : localizedText($r('app.string.text_open_navigator'), String(this.titleLabel()))).enabled(!this.busy)
             if (this.titleContext) {
               Text(this.titleContext).fontSize(11).fontColor(UiColor.secondary).maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(2)
@@ -354,10 +355,10 @@ export struct AppShell {
           } else if (this.repositoryStatus === 'missing') {
             RepositoryWelcome()
           } else if (this.repositoryStatus === 'error') {
-            EmptyState({ title: '无法读取仓库配置', actionLabel: '重试',
+            EmptyState({ title: localizedText($r('app.string.text_cannot_read_repository_configuration')), actionLabel: localizedText($r('app.string.text_retry')),
               action: (): void => { this.repositoryStatus = 'loading'; this.loadRepositoryStatus() } })
           } else {
-            EmptyState({ title: '正在读取仓库配置', busy: true })
+            EmptyState({ title: localizedText($r('app.string.text_reading_repository_configuration')), busy: true })
           }
         }.width('100%').layoutWeight(1)
       }.width('100%').height('100%').backgroundColor(UiColor.surface)

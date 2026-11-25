@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { InsightIntentEntry, InsightIntentEntryExecutor, insightIntent } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { CaptureRequest, captureTitle } from '../services/CaptureInput'
@@ -31,13 +32,13 @@ export default class CaptureIntent extends InsightIntentEntryExecutor<string> {
       const request: CaptureRequest = { id: util.generateRandomUUID(), title, voice: false }
       AppStorage.setOrCreate('captureVisible', true)
       AppStorage.setOrCreate('captureRequest', request)
-      if (!this.windowStage) return { code: 1, result: '无法打开小清单捕捉窗口，请重试' }
+      if (!this.windowStage) return { code: 1, result: localizedText($r('app.string.text_could_not_open_org_tasks_capture_window')) }
       await this.windowStage.loadContent('pages/Capture')
       console.info(`小艺捕捉意图已打开确认窗口，标题长度：${title.length}`)
-      return { code: 0, result: '请确认标题并保存到小清单' }
+      return { code: 0, result: localizedText($r('app.string.text_please_confirm_the_title_and_save_it')) }
     } catch (error) {
       console.error(`小艺捕捉意图启动透明窗口失败：${JSON.stringify(error)}`)
-      return { code: 1, result: '无法打开小清单捕捉窗口，请重试' }
+      return { code: 1, result: localizedText($r('app.string.text_could_not_open_org_tasks_capture_window')) }
     }
   }
 }

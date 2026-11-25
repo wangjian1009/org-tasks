@@ -1,4 +1,5 @@
 // 验证只读任务快照更新时列表行与点击参数的一致性；不连接 WebDAV 或系统日历。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +13,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const deveco = process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents';
 const ts = require(path.join(deveco, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const filename = path.resolve(__dirname, '../entry/src/main/ets/ui/TaskPresentation.ets');
-const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+const compiled = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
 });
 const exported = {};
@@ -90,7 +91,7 @@ test('计划、标签、链接及详情正文更新都能刷新点击参数，�
 });
 
 const presentationFile = path.resolve(__dirname, '../entry/src/main/ets/ui/TaskListPresentation.ets');
-const presentationCode = ts.transpileModule(fs.readFileSync(presentationFile, 'utf8'), {
+const presentationCode = transpileFixture(ts, fs.readFileSync(presentationFile, 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
 });
 const presentation = {};
@@ -187,7 +188,7 @@ test('标志直接采用 Core 投影，完整可读标题与新快照保持一�
 });
 
 const countsFile = path.resolve(__dirname, '../entry/src/main/ets/ui/TitleCountPresentation.ets');
-const countsCode = ts.transpileModule(fs.readFileSync(countsFile, 'utf8'), {
+const countsCode = transpileFixture(ts, fs.readFileSync(countsFile, 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
 });
 const countsView = {};
@@ -281,7 +282,7 @@ test('截止日期的未来、当天、逾期、已完成与无效状态使用�
 
 function loadRegionPresentation() {
   const filename = path.resolve(__dirname, '../entry/src/main/ets/ui/TaskRegionPresentation.ets');
-  const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const code = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   });
   const result = {};
@@ -293,7 +294,7 @@ function loadGrouping(name, dependencies) {
   dependencies = { './TaskRegionPresentation': loadRegionPresentation(), './TaskListPresentation': presentation,
     './Theme': { localDate }, ...dependencies };
   const filename = path.resolve(__dirname, `../entry/src/main/ets/ui/${name}.ets`);
-  const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  const code = transpileFixture(ts, fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   });
   const result = {};
@@ -375,7 +376,7 @@ test('计划保留日期和区域标识后，从当前快照读取新增、删�
   const { plannedGroups } = loadGrouping('PlannedPresentation', {});
   const source = fs.readFileSync('entry/src/main/ets/components/PlannedTaskList.ets', 'utf8');
   const helpers = source.slice(source.indexOf('  private group('), source.indexOf('  @Builder'));
-  const code = ts.transpileModule('class List {' + helpers + '} exports.List = List;', {
+  const code = transpileFixture(ts, 'class List {' + helpers + '} exports.List = List;', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const result = {};
@@ -403,7 +404,7 @@ test('计划保留日期和区域标识后，从当前快照读取新增、删�
 test('计划筛选初次测量前和空候选时显示有宽度的全部，测量后再补候选', () => {
   const source = fs.readFileSync('entry/src/main/ets/components/RegionProjectFilter.ets', 'utf8');
   const helpers = source.slice(source.indexOf('  chipWidth('), source.indexOf('  @Builder'));
-  const code = ts.transpileModule('class Filter {' + helpers + '} exports.Filter = Filter;', {
+  const code = transpileFixture(ts, 'class Filter {' + helpers + '} exports.Filter = Filter;', {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
   const result = {};
@@ -614,7 +615,7 @@ test('日期在列表中紧凑显示，详情使用完整日期时间', () => {
 });
 
 const memoFile = path.resolve(__dirname, '../entry/src/main/ets/ui/MemoListPresentation.ets');
-const memoCode = ts.transpileModule(fs.readFileSync(memoFile, 'utf8'), {
+const memoCode = transpileFixture(ts, fs.readFileSync(memoFile, 'utf8'), {
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
 });
 const memoPresentation = {};
@@ -1002,7 +1003,7 @@ function plannedListFixture() {
     for(let i=open;i<source.length;i++){if(source[i]==='{')depth++;if(source[i]==='}'&&--depth===0)return source.slice(start,i+1);}
     assert.fail('未结束的方法 '+name);
   }).join('\n');
-  const code=ts.transpileModule('export class PlannedList {'+methods+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
+  const code=transpileFixture(ts, 'export class PlannedList {'+methods+'}',{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText;
   const module={exports:{}},TaskDateDisplay={None:'none',Schedule:'schedule',Deadline:'deadline'},RegionAreaPolicy={None:'none',Project:'project',Category:'category'};
   vm.runInThisContext('(function(module,exports,TaskDateDisplay,RegionAreaPolicy,plannedTaskDate){'+code+'\n})')(module,module.exports,TaskDateDisplay,RegionAreaPolicy,t=>t.scheduled);
   const row=task('item',{scheduled:'2026-12-28',projectName:'项目'}),live=new Map([[row.id,row]]);

@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { webview } from '@kit.ArkWeb'
 import { CoreBridgeError, coreErrorMessage } from '../services/NativeCoreService'
 import { OrgContentView } from './OrgContentView'
@@ -85,7 +86,7 @@ export struct OrgFileConflictView {
         this.ready()
       }
     } catch (error) {
-      if (this.active && version === this.lifecycle) this.failed(`读取冲突文档失败：${coreErrorMessage(error as CoreBridgeError)}`)
+      if (this.active && version === this.lifecycle) this.failed(localizedText($r('app.string.text_reading_conflict_document_failed'), String(coreErrorMessage(error as CoreBridgeError))))
     }
   }
 
@@ -103,8 +104,8 @@ export struct OrgFileConflictView {
         const box = document.createElement('aside'); box.dataset.conflictCard = card.id;
         box.className = 'conflict-card conflict-' + card.kind;
         const header = document.createElement('div'); header.className = 'conflict-card-header';
-        const badge = document.createElement('span'); badge.className = 'conflict-card-badge'; badge.textContent = card.kindLabel || '冲突';
-        const title = document.createElement('strong'); title.className = 'conflict-card-title'; title.textContent = card.title || '未命名节点';
+        const badge = document.createElement('span'); badge.className = 'conflict-card-badge'; badge.textContent = card.kindLabel || ${JSON.stringify(localizedText($r('app.string.text_conflict')))};
+        const title = document.createElement('strong'); title.className = 'conflict-card-title'; title.textContent = card.title || ${JSON.stringify(localizedText($r('app.string.conflict_untitled')))};
         header.append(badge, title); box.append(header);
         const body = document.createElement('div'); body.className = 'conflict-card-body';
         body.innerHTML = card.html;
@@ -117,13 +118,13 @@ export struct OrgFileConflictView {
         }
         body.querySelectorAll('details.heading').forEach(node => node.classList.remove('heading'));
         body.querySelectorAll('[data-org-start]').forEach(node => { node.removeAttribute('data-org-start'); node.removeAttribute('data-org-end'); node.removeAttribute('id'); });
-        if (!body.textContent.trim()) body.textContent = card.content || '候选材料不可用，可丢弃此冲突';
+        if (!body.textContent.trim()) body.textContent = card.content || ${JSON.stringify(localizedText($r('app.string.conflict_candidate_unavailable')))};
         box.append(body);
         const actions = document.createElement('div'); actions.className = 'conflict-card-actions';
         if (card.available) {
-          const apply = document.createElement('button'); apply.type = 'button'; apply.dataset.conflictAction = 'apply'; apply.dataset.conflictId = card.id; apply.textContent = card.applyLabel || '应用'; actions.append(apply);
+          const apply = document.createElement('button'); apply.type = 'button'; apply.dataset.conflictAction = 'apply'; apply.dataset.conflictId = card.id; apply.textContent = card.applyLabel || ${JSON.stringify(localizedText($r('app.string.conflict_apply')))}; actions.append(apply);
         }
-        const discard = document.createElement('button'); discard.type = 'button'; discard.dataset.conflictAction = 'discard'; discard.dataset.conflictId = card.id; discard.textContent = '丢弃'; actions.append(discard); box.append(actions);
+        const discard = document.createElement('button'); discard.type = 'button'; discard.dataset.conflictAction = 'discard'; discard.dataset.conflictId = card.id; discard.textContent = ${JSON.stringify(localizedText($r('app.string.conflict_discard')))}; actions.append(discard); box.append(actions);
         const key = String(card.anchorStart) + ':' + String(card.atTarget);
         let group = groups.get(key);
         if (!group) {
@@ -169,7 +170,7 @@ export struct OrgFileConflictView {
 
   private readingError(error: CoreBridgeError) {
     if (!this.active) return
-    try { this.getUIContext().getPromptAction().showToast({ message: `阅读操作失败：${coreErrorMessage(error)}` }) }
+    try { this.getUIContext().getPromptAction().showToast({ message: localizedText($r('app.string.text_reading_operation_failed'), String(coreErrorMessage(error))) }) }
     catch (_) { /* 页面销毁时无需显示提示。 */ }
   }
 
@@ -194,7 +195,7 @@ export struct OrgFileConflictView {
     try {
       const result = await this.controller.runJavaScript(documentChapterScript(chapter.index))
       if (request !== this.outlineRequest) return
-      if (result !== 'true') throw new Error('目录已失效，请重新打开文件')
+      if (result !== 'true') throw new Error(localizedText($r('app.string.text_the_directory_is_invalid_please_reopen_the')))
       this.activeChapter = chapter.index
       this.outlineVisible = false
     } catch (error) {
@@ -206,16 +207,16 @@ export struct OrgFileConflictView {
   outlineSheet() {
     Column() {
       Row() {
-        Text('文档目录').fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
-        Button('全部展开').fontSize(12).fontColor(UiColor.primary).backgroundColor(Color.Transparent).height(44)
+        Text($r('app.string.text_document_directory')).fontSize(18).fontWeight(FontWeight.Medium).fontColor(UiColor.text).layoutWeight(1)
+        Button($r('app.string.text_expand_all')).fontSize(12).fontColor(UiColor.primary).backgroundColor(Color.Transparent).height(44)
           .onClick((): void => { this.expandAll(true) })
-        Button('全部收起').fontSize(12).fontColor(UiColor.primary).backgroundColor(Color.Transparent).height(44)
+        Button($r('app.string.text_put_it_all_away')).fontSize(12).fontColor(UiColor.primary).backgroundColor(Color.Transparent).height(44)
           .onClick((): void => { this.expandAll(false) })
       }.width('100%')
-      Text(`${this.title} · ${this.chapters.length} 个章节`).fontSize(12).fontColor(UiColor.secondary)
+      Text(localizedText($r('app.string.text_chapters'), String(this.title), String(this.chapters.length))).fontSize(12).fontColor(UiColor.secondary)
         .width('100%').margin({ top: 2, bottom: 16 })
       if (this.chapters.length === 0) {
-        Text('本文没有章节标题').fontSize(14).fontColor(UiColor.secondary).padding({ top: 24, bottom: 32 })
+        Text($r('app.string.text_this_document_does_not_have_a_chapter')).fontSize(14).fontColor(UiColor.secondary).padding({ top: 24, bottom: 32 })
       } else {
         List({ space: 4, initialIndex: Math.max(0, this.activeChapter) }) {
           ForEach(this.chapters, (chapter: OrgDocumentChapter) => {
@@ -228,7 +229,7 @@ export struct OrgFileConflictView {
                   .padding({ left: 12 + Math.min(chapter.level - 1, 4) * 16, right: 12, top: 12, bottom: 12 }).layoutWeight(1)
               }.width('100%').constraintSize({ minHeight: 48 }).borderRadius(8)
                 .backgroundColor(chapter.index === this.activeChapter ? UiColor.selected : Color.Transparent)
-                .accessibilityText(`${chapter.level} 级标题，${chapter.title}${chapter.index === this.activeChapter ? '，当前章节' : ''}`)
+                .accessibilityText(localizedText($r('app.string.text_class_title'), String(chapter.level), String(chapter.title), String(chapter.index === this.activeChapter ? localizedText($r('app.string.text_current')) : '')))
                 .onClick((): void => { this.openChapter(chapter) })
             }
           }, (chapter: OrgDocumentChapter) => `${chapter.index}`)

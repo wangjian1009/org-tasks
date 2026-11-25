@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { common } from '@kit.AbilityKit'
 import { UiColor } from '../ui/Theme'
 
@@ -21,14 +22,14 @@ struct ShareCapture {
       await context.startAbility({ bundleName: context.applicationInfo.name, abilityName: 'ShareLocationAbility',
         parameters: { title: this.title, url: this.url } })
       await context.terminateSelf()
-    } catch (e) { this.error = '打开快速捕捉失败，请重试'; this.forwarding = false }
+    } catch (e) { this.error = localizedText($r('app.string.text_couldn_t_open_quick_capture_try_again')); this.forwarding = false }
   }
 
   build() {
     Column({ space: 20 }) {
-      Text(this.error || '正在打开快速捕捉…').fontSize(18).fontColor(UiColor.text)
-      if (this.error && this.ready) Button('重试').onClick((): void => { this.forward() })
-      Button('关闭').backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
+      Text(this.error || localizedText($r('app.string.text_opening_quick_capture'))).fontSize(18).fontColor(UiColor.text)
+      if (this.error && this.ready) Button($r('app.string.text_retry')).onClick((): void => { this.forward() })
+      Button($r('app.string.text_close')).backgroundColor(UiColor.selected).fontColor(UiColor.onSelected)
         .onClick((): void => { (this.getUIContext().getHostContext()! as common.UIExtensionContext).terminateSelf() })
     }.width('100%').height('100%').padding(24).justifyContent(FlexAlign.Center).backgroundColor(UiColor.surface)
   }

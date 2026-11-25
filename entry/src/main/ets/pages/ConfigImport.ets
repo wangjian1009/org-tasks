@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { common } from '@kit.AbilityKit'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/controls/EmptyState'
@@ -27,7 +28,7 @@ struct ConfigImport {
     this.inApp = !this.externalUri && !!params?.configImportUri
     this.openedUri = this.externalUri || params?.configImportUri || ''
     if (this.openedUri) this.readFile()
-    else this.message = '无法打开此配置，请检查文件后重新打开'
+    else this.message = localizedText($r('app.string.text_could_not_open_this_configuration_please_check'))
   }
 
   onPageShow(): void {
@@ -54,7 +55,7 @@ struct ConfigImport {
     }
     try {
       await (this.getUIContext().getHostContext()! as common.UIAbilityContext).terminateSelf()
-    } catch (_) { this.message = '关闭导入页面失败，请重试' }
+    } catch (_) { this.message = localizedText($r('app.string.text_failed_to_close_import_page_please_try')) }
   }
 
   private async readFile(): Promise<void> {
@@ -66,11 +67,11 @@ struct ConfigImport {
       let text: string
       try { text = await ConfigTransfer.readFile(this.openedUri) }
       catch (_) {
-        this.message = '无法读取配置文件，请检查文件是否仍可访问'
+        this.message = localizedText($r('app.string.text_couldn_t_read_the_settings_file_check'))
         return
       }
       this.preview = await ConfigTransfer.preview(this.getUIContext().getHostContext()!, text)
-    } catch (error) { this.message = (error as Error).message || '无法识别该配置' }
+    } catch (error) { this.message = (error as Error).message || localizedText($r('app.string.text_could_not_recognize_this_configuration')) }
     finally { this.busy = false }
   }
 
@@ -86,7 +87,7 @@ struct ConfigImport {
       await this.finishImport()
     } catch (error) {
       this.preview = undefined
-      this.message = (error as Error).message || '保存配置失败，请重新预览'
+      this.message = (error as Error).message || localizedText($r('app.string.text_save_configuration_failed_re_prefer'))
     } finally { this.busy = false }
   }
 
@@ -99,33 +100,33 @@ struct ConfigImport {
       const context = this.getUIContext().getHostContext()! as common.UIAbilityContext
       await context.startAbility({ bundleName: context.abilityInfo.bundleName, abilityName: 'EntryAbility' })
       await context.terminateSelf()
-    } catch (_) { this.message = '配置已应用，暂时无法返回小清单' }
+    } catch (_) { this.message = localizedText($r('app.string.text_configure_applied_cannot_return_org_tasks_for')) }
   }
 
   @Builder
   previewContent(preview: ConfigImportPreview) {
     Column() {
-      SettingsGroup({ title: '文件入口' }) {
-        SettingsRow({ title: '收件箱', value: preview.document.settings.inboxFile || '未配置', disclosure: false })
-        SettingsRow({ title: '某天', value: preview.document.settings.somedayFile || '未配置', disclosure: false })
-        SettingsRow({ title: '备忘', value: preview.document.settings.memoFile || '未配置', disclosure: false, divider: false })
+      SettingsGroup({ title: localizedText($r('app.string.text_notebook_shortcuts')) }) {
+        SettingsRow({ title: localizedText($r('app.string.text_inbox')), value: preview.document.settings.inboxFile || localizedText($r('app.string.text_unconfigured')), disclosure: false })
+        SettingsRow({ title: localizedText($r('app.string.text_someday')), value: preview.document.settings.somedayFile || localizedText($r('app.string.text_unconfigured')), disclosure: false })
+        SettingsRow({ title: localizedText($r('app.string.text_notes')), value: preview.document.settings.memoFile || localizedText($r('app.string.text_unconfigured')), disclosure: false, divider: false })
       }
-      SettingsGroup({ title: '将导入的存储库' }) {
+      SettingsGroup({ title: localizedText($r('app.string.text_repository_to_import')) }) {
         if (preview.document.settings.repos.length === 0) {
-          SettingsRow({ title: '文件中没有存储库', disclosure: false, divider: false })
+          SettingsRow({ title: localizedText($r('app.string.text_no_repository_in_file')), disclosure: false, divider: false })
         }
         ForEach(preview.document.settings.repos, (repo: TransferRepository) => {
           SettingsRow({ title: repo.name || repo.rootDirectory, value: repo.webdavEnabled ? 'WebDAV' : '',
             detail: repo.rootDirectory, disclosure: false })
         }, (repo: TransferRepository): string => repo.id)
       }
-      SettingsGroup({ title: '其他配置' }) {
-        SettingsRow({ title: '文件展示方式', value: preview.document.settings.fileDisplayMode === 'source' ? '原文' : '渲染', disclosure: false })
-        SettingsRow({ title: '自定义任务状态', value: preview.document.settings.coreSettings.additionStates.length + ' 个',
+      SettingsGroup({ title: localizedText($r('app.string.text_other_configurations')) }) {
+        SettingsRow({ title: localizedText($r('app.string.text_file_view')), value: preview.document.settings.fileDisplayMode === 'source' ? localizedText($r('app.string.text_source')) : localizedText($r('app.string.text_rendered')), disclosure: false })
+        SettingsRow({ title: localizedText($r('app.string.text_customised_task_status')), value: preview.document.settings.coreSettings.additionStates.length + localizedText($r('app.string.text_one')),
           disclosure: false, divider: false })
       }
       if (preview.warnings.length > 0) {
-        SettingsGroup({ title: '导入后需要处理' }) {
+        SettingsGroup({ title: localizedText($r('app.string.text_needs_processing_after_import')) }) {
           ForEach(preview.warnings, (warning: string) => {
             Text(warning).fontSize(14).fontColor(UiColor.warning).width('100%').padding(14)
           }, (warning: string): string => warning)
@@ -136,27 +137,27 @@ struct ConfigImport {
 
   build() {
     Column() {
-      AppShell({ title: '导入配置', back: true, busy: this.busy, drawerOpen: $drawerOpen,
+      AppShell({ title: localizedText($r('app.string.text_import_configuration')), back: true, busy: this.busy, drawerOpen: $drawerOpen,
         backAction: (): void => { this.onBackPress() } }) {
         Column() {
           MessageBar({ message: this.message, error: true })
           if (this.applied) {
-            EmptyState({ title: '配置已导入', actionLabel: '返回小清单', action: (): void => { this.finishImport() } })
+            EmptyState({ title: localizedText($r('app.string.text_configure_imported')), actionLabel: localizedText($r('app.string.text_back_to_org_tasks')), action: (): void => { this.finishImport() } })
           } else if (this.preview) {
             Scroll() {
               Column() {
-                Text('应用后会更新文件入口、任务状态和展示方式，并按本地目录更新或添加存储库。')
+                Text($r('app.string.text_when_applied_the_file_entry_task_status'))
                   .fontSize(14).fontColor(UiColor.secondary).width('100%').padding({ top: 16, left: 12, right: 12 })
                 this.previewContent(this.preview)
               }.width('100%').padding({ left: 16, right: 16, bottom: 24 })
             }.width('100%').layoutWeight(1)
-            Button('应用配置').width('100%').height(48).borderRadius(12)
+            Button($r('app.string.text_apply_configuration')).width('100%').height(48).borderRadius(12)
               .backgroundColor(UiColor.primary).fontColor(UiColor.onPrimary)
               .enabled(!this.busy).onClick((): void => { this.apply() }).margin({ top: 8, bottom: 16 })
           } else if (this.busy) {
-            EmptyState({ title: '正在读取配置', busy: true })
+            EmptyState({ title: localizedText($r('app.string.text_reading_configuration')), busy: true })
           } else if (this.openedUri) {
-            EmptyState({ title: '配置暂时无法导入', actionLabel: '重新读取', action: (): void => { this.readFile() } })
+            EmptyState({ title: localizedText($r('app.string.text_configure_cannot_temporarily_import')), actionLabel: localizedText($r('app.string.text_reread')), action: (): void => { this.readFile() } })
           }
         }.width('100%').height('100%').padding({ left: 16, right: 16 })
       }

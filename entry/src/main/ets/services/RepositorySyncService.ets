@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { CoreSettings } from 'liborg_tasks_harmony.so'
 import { Context } from '@kit.AbilityKit'
 import { AppConfigService } from './AppConfigService'
@@ -82,7 +83,7 @@ export class RepositorySyncService {
   static runningSync(): SyncHandle | undefined { return RepositorySyncService.active?.handle }
 
   static async changeConfiguration(change: () => Promise<void>): Promise<void> {
-    if (RepositorySyncService.changingConfiguration) throw new Error('正在修改配置，请稍后重试')
+    if (RepositorySyncService.changingConfiguration) throw new Error(localizedText($r('app.string.text_modifying_configuration_please_try_again_later')))
     RepositorySyncService.changingConfiguration = true
     try {
       await RepositorySyncService.active?.handle.completion
@@ -150,7 +151,7 @@ export class RepositorySyncService {
       const state = RepositorySyncService.state
       state.running = false
       state.error = true
-      state.message = `同步失败：${coreErrorMessage(error as CoreBridgeError)}`
+      state.message = localizedText($r('app.string.text_synchronising_failed_2'), String(coreErrorMessage(error as CoreBridgeError)))
       if (!request.options.repositoryId) RepositorySyncService.failures.push(RepositorySyncService.snapshot())
       RepositorySyncService.publish()
       completion = { status: 'failed', message: state.message }
@@ -173,7 +174,7 @@ export class RepositorySyncService {
     state.running = true
     state.determinate = false
     state.progress = 0
-    state.message = '正在准备同步…'
+    state.message = localizedText($r('app.string.text_preparing_synchronization'))
     state.error = false
     state.needsRepository = false
     RepositorySyncService.publish()
@@ -185,14 +186,14 @@ export class RepositorySyncService {
       if (options.beforeSync) await options.beforeSync(config)
       const selected = options.repositoryId
         ? config.repos.filter((repo: RepoConfig) => repo.id === options.repositoryId) : config.repos
-      if (options.repositoryId && selected.length === 0) throw new Error('目标仓库不存在')
+      if (options.repositoryId && selected.length === 0) throw new Error(localizedText($r('app.string.text_target_repository_does_not_exist')))
       const pending = selected.filter((repo: RepoConfig) => repo.webdavCleanupPending)
       if (pending.length > 0) {
         const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
         const activeRepos = await workspace.repos()
         for (const repository of pending) {
           const repo = activeRepos.find(item => item.rootDirectory === repository.rootDirectory)
-          if (!repo) throw new Error('无法定位待清理的仓库，请重试')
+          if (!repo) throw new Error(localizedText($r('app.string.text_unable_to_locate_repository_pending_cleanup_try')))
           await workspace.removeSyncPolicy(repo.id)
         }
         const current = await AppConfigService.load(context)
@@ -208,14 +209,14 @@ export class RepositorySyncService {
       if (repos.length === 0) {
         state.error = true
         state.needsRepository = true
-        state.message = '请先添加存储库'
+        state.message = localizedText($r('app.string.text_add_repository_first_please'))
         return { status: 'failed', message: state.message }
       }
       RepositorySyncService.repositoryCount = selected.filter((repo: RepoConfig) => repo.webdavEnabled).length
       RepositorySyncService.completedRepositories = 0
       RepositorySyncService.fileTotal = 0
       RepositorySyncService.processedFiles = 0
-      state.message = RepositorySyncService.repositoryCount > 0 ? '正在同步 WebDAV…' : '正在读取本地文件…'
+      state.message = RepositorySyncService.repositoryCount > 0 ? localizedText($r('app.string.text_syncing_webdav')) : localizedText($r('app.string.text_reading_local_files'))
       RepositorySyncService.publish()
       await (RepositorySyncService.repositoryCount > 0
         ? NativeCoreService.syncWorkspaceWebDav(repos,
@@ -232,7 +233,7 @@ export class RepositorySyncService {
       state.message = ''
     } catch (e) {
       state.error = true
-      state.message = `同步失败：${coreErrorMessage(e as CoreBridgeError)}`
+      state.message = localizedText($r('app.string.text_synchronising_failed_2'), String(coreErrorMessage(e as CoreBridgeError)))
 
     } finally {
       state.running = false
@@ -253,27 +254,27 @@ export class RepositorySyncService {
         RepositorySyncService.fileTotal = 0
         RepositorySyncService.processedFiles = 0
         state.determinate = false
-        state.message = '正在同步 WebDAV…'
+        state.message = localizedText($r('app.string.text_syncing_webdav'))
         break
       case 'listingStarted':
-        state.message = '正在读取 WebDAV 文件列表…'
+        state.message = localizedText($r('app.string.text_reading_webdav_file_list'))
         break
       case 'listed':
-        state.message = `已发现 ${event.files} 个远端文件`
+        state.message = localizedText($r('app.string.text_remote_files_found'), String(event.files))
         break
       case 'fileStarted':
         RepositorySyncService.fileTotal = event.total
         RepositorySyncService.processedFiles = event.index
         state.determinate = event.total > 0
-        state.message = `正在同步 ${event.index + 1}/${event.total}：${event.path}`
+        state.message = localizedText($r('app.string.text_syncing_2'), String(event.index + 1), String(event.total), String(event.path))
         break
       case 'fileProcessed':
         ++RepositorySyncService.processedFiles
-        state.message = `已处理 ${event.path}`
+        state.message = localizedText($r('app.string.text_processed'), String(event.path))
         break
       case 'finished':
         if (event.result === 'succeeded') ++RepositorySyncService.completedRepositories
-        state.message = '正在整理同步结果…'
+        state.message = localizedText($r('app.string.text_finishing_sync'))
         break
       default: return
     }

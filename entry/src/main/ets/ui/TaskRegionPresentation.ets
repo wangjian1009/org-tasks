@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreTask } from '../services/NativeCoreService'
 
 export interface TaskRegionData {
@@ -19,7 +20,7 @@ export function taskRegion(task: CoreTask): TaskRegionData {
   return {
     key: JSON.stringify(project === null ? ['category', category] : ['project', task.repoId, task.filePath]),
     kind: project === null ? 'category' : 'project',
-    title: project === null ? category || '未分类' : project || '未命名项目',
+    title: project === null ? category || localizedText($r('app.string.text_uncategorized')) : project || localizedText($r('app.string.text_untitled_project')),
     category, repoId: task.repoId, filePath: task.filePath
   }
 }

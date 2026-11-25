@@ -1,8 +1,9 @@
 // 运行列表的真实生命周期与滚动回调，验证路由替换和数据确认不会丢失阅读位置。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const fs=require('node:fs');const vm=require('node:vm');const assert=require('node:assert/strict');const {test}=require('node:test');
 if(process.argv.includes('-h')||process.argv.includes('--help')){console.log('用法: node scripts/test-today-list-state.cjs\n验证今天／随时列表路由返回时恢复位置、首次测量前不覆盖原位置，以及重复布局不会跳回顶部。');process.exit(0);}
 const ts=require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
-function run(source,bindings={}){const module={exports:{}};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText,{module,exports:module.exports,...bindings});return module.exports;}
+function run(source,bindings={}){const module={exports:{}};vm.runInNewContext(transpileFixture(ts, source,{compilerOptions:{target:ts.ScriptTarget.ES2021,module:ts.ModuleKind.CommonJS}}).outputText,{module,exports:module.exports,...bindings});return module.exports;}
 const position=run(fs.readFileSync('entry/src/main/ets/services/PageListPosition.ets','utf8')).PageListPosition;
 const source=fs.readFileSync('entry/src/main/ets/components/TodayTaskList.ets','utf8');
 const appear=source.match(/  aboutToAppear\(\): void \{[\s\S]*?\n  \}/)[0];

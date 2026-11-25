@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { CoreTitleCount, CoreTitlePart } from '../services/NativeCoreService'
 import { UiColor } from './Theme'
 
@@ -22,7 +23,7 @@ export function titleCountValue(count: CoreTitleCount): number {
 }
 
 export function titleCountDescription(count: CoreTitleCount): string {
-  return count.total === null ? '尚无有效计数' : `已完成 ${count.completed} 项，共 ${count.total} 项`
+  return count.total === null ? localizedText($r('app.string.text_no_valid_count_yet')) : localizedText($r('app.string.text_completed_item_total_item'), String(count.completed), String(count.total))
 }
 
 export function titleCountsWidth(parts: CoreTitlePart[], budget: number = 0): number {

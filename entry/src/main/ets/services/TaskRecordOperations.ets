@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { DataSet } from './DataSet'
 import { AppConfigService } from './AppConfigService'
@@ -14,20 +15,20 @@ export interface TaskRecordResult { committed: boolean; retainedKeys: string[] }
 // 单条与批量共用操作组规划；状态变更、原位恢复和删除规则由 Core 执行。
 export class TaskRecordOperations {
   static async group(context: Context, tasks: CoreTask[], action: TaskRecordOperation): Promise<CoreTaskOperationGroup> {
-    if (!tasks.length) throw new Error('请选择记录')
+    if (!tasks.length) throw new Error(localizedText($r('app.string.text_please_select_the_record')))
     if (action === TaskOperation.Reopen || action === TaskOperation.Wait || action === TaskOperation.Cancel) {
       let category = TaskStateCategory.Todo
-      let stateLabel = '待办'
+      let stateLabel = localizedText($r('app.string.text_to_do'))
       switch (action) {
-        case TaskOperation.Wait: category = TaskStateCategory.Wait; stateLabel = '等待'; break
-        case TaskOperation.Cancel: category = TaskStateCategory.Cancel; stateLabel = '取消'; break
+        case TaskOperation.Wait: category = TaskStateCategory.Wait; stateLabel = localizedText($r('app.string.text_waiting')); break
+        case TaskOperation.Cancel: category = TaskStateCategory.Cancel; stateLabel = localizedText($r('app.string.text_cancel')); break
       }
       const targets = action === TaskOperation.Cancel
         ? tasks.filter((task: CoreTask): boolean => task.state?.category !== TaskStateCategory.Cancel)
         : tasks
       return mergeTaskOperationGroups(targets.map((task: CoreTask): CoreTaskOperationGroup => {
         const state = task.taskStateOf(category)
-        if (!state) throw new Error(`“${task.heading}”所在文件没有可用的${stateLabel}状态，请检查 TODO 流程`)
+        if (!state) throw new Error(localizedText($r('app.string.text_the_file_has_no_status_available_check'), String(task.heading), String(stateLabel)))
         return taskModificationGroup(task, [{ field: 'TODO', value: state.name }])
       }))
     }
@@ -39,12 +40,12 @@ export class TaskRecordOperations {
 
   static async submit(dataSet: DataSet, tasks: CoreTask[], action: TaskRecordOperation,
     group: CoreTaskOperationGroup, allowed: () => boolean): Promise<TaskRecordResult> {
-    if (!allowed()) throw new Error('操作已取消')
+    if (!allowed()) throw new Error(localizedText($r('app.string.text_operation_cancelled')))
     const keys = tasks.map(task => dataSet.taskKey(task.id))
     if (group.operations.length > 0) await dataSet.submitOperationGroup(group, allowed)
     // DataSet 已在本地覆盖层立即合并；提交由后台队列串行完成。
     return { committed: true, retainedKeys: action === TaskOperation.Restore ? keys.filter(key => dataSet.getTask(key) !== undefined) : [] }
   }
 
-  static retainedMessage(count: number): string { return `${count} 条记录原位置不可用，已保留在当前位置` }
+  static retainedMessage(count: number): string { return localizedText($r('app.string.text_records_the_original_location_which_is_not'), String(count)) }
 }

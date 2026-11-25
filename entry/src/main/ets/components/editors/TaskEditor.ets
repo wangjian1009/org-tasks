@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { showDangerousConfirmation } from '../controls/DangerousConfirmation'
 import { reminderPlanning, reminderModification, reminderTimeLabel } from '../../ui/TaskReminderPresentation'
 import { PageNavigator } from '../../services/PageNavigator'
@@ -200,7 +201,7 @@ export struct TaskEditor {
   }
   value(): CoreTask { return this.previewTask ?? this.editTask ?? this.recordSource?.task! }
   private localDataSet(): DataSet {
-    if (!this.dataSet) throw new Error('未提供任务数据管理对象')
+    if (!this.dataSet) throw new Error(localizedText($r('app.string.text_task_data_management_objects_not_provided')))
     return this.dataSet
   }
   private async currentTask(): Promise<CoreTask> {
@@ -308,7 +309,7 @@ export struct TaskEditor {
       if (to === undefined) return
       const state = source.taskStateOf(to)
       if (!state) {
-        if (to === TaskStateCategory.Wait) throw new Error('文件没有可用的等待状态，请检查 TODO 流程')
+        if (to === TaskStateCategory.Wait) throw new Error(localizedText($r('app.string.text_the_file_has_no_available_waiting_status')))
         return
       }
       return await this.withStateNote(source, taskModificationGroup(source, [{ field: 'TODO', value: state.name }]), allowed)
@@ -322,8 +323,8 @@ export struct TaskEditor {
       if (!source || !allowed() || (from !== undefined && !from.some(category => source.state?.category === category)) || source.state?.category === to) return
       const state = source.taskStateOf(to)
       if (!state) {
-        if (to === TaskStateCategory.Wait) throw new Error('文件没有可用的等待状态，请检查 TODO 流程')
-        if (to === TaskStateCategory.Cancel) throw new Error('文件没有可用的取消状态，请检查 TODO 流程')
+        if (to === TaskStateCategory.Wait) throw new Error(localizedText($r('app.string.text_the_file_has_no_available_waiting_status')))
+        if (to === TaskStateCategory.Cancel) throw new Error(localizedText($r('app.string.text_file_does_not_have_available_cancellation_status')))
         return
       }
       const modifications: CoreTaskModification[] = [{ field: 'TODO', value: state.name }]
@@ -349,9 +350,9 @@ export struct TaskEditor {
       const result = new TaskEditorActionResult()
       action = result; this.pendingAction = result
       this.deleteConfirming = true
-      showDangerousConfirmation(this.getUIContext(), { title: '删除这条记录？', message: `“${source.heading}”将移入废纸篓，可在废纸篓中恢复。有子记录时请先处理子记录。`,
+      showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_delete_this_record')), message: localizedText($r('app.string.text_will_be_moved_to_the_waste_paper'), String(source.heading)),
         onCancel: (): void => { this.cancelDelete() },
-        confirmLabel: '删除', onConfirm: (): void => {
+        confirmLabel: localizedText($r('app.string.text_delete')), onConfirm: (): void => {
           if (!this.appeared || !allowed()) { result.finish(); return }
           result.finish(groups[0])
         } })
@@ -372,7 +373,7 @@ export struct TaskEditor {
     try {
       const source = await this.actionSource(allowed)
       if (!source) return
-      if (expectedVersion && source.fileVersion !== expectedVersion) throw new Error('文件已变化，请重新确认删除')
+      if (expectedVersion && source.fileVersion !== expectedVersion) throw new Error(localizedText($r('app.string.text_document_has_changed_please_reconfirm_deletion')))
       const groups = await InboxService.operationGroups(this.getUIContext().getHostContext()!, [source], 'delete')
       return groups[0]
     } finally { this.completing = false; if (this.appeared && !this.expanded) TaskInlineSession.release(this.ownerKey) }
@@ -382,7 +383,7 @@ export struct TaskEditor {
     try {
       const group = await action
       if (!group || !this.appeared) return
-      if (!this.controller) throw new Error('编辑器未接入修改操作接收接口')
+      if (!this.controller) throw new Error(localizedText($r('app.string.text_the_editor_did_not_access_the_modify')))
       this.controller.emitOperation(group)
     } catch (error) { this.actionError(error as Error) }
   }
@@ -472,7 +473,7 @@ export struct TaskEditor {
     const source = this.moveSource ?? await this.actionSource(allowed)
     if (!source) return
     const current = await this.currentTask()
-    if (current.fileVersion !== source.fileVersion) throw new Error('文件已变化，请刷新移动位置后重试')
+    if (current.fileVersion !== source.fileVersion) throw new Error(localizedText($r('app.string.text_file_has_changed_please_refresh_the_move')))
     if (!this.appeared || !allowed()) return
     return taskMovementGroup(current, target)
   }
@@ -528,16 +529,16 @@ export struct TaskEditor {
     if (!current) { this.removeDeletedTask(); return }
     if (this.draggingCheck && current.fileVersion !== this.value().fileVersion) this.cancelCheckDrag()
     if (this.blockEditing && !this.blockSaving && current.fileVersion !== this.value().fileVersion) {
-      this.snapshotBlocked = true; this.message = '文件已变化，区块草稿已保留。'
+      this.snapshotBlocked = true; this.message = localizedText($r('app.string.text_the_document_has_been_changed_and_the'))
       return
     }
     if (this.linkEditing && !this.linkSaving && current.fileVersion !== this.value().fileVersion) {
-      this.snapshotBlocked = true; this.message = '文件已变化，链接草稿已保留，请取消编辑并重新载入后继续'
+      this.snapshotBlocked = true; this.message = localizedText($r('app.string.text_the_file_has_changed_the_draft_link'))
       return
     }
     if ((this.checkId || this.checkAfter) && current.fileVersion !== this.value().fileVersion && !savedCheck) {
       this.snapshotBlocked = true
-      this.message = '文件已变化，清单输入已保留，请重新载入后继续编辑'
+      this.message = localizedText($r('app.string.text_document_changed_list_entered_retained_reload_and'))
       return
     }
     if (!this.headingEditing) this.heading = current.heading
@@ -752,7 +753,7 @@ export struct TaskEditor {
       this.working = true; this.message = ''
       try {
         const source = this.value()
-        if (sourceVersion !== undefined && sourceVersion !== source.fileVersion) throw new Error('文件已变化，请重新选择移动位置')
+        if (sourceVersion !== undefined && sourceVersion !== source.fileVersion) throw new Error(localizedText($r('app.string.text_file_has_changed_re_select_move_position')))
         const waitForCommit = sourceVersion !== undefined || modifications.some(modification => modification.field === 'CHECKLIST')
         const confirmed = waitForCommit ? await this.localDataSet().commitTaskFields(this.recordSource?.rowId ?? this.taskId, modifications, sourceVersion ?? source.fileVersion) : undefined
         if (!waitForCommit) await this.modifyTask(source, modifications)
@@ -777,7 +778,7 @@ export struct TaskEditor {
         if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
         else {
           if (success) this.snapshotBlocked = true
-          this.message = success ? `修改已保存，读取最新内容失败：${coreErrorMessage(error as CoreBridgeError)}` :
+          this.message = success ? localizedText($r('app.string.text_modify_saved_to_read_latest_content_failed'), String(coreErrorMessage(error as CoreBridgeError))) :
             coreErrorMessage(error as CoreBridgeError)
         }
       }
@@ -794,7 +795,7 @@ export struct TaskEditor {
     await this.pending
     if (this.removed) return false
     if (this.bodyOnly) return true
-    if (!this.heading.trim()) { this.message = '标题不能为空'; return false }
+    if (!this.heading.trim()) { this.message = localizedText($r('app.string.text_title_cannot_be_empty')); return false }
     const modifications: CoreTaskModification[] = []
     if (this.headingDirty && this.heading !== this.value().heading) modifications.push({ field: 'TITLE', value: this.heading })
     if (this.notesDirty && this.notes !== this.value().editContent.notes.trimEnd()) modifications.push({ field: 'NOTES', value: this.notes })
@@ -829,12 +830,12 @@ export struct TaskEditor {
     return (this.expanded || this.bodyOnly) && !this.readOnly && !this.snapshotBlocked
   }
   async changeLink(field: 'title' | 'notes', link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
-    if (!this.linksEditable()) throw new Error('请展开可编辑任务后再修改链接')
+    if (!this.linksEditable()) throw new Error(localizedText($r('app.string.text_please_expand_the_editable_task_before_changing')))
     this.linkSaving = true
     try {
       // 标题链接改名后 Core 身份变化，旧卡片退出并刷新属于已提交成功。
       if (!await this.persist([{ field: 'LINK', value: { field, link, value } }]) || this.snapshotBlocked && !this.removed) {
-        throw new Error(this.message || '修改链接失败，请重试')
+        throw new Error(this.message || localizedText($r('app.string.text_modifying_the_link_failed_please_try_again')))
       }
     } finally { this.linkSaving = false }
   }
@@ -861,11 +862,11 @@ export struct TaskEditor {
       return true
     }
     if (this.snapshotBlocked || this.removed) return false
-    if (!text.trim()) { this.message = '清单条目不能为空'; return false }
+    if (!text.trim()) { this.message = localizedText($r('app.string.text_list_entry_cannot_be_empty')); return false }
     const items = this.listItems()
     const anchor = id || this.checkAfter
     const index = items.findIndex(item => item.id === anchor)
-    if (anchor && index < 0) { this.message = '清单条目已变化，请重新载入'; return false }
+    if (anchor && index < 0) { this.message = localizedText($r('app.string.text_list_entry_changed_reload')); return false }
     const change: CoreTaskChecklistChange = id ? { type: 'edit', id, text } :
       anchor ? { type: 'insertAfter', id: anchor, text } : { type: 'add', text }
     if ((!id || items[index].text !== text) && !await this.persist([{ field: 'CHECKLIST', value: change }])) return false
@@ -983,7 +984,7 @@ export struct TaskEditor {
       const result = new TaskEditorActionResult()
       action = result; this.pendingAction = result
       this.reminderDialog = new CustomDialogController({
-        builder: TaskDateDialog({ title: '提醒时间', allowTimeRange: false,
+        builder: TaskDateDialog({ title: localizedText($r('app.string.reminder_time')), allowTimeRange: false,
           selected: reminderPlanning(source)?.date ?? '', planning: reminderPlanning(source),
           closed: (): void => { result.finish() }, confirmed: (change: CoreTaskModification): void => {
             if (!this.appeared || this.removed) { result.finish(); return }
@@ -1033,10 +1034,10 @@ export struct TaskEditor {
     } finally { if (current()) this.reminderChecking = false }
   }
   reminderStatus(): string {
-    if (this.reminderExpired()) return '已过期'
-    if (this.reminderChecking) return '正在检查…'
-    if (this.reminderError) return '检查失败'
-    return this.reminderChecked ? '✓ 已登记' : ''
+    if (this.reminderExpired()) return localizedText($r('app.string.text_expired'))
+    if (this.reminderChecking) return localizedText($r('app.string.text_checking'))
+    if (this.reminderError) return localizedText($r('app.string.text_check_failed'))
+    return this.reminderChecked ? localizedText($r('app.string.text_registered')) : ''
   }
   private async openReminderSettings(): Promise<void> {
     if (!this.appeared || this.removed || this.working || this.completing || this.moveBusy || this.pendingAction || this.snapshotBlocked) return
@@ -1078,7 +1079,7 @@ export struct TaskEditor {
         .constraintSize({ minWidth: 24, minHeight: 22 }).padding({ left: 5, right: 5, top: 2, bottom: 2 })
         .backgroundColor(priorityBackground(this.value().priority!.category)).borderRadius(6).flexShrink(0)
         .responseRegion({ x: 0, y: -11, width: '100%', height: 44 })
-        .accessibilityText(`${priorityLabel(this.value().priority)}，点击${editable ? '修改' : '展开'}`)
+        .accessibilityText(localizedText($r('app.string.text_tap'), String(priorityLabel(this.value().priority)), String(editable ? localizedText($r('app.string.text_edit_2')) : localizedText($r('app.string.text_expand')))))
         .onClick(() => { if (editable) this.priorities(); else this.toggleFromCompact() })
     }
   }
@@ -1090,7 +1091,7 @@ export struct TaskEditor {
       builder: TaskRepeatDialog({ task: this.value(), initialDeadline: deadline,
         confirmed: (changes: CoreTaskModification[]): void => {
           if (!this.appeared || this.readOnly || this.removed) return
-          this.persist(changes).then((success: boolean): void => { if (!success) this.actionError(new Error(this.message || '未能修改重复设置')) })
+          this.persist(changes).then((success: boolean): void => { if (!success) this.actionError(new Error(this.message || localizedText($r('app.string.text_unable_to_modify_duplicate_settings')))) })
         } }),
       customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
       onWillDismiss: (action: DismissDialogAction) => { if (!this.working) action.dismiss() }
@@ -1099,8 +1100,8 @@ export struct TaskEditor {
   }
   reloadDraft() {
     if (this.working) return
-    showDangerousConfirmation(this.getUIContext(), { title: '重新载入任务？', message: '将放弃卡片中未保存的输入，读取文件中的最新内容。',
-      confirmLabel: '重新载入', onConfirm: async () => {
+    showDangerousConfirmation(this.getUIContext(), { title: localizedText($r('app.string.text_reload_the_mission')), message: localizedText($r('app.string.text_the_unsaved_input_in_the_card_will')),
+      confirmLabel: localizedText($r('app.string.text_reload')), onConfirm: async () => {
         this.working = true
         try {
           await this.localDataSet().refresh()
@@ -1127,7 +1128,7 @@ export struct TaskEditor {
           inheritedTags: this.value().inheritedTags, hiddenTags: this.hiddenTags,
           changed: (modification: CoreTaskModification): void => {
             if (!this.appeared || this.readOnly || this.removed) return
-            this.persist([modification]).then((success: boolean): void => { if (!success) this.actionError(new Error(this.message || '未能修改标签')) })
+            this.persist([modification]).then((success: boolean): void => { if (!success) this.actionError(new Error(this.message || localizedText($r('app.string.text_couldn_t_update_tags')))) })
           } }),
         customStyle: true, autoCancel: true, alignment: DialogAlignment.Center,
         onWillDismiss: (action: DismissDialogAction) => { if (!this.working) action.dismiss() }
@@ -1266,18 +1267,18 @@ export struct TaskEditor {
         const message = coreErrorMessage(error as CoreBridgeError)
         if (committed) {
           this.snapshotBlocked = true
-          this.message = '顺序已保存，读取最新内容失败，请重新载入'
+          this.message = localizedText($r('app.string.text_order_saved_reading_the_latest_content_failed'))
         } else if (message.includes('版本') || message.includes('已变化')) {
-          this.message = '文件已变化，请刷新后重新排序'
+          this.message = localizedText($r('app.string.text_file_has_changed_please_refresh_and_reorder'))
           try {
             this.editTask = await this.currentTask()
             this.heading = this.value().heading; this.notes = this.value().editContent.notes.trimEnd()
           }
           catch (error) {
             if (error instanceof TaskInlineMissingError) this.removeDeletedTask()
-            else { this.snapshotBlocked = true; this.message += '；读取失败，请重新载入' }
+            else { this.snapshotBlocked = true; this.message += localizedText($r('app.string.text_reading_failed_reload')) }
           }
-        } else { this.message = '排序未保存，请重试' }
+        } else { this.message = localizedText($r('app.string.text_sort_unsaved_please_try_again')) }
       } finally { this.checkPreview = []; this.working = false }
     })
     this.pending = operation
@@ -1288,9 +1289,9 @@ export struct TaskEditor {
     const siblings = checklistSiblings(this.listItems(), item.id)
     const index = siblings.findIndex(current => current.id === item.id)
     const sheets: SheetInfo[] = []
-    if (index > 0) sheets.push({ title: '上移', action: () => { this.sortCheck(item.id, siblings[index - 1].id) } })
-    if (index < siblings.length - 1) sheets.push({ title: '下移', action: () => { this.sortCheck(item.id, siblings[index + 2]?.id ?? null) } })
-    this.getUIContext().showActionSheet({ title: `调整顺序：${item.text}`, message: '选择移动方向', sheets })
+    if (index > 0) sheets.push({ title: localizedText($r('app.string.text_move_up')), action: () => { this.sortCheck(item.id, siblings[index - 1].id) } })
+    if (index < siblings.length - 1) sheets.push({ title: localizedText($r('app.string.text_move_down')), action: () => { this.sortCheck(item.id, siblings[index + 2]?.id ?? null) } })
+    this.getUIContext().showActionSheet({ title: localizedText($r('app.string.text_reordering'), String(item.text)), message: localizedText($r('app.string.text_select_the_direction_to_move')), sheets })
   }
 
   duration(): number { return taskDurationDays(this.value(), new Date(this.referenceTime)) }
@@ -1327,7 +1328,8 @@ export struct TaskEditor {
   }
 
   layout(): TaskRowLayout {
-    return taskRowLayout(this.rowWidth - 16 - this.leadingWidth() - (this.value().priority ? 28 : 0), this.displayTags().length, taskIndicators(this.value()).length,
+    const stateWidth = this.value().state === null ? 0 : UiSize.taskRow - 18
+    return taskRowLayout(this.rowWidth - 16 - stateWidth - this.leadingWidth() - (this.value().priority ? 28 : 0), this.displayTags().length, taskIndicators(this.value()).length,
       this.duration(), this.value().deadline.length > 0 ? this.deadlineWidth : 0,
       titleCountsWidth(this.value().headingParts, this.countBudget()))
   }
@@ -1359,11 +1361,10 @@ export struct TaskEditor {
           }
         }.width(18).height(18)
       }
-    }.id('task_complete_button').width(18).height(18).padding(0).backgroundColor(Color.Transparent)
+    }.id('task_complete_button').width(UiSize.taskRow).height(UiSize.taskRow).padding(0).backgroundColor(Color.Transparent)
       .stateEffect(false)
-      .responseRegion({ x: 0, y: -13, width: 18, height: 44 })
       .enabled((!this.readOnly || this.allowCompletion) && !this.completing && !this.working && !this.snapshotBlocked && !!this.value().taskStateOf(this.value().isDone() ? TaskStateCategory.Todo : TaskStateCategory.Done))
-      .accessibilityText(this.readOnly && !this.allowCompletion ? taskStateCategoryLabel(this.value().state?.category) : `${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? '点击重新打开任务' : '点击完成任务'}`).onClick(() => { this.complete() })
+      .accessibilityText(this.readOnly && !this.allowCompletion ? taskStateCategoryLabel(this.value().state?.category) : `${taskStateCategoryLabel(this.value().state?.category)}，${this.value().isDone() ? localizedText($r('app.string.text_tap_to_restart_the_task')) : localizedText($r('app.string.text_tap_to_finish_the_job'))}`).onClick(() => { this.complete() })
   }
 
   private updateCancelLine(): void {
@@ -1374,7 +1375,8 @@ export struct TaskEditor {
       return
     }
     // 标题保留原生删除线，以首行字形的位置连接前面的状态框。
-    this.cancelLineWidth = Math.max(0, Number(title.x) - Number(box.x) + 0.5)
+    const iconInset = (UiSize.taskRow - 18) / 2
+    this.cancelLineWidth = Math.max(0, Number(title.x) - Number(box.x) - iconInset + 0.5)
     this.cancelLineOffset = Number(title.y) - Number(box.y) + UiSize.taskTitleLineHeight / 2 + 1.25
   }
 
@@ -1387,17 +1389,16 @@ export struct TaskEditor {
   stateIndicator() {
     if (this.value().state === null) {
       Image($r('app.media.ui_note')).width(18).height(18)
-        .accessibilityText('笔记，无任务状态')
+        .accessibilityText($r('app.string.text_note_no_task'))
     } else if (this.value().state?.category === TaskStateCategory.Cancel) {
       Stack({ alignContent: Alignment.TopStart }) {
-        Row() { this.completionState() }
-          .offset({ y: this.cancelLineWidth > 0 ? Math.min(0, this.cancelLineOffset - 5) : 0 })
+        this.completionState()
         if (this.cancelLineWidth > 0) {
           Rect().width(this.cancelLineWidth).height(1).fill(UiColor.disabled)
-            .position({ x: 0, y: this.cancelLineOffset })
+            .position({ x: (UiSize.taskRow - 18) / 2, y: this.cancelLineOffset })
             .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
         }
-      }.width(18).height(18).clip(false)
+      }.width(UiSize.taskRow).height(UiSize.taskRow).clip(false)
         .onAreaChange((_old: Area, area: Area): void => {
           this.cancelledBoxPosition = area.globalPosition
           this.updateCancelLine()
@@ -1421,7 +1422,7 @@ export struct TaskEditor {
           .border({ width: 1, color: '#686561' }).borderRadius(10)
       }
     }.constraintSize({ maxWidth: this.layout().tagWidth }).alignItems(VerticalAlign.Center).flexShrink(0)
-      .accessibilityText(`标签：${this.displayTags().join('、')}`)
+      .accessibilityText(localizedText($r('app.string.text_label_2'), String(this.displayTags().join('、'))))
       .onClick((): void => { this.toggleFromCompact() })
   }
 
@@ -1436,7 +1437,7 @@ export struct TaskEditor {
         Text('…').fontSize(13).fontColor(UiColor.secondary).width(14).maxLines(1)
       }
     }.width(this.layout().indicatorWidth).alignItems(VerticalAlign.Center).flexShrink(0)
-      .accessibilityText(`${this.value().hasText ? '有正文；' : ''}${this.value().hasList ? '有列表' : ''}`)
+      .accessibilityText(`${this.value().hasText ? localizedText($r('app.string.text_a_has_the_text')) : ''}${this.value().hasList ? localizedText($r('app.string.text_listed')) : ''}`)
   }
 
   async openProject() {
@@ -1444,7 +1445,7 @@ export struct TaskEditor {
       if (this.value().project() === null) return
       await OrgFileNavigation.open(this.getUIContext(), this.value().repoId, this.value().filePath, false,
         () => this.recordSource?.task?.fullPath)
-    } catch (_) { this.message = '暂时无法打开项目，请重试。' }
+    } catch (_) { this.message = localizedText($r('app.string.text_couldn_t_open_the_project_try_again')) }
   }
 
   @Builder
@@ -1457,7 +1458,7 @@ export struct TaskEditor {
       }
       if (this.regionArea().project !== null) {
         if (this.regionArea().category) { Text('·').fontSize(12).fontColor(UiColor.secondary) }
-        Text(this.regionArea().project || '未命名项目').fontSize(12).fontColor(UiColor.secondary).maxLines(1)
+        Text(this.regionArea().project || localizedText($r('app.string.text_untitled_project'))).fontSize(12).fontColor(UiColor.secondary).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           .constraintSize({ minHeight: 48 }).onClick((): void => { this.openProject() })
       }
@@ -1501,20 +1502,20 @@ export struct TaskEditor {
         if (this.displayTags().length > 0 && this.layout().tagWidth > 0) { this.compactTags() }
         if (this.layout().indicatorWidth > 0) { this.compactIndicators() }
         if (this.layout().durationWidth > 0) {
-          Text(`${this.duration()}天`).fontSize(11).fontColor(UiColor.secondary)
+          Text(localizedText($r('app.string.text_day'), String(this.duration()))).fontSize(11).fontColor(UiColor.secondary)
             .width(this.layout().durationWidth).flexShrink(0).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-            .accessibilityText(`持续 ${this.duration()} 天`)
+            .accessibilityText(localizedText($r('app.string.text_ongoing_days'), String(this.duration())))
         }
       }
     }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow }).alignItems(VerticalAlign.Center)
-      .accessibilityText(this.titleOnly ? taskTitleText(this.value()) : `${taskTitleText(this.value())}，点击展开`)
+      .accessibilityText(this.titleOnly ? taskTitleText(this.value()) : localizedText($r('app.string.text_tap_to_expand'), String(taskTitleText(this.value()))))
   }
 
   @Builder
   compactDeadline() {
     Row({ space: 4 }) {
       Image(this.deadlineIcon()).width(16).height(16)
-      Text(this.leadingTime() && this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' : taskDeadlineText(this.value(), new Date(this.referenceTime)))
+      Text(this.leadingTime() && this.timeDisplay === TaskTimeDisplay.Deadline ? localizedText($r('app.string.text_cut_off')) : taskDeadlineText(this.value(), new Date(this.referenceTime)))
         .fontSize(12).fontColor(this.deadlineColor()).maxLines(1)
     }.alignItems(VerticalAlign.Center).flexShrink(0)
       .onAreaChange((oldArea: Area, area: Area) => { this.deadlineWidth = parseFloat(area.width.toString()) })
@@ -1525,8 +1526,8 @@ export struct TaskEditor {
       Text(this.leadingTime()).fontSize(15)
         .fontColor(this.timeDisplay === TaskTimeDisplay.Deadline ? this.deadlineColor() : UiColor.selection)
         .width(48).maxLines(1).flexShrink(0)
-        .accessibilityText(`${this.timeDisplay === TaskTimeDisplay.Deadline ? '截止' :
-          this.timeDisplay === TaskTimeDisplay.Deleted ? '删除' : this.timeDisplay === TaskTimeDisplay.Creation ? '创建' : this.timeDisplay === TaskTimeDisplay.Closed ? '完成' : '计划'} ${this.leadingTime()}`)
+        .accessibilityText(`${this.timeDisplay === TaskTimeDisplay.Deadline ? localizedText($r('app.string.text_cut_off')) :
+          this.timeDisplay === TaskTimeDisplay.Deleted ? localizedText($r('app.string.text_delete')) : this.timeDisplay === TaskTimeDisplay.Creation ? localizedText($r('app.string.text_create')) : this.timeDisplay === TaskTimeDisplay.Closed ? localizedText($r('app.string.text_done')) : localizedText($r('app.string.text_planned'))} ${this.leadingTime()}`)
         .onClick((): void => { this.toggleFromCompact() })
     }
   }
@@ -1534,20 +1535,20 @@ export struct TaskEditor {
   @Builder
   compactLeadingInfo() {
     if (this.showTodayFlag()) {
-      Image($r('app.media.nav_today')).width(20).height(20).flexShrink(0).accessibilityText('计划于今天')
+      Image($r('app.media.nav_today')).width(20).height(20).flexShrink(0).accessibilityText($r('app.string.text_the_plan_is_today'))
     }
     if (this.hasReminder()) {
       Image($r('app.media.ui_reminder')).id('task_reminder_compact_icon').width(20).height(20).flexShrink(0)
-        .fillColor(UiColor.secondary).accessibilityText('已设置提醒')
+        .fillColor(UiColor.secondary).accessibilityText($r('app.string.reminder_set'))
     }
     if (taskDateForDisplay(this.value(), this.dateDisplay)) {
       Text(this.leadingDate()).fontSize(11).fontColor(UiColor.text).backgroundColor('#5A5856').borderRadius(3)
         .padding({ left: 5, right: 5, top: 2, bottom: 2 }).maxLines(1).flexShrink(0)
     }
     if (this.value().isHabit) {
-      Image($r('app.media.ui_task_habit')).width(20).height(20).flexShrink(0).accessibilityText('习惯任务')
+      Image($r('app.media.ui_task_habit')).width(20).height(20).flexShrink(0).accessibilityText($r('app.string.text_customary_missions'))
     } else if (this.value().isRepeating) {
-      Image($r('app.media.ui_task_repeat')).width(20).height(20).flexShrink(0).accessibilityText('循环任务')
+      Image($r('app.media.ui_task_repeat')).width(20).height(20).flexShrink(0).accessibilityText($r('app.string.text_loop_tasks'))
     }
   }
 
@@ -1565,18 +1566,17 @@ export struct TaskEditor {
           Row() { this.compactTime() }.padding({ left: 8, right: 6 })
         }
         if (this.value().state !== null) {
-          Row() { this.stateIndicator() }
-            .padding({ left: this.leadingTime() ? 0 : 8 }).constraintSize({ minHeight: UiSize.taskRow })
+          Row() { this.stateIndicator() }.constraintSize({ minHeight: UiSize.taskRow })
         }
         Row({ space: 6 }) {
           if (this.value().state === null) { this.stateIndicator() }
           this.compactContent()
         }.layoutWeight(1).constraintSize({ minWidth: 0, minHeight: UiSize.taskRow })
           .padding({ left: this.value().state === null ? (this.leadingTime() ? 0 : 8) : 6, right: 8 })
-          .accessibilityText(`${taskTitleText(this.value())}，点击展开`)
+          .accessibilityText(localizedText($r('app.string.text_tap_to_expand'), String(taskTitleText(this.value()))))
           .onClick((): void => { if (!LinkEditController.interactionProtected()) this.toggleFromCompact() })
       if (this.includeStructureActions && this.canOrderChildren) {
-          PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '节点操作', iconSize: 20,
+          PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: localizedText($r('app.string.text_node_operations')), iconSize: 20,
             buttonWidth: 44, buttonHeight: 44, items: this.structureMenuItems(),
             disabled: this.working || this.snapshotBlocked })
         }
@@ -1606,7 +1606,7 @@ export struct TaskEditor {
           this.gripPress = ''
         } else if (event.type === TouchType.Cancel) { this.cancelCheckDrag() }
       })
-      .accessibilityText(`调整顺序：${item.text}`).accessibilityDescription('激活后选择上移或下移')
+      .accessibilityText(localizedText($r('app.string.text_reordering'), String(item.text))).accessibilityDescription($r('app.string.text_select_to_move_up_or_down_after'))
       .onAccessibilityActionIntercept((action: AccessibilityAction) => {
         if (action === AccessibilityAction.ACCESSIBILITY_CLICK) {
           this.accessibleCheckOrder(item)
@@ -1651,7 +1651,7 @@ export struct TaskEditor {
     this.blockSaving = true; this.linkSaving = true
     try {
       if (!await this.persist([{ field: 'CONTENT_BLOCK', value: change }], this.value().fileVersion) || this.snapshotBlocked) {
-        throw new Error(this.message || '修改正文失败，请重试')
+        throw new Error(this.message || localizedText($r('app.string.text_change_body_failed_please_try_again')))
       }
     } finally { this.blockSaving = false; this.linkSaving = false }
   }
@@ -1716,14 +1716,14 @@ export struct TaskEditor {
   }
 
   async changeBlockLink(block: CoreContentBlock, link: CoreTextLink, value: CoreLinkValue | null): Promise<void> {
-    if (!this.linksEditable()) throw new Error('请展开可编辑任务后再修改链接')
+    if (!this.linksEditable()) throw new Error(localizedText($r('app.string.text_please_expand_the_editable_task_before_changing')))
     const version = this.value().fileVersion
-    if (this.bodyOnly && !TaskInlineSession.owns(this.ownerKey) && !await this.prepare()) throw new Error('请先结束当前编辑')
+    if (this.bodyOnly && !TaskInlineSession.owns(this.ownerKey) && !await this.prepare()) throw new Error(localizedText($r('app.string.text_please_finish_the_current_editing_first_2')))
     this.linkSaving = true
     try {
       if (!await this.persist([{ field: 'CONTENT_BLOCK', value: { type: 'link', id: block.id, link, value } }],
         this.bodyOnly ? version : undefined) || this.snapshotBlocked) {
-        throw new Error(this.message || '修改链接失败，请重试')
+        throw new Error(this.message || localizedText($r('app.string.text_modifying_the_link_failed_please_try_again')))
       }
     } finally { this.linkSaving = false }
   }
@@ -1769,7 +1769,7 @@ export struct TaskEditor {
         }
         Column({ space: 2 }) {
           if (this.headingInput) {
-            TextArea({ text: this.heading, controller: this.headingController, placeholder: '标题' }).id(`inline_title_${this.ownerKey}`)
+            TextArea({ text: this.heading, controller: this.headingController, placeholder: localizedText($r('app.string.text_title')) }).id(`inline_title_${this.ownerKey}`)
               .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
               .width('100%').lineHeight(UiSize.taskTitleLineHeight).height('auto').minLines(1).maxLines(1000).fontSize(16).fontWeight(FontWeight.Medium)
               .fontColor(this.value().state?.category === TaskStateCategory.Cancel ? UiColor.disabled : UiColor.text)
@@ -1827,7 +1827,7 @@ export struct TaskEditor {
   bodyError() {
     if (this.message) {
       Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%')
-      Button('重新载入').height(36).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
+      Button($r('app.string.text_reload')).height(36).fontColor(UiColor.primary).backgroundColor(Color.Transparent)
         .enabled(!this.working).onClick((): void => { this.reloadDraft() })
     }
   }
@@ -1854,41 +1854,39 @@ export struct TaskEditor {
 
   @Builder
   collapseButton() {
-    Row() {
-      Button({ type: ButtonType.Normal }) {
-        Image($r('app.media.ui_up')).width(14).height(14)
-      }.id('inline_collapse_button').width(14).height(14).padding(0)
-        .backgroundColor(Color.Transparent).stateEffect(false)
-        .responseRegion({ x: -9, y: -9, width: 32, height: 32 })
-        .accessibilityText('收起任务').onClick(() => { this.toggle() })
-    }.width(14).height(UiSize.taskRow).justifyContent(FlexAlign.Center).flexShrink(0)
+    Button({ type: ButtonType.Normal }) {
+      Image($r('app.media.ui_up')).width(14).height(14)
+    }.id('inline_collapse_button').width(UiSize.taskRow).height(UiSize.taskRow).padding(0)
+      .backgroundColor(Color.Transparent).stateEffect(false).flexShrink(0)
+      .accessibilityText($r('app.string.task_collapse')).onClick(() => { this.toggle() })
   }
 
   @Builder
-  attributeButton(icon: Resource, label: string, activate: () => void) {
+  attributeButton(id: string, icon: Resource, label: Resource, activate: () => void) {
     Button({ type: ButtonType.Normal }) { Image(icon).width(18).height(18) }
-      .id(label === '设置标签' ? 'inline_tags_button' : 'inline_checklist_button')
-      .width(36).height(44).padding(0).backgroundColor(Color.Transparent).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
+      .id(id)
+      .width(UiSize.taskRow).height(UiSize.taskRow).padding(0).backgroundColor(Color.Transparent)
+      .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
       .accessibilityText(label).onClick(activate)
   }
   @Builder
   moreButton() {
-    PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: '更多任务操作',
-      buttonWidth: 36, buttonHeight: 44, iconSize: 20, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
+    PopupMenuButton({ icon: $r('app.media.ui_more_horizontal'), label: localizedText($r('app.string.text_more_task_operations')),
+      buttonWidth: UiSize.taskRow, buttonHeight: UiSize.taskRow, iconSize: 20, disabled: this.working || this.draggingCheck || this.snapshotBlocked,
       items: this.moreItems() })
   }
   moreItems(): PopupMenuItem[] {
     const items = this.structureMenuItems()
     if (!this.readOnly) {
-      items.push({ title: this.shortActionLabels ? '备注' : '备注…', icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
-        { title: this.shortActionLabels ? '优先' : '优先级…', icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })
+      items.push({ title: this.shortActionLabels ? localizedText($r('app.string.text_remarks')) : localizedText($r('app.string.text_remarks_2')), icon: $r('app.media.ui_note_action'), action: () => { this.emitAction(this.startNote()) } },
+        { title: this.shortActionLabels ? localizedText($r('app.string.text_priority')) : localizedText($r('app.string.text_priority_2')), icon: $r('app.media.ui_priority_action'), action: () => { this.priorities() } })
       if (this.value().state !== null) {
-        items.push({ title: this.shortActionLabels ? '提醒' : '提醒…', icon: $r('app.media.ui_reminder'), action: () => { this.emitAction(this.startReminder()) } })
+        items.push({ title: this.shortActionLabels ? localizedText($r('app.string.text_reminder_2')) : localizedText($r('app.string.reminder_menu')), icon: $r('app.media.ui_reminder'), action: () => { this.emitAction(this.startReminder()) } })
       }
-      items.push({ title: this.shortActionLabels ? '重复' : '重复…', icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
+      items.push({ title: this.shortActionLabels ? localizedText($r('app.string.text_repeat')) : localizedText($r('app.string.text_repeat_2')), icon: $r('app.media.ui_repeat_action'), action: () => { this.repeats() } })
     }
     if (this.logShowPolicy === LogShowPolicy.LogShowBySwitch && taskEventLogs(this.value().logs).length > 0) {
-      items.push({ title: '日志',
+      items.push({ title: localizedText($r('app.string.text_log')),
         icon: this.logbookExpanded ? $r('app.media.ui_visibility_off') : $r('app.media.ui_visibility'),
         action: () => { this.logbookExpanded = !this.logbookExpanded } })
     }
@@ -1896,7 +1894,7 @@ export struct TaskEditor {
   }
   private structureMenuItems(): PopupMenuItem[] {
     return this.includeStructureActions ? this.structureActions(this.canOrderChildren)
-      .filter(item => item.title === '移动' || item.title === '排序') : []
+      .filter(item => item.title === localizedText($r('app.string.text_move')) || item.title === localizedText($r('app.string.text_sort'))) : []
   }
   @Builder
   reminderLine() {
@@ -1907,7 +1905,7 @@ export struct TaskEditor {
           Text(reminderTimeLabel(this.value())).id('task_reminder_time').fontSize(12).fontColor(UiColor.secondary)
           if (this.reminderChecking && !this.reminderExpired()) {
             LoadingProgress().id('task_reminder_checking').width(14).height(14).color(UiColor.secondary)
-              .accessibilityText('正在检查系统提醒')
+              .accessibilityText($r('app.string.text_checking_system_alarms'))
           }
           Text(this.reminderStatus()).id('task_reminder_status').fontSize(12)
             .fontColor(this.reminderError ? UiColor.error : this.reminderChecked ? UiColor.primary : UiColor.secondary)
@@ -1915,13 +1913,13 @@ export struct TaskEditor {
         if (this.reminderError) {
           Text(this.reminderError).id('task_reminder_error').fontSize(12).fontColor(UiColor.error).width('100%')
           Row({ space: 8 }) {
-            Button('重试').id('task_reminder_retry').fontSize(12).fontColor(UiColor.primary)
+            Button($r('app.string.text_retry')).id('task_reminder_retry').fontSize(12).fontColor(UiColor.primary)
               .height(28).padding({ left: 6, right: 6 }).backgroundColor(Color.Transparent)
               .onClick((): void => { this.checkReminder(true) })
-            Button('前往设置').id('task_reminder_settings').fontSize(12).fontColor(UiColor.primary)
+            Button($r('app.string.text_go_to_settings')).id('task_reminder_settings').fontSize(12).fontColor(UiColor.primary)
               .height(28).padding({ left: 6, right: 6 }).backgroundColor(Color.Transparent)
               .enabled(!this.working && !this.completing && !this.snapshotBlocked)
-              .accessibilityText('前往任务提醒设置')
+              .accessibilityText($r('app.string.text_go_to_task_alarm_settings'))
               .onClick((): void => { this.openReminderSettings() })
           }.width('100%')
         }
@@ -1942,7 +1940,7 @@ export struct TaskEditor {
         Row({ space: 5 }) {
           Image($r('app.media.ui_task_done')).width(16).height(16).accessibilityLevel('no')
           Text(this.expandedDateLabel(TaskDateDisplay.Closed)).fontSize(12).fontColor(UiColor.secondary)
-        }.width('100%').accessibilityText(`完成日期 ${this.expandedDateLabel(TaskDateDisplay.Closed)}`)
+        }.width('100%').accessibilityText(localizedText($r('app.string.text_completion_date'), String(this.expandedDateLabel(TaskDateDisplay.Closed))))
       }
       Row() {
         Button({ type: ButtonType.Normal }) {
@@ -1951,14 +1949,16 @@ export struct TaskEditor {
             if (this.value().scheduled) { Text(inlinePlanningLabel(this.value().scheduled, this.value().editContent.scheduledPlanning)).fontSize(12).fontColor(UiColor.text).maxLines(2) }
           }
         }.id('inline_schedule_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent)
-          .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '46%' })
+          .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: UiSize.taskRow, maxWidth: '46%' })
           .stateEffect(!this.readOnly).focusable(!this.readOnly)
-          .accessibilityText(this.readOnly ? `计划日期 ${inlinePlanningLabel(this.value().scheduled ?? '', this.value().editContent.scheduledPlanning)}` : '设置或修改计划日期')
+          .accessibilityText(this.readOnly ? localizedText($r('app.string.text_planned_date'), String(inlinePlanningLabel(this.value().scheduled ?? '', this.value().editContent.scheduledPlanning))) : localizedText($r('app.string.text_set_or_modify_the_planned_date')))
           .onClick(() => { if (!this.readOnly) this.emitAction(this.startSchedule()) })
         Blank().layoutWeight(1)
         if (!this.readOnly) {
-          this.attributeButton($r('app.media.ui_tags'), '设置标签', () => { this.tags() })
-          if (!this.contentHidden) { this.attributeButton($r('app.media.ui_task_list'), '编辑检查清单', () => { this.addCheck() }) }
+          this.attributeButton('inline_tags_button', $r('app.media.ui_tags'), $r('app.string.task_edit_tags'), () => { this.tags() })
+          if (!this.contentHidden) {
+            this.attributeButton('inline_checklist_button', $r('app.media.ui_task_list'), $r('app.string.text_edit_checklist'), () => { this.addCheck() })
+          }
         }
         Button({ type: ButtonType.Normal }) {
           Row({ space: 4 }) {
@@ -1966,9 +1966,9 @@ export struct TaskEditor {
             if (this.value().deadline) { Text(inlinePlanningLabel(this.value().deadline, this.value().editContent.deadlinePlanning)).fontSize(12).fontColor(this.deadlineColor()).maxLines(2) }
           }
         }.id('inline_deadline_button').flexShrink(1).height(44).padding(0).backgroundColor(Color.Transparent)
-          .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: 36, maxWidth: '34%' })
+          .enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked).constraintSize({ minWidth: UiSize.taskRow, maxWidth: '34%' })
           .stateEffect(!this.readOnly).focusable(!this.readOnly)
-          .accessibilityText(this.readOnly ? `截止日期 ${inlinePlanningLabel(this.value().deadline ?? '', this.value().editContent.deadlinePlanning)}` : '设置或修改截止日期')
+          .accessibilityText(this.readOnly ? localizedText($r('app.string.text_deadline_2'), String(inlinePlanningLabel(this.value().deadline ?? '', this.value().editContent.deadlinePlanning))) : localizedText($r('app.string.text_set_or_modify_the_deadline')))
           .onClick(() => { if (!this.readOnly) this.emitAction(this.startDeadline()) })
         if (this.moreItems().length > 0) { this.moreButton() }
       }.width('100%')
@@ -1978,11 +1978,11 @@ export struct TaskEditor {
   repeatRule(deadline: boolean) {
     Row({ space: 7 }) {
       if (!this.value().isHabit) { Image($r('app.media.ui_task_repeat')).width(18).height(18) }
-      Text(`${deadline ? '截止' : '计划'} · ${repeatSummary(deadline ? this.value().editContent.deadlineRepeat?.rule : this.value().editContent.scheduledRepeat?.rule)}`)
+      Text(`${deadline ? localizedText($r('app.string.text_cut_off')) : localizedText($r('app.string.text_planned'))} · ${repeatSummary(deadline ? this.value().editContent.deadlineRepeat?.rule : this.value().editContent.scheduledRepeat?.rule)}`)
         .fontSize(13).fontColor(UiColor.primary).layoutWeight(1)
       if (!this.readOnly) { Image($r('app.media.ui_next')).width(18).height(18).accessibilityLevel('no') }
     }.width('100%').constraintSize({ minHeight: 44 }).enabled(!this.working && !this.draggingCheck && !this.snapshotBlocked)
-      .accessibilityText(this.readOnly ? `${deadline ? '截止' : '计划'}重复规则` : `编辑${deadline ? '截止' : '计划'}重复规则`)
+      .accessibilityText(this.readOnly ? localizedText($r('app.string.text_repeats_the_rules'), String(deadline ? localizedText($r('app.string.text_cut_off')) : localizedText($r('app.string.text_planned')))) : localizedText($r('app.string.text_edit_repeat_rules'), String(deadline ? localizedText($r('app.string.text_cut_off')) : localizedText($r('app.string.text_planned')))))
       .onClick(() => { if (!this.readOnly) this.repeats(deadline) })
   }
   @Builder
@@ -2083,7 +2083,7 @@ export struct TaskMovePreview {
 
   build() {
     Column({ space: 5 }) {
-      Text(this.tasks.length > 1 ? `待移动任务 · ${this.tasks.length} 条` : '待移动任务')
+      Text(this.tasks.length > 1 ? localizedText($r('app.string.text_to_be_moved'), String(this.tasks.length)) : localizedText($r('app.string.text_tasks_to_be_moved')))
         .width('100%').padding({ left: 3 }).fontSize(13).fontWeight(FontWeight.Medium).fontColor(UiColor.secondary)
       Column() {
         ForEach(this.showAll ? this.tasks : this.tasks.slice(0, 2), (task: CoreTask) => {
@@ -2093,7 +2093,7 @@ export struct TaskMovePreview {
       }.width('100%').backgroundColor(UiColor.surface).borderRadius(9).clip(true)
       if (this.tasks.length > 2) {
         Row({ space: 5 }) {
-          Text(this.showAll ? '收起其余任务' : `查看其余 ${this.tasks.length - 2} 条`)
+          Text(this.showAll ? localizedText($r('app.string.text_put_away_the_rest_of_the_job')) : localizedText($r('app.string.text_show_remaining'), String(this.tasks.length - 2)))
             .fontSize(13).fontColor(UiColor.primary).fontWeight(FontWeight.Medium)
           Image($r('app.media.ui_next')).width(14).height(14).fillColor(UiColor.primary)
             .rotate({ angle: this.showAll ? -90 : 0 }).accessibilityLevel('no')

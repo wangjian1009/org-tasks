@@ -1,3 +1,4 @@
+import { localizedDate, localizedText } from '../../ui/LocalizedText'
 import { UiColor } from '../../ui/Theme'
 import { CoreTaskModification, CoreTaskPlanningEdit, CoreTaskPlanningInfo } from '../../services/NativeCoreService'
 import { inlineDate, TaskCalendarDay, taskCalendarDays } from '../../ui/TaskInlinePresentation'
@@ -70,7 +71,7 @@ export struct TaskDateDialog {
     else this.draftStart = time
   }
   acceptTime() {
-    if (this.draftEnd && this.draftEnd <= this.draftStart) { this.message = '结束时间必须晚于开始时间'; return }
+    if (this.draftEnd && this.draftEnd <= this.draftStart) { this.message = localizedText($r('app.string.text_the_end_must_be_later_than_the')); return }
     this.start = this.draftStart; this.end = this.draftEnd; this.timeChanged = true
     if (!this.date) this.pick(inlineDate(new Date()), false)
     this.editingTime = false; this.message = ''; this.changed(this.modification())
@@ -115,33 +116,33 @@ export struct TaskDateDialog {
         .backgroundColor(day.date === this.date ? this.color() : Color.Transparent).borderRadius(15)
         .border({ width: day.today && day.date !== this.date ? 1 : 0, color: this.color() })
     }.id(`inline_day_${day.date}`).width('100%').height(40).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
-      .accessibilityText(`${day.date}${day.today ? '，今天' : ''}${day.date === this.date ? '，已选中' : ''}`)
+      .accessibilityText(`${day.date}${day.today ? localizedText($r('app.string.text_today_2')) : ''}${day.date === this.date ? localizedText($r('app.string.text_selected_2')) : ''}`)
       .enabled(!this.busy).onClick(() => { this.pick(day.date) })
   }
   @Builder
   timePanel() {
     Row() {
-      Button('取消').fontColor(this.color()).backgroundColor(Color.Transparent).height(44)
+      Button($r('app.string.text_cancel')).fontColor(this.color()).backgroundColor(Color.Transparent).height(44)
         .onClick(() => { this.editingTime = false; this.message = '' })
-      Text('时间').fontSize(17).fontColor(UiColor.text).textAlign(TextAlign.Center).layoutWeight(1)
-      Button('确定').id('inline_time_accept').fontColor(this.color()).backgroundColor(Color.Transparent).height(44)
+      Text($r('app.string.text_time')).fontSize(17).fontColor(UiColor.text).textAlign(TextAlign.Center).layoutWeight(1)
+      Button($r('app.string.text_ok')).id('inline_time_accept').fontColor(this.color()).backgroundColor(Color.Transparent).height(44)
         .onClick(() => { this.acceptTime() })
     }.width('100%')
     Row() {
-      Text('开始时间').fontSize(15).fontColor(UiColor.text).layoutWeight(1)
+      Text($r('app.string.text_start_time')).fontSize(15).fontColor(UiColor.text).layoutWeight(1)
       Text(this.draftStart).fontSize(16).fontColor(this.timeField === 'start' ? this.color() : UiColor.text)
     }.id('inline_time_start').width('100%').height(48).onClick(() => { this.selectTime('start') })
     if (this.allowTimeRange !== false && this.draftEnd) {
       Row() {
         Row() {
-          Text('结束时间').fontSize(15).fontColor(UiColor.text).layoutWeight(1)
+          Text($r('app.string.text_end_time')).fontSize(15).fontColor(UiColor.text).layoutWeight(1)
           Text(this.draftEnd).fontSize(16).fontColor(this.timeField === 'end' ? this.color() : UiColor.text)
         }.layoutWeight(1).height(48).onClick(() => { this.selectTime('end') })
-        Button('移除').height(44).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
+        Button($r('app.string.text_remove')).height(44).fontColor(UiColor.secondary).backgroundColor(Color.Transparent)
           .onClick(() => { this.draftEnd = ''; this.selectTime('start') })
       }.id('inline_time_end').width('100%').height(48)
     } else if (this.allowTimeRange !== false) {
-      Button('＋ 添加结束时间').id('inline_time_add_end').width('100%').height(44).fontColor(this.color()).backgroundColor(Color.Transparent)
+      Button($r('app.string.text_add_end_time')).id('inline_time_add_end').width('100%').height(44).fontColor(this.color()).backgroundColor(Color.Transparent)
         .onClick(() => {
           const parts = this.draftStart.split(':')
           const minute = Math.min(1439, Number(parts[0]) * 60 + Number(parts[1]) + 60)
@@ -152,28 +153,28 @@ export struct TaskDateDialog {
     TimePicker({ selected: this.pickerDate }).id('inline_time_picker').useMilitaryTime(true).height(200).width('100%')
       .textStyle({ color: UiColor.secondary, font: { size: 18 } }).selectedTextStyle({ color: UiColor.text, font: { size: 22 } })
       .onChange((value: TimePickerResult) => { this.timeSelected(value) })
-    Button('清除时间').id('inline_time_clear').width('100%').height(44).fontColor(UiColor.error).backgroundColor('#443337')
+    Button($r('app.string.text_clear_time')).id('inline_time_clear').width('100%').height(44).fontColor(UiColor.error).backgroundColor('#443337')
       .onClick(() => { this.clearTime() })
   }
   @Builder
   datePanel() {
     Row() {
-      Text(this.title || (this.deadline ? '截止日期' : '计划日期')).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
+      Text(this.title || (this.deadline ? localizedText($r('app.string.text_deadline')) : localizedText($r('app.string.text_scheduled_date')))).fontSize(17).fontColor(UiColor.text).layoutWeight(1)
       Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_close')).width(20).height(20) }
-        .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('取消日期与时间修改')
+        .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText($r('app.string.text_cancel_date_time_changes'))
         .enabled(!this.busy).onClick(() => { this.close() })
     }.width('100%')
-    this.quick('今天', 0)
-    this.quick('明天', 1)
+    this.quick(localizedText($r('app.string.text_today')), 0)
+    this.quick(localizedText($r('app.string.text_tomorrow')), 1)
     Row() {
       Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_back')).width(20).height(20) }
-        .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('上个月').enabled(!this.busy).onClick(() => { this.move(-1) })
-      Text(`${this.year}年${this.month + 1}月`).fontSize(14).fontColor(UiColor.text).textAlign(TextAlign.Center).layoutWeight(1)
+        .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText($r('app.string.text_last_month')).enabled(!this.busy).onClick(() => { this.move(-1) })
+      Text(localizedDate(new Date(this.year, this.month, 1), { month: 'long', year: 'numeric' })).fontSize(14).fontColor(UiColor.text).textAlign(TextAlign.Center).layoutWeight(1)
       Button({ type: ButtonType.Normal }) { Image($r('app.media.ui_next')).width(20).height(20) }
-        .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('下个月').enabled(!this.busy).onClick(() => { this.move(1) })
+        .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText($r('app.string.text_next_month')).enabled(!this.busy).onClick(() => { this.move(1) })
     }.width('100%')
     Row() {
-      ForEach(['一', '二', '三', '四', '五', '六', '日'], (label: string) => {
+      ForEach([localizedText($r('app.string.text_mon')), localizedText($r('app.string.text_tue')), localizedText($r('app.string.text_wed')), localizedText($r('app.string.text_thu')), localizedText($r('app.string.text_fri')), localizedText($r('app.string.text_sat')), localizedText($r('app.string.text_sun'))], (label: string) => {
         Text(label).fontSize(11).fontColor(UiColor.secondary).textAlign(TextAlign.Center).layoutWeight(1)
       })
     }.width('100%').height(20)
@@ -185,29 +186,31 @@ export struct TaskDateDialog {
       .enableScrollInteraction(false)
     if (this.allowTime) {
       Row() {
-        Text(this.start ? '时间' : '＋ 添加时间').fontSize(15).fontColor(this.color()).layoutWeight(1)
+        Text(this.start ? localizedText($r('app.string.text_time')) : localizedText($r('app.string.text_add_time'))).fontSize(15).fontColor(this.color()).layoutWeight(1)
         if (this.start) { Text(`${this.start}${this.end ? `–${this.end}` : ''}`).fontSize(15).fontColor(UiColor.text) }
         Image($r('app.media.ui_next')).width(18).height(18)
       }.id('inline_date_time').width('100%').height(44).enabled(!this.busy).onClick(() => { this.editTime() })
       if (this.batch && !this.timeChanged) {
-        Text('只改日期时，各任务保留原时间；添加或清除时间将应用到全部选中任务。').fontSize(12).fontColor(UiColor.secondary).width('100%')
+        Text($r('app.string.text_only_when_the_date_is_changed_each')).fontSize(12).fontColor(UiColor.secondary).width('100%')
       } else if (this.timeChanged && !this.start) {
-        Text('修改后仅保留日期').fontSize(12).fontColor(UiColor.secondary).width('100%')
+        Text($r('app.string.text_modified_date_only')).fontSize(12).fontColor(UiColor.secondary).width('100%')
       }
     }
-    if (this.date) { Text(`已选：${this.date}`).fontSize(12).fontColor(UiColor.secondary).width('100%') }
+    if (this.date) { Text(localizedText($r('app.string.text_selected_3'), String(this.date))).fontSize(12).fontColor(UiColor.secondary).width('100%') }
     if (this.allowClear && (this.selected || this.date)) {
-      Button('清除日期').id('inline_date_clear').width('100%').height(44).backgroundColor('#443337').fontColor(UiColor.error)
+      Button($r('app.string.text_clear_date')).id('inline_date_clear').width('100%').height(44).backgroundColor('#443337').fontColor(UiColor.error)
         .enabled(!this.busy).onClick(() => { this.clearDate() })
     }
-    Button('完成').id('inline_date_save').width('100%').height(44).backgroundColor(this.color()).fontColor(UiColor.onPrimary)
+    Button($r('app.string.text_done')).id('inline_date_save').width('100%').height(44).backgroundColor(this.color()).fontColor(UiColor.onPrimary)
       .enabled(!this.busy && (!!this.date || !!this.selected)).onClick(() => { this.accept() })
   }
   build() {
-    Column({ space: 4 }) {
-      if (this.editingTime) { this.timePanel() } else { this.datePanel() }
-      if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
-    }.width('calc(100% - 32vp)').constraintSize({ maxWidth: 360 }).padding(12)
+    Scroll() {
+      Column({ space: 4 }) {
+        if (this.editingTime) { this.timePanel() } else { this.datePanel() }
+        if (this.message) { Text(this.message).fontSize(12).fontColor(UiColor.error).width('100%') }
+      }.width('100%').padding(12)
+    }.width('calc(100% - 32vp)').constraintSize({ maxWidth: 360, maxHeight: '90%' }).scrollBar(BarState.Auto)
       .backgroundColor(UiColor.dialog).borderRadius(20).clip(true)
   }
 }

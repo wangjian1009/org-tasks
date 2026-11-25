@@ -1,4 +1,5 @@
 // 验证 APP 临时测试入口与服务生命周期；网络与事件由 Rust 集成测试覆盖。
+const { transpileFixture } = require('./helpers/localized-resources.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +12,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const ts = require('/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript');
 function load(name, mocks, globals = {}) {
   const file = path.resolve('entry/src/main/ets', name + '.ets');
-  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: {
+  const code = transpileFixture(ts, fs.readFileSync(file, 'utf8'), { compilerOptions: {
     target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS
   } }).outputText;
   const module = { exports: {} };

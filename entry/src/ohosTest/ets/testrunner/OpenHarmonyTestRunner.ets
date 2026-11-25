@@ -1,8 +1,10 @@
 import { abilityDelegatorRegistry, TestRunner } from '@kit.TestKit'
+import { application } from '@kit.AbilityKit'
 import { fileIo as fs } from '@kit.CoreFileKit'
 import { RepositorySyncService, SyncStartPolicy } from '../../../main/ets/services/RepositorySyncService'
 import { AppConfigService } from '../../../main/ets/services/AppConfigService'
 import { localDate } from '../../../main/ets/ui/Theme'
+import { registerLocalizedResources } from '../../../main/ets/ui/LocalizedText'
 import { probeCalendarReminders } from './CalendarReminderProbe'
 
 interface EntryMonitor { abilityName: string }
@@ -11,16 +13,25 @@ interface EntryMonitor { abilityName: string }
 export default class OpenHarmonyTestRunner implements TestRunner {
   onPrepare(): void {}
   onRun(): void {
-    const page = abilityDelegatorRegistry.getArguments().parameters['-s loadingPage']
-    const calendarProbe = abilityDelegatorRegistry.getArguments().parameters['-s calendarProbe']
-    const operation = typeof calendarProbe === 'string'
-      ? this.probeCalendar(calendarProbe)
-      : typeof page === 'string' ? this.launchLoadingPage(page) : this.seed()
-    operation.then(async (): Promise<void> => {
+    this.run().then(async (): Promise<void> => {
       await abilityDelegatorRegistry.getAbilityDelegator().finishTest('专用模拟器数据准备完成', 0)
     }).catch(async (error: Error): Promise<void> => {
       await abilityDelegatorRegistry.getAbilityDelegator().finishTest(`数据准备失败：${error.message}`, 1)
     })
+  }
+  private async run(): Promise<void> {
+    const args = abilityDelegatorRegistry.getArguments()
+    const moduleName = 'entry_test'
+    try {
+      // 运行器引用的共享 ArkTS 随测试包编译，资源 ID 归测试模块。
+      const module = await application.createModuleContext(application.getApplicationContext(), moduleName)
+      registerLocalizedResources(moduleName, module.resourceManager)
+    } catch (error) { throw error as Error }
+    const page = args.parameters['-s loadingPage']
+    const calendarProbe = args.parameters['-s calendarProbe']
+    if (typeof calendarProbe === 'string') return this.probeCalendar(calendarProbe)
+    if (typeof page === 'string') return this.launchLoadingPage(page)
+    return this.seed()
   }
   private async probeCalendar(mode: string): Promise<void> {
     try {

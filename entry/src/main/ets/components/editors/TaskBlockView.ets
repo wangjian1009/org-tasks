@@ -1,3 +1,4 @@
+import { localizedText } from '../../ui/LocalizedText'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTextLink, CoreLinkValue } from '../../services/NativeCoreService'
 import { OrgContentView } from '../OrgContentView'
@@ -23,7 +24,7 @@ export struct TaskBlockView {
   @Prop revision: string = ''
   @Prop contentBackground: string = UiColor.taskCard
   @Prop ownerKey: string = ''
-  @Prop placeholder: string = '文本'
+  @Prop placeholder: string = localizedText($r('app.string.text_text_2'))
   @Prop emptyBody: boolean = false
   @Prop showEmptyPrompt: boolean = true
   @Prop @Watch('addMenuRequested') addMenuRequest: number = 0
@@ -166,8 +167,8 @@ export struct TaskBlockView {
     if (!block) return
     try {
       await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, block.source))
-      this.notify('区块已拷贝')
-    } catch (_) { this.notify('拷贝失败，请重试') }
+      this.notify(localizedText($r('app.string.block_copied')))
+    } catch (_) { this.notify(localizedText($r('app.string.text_copy_failed_try_again'))) }
   }
 
   async deleteSelected(): Promise<boolean> {
@@ -181,7 +182,7 @@ export struct TaskBlockView {
       if (!await this.prepare(block, revision)) return false
       this.saving = true; started = true; this.editingChanged(true)
       const saved = await this.save(block, '')
-      if (!saved) this.notify('删除失败，请确认文件版本后重试')
+      if (!saved) this.notify(localizedText($r('app.string.text_couldn_t_delete_check_the_file_version')))
       return saved
     } finally {
       this.preparing = false; this.saving = false
@@ -202,18 +203,18 @@ export struct TaskBlockView {
 
   menuItems(): TaskActionItem[] {
     if (this.emptyBody) return this.addItems()
-    const items: TaskActionItem[] = [{ id: 'copy', title: '拷贝', label: '拷贝区块',
+    const items: TaskActionItem[] = [{ id: 'copy', title: localizedText($r('app.string.text_copy')), label: localizedText($r('app.string.text_copy_blocks')),
       icon: $r('app.media.ui_link_copy'), action: (): void => { this.copySelected() } }]
     if (!this.readonly) {
-      items.push({ id: 'edit', title: '编辑', label: '编辑区块', icon: $r('app.media.ui_link_edit'), action: (): void => {
+      items.push({ id: 'edit', title: localizedText($r('app.string.text_edit')), label: localizedText($r('app.string.text_edit_blocks')), icon: $r('app.media.ui_link_edit'), action: (): void => {
         if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision)
       } })
       if (this.allowMove) {
-        items.push({ id: 'move', title: '移动', label: '移动区块',
+        items.push({ id: 'move', title: localizedText($r('app.string.text_move')), label: localizedText($r('app.string.text_move_blocks')),
           icon: $r('app.media.ui_move_to'), action: (): void => { this.moveSelected() } })
       }
       if (this.insertBelow || this.menuAddsContent) items.push(...this.addItems())
-      items.push({ id: 'delete', title: '删除', label: '删除区块', icon: $r('app.media.ui_delete'),
+      items.push({ id: 'delete', title: localizedText($r('app.string.text_delete')), label: localizedText($r('app.string.text_remove_blocks')), icon: $r('app.media.ui_delete'),
         style: 'danger', action: (): void => { this.deleteSelected() } })
     }
     return items
@@ -221,11 +222,11 @@ export struct TaskBlockView {
 
   private addItems(): TaskActionItem[] {
     return [
-      { id: 'add_paragraph', title: '段落', label: this.emptyBody ? '添加段落' : '在下方添加段落',
+      { id: 'add_paragraph', title: localizedText($r('app.string.text_paragraph')), label: this.emptyBody ? localizedText($r('app.string.text_add_paragraph')) : localizedText($r('app.string.text_add_paragraph_below')),
         icon: $r('app.media.ui_body'), action: (): void => {
           if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision, 'paragraph')
         } },
-      { id: 'add_list', title: '列表', label: this.emptyBody ? '添加列表' : '在下方添加列表',
+      { id: 'add_list', title: localizedText($r('app.string.text_list')), label: this.emptyBody ? localizedText($r('app.string.text_add_list')) : localizedText($r('app.string.text_add_list_below')),
         icon: $r('app.media.ui_task_list'), action: (): void => {
           if (this.menuBlock) this.edit(this.menuBlock, this.menuRevision, 'list')
         } }
@@ -343,7 +344,7 @@ export struct TaskBlockView {
   input() {
     Column({ space: 4 }) {
       TextArea({ text: this.draft, controller: this.inputController,
-        placeholder: this.adding ? '段落' : this.placeholder })
+        placeholder: this.adding ? localizedText($r('app.string.text_paragraph')) : this.placeholder })
         .id(this.inputKey).defaultFocus(true)
         .width('100%').height('auto').minLines(1).maxLines(1000)
         .fontSize(this.emptyBody || this.adding || this.block.paragraph ? UiSize.paragraphFont : 14)
@@ -385,7 +386,7 @@ export struct TaskBlockView {
       if (this.editing && !this.adding) {
         this.input()
       } else if (this.emptyBody && this.showEmptyPrompt) {
-        Text('添加正文').fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
+        Text($r('app.string.text_add_body')).fontSize(14).fontColor(UiColor.disabled).width('100%').constraintSize({ minHeight: 24 })
           .enabled(!this.readonly && !this.disabled)
           .onClick((): void => { this.editCurrent() })
       } else if (!this.emptyBody) {

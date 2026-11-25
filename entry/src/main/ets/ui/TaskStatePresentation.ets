@@ -1,3 +1,4 @@
+import { localizedText } from './LocalizedText'
 import { TaskStateCategory as NativeTaskStateCategory } from 'liborg_tasks_harmony.so'
 import { CoreTask } from '../services/NativeCoreService'
 
@@ -26,11 +27,11 @@ export function taskStateToggleWaitCategory(task: CoreTask | undefined): TaskSta
 
 export function taskStateCategoryLabel(category: NativeTaskStateCategory | null | undefined): string {
   switch (category) {
-    case TaskStateCategory.Todo: return '待办'
-    case TaskStateCategory.Doing: return '进行中'
-    case TaskStateCategory.Wait: return '等待'
-    case TaskStateCategory.Done: return '已完成'
-    case TaskStateCategory.Cancel: return '已取消'
-    default: return '未分类'
+    case TaskStateCategory.Todo: return localizedText($r('app.string.text_to_do'))
+    case TaskStateCategory.Doing: return localizedText($r('app.string.text_ongoing'))
+    case TaskStateCategory.Wait: return localizedText($r('app.string.text_waiting'))
+    case TaskStateCategory.Done: return localizedText($r('app.string.text_completed'))
+    case TaskStateCategory.Cancel: return localizedText($r('app.string.text_canceled'))
+    default: return localizedText($r('app.string.text_uncategorized'))
   }
 }

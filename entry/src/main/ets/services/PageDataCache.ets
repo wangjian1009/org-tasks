@@ -1,3 +1,4 @@
+import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { fileIo as fs } from '@kit.CoreFileKit'
 import { util } from '@kit.ArkTS'
@@ -19,7 +20,7 @@ export class PageDataCache {
 
   constructor(context: Context, pageName: string, scope: string) {
     if (!pageName.trim() || pageName === '.' || pageName === '..' || /[/\\\x00]/.test(pageName) ||
-      new util.TextEncoder().encodeInto(pageName).length > 160) throw new Error('页面缓存名称无效')
+      new util.TextEncoder().encodeInto(pageName).length > 160) throw new Error(localizedText($r('app.string.text_invalid_page_cache_name')))
     this.directory = `${context.filesDir}/page-data/v1`
     this.path = `${this.directory}/${pageName}.json`
     this.pageName = pageName
@@ -47,7 +48,7 @@ export class PageDataCache {
       try { await fs.mkdir(this.directory, true) }
       catch (error) { if (!(await fs.stat(this.directory)).isDirectory()) throw error as Error }
       const bytes = new util.TextEncoder().encodeInto(JSON.stringify(envelope))
-      if (bytes.length > 32 * 1024 * 1024) throw new Error('页面缓存超过大小限制')
+      if (bytes.length > 32 * 1024 * 1024) throw new Error(localizedText($r('app.string.text_page_cache_exceeding_size_limit')))
       const temporary = `${this.path}.${util.generateRandomUUID()}.tmp`
       try {
         const file = await fs.open(temporary, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.READ_WRITE)
@@ -55,7 +56,7 @@ export class PageDataCache {
           let offset = 0
           while (offset < bytes.length) {
             const written = await fs.write(file.fd, bytes.slice(offset).buffer)
-            if (written <= 0 || written > bytes.length - offset) throw new Error('页面缓存未完整写入')
+            if (written <= 0 || written > bytes.length - offset) throw new Error(localizedText($r('app.string.text_page_cache_not_fully_written')))
             offset += written
           }
           await fs.fsync(file.fd)
