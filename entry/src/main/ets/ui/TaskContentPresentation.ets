@@ -5,6 +5,16 @@ import { samePageValue } from '../services/PageDataEquality'
 export interface TaskContentSlot { key: string; block: CoreContentBlock }
 let contentSequence: number = 0
 
+export function contentDragScrollSpeed(pointer: number, top: number, bottom: number): number {
+  if (pointer < top || pointer > bottom || bottom <= top) return 0
+  const edge = Math.min(96, (bottom - top) / 2)
+  const fromTop = pointer - top
+  const fromBottom = bottom - pointer
+  const proximity = Math.max(0, 1 - Math.min(fromTop, fromBottom) / edge)
+  const speed = 560 * proximity * (0.3 + 0.7 * proximity)
+  return fromTop < fromBottom ? -speed : speed
+}
+
 export function reconcileTaskContent(previous: TaskContentSlot[], blocks: CoreContentBlock[]): TaskContentSlot[] {
   const available = new Map<string, TaskContentSlot[]>()
   for (const slot of previous) {

@@ -49,7 +49,7 @@ export struct TaskBlockView {
   @State addingList: boolean = false
   @State menuVisible: boolean = false
   @State menuX: number = 0
-  @State menuY: number = 0
+  @State menuTopSpace: number = 0
   @State menuWidth: number = 320
   private menuBlock: CoreContentBlock | undefined = undefined
   private menuRevision: string = ''
@@ -119,12 +119,18 @@ export struct TaskBlockView {
     await this.edit()
   }
 
-  openMenu(x: number, y: number) {
+  openMenu(x: number) {
     if (!this.alive || this.disabled || this.editing || this.checklistEditing || this.saving || this.preparing) return
     LinkEditController.protectInteraction()
     this.menuBlock = this.block; this.menuRevision = this.revision
-    this.menuX = Math.max(0, x); this.menuY = Math.max(0, y)
-    try { this.menuWidth = this.getUIContext().px2vp(display.getDefaultDisplaySync().width) - 32 } catch (_) {}
+    this.menuX = Math.max(0, x)
+    this.menuTopSpace = 0
+    try {
+      const context = this.getUIContext()
+      this.menuWidth = context.px2vp(display.getDefaultDisplaySync().width) - 32
+      const block = context.getFrameNodeById(`${this.inputKey}_block`)
+      if (block) this.menuTopSpace = Math.max(0, 96 - block.getPositionToWindow().y)
+    } catch (_) {}
     this.menuVisible = true
   }
 
@@ -260,7 +266,7 @@ export struct TaskBlockView {
 
   @Builder
   menuAnchor() {
-    Row().width(1).height(1).position({ x: this.menuX, y: this.menuY })
+    Row().width(1).height(1).position({ x: this.menuX, y: 0 })
       .bindPopup(this.menuVisible, { builder: this.blockMenu(this.menuItems()), placement: Placement.Top,
         targetSpace: 6, enableArrow: false, popupColor: Color.Transparent, backgroundBlurStyle: BlurStyle.NONE,
         mask: { color: Color.Transparent }, focusable: false, autoCancel: true,
@@ -289,7 +295,7 @@ export struct TaskBlockView {
           if (event.type === TouchType.Down || event.type === TouchType.Up) LinkEditController.protectInteraction()
         })
         .gesture(LongPressGesture({ repeat: false, duration: 500 }).onAction((event: GestureEvent): void => {
-          this.openMenu(event.fingerList[0]?.localX ?? 0, event.fingerList[0]?.localY ?? 0)
+          this.openMenu(event.fingerList[0]?.localX ?? 0)
         }))
     } else {
       OrgContentView({ internalLinkProcessor: this.internalLinkProcessor, fragment: this.block.html, revision: this.revision, reloadOnRevision: false, embedded: true, embeddedPadding: 0,
@@ -298,7 +304,7 @@ export struct TaskBlockView {
         linkEditor: this.linkEditor, linkEditingChanged: this.linkEditingChanged,
         changeLink: this.changeLink ? (link: CoreTextLink, value: CoreLinkValue | null): Promise<void> => this.changeLink!(this.block, link, value) : undefined,
         contentBackground: this.contentBackground, activate: this.readonly ? undefined : (): void => { this.editCurrent() },
-        contextMenu: (x: number, y: number): void => { this.openMenu(x, y) } }).width('100%')
+        contextMenu: (x: number): void => { this.openMenu(x) } }).width('100%')
     }
   }
 
@@ -347,7 +353,8 @@ export struct TaskBlockView {
         else { this.input() }
       }
       this.menuAnchor()
-    }.width('100%').constraintSize({ minHeight: this.menuVisible ? 44 : 0 })
+    }.width('100%').id(`${this.inputKey}_block`).margin({ top: this.menuVisible ? this.menuTopSpace : 0 })
+      .constraintSize({ minHeight: this.menuVisible ? 44 : 0 })
       .padding({ left: this.menuVisible ? 10 : 0, right: this.menuVisible ? 10 : 0,
         top: this.menuVisible ? 4 : 0, bottom: this.menuVisible ? 4 : 0 })
       .backgroundColor(this.menuVisible ? UiColor.menu : Color.Transparent).borderRadius(UiSize.contentLiftRadius)

@@ -1,4 +1,4 @@
-import { TaskContentSlot, reconcileTaskContent } from '../../ui/TaskContentPresentation'
+import { TaskContentSlot, contentDragScrollSpeed, reconcileTaskContent } from '../../ui/TaskContentPresentation'
 import { InternalLinkProcessor } from '../../ui/InternalLinkProcessor'
 import { CoreContentBlock, CoreTextLink, CoreLinkValue, CoreContentNode, CoreContentBlockChange, CoreTaskChecklistChange } from '../../services/NativeCoreService'
 import { ChecklistFocusFrame, TaskChecklistBlock } from './TaskChecklistBlock'
@@ -8,7 +8,6 @@ import { TaskBlockController } from '../../ui/TaskBlockController'
 import { LinkEditController } from '../LinkView'
 import { UiColor, UiSize } from '../../ui/Theme'
 import { projectContentGap } from '../../ui/OrgFileReadingPresentation'
-import { checklistEdgeScroll } from '../../ui/TaskChecklistReorder'
 
 @Component
 export struct TaskContentEditor {
@@ -20,6 +19,7 @@ export struct TaskContentEditor {
   @State private dragSlot: string = ''
   @State private dragOffset: number = 0
   @State private dragTarget: number = -1
+  @State private dragHeight: number = 0
   @Prop @Watch('moveContextChanged') moveVersion: string = ''
   @Prop contentTree: CoreContentNode[] | undefined = undefined
   @State private followKey: string = ''
@@ -55,6 +55,7 @@ export struct TaskContentEditor {
   private dragX: number = 0
   private dragY: number = 0
   private dragScrollTimer: number = -1
+  private lastDragScroll: number = 0
   private emptyBlock: CoreContentBlock = { id: 'root', kind: 'text', paragraph: true, blankLinesBefore: 0, source: '', html: '', items: [] }
 
   aboutToAppear(): void {
@@ -122,16 +123,20 @@ export struct TaskContentEditor {
     this.dragSlot = ''
     this.dragOffset = 0
     this.dragTarget = -1
+    this.dragHeight = 0
   }
 
   private startBlockDrag(slot: TaskContentSlot, event: GestureEvent): void {
     const finger = event.fingerList[0]
-    const node = this.getUIContext().getFrameNodeById(`${this.moveOwner}_${slot.key}`)
+    const context = this.getUIContext()
+    const node = context.getFrameNodeById(`${this.moveOwner}_${slot.key}`)
     if (!finger || !node || !this.canDragBlock(slot)) return
     this.dragGrabY = finger.globalY - event.offsetY - node.getPositionToWindow().y
+    this.dragHeight = context.px2vp(node.getMeasuredSize().height)
     this.dragSlot = slot.key
     this.updateBlockDrag(event)
     if (this.dragSlot) {
+      this.lastDragScroll = Date.now()
       this.dragScrollTimer = setInterval((): void => { this.scrollBlockDrag() }, 16)
     }
   }
@@ -179,23 +184,47 @@ export struct TaskContentEditor {
 
   private scrollBlockDrag(): void {
     if (!this.dragSlot) return
+    const now = Date.now()
+    const elapsed = Math.min(32, now - this.lastDragScroll) / 1000
+    this.lastDragScroll = now
     const context = this.getUIContext()
     const host = this.scrollHostId ? context.getFrameNodeById(this.scrollHostId) : null
     if (host && this.scrollHost) {
       const top = host.getPositionToWindow().y
-      const speed = checklistEdgeScroll(this.dragY, top, top + context.px2vp(host.getMeasuredSize().height))
-      if (speed) this.scrollHost.scrollBy(0, speed * 0.016)
+      const bottom = top + context.px2vp(host.getMeasuredSize().height)
+      const speed = contentDragScrollSpeed(this.dragY, top, bottom)
+      if (speed) {
+        const direction = Math.sign(speed)
+        const edgeLimit = this.contentScrollLimit(direction, speed < 0 ? top + 48 : bottom - 48)
+        const distance = Math.min(Math.abs(speed * elapsed), edgeLimit)
+        if (distance > 0) this.scrollHost.scrollBy(0, direction * distance)
+      }
     }
     // 占位展开会改变源区块的位置，即使手指暂时停住也需要重新计算跟手偏移。
     this.updateBlockDrag()
+  }
+
+  private contentScrollLimit(direction: number, edge: number): number {
+    const context = this.getUIContext()
+    const first = this.blocks.findIndex(block => block.id === this.movingId) === 0 ? 2 : 0
+    const last = this.blocks[this.blocks.length - 1]?.id === this.movingId ? this.blocks.length - 2 : this.blocks.length
+    const gap = context.getFrameNodeById(this.moveGapId(direction < 0 ? first : last))
+    if (!gap) return Infinity
+    const center = gap.getPositionToWindow().y + context.px2vp(gap.getMeasuredSize().height) / 2
+    return Math.max(0, direction * (center - edge))
   }
 
   private finishBlockDrag(event: GestureEvent): void {
     if (!this.dragSlot) return
     this.updateBlockDrag(event)
     const target = this.blockDropTarget()
-    this.resetDrag()
-    if (target >= 0) this.placeBlock(this.blocks[target]?.id ?? null)
+    if (target < 0) {
+      this.resetDrag()
+      return
+    }
+    if (this.dragScrollTimer >= 0) clearInterval(this.dragScrollTimer)
+    this.dragScrollTimer = -1
+    this.placeBlock(this.blocks[target]?.id ?? null)
   }
 
   private async followSavedBlock(key: string, finish: () => Promise<boolean>,
@@ -267,9 +296,9 @@ export struct TaskContentEditor {
       } else if (!this.dragSlot) {
         Circle({ width: 6, height: 6 }).fill(UiColor.projectLabel)
       }
-    }.width('100%').height(this.dragTarget === index ? 52 : 16).padding(0).borderRadius(8)
+    }.width('100%').height(this.dragTarget === index ? Math.max(52, this.dragHeight) : 16).padding(0).borderRadius(8)
       .backgroundColor(this.dragTarget === index ? UiColor.projectOutline : Color.Transparent)
-      .responseRegion({ x: 0, y: -8, width: '100%', height: this.dragTarget === index ? 68 : 32 })
+      .responseRegion({ x: 0, y: -8, width: '100%', height: this.dragTarget === index ? Math.max(52, this.dragHeight) + 16 : 32 })
       .enabled(!this.savingMove && !this.disabled)
       .id(this.moveGapId(index))
       .accessibilityText(beforeId === null ? '移到正文末尾' : `移到区块之前：${this.blocks.find(block => block.id === beforeId)?.source.split('\n', 1)[0] ?? ''}`)
@@ -372,7 +401,10 @@ export struct TaskContentEditor {
               color: this.selectedForMove(slot) ? UiColor.contentLiftShadow : '#00000000' })
             .translate({ y: this.dragSlot === slot.key ? this.dragOffset : 0 })
         }.width('100%').id(`${this.moveOwner}_${slot.key}`).zIndex(this.selectedForMove(slot) ? 1 : 0)
-          .margin({ top: this.projectReading && !this.movingId ? projectContentGap(this.blocks, this.indexFor(slot.key)) : 0 })
+          // 拖动时用负间距腾出原位置，保留区块原有的高度和手势节点。
+          .margin({ top: this.projectReading && !this.movingId ? projectContentGap(this.blocks, this.indexFor(slot.key)) : 0,
+            bottom: this.dragSlot === slot.key ? -this.dragHeight -
+              (this.projectReading || this.indexFor(slot.key) === this.slots.length - 1 ? 0 : 12) : 0 })
           .priorityGesture(PanGesture({ direction: PanDirection.All, distance: 4 }).tag('content_block_drag')
             .onActionStart((event: GestureEvent): void => { this.startBlockDrag(slot, event) })
             .onActionUpdate((event: GestureEvent): void => { this.updateBlockDrag(event) })

@@ -40,6 +40,7 @@ export struct OrgFileSectionBody {
             internalLinkProcessor: this.internalLinkProcessor, scrollHost: this.scrollHost, scrollHostId: this.scrollHostId }).width('100%')
         } else {
           TaskDocumentContent({ modify: this.modify, readTask: this.readTask, internalLinkProcessor: this.internalLinkProcessor, task: this.task,
+            scrollHost: this.scrollHost, scrollHostId: this.scrollHostId,
             blocks: this.blocks, contentTree: this.contentTree, contentRevision: this.contentRevision, readonly: this.task === null, projectReading: true, contentBackground: this.contentBackground }).width('100%')
         }
       }.width('100%').padding({ left: this.task ? (this.task.state ? 28 : 8) : 0 })

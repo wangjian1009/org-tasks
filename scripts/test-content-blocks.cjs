@@ -25,7 +25,18 @@ const prefix = name => source => source.split('  build()')[0].replace(/@Componen
   .replace('export struct ' + name, 'export class ' + name) + '}';
 
 const equality = load('services/PageDataEquality', { './PageDataSnapshot': {} });
-const { reconcileTaskContent } = load('ui/TaskContentPresentation', { '../services/PageDataEquality': equality });
+const { contentDragScrollSpeed, reconcileTaskContent } = load('ui/TaskContentPresentation', { '../services/PageDataEquality': equality });
+
+test('正文拖动仅在视口边缘滚动，速度从缓慢逐步加快', () => {
+  assert.equal(contentDragScrollSpeed(99, 100, 700), 0);
+  assert.equal(contentDragScrollSpeed(400, 100, 700), 0);
+  assert.equal(contentDragScrollSpeed(700, 100, 700), 560);
+  assert.equal(contentDragScrollSpeed(100, 100, 700), -560);
+  const slow = contentDragScrollSpeed(616, 100, 700);
+  const faster = contentDragScrollSpeed(670, 100, 700);
+  assert.ok(slow > 0 && slow < faster && faster < 560);
+  assert.equal(contentDragScrollSpeed(184, 100, 700), -slow);
+});
 const contentBlock = (id, source, kind = 'text') => ({ id, kind, source, html: '<p>' + source + '</p>',
   paragraph: kind === 'text', blankLinesBefore: 0, items: [] });
 test('正文未变化复用同一列表与节点，只修改一个区块时保留其他分支', () => {

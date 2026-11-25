@@ -18,6 +18,8 @@ export struct TaskDocumentContent {
   modify: (task: CoreTask, changes: CoreTaskModification[]) => Promise<CoreTask> = async (): Promise<CoreTask> => { throw new Error('未提供正文数据管理接口') }
   readTask: (() => CoreTask | undefined) | undefined = undefined
   internalLinkProcessor: InternalLinkProcessor | undefined = undefined
+  scrollHost: Scroller | undefined = undefined
+  scrollHostId: string = ''
   @Prop @Watch('snapshotChanged') task: CoreTask | null = null
   @Prop blocks: CoreContentBlock[] = []
   @Prop contentTree: CoreContentNode[] | undefined = undefined
@@ -260,6 +262,7 @@ export struct TaskDocumentContent {
         projectReading: this.projectReading, checklistEditing: this.editingId !== '' || this.adding,
         revision: this.current?.fileVersion ?? this.task?.fileVersion ?? this.contentRevision, contentBackground: this.contentBackground,
         moveVersion: this.current?.fileVersion ?? this.task?.fileVersion ?? '',
+        scrollHost: this.scrollHost, scrollHostId: this.scrollHostId,
         moveContent: (id: string, beforeId: string | null, version: string): Promise<boolean> =>
           this.commit([{ field: 'CONTENT_BLOCK', value: { type: 'move', id, beforeId } }], version),
         ownerKey: this.owner, editor: this.blockEditor, linkEditor: this.linkEditor,
