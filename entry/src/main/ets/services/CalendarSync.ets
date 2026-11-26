@@ -11,7 +11,7 @@ export { REMINDER_CLEANUP_DELAY } from './CalendarEventProjection'
 
 const OWNER = 'org-tasks'
 const ACCOUNT = 'org-tasks.reminders'
-const DISPLAY_NAME = '小清单提醒'
+const DISPLAY_NAME = '我的待办提醒'
 
 export interface ReminderCheckResult { registered: boolean; reason: string }
 export interface CalendarOperation {

@@ -101,8 +101,8 @@
             "uris": [
               {
                 "scheme": "file",
-                "type": "com.example.orgtasks.config",
-                "utd": "com.example.orgtasks.config",
+                "type": "io.github.wangjian1009.orgtasks.config",
+                "utd": "io.github.wangjian1009.orgtasks.config",
                 "linkFeature": "FileOpen"
               }
             ]

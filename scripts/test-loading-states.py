@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 
 HDC = '/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc'
-FILES = '/data/app/el2/100/base/com.example.orgtasks/haps/entry/files'
+FILES = '/data/app/el2/100/base/io.github.wangjian1009.orgtasks/haps/entry/files'
 PAGES = {
     'Inbox': ('收件箱', '正在读取收件箱', 'QA编辑'),
     'Today': ('今天', '正在读取任务', 'QA编辑'),
@@ -76,7 +76,7 @@ class Verification:
         directory = self.args.output / f'{mode}-{page}'
         directory.mkdir(parents=True, exist_ok=True)
         (directory / 'result.json').unlink(missing_ok=True)
-        self.hdc('shell', 'aa', 'force-stop', 'com.example.orgtasks')
+        self.hdc('shell', 'aa', 'force-stop', 'io.github.wangjian1009.orgtasks')
         self.hdc('shell', 'rm', '-rf', FILES + '/page-data')
         after_clear = self.hdc('shell', 'ls', '-ld', FILES + '/page-data')
         if 'No such file' not in after_clear:
@@ -88,10 +88,10 @@ class Verification:
             started = time.monotonic()
             if mode == 'controlled':
                 runner = subprocess.Popen([self.args.hdc, '-t', self.args.device, 'shell', 'aa', 'test',
-                    '-b', 'com.example.orgtasks', '-m', 'entry_test', '-s', 'unittest', 'OpenHarmonyTestRunner',
+                    '-b', 'io.github.wangjian1009.orgtasks', '-m', 'entry_test', '-s', 'unittest', 'OpenHarmonyTestRunner',
                     '-s', 'loadingPage', page, '-w', '20'], stdout=log, stderr=subprocess.STDOUT)
             else:
-                log.write(self.hdc('shell', 'aa', 'start', '-b', 'com.example.orgtasks', '-a', 'EntryAbility',
+                log.write(self.hdc('shell', 'aa', 'start', '-b', 'io.github.wangjian1009.orgtasks', '-a', 'EntryAbility',
                     '--pb', 'httpApiEnabled', 'true', '--ps', 'httpApiPage', 'pages/' + page))
                 log.flush()
             observed = False
@@ -145,7 +145,7 @@ class Verification:
         finally:
             log.close()
             if runner and runner.poll() is None:
-                self.hdc('shell', 'aa', 'force-stop', 'com.example.orgtasks')
+                self.hdc('shell', 'aa', 'force-stop', 'io.github.wangjian1009.orgtasks')
                 runner.wait(timeout=5)
 
     def run(self):
@@ -162,7 +162,7 @@ class Verification:
                 for page in self.args.page or PAGES:
                     self.verify(page, mode)
         finally:
-            self.hdc('shell', 'aa', 'force-stop', 'com.example.orgtasks')
+            self.hdc('shell', 'aa', 'force-stop', 'io.github.wangjian1009.orgtasks')
             self.hdc('fport', 'rm', f'tcp:{self.args.port}', 'tcp:8787')
             (self.args.output / 'results.json').write_text(json.dumps(self.results, ensure_ascii=False, indent=2))
 

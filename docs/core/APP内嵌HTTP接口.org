@@ -32,7 +32,7 @@ TEST_DEVICE=127.0.0.1:5555
 
 # 启动应用并临时启用测试接口；已运行的应用也接受此参数。
 "$HDC_BIN" -t "$TEST_DEVICE" shell aa start \
-  -b com.example.orgtasks -a EntryAbility --pb httpApiEnabled true
+  -b io.github.wangjian1009.orgtasks -a EntryAbility --pb httpApiEnabled true
 "$HDC_BIN" -t "$TEST_DEVICE" fport tcp:18787 tcp:8787
 #+end_src
 
@@ -94,7 +94,7 @@ curl --fail-with-body -X PUT http://127.0.0.1:18787/api/v1/ui/navigation \
 
 #+begin_src sh
 "$HDC_BIN" -t "$TEST_DEVICE" shell aa start \
-  -b com.example.orgtasks -a EntryAbility --pb httpApiEnabled false
+  -b io.github.wangjian1009.orgtasks -a EntryAbility --pb httpApiEnabled false
 #+end_src
 
 停止后数据与导航接口均不可连接；下次普通启动不会恢复测试服务。

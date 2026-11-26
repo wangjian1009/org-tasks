@@ -2,11 +2,11 @@
   "string": [
     {
       "name": "EntryAbility_desc",
-      "value": "小清单"
+      "value": "我的待办"
     },
     {
       "name": "EntryAbility_label",
-      "value": "小清单"
+      "value": "我的待办"
     },
     {
       "name": "app_link_bound",
@@ -26,11 +26,11 @@
     },
     {
       "name": "calendar_event_description",
-      "value": "由小清单创建的任务提醒"
+      "value": "由我的待办创建的任务提醒"
     },
     {
       "name": "calendar_permission_reason",
-      "value": "用于在小清单专用日历中创建、更新和删除任务提醒"
+      "value": "用于在我的待办专用日历中创建、更新和删除任务提醒"
     },
     {
       "name": "capture_card_description",
@@ -38,7 +38,7 @@
     },
     {
       "name": "capture_description",
-      "value": "只需一个标题，保存到小清单收件箱"
+      "value": "只需一个标题，保存到我的待办收件箱"
     },
     {
       "name": "capture_label",
@@ -62,7 +62,7 @@
     },
     {
       "name": "config_import_description",
-      "value": "预览并导入小清单配置"
+      "value": "预览并导入我的待办配置"
     },
     {
       "name": "config_import_local_folder",
@@ -162,7 +162,7 @@
     },
     {
       "name": "module_desc",
-      "value": "小清单任务管理与 WebDAV 同步"
+      "value": "我的待办任务管理与 WebDAV 同步"
     },
     {
       "name": "move_destination_search",
@@ -314,7 +314,7 @@
     },
     {
       "name": "text_about_org_tasks",
-      "value": "关于小清单"
+      "value": "关于我的待办"
     },
     {
       "name": "text_add",
@@ -594,7 +594,7 @@
     },
     {
       "name": "text_back_to_org_tasks",
-      "value": "返回小清单"
+      "value": "返回我的待办"
     },
     {
       "name": "text_backstage",
@@ -934,7 +934,7 @@
     },
     {
       "name": "text_configure_applied_cannot_return_org_tasks_for",
-      "value": "配置已应用，暂时无法返回小清单"
+      "value": "配置已应用，暂时无法返回我的待办"
     },
     {
       "name": "text_configure_cannot_temporarily_import",
@@ -1046,7 +1046,7 @@
     },
     {
       "name": "text_could_not_open_org_tasks_capture_window",
-      "value": "无法打开小清单捕捉窗口，请重试"
+      "value": "无法打开我的待办捕捉窗口，请重试"
     },
     {
       "name": "text_could_not_open_please_confirm_that_the",
@@ -2602,7 +2602,7 @@
     },
     {
       "name": "text_no_org_tasks_recognized_yaml_configuration",
-      "value": "未识别到小清单 YAML 配置"
+      "value": "未识别到我的待办 YAML 配置"
     },
     {
       "name": "text_no_page_data_management_objects_provided",
@@ -2806,15 +2806,15 @@
     },
     {
       "name": "text_org_tasks_configuration_file",
-      "value": "小清单配置文件|%1$s"
+      "value": "我的待办配置文件|%1$s"
     },
     {
       "name": "text_org_tasks_configuration_not_recognized",
-      "value": "未识别到小清单配置"
+      "value": "未识别到我的待办配置"
     },
     {
       "name": "text_org_tasks_settings",
-      "value": "小清单配置-"
+      "value": "我的待办配置-"
     },
     {
       "name": "text_organisation",
@@ -2946,7 +2946,7 @@
     },
     {
       "name": "text_please_confirm_the_title_and_save_it",
-      "value": "请确认标题并保存到小清单"
+      "value": "请确认标题并保存到我的待办"
     },
     {
       "name": "text_please_enter_a_filename",
@@ -3402,7 +3402,7 @@
     },
     {
       "name": "text_reminders_are_turned_off_for_the_org",
-      "value": "系统日历中“小清单提醒”的提醒开关已关闭"
+      "value": "本应用的专用提醒日历已关闭提醒"
     },
     {
       "name": "text_remote_change",
@@ -4542,7 +4542,7 @@
     },
     {
       "name": "text_the_org_tasks_of_this_version_cannot",
-      "value": "此版本的小清单无法读取该配置版本"
+      "value": "此版本的我的待办无法读取该配置版本"
     },
     {
       "name": "text_the_original_file_has_changed_and_the",
@@ -4682,7 +4682,7 @@
     },
     {
       "name": "text_there_is_no_org_tasks_alarm_calendar",
-      "value": "系统中不存在“小清单提醒”日历"
+      "value": "系统中不存在本应用的专用提醒日历"
     },
     {
       "name": "text_there_is_no_readable_delete_backup_for",
@@ -4878,7 +4878,7 @@
     },
     {
       "name": "text_turn_on_reminders_for_the_org_tasks",
-      "value": "请在系统日历中开启“小清单提醒”的提醒"
+      "value": "请在系统日历中为本应用的专用提醒日历开启提醒"
     },
     {
       "name": "text_unable_to_confirm_address",
@@ -5018,7 +5018,7 @@
     },
     {
       "name": "text_upon_opening_write_uncompleted_alarms_into_a",
-      "value": "开启后，把未完成任务的提醒时间写入“小清单提醒”专用日历，由系统日历在到点时通知，应用退出后已登记事件仍由系统处理。"
+      "value": "开启后，把未完成任务的提醒时间写入本应用的专用提醒日历，由系统日历在到点时通知，应用退出后已登记事件仍由系统处理。"
     },
     {
       "name": "text_upper_directory",
@@ -5158,7 +5158,7 @@
     },
     {
       "name": "text_you_need_to_give_calendar_reading_and",
-      "value": "\n\n需要授予日历读写权限。首次使用请打开系统日历完成初始化，并允许系统日历发送通知；小清单自身的通知开关不能替代它。声音和响铃时长由系统日历控制。"
+      "value": "\n\n需要授予日历读写权限。首次使用请打开系统日历完成初始化，并允许系统日历发送通知；我的待办自身的通知开关不能替代它。声音和响铃时长由系统日历控制。"
     }
   ]
 }

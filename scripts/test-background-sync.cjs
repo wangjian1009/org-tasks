@@ -114,7 +114,7 @@ function fixture() {
     repository: load('./RepositorySyncService').RepositorySyncService,
     calls, notifications, timers, states, reasons, inputs, config, syncSteps,
     badgeFail() { badgeFailure = true; },
-    context: { abilityInfo: { bundleName: 'com.example.orgtasks' } },
+    context: { abilityInfo: { bundleName: 'io.github.wangjian1009.orgtasks' } },
     change(value) { changed = value; }, syncFail(value) { syncFailure = value; }, publishFail() { publishFailure = true; },
     retainFail() { retainFailure = true; }, holdFlush(gate) { flushGate = gate; }, holdCheck(gate) { checkGate = gate; }, holdSync(gate) { syncGate = gate; },
     delayNotification() { notificationMisses = 1; },

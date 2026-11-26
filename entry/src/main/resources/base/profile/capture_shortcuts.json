@@ -6,7 +6,7 @@
       "icon": "$media:shortcut_capture_text",
       "wants": [
         {
-          "bundleName": "com.example.orgtasks",
+          "bundleName": "io.github.wangjian1009.orgtasks",
           "moduleName": "entry",
           "abilityName": "CaptureAbility",
           "parameters": {
@@ -21,7 +21,7 @@
       "icon": "$media:shortcut_capture_voice",
       "wants": [
         {
-          "bundleName": "com.example.orgtasks",
+          "bundleName": "io.github.wangjian1009.orgtasks",
           "moduleName": "entry",
           "abilityName": "CaptureAbility",
           "parameters": {

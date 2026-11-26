@@ -889,7 +889,7 @@ function addressUpdateFixture() {
   Object.assign(page, { saving: false, updated: false, selectedTask: task, selectedUri: 'geo:31,120',
     location: { kind: 'coordinates', uri: 'geo:32,121' }, config: { repos: [], todoDefaults: '', coreSettings: {} },
     taskRepositories: new Map([[task.id, { webdavEnabled: true }]]),
-    getUIContext: () => ({ getHostContext: () => ({ applicationInfo: { name: 'com.example.orgtasks' },
+    getUIContext: () => ({ getHostContext: () => ({ applicationInfo: { name: 'io.github.wangjian1009.orgtasks' },
       async startAbility(want) { destinations.push(want); if (navigationError) throw navigationError; } }) }),
     async close() { closes++; } });
   return { page, task, requests, destinations, closes: () => closes,

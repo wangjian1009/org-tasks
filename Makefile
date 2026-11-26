@@ -24,7 +24,7 @@ export PATH := $(NODE_HOME)/bin:$(HVIGOR_HOME)/bin:$(OHPM):$(HDC):$(PATH)
 HAP_DIR := entry/build/default/outputs/default
 
 # 应用信息（根据实际项目修改）
-BUNDLE_NAME := com.example.orgtasks
+BUNDLE_NAME := io.github.wangjian1009.orgtasks
 ABILITY_NAME := EntryAbility
 
 .PHONY: all build release build-test clean install install-only run deploy log log-all deps check-sdk docs-export setup-hooks help

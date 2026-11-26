@@ -29,7 +29,7 @@ function transpileFixture(ts, source, options) {
       if (!Object.hasOwn(chinese, key)) throw new Error(`缺少字符串资源：${key}`);
       return JSON.stringify(chinese[key]);
     })
-    .replace(/\{\s*["']?id["']?:\s*(\d+),\s*["']?type["']?:\s*10003,\s*params:\s*\[\],\s*["']?bundleName["']?:\s*"com\.example\.orgtasks",\s*["']?moduleName["']?:\s*"entry"\s*\}/g, (resource, id) => {
+    .replace(/\{\s*["']?id["']?:\s*(\d+),\s*["']?type["']?:\s*10003,\s*params:\s*\[\],\s*["']?bundleName["']?:\s*"io\.github\.wangjian1009\.orgtasks",\s*["']?moduleName["']?:\s*"entry"\s*\}/g, (resource, id) => {
       const key = stringsById.get(Number(id));
       return Object.hasOwn(chinese, key) ? JSON.stringify(chinese[key]) : resource;
     });

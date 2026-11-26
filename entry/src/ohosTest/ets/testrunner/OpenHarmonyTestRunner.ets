@@ -38,7 +38,7 @@ export default class OpenHarmonyTestRunner implements TestRunner {
       const delegator = abilityDelegatorRegistry.getAbilityDelegator()
       const monitor: EntryMonitor = { abilityName: 'EntryAbility' }
       await delegator.addAbilityMonitor(monitor)
-      await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility',
+      await delegator.startAbility({ bundleName: 'io.github.wangjian1009.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility',
         parameters: { httpApiEnabled: true } })
       const ability = await delegator.waitAbilityMonitor(monitor, 10000)
       if (mode === 'watch') {
@@ -70,7 +70,7 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     try {
       lock.tryLock(true)
       locked = true
-      await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility',
+      await delegator.startAbility({ bundleName: 'io.github.wangjian1009.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility',
         parameters: { httpApiEnabled: true, httpApiPage: `pages/${page}` } })
       // 只延长真实仓库锁等待，页面与 Core 不加入验收专用延时。
       await new Promise<void>((resolve): void => { setTimeout(resolve, 3500) })
@@ -87,7 +87,7 @@ export default class OpenHarmonyTestRunner implements TestRunner {
     const delegator = abilityDelegatorRegistry.getAbilityDelegator()
     const monitor: EntryMonitor = { abilityName: 'EntryAbility' }
     await delegator.addAbilityMonitor(monitor)
-    await delegator.startAbility({ bundleName: 'com.example.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility' })
+    await delegator.startAbility({ bundleName: 'io.github.wangjian1009.orgtasks', moduleName: 'entry', abilityName: 'EntryAbility' })
     const ability = await delegator.waitAbilityMonitor(monitor, 10000)
     const context = ability.context
     const projectData = abilityDelegatorRegistry.getArguments().parameters['-s projectData'] === 'true'
