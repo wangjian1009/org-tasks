@@ -371,7 +371,7 @@ export type NotificationUpdate = NotificationSnapshot | NotificationDelta;
 export type NotificationUpdateMonitor = (event: NotificationUpdate) => void;
 
 export interface HttpServerInfo { readonly address: string; }
-export interface HttpUiRequest { method: string; body: string; }
+export interface HttpUiRequest { path: string; method: string; body: string; }
 export interface HttpUiResponse { status: number; body: string; }
 export type HttpUiHandler = (request: HttpUiRequest, respond: (response: HttpUiResponse) => void) => void;
 export type RemoteChangeState = 'unchanged' | 'changed' | 'unknown';

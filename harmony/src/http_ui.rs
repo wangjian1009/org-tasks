@@ -1,8 +1,8 @@
-//! Harmony 自有 UI 路由；Core 只负责合并宿主 Router，不解释页面语义。
+//! Harmony 自有导航和仓库配置路由。
 use axum::{
     Json,
-    extract::{State, rejection::JsonRejection},
-    http::StatusCode,
+    extract::{OriginalUri, State, rejection::JsonRejection},
+    http::{Method, StatusCode},
     response::{IntoResponse, Response},
     routing::{MethodRouter, get},
 };
@@ -29,6 +29,8 @@ struct Pending {
 }
 static PENDING: OnceLock<Mutex<HashMap<u64, Pending>>> = OnceLock::new();
 static NEXT: AtomicU64 = AtomicU64::new(1);
+const NAVIGATION_PATH: &str = "/api/v1/ui/navigation";
+const REPOSITORIES_PATH: &str = "/api/v1/repositories";
 fn pending() -> &'static Mutex<HashMap<u64, Pending>> {
     PENDING.get_or_init(Default::default)
 }
@@ -62,11 +64,17 @@ impl UiBridge {
     ) -> Result<(), org_tasks_core::CoreError> {
         if self.monitor != 0 {
             let handler: MethodRouter = get(read).put(write).with_state(self.clone());
-            server.register_handler("/api/v1/ui/navigation", handler)?;
+            server.register_handler(NAVIGATION_PATH, handler)?;
+            let handler = get(read)
+                .post(write)
+                .patch(write)
+                .delete(write)
+                .with_state(self.clone());
+            server.register_handler(REPOSITORIES_PATH, handler)?;
         }
         Ok(())
     }
-    async fn dispatch(&self, method: &str, body: Value) -> Response {
+    async fn dispatch(&self, path: &str, method: &str, body: Value) -> Response {
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = oneshot::channel();
         pending().lock().unwrap().insert(
@@ -77,7 +85,7 @@ impl UiBridge {
             },
         );
         let _cleanup = PendingGuard(id);
-        let request = json!({"method":method,"body":body.to_string()}).to_string();
+        let request = json!({"path":path,"method":method,"body":body.to_string()}).to_string();
         #[cfg(not(test))]
         {
             let request = std::ffi::CString::new(request).expect("JSON 不包含 NUL 字节");
@@ -143,15 +151,17 @@ fn error(status: StatusCode, code: &str, message: &str) -> Response {
     )
         .into_response()
 }
-async fn read(State(bridge): State<Arc<UiBridge>>) -> Response {
-    bridge.dispatch("GET", Value::Null).await
+async fn read(State(bridge): State<Arc<UiBridge>>, OriginalUri(uri): OriginalUri) -> Response {
+    bridge.dispatch(uri.path(), "GET", Value::Null).await
 }
 async fn write(
     State(bridge): State<Arc<UiBridge>>,
+    OriginalUri(uri): OriginalUri,
+    method: Method,
     body: Result<Json<Value>, JsonRejection>,
 ) -> Response {
     match body {
-        Ok(Json(body)) => bridge.dispatch("PUT", body).await,
+        Ok(Json(body)) => bridge.dispatch(uri.path(), method.as_str(), body).await,
         Err(_) => error(
             StatusCode::BAD_REQUEST,
             "invalidInput",
@@ -167,11 +177,18 @@ mod tests {
     async fn responses_and_cancellation_do_not_mix_requests_or_leave_pending_entries() {
         let bridge = UiBridge::new(100, 1);
         let response = bridge
-            .dispatch("PUT", json!({"pages":[{"url":"pages/Files"}]}))
+            .dispatch(
+                NAVIGATION_PATH,
+                "PUT",
+                json!({"pages":[{"url":"pages/Files"}]}),
+            )
             .await;
         assert_eq!(response.status(), StatusCode::OK);
         let blocked = UiBridge::new(101, 2);
-        let running = tokio::spawn(async move { blocked.dispatch("GET", Value::Null).await });
+        let running =
+            tokio::spawn(
+                async move { blocked.dispatch(NAVIGATION_PATH, "GET", Value::Null).await },
+            );
         tokio::task::yield_now().await;
         cancel(101);
         assert_eq!(

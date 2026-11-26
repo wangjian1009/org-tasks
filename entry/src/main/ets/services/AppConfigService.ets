@@ -74,6 +74,14 @@ export class AppConfigService {
     return AppConfigService.enqueueSave(() => AppConfigService.persist(context, config, true))
   }
 
+  static updateRepositories(context: Context, update: (current: AppConfig) => Promise<boolean>,
+    removedRepoIds: string[] = []): Promise<void> {
+    return AppConfigService.enqueueSave(async (): Promise<void> => {
+      const current = await AppConfigService.load(context, false)
+      if (await update(current)) await AppConfigService.persist(context, current, false, undefined, removedRepoIds)
+    })
+  }
+
   static restore(context: Context, merge: (current: AppConfig) => Promise<AppConfig>,
     preferencesToRestore?: Map<string, preferences.ValueType | undefined>, reset: boolean = false): Promise<void> {
     return AppConfigService.enqueueSave(async (): Promise<void> => {
@@ -179,14 +187,16 @@ export class AppConfigService {
     AppConfigService.changeListeners.forEach((listener: () => void): void => { listener() })
   }
 
-  static async removeRepository(context: Context, configId: string): Promise<void> {
+  static async removeRepository(context: Context, configId: string, check?: (current: AppConfig) => void): Promise<void> {
     if (configId === 'org-tasks-system') throw new Error(localizedText($r('app.string.text_system_repository_cannot_be_deleted')))
-    const current = await AppConfigService.load(context)
-    current.repos = current.repos.filter((repo: RepoConfig) => repo.id !== configId)
-    if (current.inboxRepoId === configId) { current.inboxRepoId = ''; current.inboxFile = '' }
-    if (current.somedayRepoId === configId) { current.somedayRepoId = ''; current.somedayFile = '' }
-    if (current.memoRepoId === configId) { current.memoRepoId = ''; current.memoFile = '' }
-    await AppConfigService.save(context, current)
+    await AppConfigService.updateRepositories(context, async (current): Promise<boolean> => {
+      check?.(current)
+      current.repos = current.repos.filter((repo: RepoConfig) => repo.id !== configId)
+      if (current.inboxRepoId === configId) { current.inboxRepoId = ''; current.inboxFile = '' }
+      if (current.somedayRepoId === configId) { current.somedayRepoId = ''; current.somedayFile = '' }
+      if (current.memoRepoId === configId) { current.memoRepoId = ''; current.memoFile = '' }
+      return true
+    }, [configId])
     await CredentialService.clearWebDavPassword(configId)
   }
 

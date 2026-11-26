@@ -3,7 +3,6 @@ import { showDangerousConfirmation } from '../components/controls/DangerousConfi
 import { PageNavigator } from '../services/PageNavigator'
 import { PageParameters, RepositoryCreationMode } from '../services/PagePath'
 import { PageQueryService } from '../services/PageQueryService'
-import { fileIo } from '@kit.CoreFileKit'
 import { defaultSyncOptions, SyncOptions as NativeSyncOptions } from 'liborg_tasks_harmony.so'
 import { AppConfig, DEFAULT_CONFIG, RepoConfig } from '../models/OrgTask'
 import { AppConfigService } from '../services/AppConfigService'
@@ -173,7 +172,7 @@ struct RepositorySettings {
   }
 
   private managedDirectory(): string {
-    return `${this.getUIContext().getHostContext()!.filesDir}/repositories/${this.repoId}`
+    return RepositorySetupService.managedDirectory(this.getUIContext().getHostContext()!, this.repoId)
   }
 
   private async syncRepository(repository: RepoConfig, source: RepositorySyncSource, reset: boolean = false): Promise<void> {
@@ -195,19 +194,7 @@ struct RepositorySettings {
     if (request.kind === 'rejected') throw new Error(localizedText($r('app.string.text_synchronization_not_accepted_please_try_again')))
     const completion = await request.handle.completion
     if (completion.status === 'failed') throw new Error(completion.message || localizedText($r('app.string.text_synchronization_not_completed')))
-    const config = await AppConfigService.load(context)
-    const saved = config.repos.find(item => item.id === repository.id)
-    if (!saved || saved.rootDirectory !== repository.rootDirectory || !saved.webdavEnabled) {
-      throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
-    }
-    const files = source === 'repositoryCreated' ? await RepositorySetupService.initialize(context, config, saved)
-      : await RepositorySetupService.listEntries(config, saved)
-    const current = await AppConfigService.load(context)
-    const before = current.repos.find(item => item.id === saved.id)
-    if (!before || before.rootDirectory !== saved.rootDirectory || !before.webdavEnabled) throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
-    if (RepositorySetupService.bindEntries(current, before, files, source === 'repositoryReset')) {
-      await AppConfigService.save(context, current)
-    }
+    await RepositorySetupService.finishSync(context, repository, source)
     this.syncRetry = ''
   }
 
@@ -267,12 +254,7 @@ struct RepositorySettings {
           confirmLabel: localizedText($r('app.string.text_enable_synchronization')), onConfirm: (): void => { this.save(encodedDraft) } })
         return
       }
-      const managed = this.managedDirectory()
-      if (repository.rootDirectory === managed && !await fileIo.access(managed)) await fileIo.mkdir(managed, true)
-      await NativeCoreService.validateRepository(repository.rootDirectory)
-      if (!this.existing && repository.rootDirectory === managed && !repository.name) {
-        repository.name = repository.webdavEnabled ? localizedText($r('app.string.text_webdav_repository')) : localizedText($r('app.string.text_local_repository'))
-      }
+      await RepositorySetupService.prepareDirectory(context, repository, !this.existing)
       if (!this.existing && !repository.webdavEnabled) {
         current.repos.push(repository)
         const files = await RepositorySetupService.initialize(context, current, repository)

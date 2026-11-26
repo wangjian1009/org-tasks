@@ -772,9 +772,9 @@ class Workspace {
 
 ** 测试导航通道
 
-~Workspace.startHttpServer(port?: number, handler?: HttpUiHandler)~ 在原有工作线程启动服务后，由 Harmony Rust 调用 ~EmbeddedHttpServer.register_handler~ 注册 ~/api/v1/ui/navigation~ 。Core 仅提供通用 HTTP 路径注册，导航路由和协议由 Harmony 持有。
+~Workspace.startHttpServer(port?: number, handler?: HttpUiHandler)~ 在原有工作线程启动服务后，由 Harmony Rust 调用 ~EmbeddedHttpServer.register_handler~ 注册 ~/api/v1/ui/navigation~ 与 ~/api/v1/repositories~ 。Core 提供通用 HTTP 路径注册，导航与仓库配置协议由 Harmony 持有。
 
-~HttpUiHandler~ 接收 ~HttpUiRequest { method: string, body: string }~ 和一次响应函数 ~respond(HttpUiResponse { status: number, body: string })~ ，两个 body 字段均为 JSON 文本。C++ 用独立 TSFN 将请求转交 UI 线程；响应函数只持有请求 ID，调用 ~org_tasks_harmony_http_ui_respond~ 归还等待通道，不执行 Core I/O。 ~NativeCoreService~ 原样转发类型与回调， ~HttpApiService~ 提供主窗口 UIContext 并调用 ~HttpNavigationService~ 。目标读取仍走当前 Workspace 的异步方法。
+~HttpUiHandler~ 接收 ~HttpUiRequest { path: string, method: string, body: string }~ 和一次响应函数 ~respond(HttpUiResponse { status: number, body: string })~ ，两个 body 字段均为 JSON 文本。C++ 用独立 TSFN 将请求转交 UI 线程，响应函数通过 ~org_tasks_harmony_http_ui_respond~ 按请求 ID 归还等待通道。 ~NativeCoreService~ 原样转发类型与回调。 ~HttpApiService~ 按路径调用 ~HttpNavigationService~ 或 ~HttpRepositoryService~ ，并向导航处理器提供主窗口 UIContext。目标读取仍走当前 Workspace 的异步方法。
 
 Rust 持有监控对象至最后一个在途请求退出，超时和关闭清理等待表；C++ 用函数 finalizer 清理响应 ID。重复启动同一服务释放本次未采用的监控，保留当前路由处理器；服务停止、拥有者释放或工作线程失败均释放通道。ArkTS 处理前及异步校验后检查服务会话代次与请求截止时间，关闭或重启后不执行旧会话的迟到导航。GET／PUT 的业务协议与错误见 [[file:../core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。
 

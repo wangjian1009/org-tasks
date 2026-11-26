@@ -37,6 +37,7 @@ function fixture() {
   current = workspace('a');
   const Service = load('services/HttpApiService', {
     './HttpNavigationService': { HttpNavigationService: { async handle(_, request, active) { activeChecks.push(active); return { status: 200, body: '{}' }; } } },
+    './HttpRepositoryService': { HttpRepositoryService: { async handle() { return { status: 200, body: '[]' }; } } },
     './AppConfigService': { AppConfigService: { async load(context, credentials) {
       assert.equal(credentials, false); return { repos: [] };
     }, watchChanges(fn) { watchers.add(fn); }, stopWatchingChanges(fn) { watchers.delete(fn); } } },

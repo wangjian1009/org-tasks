@@ -5,7 +5,7 @@
 
 * 范围与生命周期
 
-本接口用于在 APP 运行时，从外部查询、修改当前数据并观察真实界面的数据驱动行为。服务与 UI 共享同一个 Workspace，不新建仓库上下文，不作为独立进程运行。Core 管理监听与通用路径注册，Harmony 在服务启动后注册导航处理器。已有 HTTP Web App 宿主保持自身职责。
+本接口用于在 APP 运行时，从外部查询、修改当前数据并观察真实界面的数据驱动行为。服务与 UI 共享同一个 Workspace，不新建仓库上下文，不作为独立进程运行。Core 管理监听与通用路径注册，Harmony 在服务启动后注册导航与仓库配置处理器。已有 HTTP Web App 宿主保持自身职责。
 
 ~OrgWorkspace::start_http_server(OrgWorkspace, SocketAddr)~ 返回持有监听资源的 ~EmbeddedHttpServer~ ，通过 ~address()~ 取得实际监听地址； ~OrgWorkspace::stop_http_server(&mut EmbeddedHttpServer)~ 停止接收请求并等待在途请求完成。丢弃句柄也会发出停止信号。仅允许回环地址，端口 0 表示由系统分配端口。
 
@@ -13,7 +13,7 @@ Core 不读取宿主启动参数、不决定自动启动。Harmony APP 只在 ~W
 
 显式测试启动可同时提供 ~Want.parameters.httpApiPage~ ，直接将指定页面作为首屏加载；该字段仅在 ~httpApiEnabled === true~ 时生效，不持久化。允许的值为 ~pages/Inbox~ 、 ~pages/Today~ 、 ~pages/Planned~ 、 ~pages/Waiting~ 、 ~pages/Anytime~ 、 ~pages/Someday~ 、 ~pages/Memo~ 、 ~pages/Logbook~ 、 ~pages/Trash~ 与 ~pages/Files~ 。普通启动忽略该字段，未知页面不改变默认入口；备忘卡片与分享的既有路径契约保持。启动路径在任何异步初始化之前解析，窗口直接加载末级页面，不依赖仓库初始化是否完成。
 
-运行中的 APP 收到显式 true 参数可临时开启，收到 false 参数可停止；没有该参数时保留当前会话状态。仓库配置变化时由应用层重新绑定当前活动 Workspace，主 Ability 销毁时停止。服务没有健康检查、仓库管理或启动停止等 REST 入口。导航接口随同一临时服务启停，主窗口未就绪时返回 503。
+运行中的 APP 收到显式 true 参数可临时开启，收到 false 参数可停止。没有该参数时保留当前会话状态。仓库配置变化时由应用层重新绑定当前活动 Workspace，主 Ability 销毁时停止。导航与仓库配置接口随同一临时服务启停，导航在主窗口未就绪时返回 503。
 
 * 通用约定
 
@@ -192,13 +192,36 @@ PUT 先校验全部节点和目标，再结束原位编辑并调用 ~PageNavigat
 
 HTTP 请求由 Harmony Rust 的等待通道转交 C++ TSFN，ArkTS 在 UI 线程处理后通过请求 ID 归还响应；等待仅持有命令句柄，不持有 Workspace 整体锁。服务关闭取消在途请求，排队回调检查会话有效性后执行；宿主无响应时 15 秒返回 503。GET 在路径正在切换时同样返回 409，避免读取中间路径。
 
+* 仓库配置管理
+
+Harmony 在 ~/api/v1/repositories~ 注册以下方法。 ~id~ 是配置仓库 ID，可用于仓库设置路由。任务查询继续使用目录持久化的 Core 仓库 ID。
+
+| 方法 | JSON 请求体 | 成功响应 |
+|-
+| ~GET~ | 无 | 200，用户仓库配置数组 |
+| ~POST~ | 新仓库字段，空对象使用本地仓库默认配置 | 201，已保存的仓库配置 |
+| ~PATCH~ | ~id~ 及待修改字段 | 200，已保存的仓库配置 |
+| ~DELETE~ | 仅 ~id~ | 200，包含已移除的 ~id~ |
+
+可写字段包括 ~name~ 、 ~rootDirectory~ 、 ~webdavEnabled~ 、 ~webdavUrl~ 、 ~webdavUsername~ 、 ~webdavPassword~ 和 ~excludedDirectories~ 。省略 ~rootDirectory~ 的新仓库使用应用专用目录。显式目录须为设备上已存在的绝对路径，并通过 Core 校验。应用分配配置 ID，纯本地仓库沿用界面的模板初始化与入口匹配流程。
+
+WebDAV 使用 HTTPS 目录地址。启用时需要用户名和密码，修改时省略密码沿用 Asset Store 中的凭据。GET 及写入响应省略密码，配置包含 ~webdavCleanupPending~ 。关闭 WebDAV 将清除该仓库的连接配置和凭据，并排队清理同步状态。新建 WebDAV 仓库保存后异步开始首次同步，成功后补齐缺失的入口文件。POST 的 201 表示配置已提交，WebDAV 同步结果可通过应用的同步记录和数据查询查看。
+
+DELETE 移除该仓库的配置、凭据和指向它的文件入口，本地文件、同步记录和远端数据保留。系统仓库由应用管理，GET 省略它，PATCH 和 DELETE 请求修改系统仓库时返回 409。未找到指定配置 ID 时返回 404。配置变化复用应用的通知和 Workspace 更新流程。
+
+#+begin_src json
+{"name":"HTTP 本地仓库"}
+#+end_src
+
+上例是 POST 请求体。将返回的 ~id~ 用于 PATCH 请求体，例如 ~{"id":"返回的配置仓库ID","name":"新名称"}~ ，或用于 DELETE 请求体 ~{"id":"返回的配置仓库ID"}~ 。
+
 * 错误
 
 | HTTP 状态 | error.code | 含义 |
 |-
 | 400 | invalidInput | JSON、查询或操作参数非法 |
-| 404 | notFound | 导航目标不存在 |
-| 409 | invalidState | 文件版本过期、定位、编辑或导航状态冲突 |
+| 404 | notFound | 导航目标或仓库配置不存在 |
+| 409 | invalidState | 文件版本过期，或定位、编辑、导航、仓库配置发生冲突 |
 | 503 | unavailable | 主窗口未就绪、服务关闭或界面响应超时 |
 | 500 | store | 文件、仓库锁或运行时执行失败 |
 

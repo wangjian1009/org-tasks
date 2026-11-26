@@ -11,11 +11,14 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 }
 const ts = require(path.join(process.env.DEVECO_HOME || '/Applications/DevEco-Studio.app/Contents',
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
-function load(relative, name, mocks) {
+function load(relative, name, mocks, component = true) {
   const filename = path.resolve('entry/src/main/ets', relative + '.ets');
-  let source = fs.readFileSync(filename, 'utf8').split(/  @Builder|  build\(\)/)[0] + '}';
-  source = source.replace(/^@(Entry|Component)\n/gm, '').replace(/^  @(State|Link|Prop) /gm, '  ')
-    .replace('struct ' + name, 'export class ' + name);
+  let source = fs.readFileSync(filename, 'utf8');
+  if (component) {
+    source = (source.split(/  @Builder|  build\(\)/)[0] + '}')
+      .replace(/^@(Entry|Component)\n/gm, '').replace(/^  @(State|Link|Prop) /gm, '  ')
+      .replace('struct ' + name, 'export class ' + name);
+  }
   const output = transpileFixture(ts, source, { compilerOptions: {
     target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS
   } }).outputText;
@@ -36,6 +39,7 @@ function load(relative, name, mocks) {
     assert.ok(Object.hasOwn(mocks, name), '缺少平台替身: ' + name);
     return mocks[name];
   }, module, module.exports);
+  if (!component) return module.exports[name];
   const value = new module.exports[name]();
   value.getUIContext = () => ({ getHostContext: () => ({ filesDir: '/app/files' }), getRouter: () => ({ getParams: () => ({}) }) });
   return value;
@@ -181,13 +185,46 @@ function repositoryFixture(existing = true, repositoryCreation) {
     todoDefaults: '#+TODO: OPEN | CLOSED', coreSettings: { additionStates: [] }, fileDisplayMode: 'source' };
   const writes = [], directories = [], validations = [], connections = [], lifecycle = [], initialized = [];
   let backed = 0, failure, gate, syncFailure, dialog;
+  const appConfig = { AppConfigService: {
+    async load() { return structuredClone(writes.at(-1) ?? config); },
+    newRepository() { return { ...original, id: 'repo-new', name: '', rootDirectory: '', webdavEnabled: false,
+      webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] }; },
+    async save(context, value) { writes.push(value); },
+    async updateRepositories(context, update) {
+      const current = await this.load();
+      if (await update(current)) await this.save(context, current);
+    }
+  } };
+  const native = { ...errors,
+    NativeCoreService: { async validateRepository(path) { validations.push(path); },
+      async repository() { return { async reset() { lifecycle.push('reset'); } }; } },
+    CoreWebDavSyncPolicy: class {
+      constructor(...args) { connections.push(args); }
+      async testConnection() { if (gate) await gate; if (failure) throw failure; }
+    }
+  };
+  const setup = load('services/RepositorySetupService', 'RepositorySetupService', {
+    './AppConfigService': appConfig, './NativeCoreService': native,
+    '@kit.CoreFileKit': { fileIo: { async access() { return false; }, async mkdir(path) { directories.push(path); } } },
+    '@kit.ArkTS': {}, '../models/RepositoryDefaults': {}, './FileTargetService': {}
+  }, false);
+  setup.initialize = async (context, current, repo) => {
+    assert.ok(current.repos.some(item => item.id === repo.id));
+    initialized.push(repo.rootDirectory);
+    return [{ path: 'someday.org', title: '某天' }];
+  };
+  setup.listEntries = async (current, repo) => {
+    assert.ok(current.repos.some(item => item.id === repo.id));
+    return [];
+  };
+  setup.bindEntries = (current, repo, files) => {
+    if (current.somedayRepoId || !files.length) return false;
+    current.somedayRepoId = repo.id;
+    current.somedayFile = files[0].path;
+    return true;
+  };
   const page = load('pages/RepositorySettings', 'RepositorySettings', {
-    '../services/AppConfigService': { AppConfigService: {
-      async load() { return structuredClone(writes.at(-1) ?? config); },
-      newRepository() { return { ...original, id: 'repo-new', name: '', rootDirectory: '', webdavEnabled: false,
-        webdavUrl: '', webdavUsername: '', webdavPassword: '', excludedDirectories: [] }; },
-      async save(context, value) { writes.push(value); }
-    } },
+    '../services/AppConfigService': appConfig,
     '../services/PageQueryService': { PageQueryService: {} },
     '../services/RepositorySyncService': { SyncStartPolicy: { Wait: 'Wait' }, RepositorySyncService: {
       start(context, options) {
@@ -198,36 +235,10 @@ function repositoryFixture(existing = true, repositoryCreation) {
         })() } };
       }
     } },
-    '../services/RepositorySetupService': { RepositorySetupService: {
-      async initialize(context, current, repo) {
-        assert.ok(current.repos.some(item => item.id === repo.id));
-        initialized.push(repo.rootDirectory);
-        return [{ path: 'someday.org', title: '某天' }];
-      },
-      async listEntries(current, repo) {
-        assert.ok(current.repos.some(item => item.id === repo.id));
-        return [];
-      },
-      bindEntries(current, repo, files) {
-        if (!current.somedayRepoId && files.length) {
-          current.somedayRepoId = repo.id;
-          current.somedayFile = files[0].path;
-          return true;
-        }
-        return false;
-      }
-    } },
-    '@kit.CoreFileKit': { fileIo: { async access() { return false; }, async mkdir(path) { directories.push(path); } } },
+    '../services/RepositorySetupService': { RepositorySetupService: setup },
     'liborg_tasks_harmony.so': { async defaultSyncOptions() { return { excludedDirectories: ['archive'] }; } },
     '../models/OrgTask': { DEFAULT_CONFIG: {} },
-    '../services/NativeCoreService': { ...errors,
-      NativeCoreService: { async validateRepository(path) { validations.push(path); },
-        async repository() { return { async reset() { lifecycle.push('reset'); } }; } },
-      CoreWebDavSyncPolicy: class {
-        constructor(...args) { connections.push(args); }
-        async testConnection() { if (gate) await gate; if (failure) throw failure; }
-      }
-    },
+    '../services/NativeCoreService': native,
     '../ui/Theme': { UiColor: {}, repositoryLabel: repo => repo.name }
   });
   page.getUIContext = () => ({ getHostContext: () => ({ filesDir: '/app/files' }),

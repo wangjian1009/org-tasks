@@ -1,10 +1,12 @@
 import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
+import { fileIo } from '@kit.CoreFileKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
 import { DEFAULT_TASK_CATEGORY, DEFAULT_TASK_FILE } from '../models/RepositoryDefaults'
 import { configuredFileTarget, FileTargetKind, fileTargetName } from './FileTargetService'
-import { CoreOrgFileMetadata, CoreTaskFileNew, CoreTaskOperation, CoreWorkspace, NativeCoreService, fileResult } from './NativeCoreService'
+import { CoreOrgFileMetadata, CoreTaskFileNew, CoreTaskOperation, CoreWorkspace, NativeCoreService, RepositorySyncSource, fileResult } from './NativeCoreService'
+import { AppConfigService } from './AppConfigService'
 
 type RepositoryTemplateKind = FileTargetKind | 'task'
 
@@ -42,6 +44,35 @@ function entryFile(files: EntryFile[], kind: FileTargetKind): EntryFile | undefi
 }
 
 export class RepositorySetupService {
+  static managedDirectory(context: Context, configId: string): string {
+    return `${context.filesDir}/repositories/${configId}`
+  }
+
+  static async prepareDirectory(context: Context, repository: RepoConfig, creating: boolean): Promise<void> {
+    const managed = RepositorySetupService.managedDirectory(context, repository.id)
+    try {
+      if (repository.rootDirectory === managed && !await fileIo.access(managed)) await fileIo.mkdir(managed, true)
+    } catch (error) { throw error as Error }
+    await NativeCoreService.validateRepository(repository.rootDirectory)
+    if (creating && repository.rootDirectory === managed && !repository.name) {
+      repository.name = repository.webdavEnabled ? localizedText($r('app.string.text_webdav_repository')) :
+        localizedText($r('app.string.text_local_repository'))
+    }
+  }
+
+  static async finishSync(context: Context, repository: RepoConfig, source: RepositorySyncSource): Promise<void> {
+    await AppConfigService.updateRepositories(context, async (config): Promise<boolean> => {
+      const saved = config.repos.find(item => item.id === repository.id)
+      if (!saved || saved.rootDirectory !== repository.rootDirectory || !saved.webdavEnabled ||
+        saved.webdavUrl !== repository.webdavUrl || saved.webdavUsername !== repository.webdavUsername) {
+        throw new Error(localizedText($r('app.string.text_reopen_repository_configuration_please')))
+      }
+      const files = source === 'repositoryCreated' ? await RepositorySetupService.initialize(context, config, saved) :
+        await RepositorySetupService.listEntries(config, saved)
+      return RepositorySetupService.bindEntries(config, saved, files, source === 'repositoryReset')
+    })
+  }
+
   static async initialize(context: Context, config: AppConfig, repository: RepoConfig, reset: boolean = false):
     Promise<EntryFile[]> {
     const templates: RepositoryTemplate[] = []

@@ -2,6 +2,7 @@ import { localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { window } from '@kit.ArkUI'
 import { HttpNavigationService } from './HttpNavigationService'
+import { HttpRepositoryService } from './HttpRepositoryService'
 import { AppConfigService } from './AppConfigService'
 import { CoreWorkspace, NativeCoreService } from './NativeCoreService'
 
@@ -50,21 +51,27 @@ export class HttpApiService {
   }
 
   private static async connect(): Promise<void> {
-    if (!HttpApiService.context) return
-    const config = await AppConfigService.load(HttpApiService.context, false)
+    const context = HttpApiService.context
+    if (!context) return
+    const config = await AppConfigService.load(context, false)
     const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
     if (HttpApiService.workspace && HttpApiService.workspace !== workspace) await HttpApiService.disconnect()
     const generation = HttpApiService.generation
     const info = await workspace.startHttpServer(8787, (request, respond): void => {
       const deadline = Date.now() + 14000
       const active = (): boolean => HttpApiService.enabled && HttpApiService.generation === generation &&
-        HttpApiService.workspace === workspace && HttpApiService.stage !== undefined && Date.now() < deadline
+        HttpApiService.workspace === workspace && Date.now() < deadline
+      if (request.path === '/api/v1/repositories') {
+        HttpRepositoryService.handle(context, request, active).then(respond)
+        return
+      }
       const stage = HttpApiService.stage
       if (!stage || !active()) {
         respond({ status: 503, body: localizedText($r('app.string.text_sync_corrected_by_elderman_elder_man')) }); return
       }
       stage.getMainWindow().then(async (mainWindow: window.Window): Promise<void> => {
-        respond(await HttpNavigationService.handle(mainWindow.getUIContext(), request, active))
+        respond(await HttpNavigationService.handle(mainWindow.getUIContext(), request,
+          (): boolean => active() && HttpApiService.stage === stage))
       }).catch((): void => { respond({ status: 503, body: localizedText($r('app.string.text_sync_corrected_by_elderman_elder_man_2')) }) })
     })
     HttpApiService.workspace = workspace

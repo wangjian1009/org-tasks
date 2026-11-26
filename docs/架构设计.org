@@ -147,7 +147,7 @@ Harmony 配置 ID 与 Core 仓库 ID 当前是不同身份，必须按 [[file:ha
 
 * APP 临时 HTTP 接口
 
-APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共享活动 Workspace。普通点击图标不启动服务，也不保存开关；Core 不读取宿主启动参数。Core 提供查询、批量修改和通用宿主路径注册；Harmony 在同一测试监听注册导航 GET／PUT，通过 N-API 通道调用 PageNavigator。Core 不依赖 ArkTS，不保存页面语义；宿主处理器在 UI 线程执行，等待 HTTP 响应时只保留 Workspace 命令句柄。生命周期和 REST 定义见 [[file:core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。
+APP 的测试启动参数可以临时启用 Core 的 HTTP 适配，与界面共享活动 Workspace。普通点击图标不启动服务，也不保存开关。Core 提供查询、批量修改和通用宿主路径注册。Harmony 在同一测试监听注册导航和仓库配置路由，通过 N-API 通道调用应用的导航与配置服务。宿主处理器在 UI 线程执行，等待 HTTP 响应时只保留 Workspace 命令句柄。生命周期和 REST 定义见 [[file:core/APP内嵌HTTP接口.org][APP 内嵌 HTTP 接口]]。
 
 * 外部文件变化与通知刷新
 
