@@ -1,7 +1,7 @@
 import { localizedText } from '../ui/LocalizedText'
 import { Context, common } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
-import { fileIo, fileUri } from '@kit.CoreFileKit'
+import { fileIo, fileUri, picker } from '@kit.CoreFileKit'
 import { systemShare } from '@kit.ShareKit'
 import { preferences } from '@kit.ArkData'
 import { decodeConfigurationYaml, encodeConfigurationYaml, defaultTodoSettings,
@@ -170,6 +170,15 @@ function exportRepository(repo: RepoConfig): TransferRepository {
 }
 
 export class ConfigTransfer {
+  static async selectFile(context: common.UIAbilityContext): Promise<string | undefined> {
+    const options = new picker.DocumentSelectOptions()
+    options.maxSelectNumber = 1
+    const label = localizedText($r('app.string.text_org_tasks_configuration_file'))
+    options.fileSuffixFilters = [`${label}|${CONFIG_FILE_EXTENSION}`]
+    const files = await new picker.DocumentViewPicker(context).select(options)
+    return files[0]
+  }
+
   static async exportText(context: Context): Promise<string> {
     const config = await AppConfigService.load(context, false)
     const repos = config.repos.filter(repo => !isSystemRepository(repo)).map(exportRepository)

@@ -1,7 +1,6 @@
 import { localizedText } from '../ui/LocalizedText'
 import { common } from '@kit.AbilityKit'
-import { picker } from '@kit.CoreFileKit'
-import { CONFIG_FILE_EXTENSION } from '../services/ConfigTransfer'
+import { ConfigTransfer } from '../services/ConfigTransfer'
 import { PageNavigator } from '../services/PageNavigator'
 import { addRepository } from '../services/RepositoryNavigation'
 import { UiColor } from '../ui/Theme'
@@ -21,12 +20,9 @@ export struct RepositoryWelcome {
     const ui = this.getUIContext()
     const source = PageNavigator.shared.path
     try {
-      const options = new picker.DocumentSelectOptions()
-      options.maxSelectNumber = 1
-      options.fileSuffixFilters = [localizedText($r('app.string.text_org_tasks_configuration_file'), String(CONFIG_FILE_EXTENSION))]
-      const files = await new picker.DocumentViewPicker(ui.getHostContext()! as common.UIAbilityContext).select(options)
-      if (this.active && PageNavigator.shared.path === source && files.length > 0) {
-        await PageNavigator.shared.pushPage(ui, { url: 'pages/ConfigImport', params: { configImportUri: files[0] } })
+      const uri = await ConfigTransfer.selectFile(ui.getHostContext()! as common.UIAbilityContext)
+      if (this.active && PageNavigator.shared.path === source && uri) {
+        await PageNavigator.shared.pushPage(ui, { url: 'pages/ConfigImport', params: { configImportUri: uri } })
       }
     } catch (_) {
       if (this.active && PageNavigator.shared.path === source) {

@@ -2890,7 +2890,7 @@
     },
     {
       "name": "text_org_tasks_configuration_file",
-      "value": "Org Tasks Configuration File ⁇ %1$s"
+      "value": "Org Tasks Configuration File"
     },
     {
       "name": "text_org_tasks_configuration_not_recognized",

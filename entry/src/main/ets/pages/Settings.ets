@@ -553,8 +553,29 @@ struct Settings {
   private settingsMenu(): PopupMenuItem[] {
     return [
       { title: localizedText($r('app.string.text_backup')), action: (): void => { this.backupConfiguration() } },
+      { title: localizedText($r('app.string.text_import_backup_configuration')), action: (): void => { this.importConfiguration() } },
       { title: localizedText($r('app.string.text_reset')), dangerous: true, action: (): void => { this.confirmReset() } }
     ]
+  }
+
+  private async importConfiguration(): Promise<void> {
+    if (this.saving) return
+    this.saving = true
+    this.message = ''
+    const ui = this.getUIContext()
+    const source = PageNavigator.shared.path
+    try {
+      const uri = await ConfigTransfer.selectFile(ui.getHostContext()! as common.UIAbilityContext)
+      if (!uri || PageNavigator.shared.path !== source) return
+      await this.preferenceSave.flush()
+      if (PageNavigator.shared.path === source) {
+        await PageNavigator.shared.pushPage(ui, { url: 'pages/ConfigImport', params: { configImportUri: uri } })
+      }
+    } catch (_) {
+      if (PageNavigator.shared.path === source) {
+        this.message = localizedText($r('app.string.text_cannot_select_profile_please_try_again'))
+      }
+    } finally { this.saving = false }
   }
 
   private confirmReset(): void {

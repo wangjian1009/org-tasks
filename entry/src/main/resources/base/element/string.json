@@ -2890,7 +2890,7 @@
     },
     {
       "name": "text_org_tasks_configuration_file",
-      "value": "我的待办配置文件|%1$s"
+      "value": "我的待办配置文件"
     },
     {
       "name": "text_org_tasks_configuration_not_recognized",
