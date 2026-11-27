@@ -20,6 +20,4 @@
 
 * 资源接入
 
-旧版独立 SVG 设计资产及配套导出入口已清理，现有 PNG 资源继续用于应用与备用方案。
-
-资源统一位于 =AppScope/resources/base/media/= ，供应用与 entry 模块共享，避免同名资源重复定义。主方案的 256 像素资源名为 =app_icon.png= ，由应用清单、桌面入口及启动窗口的 =$media:app_icon= 引用；备用方案为 =app_icon_outline.png= 。较大尺寸使用 =_512= 和 =_1024= 后缀，未作为默认入口。备用方案作为设计资产交付，应用内未提供图标切换设置。
+资源统一位于 =AppScope/resources/base/media/= ，供应用与 entry 模块共享。应用清单和 Ability 图标使用 =$media:app_icon_layered= 。两层 PNG 均为 1024 × 1024 像素。背景层铺满渐变和高光，前景层以透明底绘制勾选卡片及其阴影，外轮廓由系统桌面蒙版裁切。启动窗口使用 256 像素的合成资源 =app_icon.png= 。层级卡片继续作为备用设计资产。

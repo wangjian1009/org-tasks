@@ -461,6 +461,7 @@ struct RepositorySettings {
             }.width('100%').padding({ left: 16, right: 16, bottom: 32 })
               .enabled(!this.loading && this.loaded && !this.saving && !this.testing && !this.deleting && !this.resetting)
           }.width('100%').layoutWeight(1).align(Alignment.TopStart)
+            .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           if (!this.loading && this.loaded && (!this.existing || this.hasChanges())) {
             Column() {
               Button(this.saving ? localizedText($r('app.string.text_saving_4')) : this.existing ? localizedText($r('app.string.text_ok')) : localizedText($r('app.string.text_new_repository')))

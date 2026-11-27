@@ -21,6 +21,7 @@ struct TaskTagChip {
         .constraintSize({ maxWidth: this.chipWidth > 0 ? this.chipWidth : 104 })
         .padding({ left: 8, right: 8, top: 3, bottom: 3 })
         .backgroundColor(this.selected ? this.selectedBackground : this.unselectedBackground).borderRadius(16)
+        .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
     }.width(this.chipWidth > 0 ? this.chipWidth : 'auto').constraintSize({ minHeight: 32 }).padding(0).borderRadius(18)
       .backgroundColor(Color.Transparent).flexShrink(0)
       .accessibilityText(`${this.label}，${this.selected ? localizedText($r('app.string.text_selected')) : localizedText($r('app.string.text_not_selected'))}`)
