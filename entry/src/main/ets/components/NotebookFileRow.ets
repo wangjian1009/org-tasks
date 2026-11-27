@@ -68,14 +68,17 @@ export struct NotebookFileRow {
   }
 
   private actions(): TaskActionItem[] {
-    return [
+    const items: TaskActionItem[] = [
       { id: 'edit', title: localizedText($r('app.string.text_edit')), label: localizedText($r('app.string.text_edit_file')), icon: $r('app.media.ui_link_edit'),
-        action: (): void => { this.closeSwipe(); this.openFile() } },
-      { id: 'rename', title: localizedText($r('app.string.text_change_name')), label: localizedText($r('app.string.text_change_file_name')), icon: $r('app.media.ui_note_action'),
-        action: (): void => { this.closeSwipe(); this.rename() } },
-      { id: 'delete', title: localizedText($r('app.string.text_delete')), label: localizedText($r('app.string.text_delete_file')), icon: $r('app.media.ui_delete'), style: 'danger',
-        action: (): void => { this.closeSwipe(); this.remove() } }
+        action: (): void => { this.closeSwipe(); this.openFile() } }
     ]
+    if (this.configRepoId !== SYSTEM_REPOSITORY_ID) {
+      items.push({ id: 'rename', title: localizedText($r('app.string.text_change_name')), label: localizedText($r('app.string.text_change_file_name')), icon: $r('app.media.ui_note_action'),
+        action: (): void => { this.closeSwipe(); this.rename() } })
+    }
+    items.push({ id: 'delete', title: localizedText($r('app.string.text_delete')), label: localizedText($r('app.string.text_delete_file')), icon: $r('app.media.ui_delete'), style: 'danger',
+      action: (): void => { this.closeSwipe(); this.remove() } })
+    return items
   }
 
   @Builder

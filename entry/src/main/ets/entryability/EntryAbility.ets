@@ -4,7 +4,7 @@ import { DataSetManager } from '../services/DataSetManager'
 import { NativeCoreService } from '../services/NativeCoreService'
 import { NotificationManager } from '../services/NotificationManager'
 import { PageNavigator, primaryPage } from '../services/PageNavigator'
-import { PagePath } from '../services/PagePath'
+import { PagePath, PageRoute } from '../services/PagePath'
 import { entryNavigation } from '../services/EntryNavigation'
 // 应用入口
 
@@ -19,6 +19,7 @@ import { HttpApiService } from '../services/HttpApiService'
 import { NotificationPermissionService } from '../services/NotificationPermissionService'
 import { SystemRepositoryService } from '../services/SystemRepositoryService'
 import { AppLinkManager } from '../services/AppLinkService'
+import { prepareOnboarding } from '../services/OnboardingService'
 
 interface MainPageStorage { entryView?: string; entryMemoCreate?: boolean; entryMemoId?: string }
 
@@ -28,12 +29,16 @@ export default class EntryAbility extends UIAbility {
   private foreground: boolean = false
   private contentReady: boolean = false
   private startupSyncRequested: boolean = false
+  private onboarding: Promise<PageRoute | undefined> | undefined = undefined
+  private hasDestination: boolean = false
 
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
     this.readDestination(want)
     NativeCoreService.start()
     AppLinkManager.shared.start(this.context)
-    await SystemRepositoryService.ensure(this.context)
+    this.onboarding = SystemRepositoryService.ensure(this.context).then(() => prepareOnboarding(this.context))
+      .catch((error: Error): undefined => { console.error(`初始化新手引导失败：${error.message}`); return undefined })
+    await this.onboarding
     AppDataManager.shared(this.context).start().catch((error: Error): void => { console.error(`初始化共享数据失败：${error.message}`) })
     try { this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK) }
     catch (error) { console.error('设置应用深色模式失败') }
@@ -61,6 +66,7 @@ export default class EntryAbility extends UIAbility {
   private readDestination(want: Want): boolean {
     const path = entryNavigation(want)
     if (!path) return false
+    this.hasDestination = true
     this.initialPath = path
     return true
   }
@@ -86,7 +92,6 @@ export default class EntryAbility extends UIAbility {
   }
 
   async onWindowStageCreate(windowStage: window.WindowStage) {
-    this.mainStage = windowStage
     HttpApiService.attachWindow(windowStage)
     try {
       const mainWindow = await windowStage.getMainWindow()
@@ -96,7 +101,9 @@ export default class EntryAbility extends UIAbility {
         statusBarContentColor: UiColor.text,
         navigationBarContentColor: UiColor.text
       })
-      // 加载主页面
+      const onboarding = this.hasDestination ? undefined : await this.onboarding
+      if (onboarding && !this.hasDestination) this.initialPath = new PagePath([onboarding])
+      this.mainStage = windowStage
       this.loadMainPage(windowStage)
     } catch (error) { console.error('初始化应用窗口失败') }
   }

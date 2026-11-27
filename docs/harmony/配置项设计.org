@@ -306,6 +306,8 @@ UTF-8 JSON 以一次读取、一次解析恢复显示模型；缓存恢复的数
 
 * 系统仓库与废纸篓保留天数
 
+主界面通过活动 Workspace 的 ~FileNew~ 从当前界面语言对应的模板创建 ~getting-started.org~ 。文件存在时保留现有内容。确认文件存在或创建提交成功后，将 ~projectCreated~ 写入独立的 ~org_tasks_onboarding~ Preferences。该标记随安装保存，设置导入导出与设置重置均跳过该标记。Org 项目文件保存任务进度，系统仓库中的引导项目不参与 WebDAV 同步。
+
 系统仓库运行时配置 ID 为 ~org-tasks-system~ ，目录为 ~context.filesDir/system-repository~ ，名称固定为“系统仓库”，不同步，不提供修改或删除。启动补齐缺失目录和随包 ~system/trash.org~ ，不覆盖已有文件。配置读取时追加运行时仓库，保存时排除它；设置仓库列表与普通文件目标选择器隐藏它，笔记本仍显示该仓库及废纸篓入口。恢复来源使用 Core 的持久仓库 ID。
 
 设置 → 废纸篓提供保留天数输入与“保存”。 ~TrashSettingsService~ 使用 Preferences ~org_tasks_config~ 的独立数字键 ~trashRetentionDays~ ，默认 30，有效范围为 1 至 3650 的整数。输入不立即写入；保存成功后生效，失败保留输入并显示错误，不重写仓库或凭据，也不重建 Workspace。打开废纸篓或笔记本时按当前值查询删除时间早于保留范围的记录并统一清除；时间缺失或非法者保留。清除应用数据后恢复默认。

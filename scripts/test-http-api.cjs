@@ -72,6 +72,7 @@ test('普通启动不启用 HTTP，仅显式布尔测试参数生效，销毁停
     '@kit.AbilityKit': { UIAbility: class {}, ConfigurationConstant: { ColorMode: { COLOR_MODE_DARK: 1 } } },
     '../services/NotificationManager': { NotificationManager: { async start() {}, resume() {}, stop() {}, hasMissingRepository() { return false; } } },
     '../services/HttpApiService': { HttpApiService: { attachWindow() {}, async start() { starts++; }, async stop() { stops++; } } },
+    '../services/OnboardingService': { async prepareOnboarding() { return undefined; } },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': {},
     '../services/RepositorySyncService': { emptyRepositorySyncState() { return {}; } },

@@ -23,7 +23,7 @@ import { CoreBridgeError, CoreOrgFileMetadata, CoreTaskOperationGroup, coreError
 import { OrgFileRepositoryOption, orgFileName } from '../ui/OrgFileCreatePresentation'
 import { UiColor } from '../ui/Theme'
 import { filePathLabel, fileUsageKinds } from '../ui/NotebookPresentation'
-import { SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
+import { ONBOARDING_FILE, SYSTEM_REPOSITORY_ID } from '../models/SystemRepository'
 
 @Entry
 @Component
@@ -92,7 +92,7 @@ struct Files {
     const manager = this.dataManager
     const repository = this.config.repos.find(repo => repo.id === group.configId)
     if (!this.active || this.deletePending || !manager || !repository ||
-      repository.id === SYSTEM_REPOSITORY_ID || !file.fileVersion) return
+      !this.canChangeFile(repository.id, file)) return
     const pagePath = PageNavigator.shared.path
     const allowed = (): boolean => this.active && PageNavigator.shared.path === pagePath
     const remote = repository.webdavEnabled ? localizedText($r('app.string.text_subsequent_sync_may_delete_the_corresponding_file')) : ''
@@ -279,6 +279,10 @@ struct Files {
     return JSON.stringify([file.repoId, file.path])
   }
 
+  private canChangeFile(configId: string, file: CoreOrgFileMetadata): boolean {
+    return !!configId && !!file.fileVersion && (configId !== SYSTEM_REPOSITORY_ID || file.path === ONBOARDING_FILE)
+  }
+
   private toggleFileDetails(file: CoreOrgFileMetadata): void {
     const key = this.fileKey(file)
     this.expandedFileKey = this.expandedFileKey === key ? '' : key
@@ -357,7 +361,7 @@ struct Files {
                     NotebookFileRow({ file, configRepoId: group.configId, usages: fileUsageKinds(this.config, group.configId, file.path),
                       expanded: this.expandedFileKey === this.fileKey(file),
                       toggleExpanded: (): void => { this.toggleFileDetails(file) },
-                      actionsEnabled: !!group.configId && group.configId !== SYSTEM_REPOSITORY_ID && !!file.fileVersion,
+                      actionsEnabled: this.canChangeFile(group.configId, file),
                       closeSwipe: (): void => { this.closeFileSwipe() },
                       rename: (): void => { this.openRename(file, group) },
                       remove: (): void => { this.confirmFileDeletion(file, group) } })

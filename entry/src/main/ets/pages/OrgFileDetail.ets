@@ -177,7 +177,8 @@ struct OrgFileDetail {
 
   async loadFile(force: boolean = false) {
     if (!this.pageVisible) return
-    const params = this.getUIContext().getRouter().getParams() as PageParameters
+    const routerParams = this.getUIContext().getRouter().getParams() as PageParameters | undefined
+    const params = routerParams?.repoId ? routerParams : PageNavigator.shared.path.current.params ?? {}
     if (!this.entryTaskRead) {
       this.entryTaskRead = true
       this.entryTask = params.focusTask

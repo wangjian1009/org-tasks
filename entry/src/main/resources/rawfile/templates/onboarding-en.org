@@ -1,0 +1,41 @@
+:PROPERTIES:
+:ID:
+:END:
+#+TITLE: Getting Started
+#+PROJECT_NAME: Getting Started
+#+FILETAGS: :project:todo:
+#+TODO: TODO(t) | DONE(d!) CNCL(c!)
+
+This project is an Org file. Check off a to-do to unlock the next step. Return here anytime from the sidebar.
+
+* TODO See this project’s Org source
+:PROPERTIES:
+:TRIGGER: if self !todo-state?(DONE) then if ids({{plan}}) !has-property?("ONBOARDING_LOCKED" "yes") then ids({{plan}}) delete-property!("ONBOARDING_LOCKED") delete-property!("VISIBILITY") todo!(TODO) endif endif
+:END:
+Open the menu in the top right, choose Source, and find this to-do. The project notes and tasks live in the same file. Choose Document from the same menu to switch back, then check off this step.
+
+* Capture your first to-do
+:PROPERTIES:
+:ID: {{plan}}
+:VISIBILITY: folded
+:ONBOARDING_LOCKED: yes
+:TRIGGER: if self !todo-state?(DONE) then if ids({{review}}) !has-property?("ONBOARDING_LOCKED" "yes") then ids({{review}}) delete-property!("ONBOARDING_LOCKED") delete-property!("VISIBILITY") scheduled!("++2d") todo!(TODO) endif endif
+:END:
+Open Inbox from the sidebar and write down something you actually want to do. If you don’t have a repository yet, choose “Initialize a new repository”. If Inbox asks you to choose a file, follow the prompt. Come back here and check off this step.
+
+* Review the automatically scheduled to-do
+:PROPERTIES:
+:ID: {{review}}
+:VISIBILITY: folded
+:ONBOARDING_LOCKED: yes
+:TRIGGER: if self !todo-state?(DONE) then if ids({{finish}}) !has-property?("ONBOARDING_LOCKED" "yes") then ids({{finish}}) delete-property!("ONBOARDING_LOCKED") delete-property!("VISIBILITY") todo!(TODO) endif endif
+:END:
+Completing the previous step scheduled this to-do for two days later. On that day, find it in Today or return here from the sidebar. Look at its scheduled date, then check it off.
+
+* Delete the Getting Started project
+:PROPERTIES:
+:ID: {{finish}}
+:VISIBILITY: folded
+:ONBOARDING_LOCKED: yes
+:END:
+Open Notebooks from the sidebar and find Getting Started in the system repository. Swipe left on its row, tap Delete, and confirm. Deleting the project finishes the guide.

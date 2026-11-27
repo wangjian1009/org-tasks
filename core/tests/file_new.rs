@@ -68,6 +68,78 @@ fn task(title: &str) -> TaskFileInitialTask {
 }
 
 #[tokio::test]
+async fn onboarding_templates_unlock_once_and_schedule_the_review() {
+    const FILE: &str = "getting-started.org";
+    for template in [
+        include_str!("../../entry/src/main/resources/rawfile/templates/onboarding-zh.org"),
+        include_str!("../../entry/src/main/resources/rawfile/templates/onboarding-en.org"),
+    ] {
+        let fixture = Fixture::new().await;
+        let mut operation = fixture.operation(FILE, template, vec![]);
+        if let TaskOperation::FileNew(data) = &mut operation {
+            for id in ["plan", "review", "finish"] {
+                data.arguments.insert(id.into(), format!("onboarding-{id}"));
+            }
+        }
+        fixture.execute(vec![operation]).await.unwrap();
+        let file = fixture.file(FILE).await;
+        assert!(file.project().is_some());
+        let paths = file.node_paths();
+        assert_eq!(paths.len(), 4);
+        let read_source = || std::fs::read_to_string(fixture.root.join(FILE)).unwrap();
+        let pending = |source: &str| {
+            source
+                .lines()
+                .filter(|line| line.starts_with("* TODO "))
+                .count()
+        };
+        let change = |index: usize, state: &str| {
+            TaskOperation::Modification(TaskModificationOperation {
+                path: paths[index].clone(),
+                note: None,
+                modifications: vec![TaskModification::Todo(Some(state.into()))],
+            })
+        };
+
+        assert_eq!(pending(&read_source()), 1);
+        fixture.execute(vec![change(0, "CNCL")]).await.unwrap();
+        assert_eq!(pending(&read_source()), 0);
+        fixture
+            .execute(vec![change(0, "TODO"), change(0, "DONE")])
+            .await
+            .unwrap();
+        assert!(read_source().contains(&format!("* TODO {}", paths[1].titles[0])));
+
+        let before = chrono::Local::now().date_naive();
+        fixture.execute(vec![change(1, "DONE")]).await.unwrap();
+        let after = chrono::Local::now().date_naive();
+        let source = read_source();
+        let review_heading = format!("* TODO {}\nSCHEDULED: <", paths[2].titles[0]);
+        let scheduled = source
+            .split_once(&review_heading)
+            .unwrap()
+            .1
+            .lines()
+            .next()
+            .unwrap();
+        assert!([before, after].iter().any(|day| {
+            scheduled.starts_with(&(*day + chrono::Days::new(2)).format("%Y-%m-%d").to_string())
+        }));
+
+        fixture.execute(vec![change(2, "DONE")]).await.unwrap();
+        assert!(read_source().contains(&format!("* TODO {}", paths[3].titles[0])));
+        fixture
+            .execute(vec![change(1, "TODO"), change(1, "DONE")])
+            .await
+            .unwrap();
+        let source = read_source();
+        assert!(source.contains(&format!("* DONE {}", paths[2].titles[0])));
+        assert!(source.contains(&format!("SCHEDULED: <{scheduled}")));
+        assert_eq!(pending(&source), 1);
+    }
+}
+
+#[tokio::test]
 async fn file_new_places_initial_tasks_using_the_first_root_and_preserves_order() {
     for (template, expected) in [
         ("#+TITLE: 项目\r\n", vec![(1, "甲"), (1, "乙")]),

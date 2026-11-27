@@ -62,6 +62,7 @@ test('分享后直接加载收件箱，备忘新建和编辑冷暖启动均只�
     '../services/AppLinkService': { AppLinkManager: { shared: { start() {}, stop() {} } } },
     '../services/ReminderManager': { ReminderManager: { refresh() {} } },
     '../services/SystemRepositoryService': { SystemRepositoryService: { ensure: () => initialization } },
+    '../services/OnboardingService': { async prepareOnboarding() { return undefined; } },
     '@kit.AbilityKit': { UIAbility: class {} },
     '../services/LegacySyncScheduleService': { LegacySyncScheduleService: { async remove() {} } },
     '../services/BackgroundRepositorySyncService': { BackgroundRepositorySyncService: { async start() {} } },

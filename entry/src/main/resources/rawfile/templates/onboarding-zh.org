@@ -1,0 +1,41 @@
+:PROPERTIES:
+:ID:
+:END:
+#+TITLE: 新手引导
+#+PROJECT_NAME: 新手引导
+#+FILETAGS: :project:todo:
+#+TODO: TODO(t) | DONE(d!) CNCL(c!)
+
+这个项目本身就是一个 Org 文件。完成一条待办会开启下一步，你可以随时从侧边栏回来。
+
+* TODO 看看项目的 Org 原文
+:PROPERTIES:
+:TRIGGER: if self !todo-state?(DONE) then if ids({{plan}}) !has-property?("ONBOARDING_LOCKED" "yes") then ids({{plan}}) delete-property!("ONBOARDING_LOCKED") delete-property!("VISIBILITY") todo!(TODO) endif endif
+:END:
+打开右上角「更多 → 原文」，找到这条待办。项目说明和任务都保存在同一个文件里。再选「更多 → 文档」切回来，勾选这一步。
+
+* 记下自己的第一件事
+:PROPERTIES:
+:ID: {{plan}}
+:VISIBILITY: folded
+:ONBOARDING_LOCKED: yes
+:TRIGGER: if self !todo-state?(DONE) then if ids({{review}}) !has-property?("ONBOARDING_LOCKED" "yes") then ids({{review}}) delete-property!("ONBOARDING_LOCKED") delete-property!("VISIBILITY") scheduled!("++2d") todo!(TODO) endif endif
+:END:
+打开侧边栏的「收件箱」，记下一件你真的想做的事。如果还没有仓库，先选「初始化新仓库」。如果页面提示未设置收件箱文件，按提示选择一个。回到这个项目，勾选这一步。
+
+* 回来看自动安排的待办
+:PROPERTIES:
+:ID: {{review}}
+:VISIBILITY: folded
+:ONBOARDING_LOCKED: yes
+:TRIGGER: if self !todo-state?(DONE) then if ids({{finish}}) !has-property?("ONBOARDING_LOCKED" "yes") then ids({{finish}}) delete-property!("ONBOARDING_LOCKED") delete-property!("VISIBILITY") todo!(TODO) endif endif
+:END:
+上一步完成时，这条待办自动排到了两天后。到了计划日，可以在「今天」找到它，也可以从侧边栏回到这里。看看它的计划日期，然后勾选完成。
+
+* 删除新手引导项目
+:PROPERTIES:
+:ID: {{finish}}
+:VISIBILITY: folded
+:ONBOARDING_LOCKED: yes
+:END:
+打开侧边栏的「笔记本」，在「系统仓库」找到「新手引导」。向左滑动文件一行，点「删除」，然后确认。删除项目就完成了引导。

@@ -36,6 +36,7 @@ function load(name, mocks, globals = {}) {
     if (name.endsWith('/TrashSettingsService')) return {TrashSettingsService:{retentionDays:async()=>30}};
     if (name.endsWith('/AppDataManager')) return {AppDataManager:{shared:()=>({start:async()=>{}}),close:async()=>{}}};
     if (name.endsWith('/SystemRepositoryService')) return {SystemRepositoryService:{ensure:async()=>({id:'org-tasks-system',name:'系统仓库',rootDirectory:'/app/system-repository'})}};
+    if (name.endsWith('/OnboardingService')) return { async prepareOnboarding() { return undefined; } };
     if (name.endsWith('/TrashService')) return {TrashService:{perform:async()=>{throw new Error('本用例不执行删除')}}};
     if (name.endsWith('/PageNavigator')) return require('./helpers/page-navigator.cjs').pageNavigatorMock;
     if (name.endsWith('/DangerousConfirmation')) return require('./helpers/dangerous-confirmation.cjs');
