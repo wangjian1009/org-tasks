@@ -31,6 +31,7 @@ import { configuredFileTarget, FileTargetKind } from '../services/FileTargetServ
 import { TaskStateCategory, taskStateCategoryLabel } from '../ui/TaskStatePresentation'
 import { isSystemRepository } from '../models/SystemRepository'
 import { NotificationPermissionService, NotificationPermissionState } from '../services/NotificationPermissionService'
+import { AppLanguage, loadAppLanguage, saveAppLanguage } from '../services/AppLanguage'
 
 interface SettingsParams { section?: string }
 
@@ -57,6 +58,8 @@ struct Settings {
   @State editingCategory: number = -1
   @State categoryBusy: boolean = false
   @State fileDisplayMode: 'rendered' | 'source' = 'rendered'
+  @State appLanguage: AppLanguage | undefined = undefined
+  @State languageMenuOpen: boolean = false
   @State saving: boolean = false
   @State loaded: boolean = false
   @State message: string = ''
@@ -99,6 +102,7 @@ struct Settings {
     this.reminderSummary = ReminderManager.summary()
     this.notificationVisible = true
     this.load()
+    this.loadLanguage()
     this.loadNotificationState()
     this.loadCalendarState()
     this.scheduleNotificationCheck()
@@ -432,6 +436,46 @@ struct Settings {
     ]
   }
 
+  private async loadLanguage(): Promise<void> {
+    try { this.appLanguage = await loadAppLanguage(this.getUIContext().getHostContext()!) }
+    catch (_) { this.message = localizedText($r('app.string.interface_language_read_failed')) }
+  }
+
+  private languageLabel(language: AppLanguage | undefined): string {
+    if (language === 'zh-Hans') return localizedText($r('app.string.interface_language_chinese'))
+    if (language === 'en') return localizedText($r('app.string.interface_language_english'))
+    return localizedText($r('app.string.interface_language_system'))
+  }
+
+  private languageMenu(): MenuElement[] {
+    const languages: AppLanguage[] = ['default', 'zh-Hans', 'en']
+    return languages.map((language: AppLanguage): MenuElement => ({
+      value: this.languageLabel(language),
+      icon: language === this.appLanguage ? $r('app.media.ui_done') : undefined,
+      action: (): void => { this.changeLanguage(language) }
+    }))
+  }
+
+  private async changeLanguage(language: AppLanguage): Promise<void> {
+    this.languageMenuOpen = false
+    if (this.saving || this.appLanguage === language) return
+    this.saving = true
+    this.message = ''
+    try {
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext
+      await this.preferenceSave.flush()
+      await saveAppLanguage(context, language)
+      this.appLanguage = language
+      const ability = context.abilityInfo
+      try {
+        context.getApplicationContext().restartApp({
+          bundleName: ability.bundleName, moduleName: ability.moduleName, abilityName: ability.name
+        })
+      } catch (_) { this.message = localizedText($r('app.string.interface_language_restart_needed')) }
+    } catch (_) { this.message = localizedText($r('app.string.interface_language_save_failed')) }
+    finally { this.saving = false }
+  }
+
   categoryStates(index: number, defaults: boolean): CoreTaskState[] {
     return (defaults ? this.defaultStates : this.coreSettings.additionStates)
       .filter((state: CoreTaskState) => state.category === this.stateCategories[index])
@@ -480,6 +524,11 @@ struct Settings {
         action: (): void => { this.openSection('应用关联') } })
     }
     SettingsGroup({ title: localizedText($r('app.string.text_app')), detail: localizedText($r('app.string.text_notification_authorization_and_type_of_notification_can')) }) {
+      SettingsRow({ title: localizedText($r('app.string.interface_language')), value: this.appLanguage ? this.languageLabel(this.appLanguage) : '',
+        icon: $r('app.media.ui_link_web'), disclosureIcon: $r('app.media.ui_down'), disabled: this.saving || !this.appLanguage,
+        action: (): void => { this.languageMenuOpen = true } })
+        .bindMenu(this.languageMenuOpen, this.languageMenu(), { placement: Placement.BottomRight,
+          onDisappear: (): void => { this.languageMenuOpen = false } })
       SettingsRow({ title: localizedText($r('app.string.text_notifications_and_corner_signs')), value: this.notificationState === 'enabled' ? localizedText($r('app.string.text_enabled')) : this.notificationState === 'loading' ? localizedText($r('app.string.text_reading_2')) : localizedText($r('app.string.text_unopened')),
         detail: this.notificationState === 'error' ? localizedText($r('app.string.text_couldn_t_load_tap_to_retry')) : '', icon: $r('app.media.ui_info'),
         action: (): void => { this.manageNotifications() } })

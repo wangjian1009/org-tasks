@@ -9,6 +9,34 @@
       "value": "我的待办"
     },
     {
+      "name": "interface_language",
+      "value": "界面语言"
+    },
+    {
+      "name": "interface_language_system",
+      "value": "跟随系统"
+    },
+    {
+      "name": "interface_language_chinese",
+      "value": "中文"
+    },
+    {
+      "name": "interface_language_english",
+      "value": "English"
+    },
+    {
+      "name": "interface_language_read_failed",
+      "value": "无法读取界面语言，请重新进入设置后重试"
+    },
+    {
+      "name": "interface_language_save_failed",
+      "value": "无法保存界面语言，请重试"
+    },
+    {
+      "name": "interface_language_restart_needed",
+      "value": "语言已保存，完全退出并重新打开应用后生效"
+    },
+    {
       "name": "app_link_bound",
       "value": "已绑定"
     },

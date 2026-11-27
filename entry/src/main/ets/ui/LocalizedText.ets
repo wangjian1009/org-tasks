@@ -18,7 +18,8 @@ export function localizedText(resource: Resource, ...args: string[]): string {
 }
 
 export function displayLocale(): string {
-  const language = i18n.System.getAppPreferredLanguage()
+  const preferred = i18n.System.getAppPreferredLanguage()
+  const language = preferred === 'default' || !preferred ? i18n.System.getSystemLanguage() : preferred
   return language === 'en' || language.startsWith('en-') ? language : 'zh-CN'
 }
 

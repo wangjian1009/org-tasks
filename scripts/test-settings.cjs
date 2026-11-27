@@ -148,6 +148,7 @@ function settingsFixture() {
     '../services/NativeCoreService': { ...errors, NativeCoreService: { async workspaceFor() {} } },
     '../ui/Theme': {}, '../services/FileTargetService': {},
     '../ui/TaskStatePresentation': { TaskStateCategory: { Todo: 'Todo', Doing: 'Doing', Wait: 'Wait', Done: 'Done', Cancel: 'Cancel' } },
+    '../services/AppLanguage': {},
     '../services/NotificationPermissionService': {}
   });
   return { settings, config, saved: () => saved, fail(e) { validationFailure = e; }, failSave(e) { saveFailure = e; } };

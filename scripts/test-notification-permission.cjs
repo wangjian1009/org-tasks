@@ -204,6 +204,7 @@ function settingsFixture() {
       subscribe: () => () => {}, summary: () => summary, async refresh() { reminderRefreshes++; if (reminderGate) await reminderGate.promise; }
     } },
     '../services/AppConfigService': {},
+    '../services/AppLanguage': { async loadAppLanguage() { return 'default'; } },
     '../services/NotebookService': {},
     '../services/NativeCoreService': { coreErrorMessage: error => error.message },
     '../ui/Theme': {}, '../services/FileTargetService': {},

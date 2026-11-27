@@ -62,6 +62,7 @@ interface RepoConfig {
 | 全局 TODO 默认 | ~todoDefaults~ | Preferences | 外部保存 TODO 流程声明文本；未保存时调用 Rust 默认接口，已保存空值不回退。 |
 | Core 状态分类设置 | ~coreSettings~ | Preferences | 结构化 ~CoreSettings~ JSON；保存 ~additionStates~ ，固定默认状态由 Core 内部管理。 |
 | 文件展示 | ~fileDisplayMode~ | Preferences | 默认 ~rendered~ ，可选 ~source~ ；旧配置缺失或值无效时使用渲染。 |
+| 界面语言 | ~preferredLanguage~ | 独立的 ~org_tasks_language~ Preferences 及 HarmonyOS 应用语言设置 | 本机偏好，默认 ~default~ （跟随系统），可选 ~zh-Hans~ 和 ~en~ 。保存后通过 ~i18n.System.setAppPreferredLanguage~ 设置资源语言，冷启动加载；设置页使用本机偏好显示菜单勾选。 |
 | 仓库配置 ID | ~repos[].id~ | Preferences | 当前用于列表定位、编辑和 Asset Store 别名；与 core 仓库身份不同。 |
 | 仓库显示名 | ~repos[].name~ | Preferences | 可为空，保存时去除首尾空白；旧配置缺失时按空值处理，显示时回退根目录末级名称，不改变仓库或凭据身份。 |
 | 仓库根目录 | ~repos[].rootDirectory~ | Preferences | 非空绝对目录路径；构造时映射为 ~OrgRepo.rootDirectory~ ，不写入 core 同步记录。 |
@@ -79,6 +80,8 @@ interface RepoConfig {
 关闭 ~repos[].webdavEnabled~ 时不构造 WebDAV ~SyncPolicy~ ，仓库仍是本地 ~OrgRepo~ ，目录、远端参数、密码及过滤规则保持原值，便于重新启用。
 
 * 配置备份与恢复
+
+界面语言由本机单独管理，导入配置或重置仓库与应用设置时保留当前语言选择。
 
 配置文件使用 UTF-8 YAML。文件顶层通过独立的 ~format: org-tasks-config~ 键值对标识配置， ~version~ 为 1， ~settings~ 包含应用配置。通过系统文档保存器保存文件或通过系统分享面板将文件交给其他应用。备份文件以设备本地时间命名，格式为 ~我的待办配置-YYYY-MM-DD_HH-mm-ss.orgtasks~ 。Harmony 将该后缀关联到我的待办的配置导入窗口，应用内也可从一级页无仓库提示通过系统文件选择器选择该后缀。两种入口均通过系统授予的文件 URI 读取正文，文件上限为 64 KB。
 

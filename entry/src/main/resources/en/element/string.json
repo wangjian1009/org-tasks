@@ -9,6 +9,34 @@
       "value": "Org Tasks"
     },
     {
+      "name": "interface_language",
+      "value": "Language"
+    },
+    {
+      "name": "interface_language_system",
+      "value": "Follow system"
+    },
+    {
+      "name": "interface_language_chinese",
+      "value": "中文"
+    },
+    {
+      "name": "interface_language_english",
+      "value": "English"
+    },
+    {
+      "name": "interface_language_read_failed",
+      "value": "Could not read the language setting. Reopen Settings and try again."
+    },
+    {
+      "name": "interface_language_save_failed",
+      "value": "Could not save the language setting. Try again."
+    },
+    {
+      "name": "interface_language_restart_needed",
+      "value": "Language saved. Close the app completely and reopen it to apply the change."
+    },
+    {
       "name": "app_link_bound",
       "value": "Linked"
     },
