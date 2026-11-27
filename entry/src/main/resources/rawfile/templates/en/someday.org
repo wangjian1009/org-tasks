@@ -1,0 +1,8 @@
+:PROPERTIES:
+:ID:
+:END:
+#+TITLE: Someday
+#+SETUPFILE:
+#+TODO: TODO(t) INPROGRESS(p) WAIT(w@) | DONE(d!)
+#+TODO: | CNCL(c!)
+#+FILETAGS: :todo:

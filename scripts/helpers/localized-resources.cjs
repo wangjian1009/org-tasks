@@ -37,6 +37,7 @@ function transpileFixture(ts, source, options) {
   return ts.transpileModule([
     'const localizedText = (value: string, ...args: string[]): string => value.replace(/%(\\d+)\\$s/g, (_, index) => args[Number(index) - 1]);',
     "const displayLocale = (): string => 'zh-CN';",
+    'const bundledLocale = (): string => displayLocale();',
     "const localizedDate = (date: Date, options: Intl.DateTimeFormatOptions): string => Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(displayLocale(), options).format(date) : '';",
     localized
   ].join('\n'), options);

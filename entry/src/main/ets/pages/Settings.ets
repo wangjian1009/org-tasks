@@ -217,7 +217,16 @@ struct Settings {
     if (this.editingCategory >= 0) { this.editingCategory = -1; this.categoryDraft = ''; return true }
     if (this.preferenceSave.hasPending()) { this.preferenceSave.flush().then((): void => { this.onBackPress() }); return true }
     if (this.section === '提醒操作日志') { this.section = '任务提醒'; this.message = ''; return true }
-    if (this.section) { this.section = ''; this.message = ''; return true }
+    if (this.section) {
+      const params = this.getUIContext().getRouter().getParams() as SettingsParams | undefined
+      if (params?.section === this.section && PageNavigator.shared.path.depth > 1) {
+        PageNavigator.shared.back(this.getUIContext())
+      } else {
+        this.section = ''
+        this.message = ''
+      }
+      return true
+    }
     PageNavigator.shared.back(this.getUIContext())
     return true
   }
@@ -534,7 +543,10 @@ struct Settings {
         action: (): void => { this.manageNotifications() } })
       SettingsRow({ title: localizedText($r('app.string.text_task_reminders')), value: this.reminderEnabled ? localizedText($r('app.string.text_enabled')) : localizedText($r('app.string.text_closed')), icon: $r('app.media.ui_reminder'),
         action: (): void => { this.openSection('任务提醒') } })
-      SettingsRow({ title: localizedText($r('app.string.text_about_org_tasks')), icon: $r('app.media.ui_info'), divider: false, action: (): void => { this.openSection('关于小清单') } })
+      SettingsRow({ title: localizedText($r('app.string.help_center')), icon: $r('app.media.ui_info'),
+        action: (): void => { PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Help' }) } })
+      SettingsRow({ title: localizedText($r('app.string.text_about_org_tasks')), icon: $r('app.media.ui_info'), divider: false,
+        action: (): void => { this.openHelp('about') } })
     }
   }
 
@@ -633,6 +645,10 @@ struct Settings {
     await TrashSettingsService.saveRetentionDays(this.getUIContext().getHostContext()!, Number(value))
     this.savedRetentionDays = Number(value)
   }
+  private openHelp(article: string, anchor: string = ''): void {
+    PageNavigator.shared.pushPage(this.getUIContext(), { url: 'pages/Help', params: { article, anchor } })
+  }
+
   @Builder
   taskReminderSettings() {
     SettingsGroup({ title: localizedText($r('app.string.text_task_reminders_on_this_device')), detail: this.reminderHelpDetail() }) {
@@ -652,8 +668,10 @@ struct Settings {
           .onBlur((): void => { this.preferenceSave.flush() })
       }.width('100%').padding(16)
       SettingsRow({ title: localizedText($r('app.string.text_organisation_2')), value: this.calendarDetail(), action: (): void => { this.manageCalendar() } })
-      SettingsRow({ title: localizedText($r('app.string.text_reminder_activity')), icon: $r('app.media.nav_logbook'), divider: false,
+      SettingsRow({ title: localizedText($r('app.string.text_reminder_activity')), icon: $r('app.media.nav_logbook'),
         action: (): void => { this.openSection('提醒操作日志') } }).id('reminder_operation_entry')
+      SettingsRow({ title: localizedText($r('app.string.help_reminder_article')), icon: $r('app.media.ui_info'), divider: false,
+        action: (): void => { this.openHelp('help-reminder-help', 'registration') } })
     }
     SettingsGroup({ title: localizedText($r('app.string.reminder_task_list')), detail: localizedText($r('app.string.text_shares_the_same_task_data_set_with')) }) {
       TaskReminderList()
@@ -673,7 +691,9 @@ struct Settings {
     SettingsGroup({ title: localizedText($r('app.string.text_entry_notebook')), detail: localizedText($r('app.string.text_when_you_select_a_notebook_the_records')) }) {
       SettingsRow({ title: localizedText($r('app.string.text_inbox')), value: this.fileTargetTitle('inbox'), detail: this.fileTargetDetail('inbox'), icon: $r('app.media.nav_inbox'), action: (): void => { this.openFilePicker('inbox') } })
       SettingsRow({ title: localizedText($r('app.string.text_someday')), value: this.fileTargetTitle('someday'), detail: this.fileTargetDetail('someday'), icon: $r('app.media.nav_someday'), action: (): void => { this.openFilePicker('someday') } })
-      SettingsRow({ title: localizedText($r('app.string.text_notes')), value: this.fileTargetTitle('memo'), detail: this.fileTargetDetail('memo'), icon: $r('app.media.nav_memo'), divider: false, action: (): void => { this.openFilePicker('memo') } })
+      SettingsRow({ title: localizedText($r('app.string.text_notes')), value: this.fileTargetTitle('memo'), detail: this.fileTargetDetail('memo'), icon: $r('app.media.nav_memo'), action: (): void => { this.openFilePicker('memo') } })
+      SettingsRow({ title: localizedText($r('app.string.help_file_entries_article')), icon: $r('app.media.ui_info'), divider: false,
+        action: (): void => { this.openHelp('help-file-entries') } })
     }
   }
 

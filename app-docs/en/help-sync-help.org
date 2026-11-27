@@ -1,0 +1,14 @@
+#+TITLE: Fix a WebDAV sync problem
+#+DESCRIPTION: Start with a connection test, then check the latest sync record for the specific error.
+#+KEYWORDS: WebDAV sync failed failure authentication connection network conflict baseline
+#+HELP_TOPIC: troubleshooting
+#+HELP_FREQUENT: yes
+#+LANGUAGE: en
+
+* Test the connection
+In the repository settings, check that WebDAV is enabled and tap “Test Connection.” For authentication errors, check your username and password. For connection errors, check the HTTPS address and your network. After a successful test, open a list that supports sync and pull down to retry.
+
+* Check the latest sync record
+Open the repository's History in Notebooks, then expand the failed sync. If a directory is unavailable, check the repository location. If a filter rule is invalid, check the repository settings. For conflicting edits, see [[file:help-sync-history.org][Review sync history and resolve conflicts]]. If the sync baseline is invalid, make a copy of your local Org files before resetting anything.
+
+If you report an issue, include the app and system versions, steps to reproduce, and the error with private details removed.

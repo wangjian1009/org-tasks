@@ -1,0 +1,15 @@
+#+TITLE: Set up repeating tasks and habits
+#+DESCRIPTION: Give a recurring task a rule so the app can schedule its next occurrence after completion.
+#+KEYWORDS: repeat recurring recurrence habits interval completion regularly
+#+HELP_TOPIC: tasks
+#+LANGUAGE: en
+
+* Choose how the task repeats
+Open the task's More menu and choose Repeat. Choose whether to repeat its scheduled date or its deadline, set the interval and unit, and save. Use a regular schedule for something you do at set times. Choose “After completion” to calculate the next date from when you actually finish.
+
+The repeat rule determines what happens when you miss a date. Check the next date before saving.
+
+* Complete a repeating task or stop repeating
+When you complete a repeating task, its date moves forward and its status resets to a to-do. Its checklist resets as well. An existing reminder may move with the new date. To keep the current date and remove the repetition, open the repeat rule and tap “Stop Repeating.”
+
+Habit tasks have a seedling icon. Review habits mainly in Today. Planned leaves them out.

@@ -15,6 +15,7 @@
     "pages/MemoEdit",
     "pages/MemoCardConfig",
     "pages/Settings",
+    "pages/Help",
     "pages/RepositorySettings",
     "pages/ConflictFile",
     "pages/Capture",

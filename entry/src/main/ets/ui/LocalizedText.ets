@@ -23,6 +23,10 @@ export function displayLocale(): string {
   return language === 'en' || language.startsWith('en-') ? language : 'zh-CN'
 }
 
+export function bundledLocale(): 'en' | 'zh-CN' {
+  return displayLocale().startsWith('en') ? 'en' : 'zh-CN'
+}
+
 export function localizedDate(date: Date, options: Intl.DateTimeFormatOptions): string {
   if (!Number.isFinite(date.getTime())) return ''
   return new Intl.DateTimeFormat(displayLocale(), options).format(date)

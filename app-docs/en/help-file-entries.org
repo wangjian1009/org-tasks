@@ -1,0 +1,15 @@
+#+TITLE: Set up Inbox, Someday, and Notes
+#+DESCRIPTION: Choose the Org files where these lists read and save your items.
+#+KEYWORDS: inbox someday notes shortcut notebook file binding unconfigured
+#+HELP_TOPIC: projects
+#+LANGUAGE: en
+
+* Choose the files for your lists
+1. Open Settings → Notebook shortcuts, or tap [[orgtasks://page/file-entries][Open Notebook shortcuts]].
+2. Select Inbox, Someday, or Notes. Choose the file by repository and path, then tap Confirm.
+3. Open the corresponding list and check that it shows the contents of your chosen file.
+
+Quick Capture saves to Inbox. When a task card moves an item to Someday or Notes, you can find it in that list.
+
+* If a file is missing
+If you do not have a repository yet, [[file:help-first-task.org][set one up first]]. Otherwise, check in Notebooks whether the original file is still there. After moving or renaming a file, choose it again in Notebook shortcuts.

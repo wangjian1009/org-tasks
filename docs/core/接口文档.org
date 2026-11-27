@@ -782,6 +782,12 @@ OrgFile.render_html() 直接遍历已有 orgize 语法树，返回不含宿主�
 
 标题使用嵌套 details，默认展开；drawer 默认收起，折叠只改变阅读状态。表格和代码块由宿主提供横向滚动容器，表格公式不在阅读正文展示，也不求值。支持的外部链接显示文字并提供锚点，图片引用不自动加载；不加载远端资源或本地附件，也不提供状态修改或复选框写回行为。完整原文始终可从 source_bytes 获取。
 
+** 帮助文章渲染
+
+~render_article(source: &[u8]) -> Result<ReadingArticle, CoreError>~ 接收单篇 UTF-8 Org 字节，在内存解析并生成受限的 HTML 片段。 ~ReadingArticle~ 包含 ~html~ 、 ~sections~ 和 ~images~ 。章节记录包含当前文档的定位 ~id~ 、目录 ~title~ 、Org 原始层级 ~level~ 和可选的 ~target~ ，后者读取 ~CUSTOM_ID~ 。图片列表仅包含可从应用帮助资源读取的文件名。
+
+帮助投影呈现标题、摘要、章节、正文、图片引用、列表、表格、引用和代码示例。任务标题按章节显示，清单按普通列表显示。属性和日志抽屉、任务规划、状态、标签、优先级与进度标记跳过。应用页面链接保留 ~orgtasks://page/<页面标识>~ 供宿主分发，同篇和篇间链接使用帮助专用目标。正文和示例中的字面文本经过 HTML 转义；文档渲染独立于 Workspace 和文件 I/O。
+
 ** 完整文档语义投影
 
 ~OrgFile.header_entries() -> Vec<FileHeaderEntry>~ 按源文件顺序返回文件头关键字和顶部属性抽屉；显示 ~TITLE~ ，并将 ~#+PROPERTY: Name Value~ 展开为名称和值。该投影保留未知配置供宿主只读展示，不修改原文字节；完整文件的 Harmony 快照以 ~headerEntries~ 暴露。每项包含 ~name~ 、 ~value~ 、 ~keyword~ 和 ~tags~ ：属性项的 ~keyword~ 为 false，真实 TAGS 声明的 ~tags~ 由 Core 去掉快捷键与组标记后投影；同名 PROPERTY 不视为配置候选。重复 FILETAGS 与 TAGS 各保留一项，不合并相邻声明。

@@ -40,6 +40,9 @@ import {
   TodoMetadata as NativeTodoMetadata,
   defaultTodoSettings,
   formatOrgLink as nativeFormatOrgLink,
+  renderArticle as nativeRenderArticle,
+  ReadingArticle as NativeReadingArticle,
+  ArticleSection as NativeArticleSection,
   defaultTaskStates,
   CoreSettings,
   TaskState,
@@ -158,6 +161,9 @@ export type CoreTitlePart = NativeTitlePart
 export type CoreTextLink = NativeTextLink
 export type CoreLinkValue = NativeLinkValue
 
+export type CoreReadingArticle = NativeReadingArticle
+export type CoreArticleSection = NativeArticleSection
+export function renderArticle(source: Uint8Array): Promise<CoreReadingArticle> { return nativeRenderArticle(source) }
 export async function formatOrgLink(value: CoreLinkValue): Promise<string> { return await nativeFormatOrgLink(value) }
 export type CoreTaskLinkChange = NativeTaskLinkChange
 export type CoreAddressLink = NativeAddressLink

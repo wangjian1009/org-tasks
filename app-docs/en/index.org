@@ -1,0 +1,36 @@
+#+TITLE: Org Tasks Help Center
+#+LANGUAGE: en
+
+* Topics
+
+| ID | Topic |
+|-
+| start | Getting started |
+| tasks | Tasks and scheduling |
+| projects | Notebooks and projects |
+| sync | WebDAV sync |
+| recovery | Backup and recovery |
+| troubleshooting | Troubleshooting |
+
+* Articles
+
+- [[file:help-first-task.org][Set up a repository and add your first task]]
+- [[file:help-existing-files.org][Add existing Org files]]
+- [[file:help-regions-projects.org][How categories, projects, and tasks fit together]]
+- [[file:help-file-entries.org][Set up Inbox, Someday, and Notes]]
+- [[file:help-daily-review.org][Plan your day from Inbox]]
+- [[file:help-dates.org][Set scheduled dates, deadlines, and reminders]]
+- [[file:help-repeat.org][Set up repeating tasks and habits]]
+- [[file:help-custom-state.org][Customize task statuses and workflows]]
+- [[file:help-first-sync.org][Set up WebDAV and run the first sync]]
+- [[file:help-sync-history.org][Review sync history and resolve conflicts]]
+- [[file:help-move-device.org][Move your settings and tasks to a new phone]]
+- [[file:help-trash.org][Restore a deleted task]]
+- [[file:help-reset.org][Remove a repository or reset settings]]
+- [[file:help-missing-tasks.org][Why is a task missing from Today?]]
+- [[file:help-sync-help.org][Fix a WebDAV sync problem]]
+- [[file:help-reminder-help.org][Why didn’t my reminder sound?]]
+
+* About
+
+- [[file:about.org][About Org Tasks]]

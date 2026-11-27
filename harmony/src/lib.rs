@@ -430,6 +430,26 @@ pub extern "C" fn org_tasks_harmony_configuration_yaml(
     })())
 }
 
+/// # Safety
+/// 非空 buffer 必须指向 length 个仍有效且可读取的字节。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn org_tasks_harmony_render_article(
+    buffer: *const u8,
+    length: usize,
+) -> *mut c_char {
+    string_result((|| {
+        let source = if length == 0 {
+            &[]
+        } else if buffer.is_null() {
+            return Err(CoreError::InvalidInput("帮助文章字节无效"));
+        } else {
+            unsafe { std::slice::from_raw_parts(buffer, length) }
+        };
+        serde_json::to_string(&org_tasks_core::render_article(source)?)
+            .map_err(|_| CoreError::InvalidState("无法编码帮助文章"))
+    })())
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn org_tasks_harmony_format_org_link(value: *const c_char) -> *mut c_char {
     string_result(read_c_string(value).and_then(|value| {

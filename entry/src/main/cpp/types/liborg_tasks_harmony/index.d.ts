@@ -488,6 +488,9 @@ export interface TodoMetadata {
 }
 
 export function formatOrgLink(value: LinkValue): Promise<string>;
+export interface ArticleSection { id: string; title: string; level: number; target: string | null; }
+export interface ReadingArticle { html: string; sections: ArticleSection[]; images: string[]; }
+export function renderArticle(source: Uint8Array): Promise<ReadingArticle>;
 export function defaultTodoSettings(): Promise<string>;
 export function defaultTaskStates(): Promise<TaskState[]>;
 export function defaultSyncOptions(): Promise<SyncOptions>;

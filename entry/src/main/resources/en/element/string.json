@@ -1,6 +1,62 @@
 {
   "string": [
     {
+      "name": "text_my_tasks",
+      "value": "My Tasks"
+    },
+    {
+      "name": "help_copy_example",
+      "value": "Copy example"
+    },
+    {
+      "name": "help_reminder_article",
+      "value": "Why didn’t my reminder sound?"
+    },
+    {
+      "name": "help_file_entries_article",
+      "value": "Set up Inbox, Someday, and Notes"
+    },
+    {
+      "name": "help_center",
+      "value": "Help Center"
+    },
+    {
+      "name": "help_search",
+      "value": "Search help articles"
+    },
+    {
+      "name": "help_frequent",
+      "value": "Frequently asked questions"
+    },
+    {
+      "name": "help_topics",
+      "value": "Browse by topic"
+    },
+    {
+      "name": "help_contents",
+      "value": "Contents"
+    },
+    {
+      "name": "help_article_contents",
+      "value": "In this article"
+    },
+    {
+      "name": "help_no_results",
+      "value": "No matching articles"
+    },
+    {
+      "name": "help_retry",
+      "value": "Reload help"
+    },
+    {
+      "name": "help_link_unavailable",
+      "value": "This help link is unavailable"
+    },
+    {
+      "name": "help_image_zoom",
+      "value": "Toggle image zoom"
+    },
+    {
       "name": "EntryAbility_desc",
       "value": "Org Tasks"
     },

@@ -6,6 +6,7 @@ use orgize::rowan::ast::AstNode;
 use serde::{Deserialize, Serialize};
 
 pub(crate) mod access;
+mod article;
 pub(crate) mod conflict;
 pub(crate) mod conflict_preview;
 pub(crate) mod data_changes;
@@ -48,6 +49,7 @@ mod title_statistics;
 mod todo;
 pub(crate) mod write_intent;
 
+pub use article::{render_article, ArticleSection, ReadingArticle};
 pub use conflict_preview::*;
 pub use content_block::*;
 pub use content_tree::{ContentCheckbox, ContentNode, ContentNodeKind};

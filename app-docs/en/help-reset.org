@@ -1,0 +1,17 @@
+#+TITLE: Remove a repository or reset settings
+#+DESCRIPTION: Check what each operation removes, then make a backup before proceeding.
+#+KEYWORDS: remove delete reset erase settings repository stop disable sync
+#+HELP_TOPIC: recovery
+#+LANGUAGE: en
+
+* Choose the operation
+| Operation | What it does |
+|-
+| Remove a repository | Removes its configuration, credentials, and notebook shortcuts. Local and remote files are kept. |
+| Settings → More → Reset | Restores default settings and clears the repository configuration. You can add repositories again using the files still on disk. |
+| Repository settings → Reset | Clears the selected repository's local contents and sync state. A WebDAV repository then syncs again. |
+
+Before proceeding, [[file:help-move-device.org::#backup][back up your settings and Org files]].
+
+* Stop syncing a repository
+In its settings, choose “Do Not Sync” and confirm. Your local and remote files stay in place. The app clears the remote connection and its sync records. If you enable sync again later, the [[file:help-first-sync.org][first-sync rules]] apply.

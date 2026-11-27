@@ -71,8 +71,8 @@ fn task(title: &str) -> TaskFileInitialTask {
 async fn onboarding_templates_unlock_once_and_schedule_the_review() {
     const FILE: &str = "getting-started.org";
     for template in [
-        include_str!("../../entry/src/main/resources/rawfile/templates/onboarding-zh.org"),
-        include_str!("../../entry/src/main/resources/rawfile/templates/onboarding-en.org"),
+        include_str!("../../entry/src/main/resources/rawfile/templates/zh-CN/onboarding.org"),
+        include_str!("../../entry/src/main/resources/rawfile/templates/en/onboarding.org"),
     ] {
         let fixture = Fixture::new().await;
         let mut operation = fixture.operation(FILE, template, vec![]);

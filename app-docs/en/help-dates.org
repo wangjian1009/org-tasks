@@ -1,0 +1,14 @@
+#+TITLE: Set scheduled dates, deadlines, and reminders
+#+DESCRIPTION: Choose when to start a task, when it is due, and when your device should remind you.
+#+KEYWORDS: scheduled deadline dates calendar alert warning reminder SCHEDULED DEADLINE
+#+HELP_TOPIC: tasks
+#+LANGUAGE: en
+
+* Use three dates for different purposes
+Suppose you need to submit an expense report by Friday. Schedule the task for Wednesday, set Friday as its deadline, and set a reminder for Wednesday at 9 a.m. You can change or clear each of these independently.
+
+* Set or change a scheduled date or deadline
+Expand the task and tap the scheduled date or deadline at the bottom. Choose a date, tap “+ Add Time” if needed, then tap Done. Check the date on the task. To clear it, open the same date picker again.
+
+* Set a reminder
+Open the task's More menu and choose Reminder. Pick a time, enable task reminders on this device, and grant calendar access. A registered reminder means the app has created the calendar event. If it did not sound, see [[file:help-reminder-help.org][Why didn’t my reminder sound?]].

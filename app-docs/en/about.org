@@ -1,0 +1,28 @@
+#+TITLE: About Org Tasks
+#+DESCRIPTION: Manage tasks, projects, and notes in Org files.
+#+LANGUAGE: en
+
+* App information
+
+| Item | Details |
+|-
+| Version | {{APP_VERSION_NAME}} |
+| Build | {{APP_VERSION_CODE}} |
+| Developer | Jian Wang |
+| Platform | HarmonyOS NEXT |
+
+Capture tasks in Inbox, plan your work in Today and Planned, and read or edit your Org files in Notebooks.
+
+* Data and privacy
+
+Tasks and notes are stored in Org files in your chosen repository. When you turn on WebDAV, the app connects directly to the server you configure. Keep separate backups of your settings and Org files. [[file:help-move-device.org::#backup][Back up your settings and tasks]]
+
+The app requests calendar access to create task reminder events on your device. Voice input requires microphone access. Manage these permissions in the system settings.
+
+* Help and feedback
+
+[[orgtasks://page/help-center][Open Help Center]] for guides and troubleshooting. When reporting a problem, include the app version, build number, and steps to reproduce it. [[https://github.com/wangjian1009/org-tasks/issues][Report a problem or suggest a feature]]
+
+* Source and license
+
+The project declares an MIT license. The app uses [[https://github.com/PoiScript/orgize][orgize]] to parse Org files. [[https://github.com/wangjian1009/org-tasks][View the source code]]

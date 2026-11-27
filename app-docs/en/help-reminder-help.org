@@ -1,0 +1,19 @@
+#+TITLE: Why didn’t my reminder sound?
+#+DESCRIPTION: Check the task time, the calendar event, and the system notification settings.
+#+KEYWORDS: reminder alert sound silent notification calendar permission registered
+#+HELP_TOPIC: troubleshooting
+#+LANGUAGE: en
+
+* Check the task and its reminder time
+Expand the task and make sure it is still open and the reminder time has not passed. If needed, choose Reminder from the task's More menu to change the time.
+
+* Check whether the calendar event was created
+:PROPERTIES:
+:CUSTOM_ID: registration
+:END:
+A reminder marked Registered has a matching system calendar event. If registration failed, open Settings → App → Task reminders and check that reminders are enabled and calendar access is granted.
+
+[[orgtasks://page/task-reminders][Open Task reminders]]
+
+* Check system notifications
+Open the system settings and check the calendar's notification permission and sound. If the app could not create or update the event, open Reminder activity from Task reminders. It only covers the current session, so check it just after reproducing the problem.

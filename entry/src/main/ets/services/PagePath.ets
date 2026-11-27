@@ -14,6 +14,9 @@ export interface PageParameters {
   readonly backupTime?: number | null
   readonly backupPath?: string
   readonly section?: string
+  readonly article?: string
+  readonly topic?: string
+  readonly anchor?: string
   readonly task?: CoreTask
   readonly memoId?: string
   readonly create?: boolean

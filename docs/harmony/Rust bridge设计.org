@@ -392,6 +392,10 @@ Rust 的 OrgFile.render_html() 对应 TS 的 file.renderHtml()。repo.file(path)
 
 文件详情通过 NotebookService.open 按仓库 ID 和相对路径取得目标文件；先校验文件清单，避免将 Core 为缺失路径提供的新增草稿误显示为空白文件。不再读取整个工作区的任务投影或在 UI 按文件过滤任务。Web 只加载内存文档，关闭网络、本地文件、数据库与 DOM storage 访问；CSP 禁止文内脚本及外部资源，固定的宿主 JavaScript 仅修改标题 details 的 open 状态，不注册写入接口。
 
+* 帮助文章渲染
+
+~renderArticle(source: Uint8Array): Promise<ReadingArticle>~ 将字节复制到 N-API worker，Harmony Rust 调用 Core 的 ~render_article~ 并返回 ~html~ 、 ~sections~ 和 ~images~ 。该入口独立于 Workspace。ArkTS 从应用资源读取 UTF-8 原文和搜索索引，渲染结果交给只读 Web 视口，并通过 ~PageNavigator~ 打开应用内帮助链接的目标页。见 [[file:../帮助中心文档设计.org::*独立的只读渲染引擎][帮助引擎设计]]。
+
 * 任务正文与 LOGBOOK 展示
 
 Core 的 FilterTask.render_content() 返回 RenderedTaskContent。Harmony 在现有查询 worker 内调用它，将 body_html、logbook_html、has_list 与 has_text 分别映射为 Task.bodyHtml、Task.logbookHtml、Task.hasList 与 Task.hasText；N-API 以只读、可枚举属性保留这些字段，保证路由传递任务后仍可展示。原始 Task.body 保留完整正文，搜索、日历和其他调用方的原有语义不变。

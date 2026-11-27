@@ -1,0 +1,16 @@
+#+TITLE: How categories, projects, and tasks fit together
+#+DESCRIPTION: Use a category to group projects and tasks that can be done on their own.
+#+KEYWORDS: area region category CATEGORY project tasks grouping
+#+HELP_TOPIC: projects
+#+LANGUAGE: en
+
+* See how a category works
+A Work category might contain two projects, Website Redesign and Event Planning. Each project has its own Org file, so “Approve the home page copy” belongs in the Website Redesign file. “Submit travel expenses” can go in an ordinary task file in the same Work category.
+
+The file's ~CATEGORY~ determines its category in the app. Uncategorized projects appear directly in the sidebar. In Today and Anytime, their tasks appear under Uncategorized. Projects with the same name remain separate by repository and file path.
+
+* Open a project from one of its tasks
+Expand a project task in Today or Anytime and tap the project name at the bottom of the task. Org Tasks opens the project and scrolls to that task. Standalone tasks appear directly under their category, and project tasks appear in their project group.
+
+* Create a project or change its category
+Swipe left on an Inbox item and tap Project. Choose the repository and category, enter a project name, and save. You can then open the project from the sidebar. To move a project to another category, open its document, press and hold the file header, and choose or create a category before saving.

@@ -1,0 +1,34 @@
+#+TITLE: Move your settings and tasks to a new phone
+#+DESCRIPTION: Back up your settings and Org files before switching phones, then restore both on the new device.
+#+KEYWORDS: new phone migrate migration backup restore orgtasks import configuration
+#+HELP_TOPIC: recovery
+#+HELP_FREQUENT: yes
+#+LANGUAGE: en
+
+* Back up your old phone
+:PROPERTIES:
+:CUSTOM_ID: backup
+:END:
+1. *Export your settings*
+
+   Open Settings → More → Backup. Choose File and save the configuration backup somewhere you can open from the new phone.
+2. *Save a copy of your Org files*
+
+   Copy the Org files from each local repository. If you use WebDAV, check that the most recent sync succeeded.
+
+#+begin_quote
+*What a configuration backup contains*
+
+It saves settings such as repositories and your Inbox shortcut. The tasks themselves are in your Org files.
+#+end_quote
+
+* Restore on the new phone
+:PROPERTIES:
+:CUSTOM_ID: restore
+:END:
+1. From the screen that says there is no repository yet, choose “Import Backup Configuration” and select the backup. You can also open it with Org Tasks from the system file manager.
+2. Review the preview, then tap “Apply Configuration.” If a local folder is unavailable on your new phone, copy your Org files into a folder the app can access and add or update the repository.
+3. For each WebDAV repository, enter the password again and enable sync on the new phone. Check the remote files before the [[file:help-first-sync.org][first sync]]. Grant calendar permission on this device if you use task reminders.
+
+* Check your tasks and Inbox
+Open a few files in Notebooks and check their tasks and statuses. Open Inbox and [[file:help-file-entries.org][choose its file again]] if needed. For WebDAV repositories, check the latest sync in History.

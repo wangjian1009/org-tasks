@@ -1,0 +1,11 @@
+#+TITLE: Review sync history and resolve conflicts
+#+DESCRIPTION: See what changed during a sync and review each change that needs your attention.
+#+KEYWORDS: sync history log conflict compare merge apply local remote
+#+HELP_TOPIC: sync
+#+LANGUAGE: en
+
+* Review sync history
+Pull down on a list that supports sync, or tap the local-changes prompt. After syncing, open Notebooks and choose History from the repository menu. Expand a history item to see uploads, downloads, unchanged files, failures, and conflicts.
+
+* Resolve a conflict
+Tap the conflict notification or the conflict indicator beside the file. Read the proposed change and check where it applies. Use the available action to apply, insert, delete, or discard it. After each choice, the app updates the remaining conflicts. If the file changes while you are resolving it, reload and review the latest contents.

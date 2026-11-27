@@ -1,0 +1,17 @@
+#+TITLE: Set up a repository and add your first task
+#+DESCRIPTION: Create a local repository and schedule your first task for today.
+#+KEYWORDS: getting-started setup add task inbox initialize repository
+#+HELP_TOPIC: start
+#+LANGUAGE: en
+
+* Set up a repository
+1. Open Inbox. If it says “No repository yet,” tap “Initialize a new repository.”
+2. Give the repository a name and tap “New repository.” Go back to Inbox to start adding tasks.
+3. If Inbox asks you to choose a file, see [[file:help-file-entries.org][Set up your notebook shortcuts]].
+
+If you have existing files, see [[file:help-existing-files.org][Add existing Org files]]. If you are moving to a new phone, see [[file:help-move-device.org][Move your settings and tasks]]. To sync across devices, read [[file:help-first-sync.org][Set up WebDAV and run the first sync]].
+
+* Add a task
+Tap “+” at the bottom of Inbox, enter a title, and save the task. Expand it and set the scheduled date to Today. Open Today to check that it appears there. You can also open the configured Inbox file in Notebooks to see where the task was saved.
+
+If the Getting Started project is still in your list, open it to practice switching between the Org source and the rendered document.

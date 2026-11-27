@@ -1,6 +1,5 @@
 import { localizedText } from './LocalizedText'
 import { CoreRefileTarget, CoreTaskPath } from '../services/NativeCoreService'
-import { DEFAULT_TASK_CATEGORY } from '../models/RepositoryDefaults'
 
 
 export interface RefileSection { key: string; kind: 'category' | 'project'; name: string; targets: CoreRefileTarget[] }
@@ -37,7 +36,7 @@ export function refileTargetKey(target: CoreRefileTarget): string {
 
 export function refileTargetTitle(target: CoreRefileTarget): string {
   if (!target.fullPath.titles.length) {
-    return target.projectName === null ? DEFAULT_TASK_CATEGORY : target.projectName || localizedText($r('app.string.text_untitled_project'))
+    return target.projectName === null ? localizedText($r('app.string.text_my_tasks')) : target.projectName || localizedText($r('app.string.text_untitled_project'))
   }
   return target.titleParts.map((part): string => part.text).join('').trim() || localizedText($r('app.string.text_unnamed_location'))
 }

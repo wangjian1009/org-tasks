@@ -232,13 +232,15 @@ export struct AppShell {
   @Builder
   projectSection(section: ProjectSection) {
     Column() {
-      Row({ space: 12 }) {
-        Image($r('app.media.nav_project_category')).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
-          .accessibilityLevel('no')
-        Text(section.category || localizedText($r('app.string.text_uncategorized'))).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
-          .fontColor(UiColor.drawerText).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }.width('100%').height(40).padding({ left: 12, right: 12 }).margin({ bottom: 4 })
-        .accessibilityText(localizedText($r('app.string.text_categorization_of_items'), String(section.category || localizedText($r('app.string.text_uncategorized')))))
+      if (section.category) {
+        Row({ space: 12 }) {
+          Image($r('app.media.nav_project_category')).width(UiSize.drawerIcon).height(UiSize.drawerIcon)
+            .accessibilityLevel('no')
+          Text(section.category).fontSize(UiSize.drawerFont).fontWeight(FontWeight.Medium)
+            .fontColor(UiColor.drawerText).layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }.width('100%').height(40).padding({ left: 12, right: 12 }).margin({ bottom: 4 })
+          .accessibilityText(localizedText($r('app.string.text_categorization_of_items'), section.category))
+      }
       ForEach(section.files, (file: CoreOrgFileMetadata) => {
         this.projectItem(file)
       }, (file: CoreOrgFileMetadata) => JSON.stringify([file.repoId, file.path, file.project(), file.taskStateCounts]))

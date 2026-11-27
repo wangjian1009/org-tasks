@@ -1,0 +1,15 @@
+#+TITLE: Why is a task missing from Today?
+#+DESCRIPTION: Check filters, task status, and dates, then review the Org source in Notebooks.
+#+KEYWORDS: missing hidden today task waiting not show filters status ignore
+#+HELP_TOPIC: troubleshooting
+#+HELP_FREQUENT: yes
+#+LANGUAGE: en
+
+* Check filters and status
+Tap All to clear the filters and check the task's category or project. For a task marked Waiting, open the Waiting list. For a completed or canceled task, check Logbook.
+
+* Check dates
+Future tasks usually appear in Planned. Look in Anytime for open tasks with no scheduled date or deadline. Expand the task to check its scheduled date and deadline separately.
+
+* Check the file
+Find the Org file in Notebooks and check that the heading uses a declared TODO keyword. Review [[file:help-custom-state.org][custom statuses]], [[file:help-file-entries.org][notebook shortcuts]], and the repository's ~.orgzlyignore~ rules as needed. Some files excluded from the task lists may still open from Notebooks.

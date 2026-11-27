@@ -1,0 +1,12 @@
+#+TITLE: Restore a deleted task
+#+DESCRIPTION: Return tasks to their original location while they are in Trash.
+#+KEYWORDS: deleted missing trash recover undelete restore retention permanently
+#+HELP_TOPIC: recovery
+#+HELP_FREQUENT: yes
+#+LANGUAGE: en
+
+* Restore from Trash
+Open Trash from the sidebar, swipe left on the task, and tap Restore. The task returns to where it was before deletion. If the original repository, file, or parent heading is missing, the task stays in Trash. Restore the original location and then try again.
+
+* Check how long tasks are kept
+Trash keeps tasks for 30 days by default. You can change that in Settings. Once an item expires or is permanently deleted, you can no longer restore it from Trash. For operations that affect a whole repository, see [[file:help-reset.org][Remove a repository or reset settings]].

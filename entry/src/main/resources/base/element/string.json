@@ -1,6 +1,62 @@
 {
   "string": [
     {
+      "name": "text_my_tasks",
+      "value": "我的任务"
+    },
+    {
+      "name": "help_copy_example",
+      "value": "复制示例"
+    },
+    {
+      "name": "help_reminder_article",
+      "value": "提醒为什么没有响"
+    },
+    {
+      "name": "help_file_entries_article",
+      "value": "设置收件箱、某天和备忘"
+    },
+    {
+      "name": "help_center",
+      "value": "帮助中心"
+    },
+    {
+      "name": "help_search",
+      "value": "搜索帮助文章"
+    },
+    {
+      "name": "help_frequent",
+      "value": "常见问题"
+    },
+    {
+      "name": "help_topics",
+      "value": "按主题浏览"
+    },
+    {
+      "name": "help_contents",
+      "value": "目录"
+    },
+    {
+      "name": "help_article_contents",
+      "value": "本文目录"
+    },
+    {
+      "name": "help_no_results",
+      "value": "没有匹配的文章"
+    },
+    {
+      "name": "help_retry",
+      "value": "重新加载帮助"
+    },
+    {
+      "name": "help_link_unavailable",
+      "value": "无法打开此帮助链接"
+    },
+    {
+      "name": "help_image_zoom",
+      "value": "切换图片缩放"
+    },
+    {
       "name": "EntryAbility_desc",
       "value": "我的待办"
     },

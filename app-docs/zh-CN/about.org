@@ -1,0 +1,28 @@
+#+TITLE: 关于我的待办
+#+DESCRIPTION: 用 Org 文件管理任务、项目和备忘。
+#+LANGUAGE: zh-CN
+
+* 应用信息
+
+| 项目 | 信息 |
+|-
+| 版本 | {{APP_VERSION_NAME}} |
+| 构建号 | {{APP_VERSION_CODE}} |
+| 开发者 | 汪键 |
+| 平台 | HarmonyOS NEXT |
+
+用收件箱记录事项，在「今天」和「计划」安排任务，或在「笔记本」阅读与编辑 Org 文件。
+
+* 数据与隐私
+
+任务和备忘保存在所选存储库的 Org 文件中。启用 WebDAV 后，应用直接连接你配置的服务器。请分别备份应用设置与 Org 文件。 [[file:help-move-device.org::#backup][备份设置和任务]]
+
+使用任务提醒时，应用请求日历权限以在本机建立提醒事件。使用语音录入时，应用请求麦克风权限。设备权限可在系统设置中管理。
+
+* 帮助与反馈
+
+[[orgtasks://page/help-center][打开帮助中心]]查看操作说明。报告问题时，请注明应用版本和构建号，并附上能复现问题的步骤。 [[https://github.com/wangjian1009/org-tasks/issues][提交问题或建议]]
+
+* 源代码与许可
+
+项目声明采用 MIT 许可。应用使用 [[https://github.com/PoiScript/orgize][orgize]] 解析 Org 文件。 [[https://github.com/wangjian1009/org-tasks][查看项目源代码]]

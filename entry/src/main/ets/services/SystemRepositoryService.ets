@@ -1,4 +1,4 @@
-import { localizedText } from '../ui/LocalizedText'
+import { bundledLocale, localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { fileIo as fs } from '@kit.CoreFileKit'
 import { RepoConfig } from '../models/OrgTask'
@@ -28,7 +28,7 @@ export class SystemRepositoryService {
     if (!await fs.access(directory)) await fs.mkdir(directory, true)
     const path = `${directory}/${TRASH_FILE}`
     if (!await fs.access(path)) {
-      const template = await context.resourceManager.getRawFileContent('system/trash.org')
+      const template = await context.resourceManager.getRawFileContent(`templates/${bundledLocale()}/trash.org`)
       const file = await fs.open(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY)
       try { await fs.write(file.fd, template.buffer); await fs.fsync(file.fd) }
       finally { await fs.close(file) }

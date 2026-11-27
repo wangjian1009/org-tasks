@@ -11,6 +11,7 @@ node_modules/
 oh_modules/
 entry/oh_modules/
 entry/.cxx/
+entry/src/main/resources/rawfile/app-docs/
 *.hap
 
 # Rust build outputs

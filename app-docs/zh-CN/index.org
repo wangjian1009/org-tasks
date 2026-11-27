@@ -1,0 +1,36 @@
+#+TITLE: 我的待办帮助中心
+#+LANGUAGE: zh-CN
+
+* 主题
+
+| 标识            | 名称           |
+|-----------------+----------------|
+| start           | 快速开始       |
+| tasks           | 任务与日程     |
+| projects        | 笔记本与项目   |
+| sync            | WebDAV 同步    |
+| recovery        | 数据备份与恢复 |
+| troubleshooting | 故障排查       |
+
+* 文章
+
+- [[file:help-first-task.org][建立存储库并记下第一条待办]]
+- [[file:help-existing-files.org][把已有 Org 文件加进来]]
+- [[file:help-regions-projects.org][区域、项目和任务是什么关系]]
+- [[file:help-file-entries.org][设置收件箱、某天和备忘]]
+- [[file:help-daily-review.org][从收件箱整理到今天]]
+- [[file:help-dates.org][设置计划、截止和提醒]]
+- [[file:help-repeat.org][设置重复任务与习惯]]
+- [[file:help-custom-state.org][自定义任务状态与流程]]
+- [[file:help-first-sync.org][连接 WebDAV 并完成首次同步]]
+- [[file:help-sync-history.org][查看同步历史与处理冲突]]
+- [[file:help-move-device.org][换手机后恢复设置和任务]]
+- [[file:help-trash.org][找回误删的任务]]
+- [[file:help-reset.org][移除仓库、重置设置与重置仓库]]
+- [[file:help-missing-tasks.org][为什么今天找不到任务]]
+- [[file:help-sync-help.org][WebDAV 同步失败怎么办]]
+- [[file:help-reminder-help.org][提醒为什么没有响]]
+
+* 关于
+
+- [[file:about.org][关于我的待办]]

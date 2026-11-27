@@ -19,6 +19,7 @@ extern "C" int32_t org_tasks_harmony_workspace_validate_repository(uint64_t hand
 extern "C" char* org_tasks_harmony_workspace_configure_repository_roots(uint64_t handle, const char* source);
 extern "C" char* org_tasks_harmony_default_todo_settings();
 extern "C" char* org_tasks_harmony_default_task_states();
+extern "C" char* org_tasks_harmony_render_article(const uint8_t* buffer, size_t length);
 extern "C" char* org_tasks_harmony_format_org_link(const char* value);
 extern "C" char* org_tasks_harmony_workspace_get_settings(uint64_t handle);
 extern "C" int32_t org_tasks_harmony_workspace_set_settings(uint64_t handle, const char* settings);
@@ -164,6 +165,7 @@ struct WorkspaceStringWork {
     bool default_todo_settings = false;
     bool default_task_states = false;
     bool format_org_link = false;
+    bool render_article = false;
     bool get_settings = false;
     bool set_settings = false;
     bool default_sync_options = false;
@@ -1045,6 +1047,9 @@ void ExecuteWorkspaceString(napi_env, void* data)
         if (org_tasks_harmony_workspace_set_settings(work->handle, work->expression.c_str()) == 0) work->response = "{}";
     } else if (work->default_todo_settings) {
         work->response = TakeRustString(org_tasks_harmony_default_todo_settings());
+    } else if (work->render_article) {
+        const auto* bytes = reinterpret_cast<const uint8_t*>(work->expression.data());
+        work->response = TakeRustString(org_tasks_harmony_render_article(bytes, work->expression.size()));
     } else if (work->format_org_link) {
         work->response = TakeRustString(org_tasks_harmony_format_org_link(work->expression.c_str()));
     } else if (work->default_task_states) {
@@ -1152,7 +1157,7 @@ void CompleteWorkspaceString(napi_env env, napi_status status, void* data)
             else if (work->preview_action == "file" || work->preview_action == "sourceFile" || work->preview_action == "fileAt") projected = CreateOrgFileObject(env, result);
             if (projected != nullptr) napi_resolve_deferred(env, work->deferred, projected);
             else RejectFileProjection(env, work->deferred);
-        } else if (!work->refile_targets && !work->get_settings && !work->default_todo_settings && !work->default_task_states && !work->format_org_link && !work->default_sync_options && !work->normalize_sync_options && !work->validate_configuration) {
+        } else if (!work->refile_targets && !work->get_settings && !work->default_todo_settings && !work->default_task_states && !work->format_org_link && !work->render_article && !work->default_sync_options && !work->normalize_sync_options && !work->validate_configuration) {
             if (ProjectQueryResults(env, result)) napi_resolve_deferred(env, work->deferred, result);
             else RejectFileProjection(env, work->deferred);
         } else {
@@ -1519,7 +1524,7 @@ napi_value QueueWorkspaceString(napi_env env, WorkspaceStringWork* work, const c
         return nullptr;
     }
     napi_value resource_name;
-    const bool requires_owner = !work->default_todo_settings && !work->default_task_states && !work->format_org_link && !work->default_sync_options &&
+    const bool requires_owner = !work->default_todo_settings && !work->default_task_states && !work->format_org_link && !work->render_article && !work->default_sync_options &&
         !work->normalize_sync_options && !work->validate_configuration && work->configuration_yaml == ConfigurationYaml::None;
     if ((requires_owner && napi_create_reference(env, self, 1, &work->owner) != napi_ok) ||
         napi_create_string_utf8(env, name, NAPI_AUTO_LENGTH, &resource_name) != napi_ok ||
@@ -1647,6 +1652,25 @@ napi_value WorkspaceQuery(napi_env env, napi_callback_info info)
     }
     work->handle = workspace->handle;
     return QueueWorkspaceString(env, work, "OrgTasksWorkspaceQuery", self);
+}
+
+napi_value RenderArticle(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1], self;
+    napi_typedarray_type type;
+    size_t length = 0;
+    void* data = nullptr;
+    if (napi_get_cb_info(env, info, &argc, args, &self, nullptr) != napi_ok || argc != 1 ||
+        napi_get_typedarray_info(env, args[0], &type, &length, &data, nullptr, nullptr) != napi_ok ||
+        type != napi_uint8_array || (length != 0 && data == nullptr)) {
+        napi_throw_type_error(env, nullptr, "帮助文章需要 Uint8Array");
+        return nullptr;
+    }
+    auto* work = new WorkspaceStringWork();
+    work->render_article = true;
+    if (length != 0) work->expression.assign(static_cast<const char*>(data), length);
+    return QueueWorkspaceString(env, work, "OrgTasksRenderArticle", self);
 }
 
 napi_value FormatOrgLink(napi_env env, napi_callback_info info)
@@ -2518,6 +2542,9 @@ static napi_value Init(napi_env env, napi_value exports)
     napi_value format_org_link;
     napi_create_function(env, "formatOrgLink", NAPI_AUTO_LENGTH, FormatOrgLink, nullptr, &format_org_link);
     napi_set_named_property(env, exports, "formatOrgLink", format_org_link);
+    napi_value render_article;
+    napi_create_function(env, "renderArticle", NAPI_AUTO_LENGTH, RenderArticle, nullptr, &render_article);
+    napi_set_named_property(env, exports, "renderArticle", render_article);
     napi_value default_task_states;
     napi_create_function(env, "defaultTaskStates", NAPI_AUTO_LENGTH, DefaultTaskStates, nullptr, &default_task_states);
     napi_set_named_property(env, exports, "defaultTaskStates", default_task_states);

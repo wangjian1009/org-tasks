@@ -1,0 +1,34 @@
+#+TITLE: 换手机后恢复设置和任务
+#+DESCRIPTION: 换手机前备份设置和 Org 文件，到新手机后分别恢复。
+#+KEYWORDS: 换机 迁移 备份 恢复 orgtasks 导入
+#+HELP_TOPIC: recovery
+#+HELP_FREQUENT: yes
+#+LANGUAGE: zh-CN
+
+* 在旧手机上备份
+:PROPERTIES:
+:CUSTOM_ID: backup
+:END:
+1. *导出应用设置*
+
+   打开「设置 → 更多 → 备份」，选「文件」，把配置备份保存到能在新手机上打开的位置。
+2. *留一份 Org 文件副本*
+
+   把本地仓库里的 Org 文件另存一份。如果用 WebDAV，先查看最近一次同步是否成功。
+
+#+begin_quote
+*配置备份保存什么*
+
+它保存存储库和收件箱等设置。任务内容保存在 Org 文件里。
+#+end_quote
+
+* 在新手机上恢复
+:PROPERTIES:
+:CUSTOM_ID: restore
+:END:
+1. 在「尚未配置仓库」的提示里点「导入备份配置」，选择备份文件。也可在系统文件管理里用我的待办打开配置备份。
+2. 看完预览，点「应用配置」。本地目录不可用时，将 Org 文件副本放到新机可访问的目录，再添加或修正存储库。
+3. WebDAV 仓库需要在新机填写密码并启用同步。先确认远端文件，再开始[[file:help-first-sync.org][首次同步]]。任务提醒需要在新机授权。
+
+* 确认任务和收件箱
+在「笔记本」打开几个代表性文件，检查任务内容和状态。打开收件箱检查绑定，必要时重新[[file:help-file-entries.org][选择入口文件]]。WebDAV 仓库还可以在历史里核对同步结果。

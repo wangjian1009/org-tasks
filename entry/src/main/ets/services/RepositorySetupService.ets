@@ -1,9 +1,9 @@
-import { localizedText } from '../ui/LocalizedText'
+import { bundledLocale, localizedText } from '../ui/LocalizedText'
 import { Context } from '@kit.AbilityKit'
 import { util } from '@kit.ArkTS'
 import { fileIo } from '@kit.CoreFileKit'
 import { AppConfig, RepoConfig } from '../models/OrgTask'
-import { DEFAULT_TASK_CATEGORY, DEFAULT_TASK_FILE } from '../models/RepositoryDefaults'
+import { DEFAULT_TASK_FILE } from '../models/RepositoryDefaults'
 import { configuredFileTarget, FileTargetKind, fileTargetName } from './FileTargetService'
 import { CoreOrgFileMetadata, CoreTaskFileNew, CoreTaskOperation, CoreWorkspace, NativeCoreService, RepositorySyncSource, fileResult } from './NativeCoreService'
 import { AppConfigService } from './AppConfigService'
@@ -38,7 +38,8 @@ function entryFile(files: EntryFile[], kind: FileTargetKind): EntryFile | undefi
   const name = templateName(kind)
   const matches = files.filter((file: EntryFile): boolean => {
     const title = file.title?.trim() || ''
-    return !file.isIgnore && (title === entryTemplateTitle(kind) || title.toLowerCase() === name)
+    return !file.isIgnore && (title === entryTemplateTitle(kind) || title.toLowerCase() === name ||
+      (kind === 'memo' && title.toLowerCase() === 'notes'))
   })
   return matches.find(file => file.path === `${name}.org`) ?? (matches.length === 1 ? matches[0] : undefined)
 }
@@ -75,12 +76,15 @@ export class RepositorySetupService {
 
   static async initialize(context: Context, config: AppConfig, repository: RepoConfig, reset: boolean = false):
     Promise<EntryFile[]> {
+    const language = bundledLocale()
+    const defaultTaskTitle = localizedText($r('app.string.text_my_tasks'))
     const templates: RepositoryTemplate[] = []
     const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true })
     for (const kind of TEMPLATE_KINDS) {
       const name = templateName(kind)
       try {
-        const resource = await context.resourceManager.getRawFileContent(`templates/${name}.org`)
+        const path = kind === 'task' ? `templates/${name}.org` : `templates/${language}/${name}.org`
+        const resource = await context.resourceManager.getRawFileContent(path)
         templates.push({ kind, name, content: decoder.decodeToString(resource) })
       } catch (_) { throw new Error(localizedText($r('app.string.text_could_not_read_the_template_please_try'), String(kind === 'task' ? localizedText($r('app.string.text_tasks_2')) : fileTargetName(kind)))) }
     }
@@ -95,8 +99,8 @@ export class RepositorySetupService {
       if (files.some(item => item.path === file) || (template.kind !== 'task' && entryFile(files, template.kind))) continue
       const argumentsByName: Record<string, string> = {}
       if (template.kind === 'task') {
-        argumentsByName['title'] = DEFAULT_TASK_CATEGORY
-        argumentsByName['category'] = DEFAULT_TASK_CATEGORY
+        argumentsByName['title'] = defaultTaskTitle
+        argumentsByName['category'] = defaultTaskTitle
       }
       const data: CoreTaskFileNew = {
         path: { repoId: repo.id, file, titles: [] },
@@ -107,7 +111,7 @@ export class RepositorySetupService {
     if (operations.length === 0) return files
     await workspace.executeTaskOperations({ operations })
     if (reset) return templates.map((template: RepositoryTemplate): EntryFile => ({
-      path: `${template.name}.org`, title: template.kind === 'task' ? DEFAULT_TASK_CATEGORY : entryTemplateTitle(template.kind), isIgnore: false
+      path: `${template.name}.org`, title: template.kind === 'task' ? defaultTaskTitle : fileTargetName(template.kind), isIgnore: false
     }))
     return await RepositorySetupService.files(workspace, repo.id)
   }

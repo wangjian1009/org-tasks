@@ -1,0 +1,17 @@
+#+TITLE: Set up WebDAV and run the first sync
+#+DESCRIPTION: Test the connection and see how the first sync handles files already on your device.
+#+KEYWORDS: WebDAV HTTPS first sync connect connection overwrite upload download
+#+HELP_TOPIC: sync
+#+LANGUAGE: en
+
+* Set up the connection
+Open Settings → Repositories and add or select a repository. Enable WebDAV, enter its HTTPS address, username, and password, and tap “Test Connection.” A successful test confirms that the app can reach the directory. Sync starts after you save the configuration.
+
+#+begin_quote
+*Before you enable sync*
+
+Save a copy of your Org files first. On the first sync, Org Tasks uses the server's file when both sides have the same path and uploads files that exist only on your device. Local tasks replaced by the server's version go to Trash.
+#+end_quote
+
+* Check the result
+In Notebooks, find the repository and open History from its menu. Look at the uploads and downloads, then open a few files to check them. If you see an error, read [[file:help-sync-help.org][Fix a WebDAV sync problem]].

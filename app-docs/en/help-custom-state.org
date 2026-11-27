@@ -1,0 +1,17 @@
+#+TITLE: Customize task statuses and workflows
+#+DESCRIPTION: Define a status in your Org file and choose how the app classifies it.
+#+KEYWORDS: custom TODO workflow statuses HOLD waiting keywords
+#+HELP_TOPIC: tasks
+#+LANGUAGE: en
+
+* Define a status in your file
+In an Org editor, add ~HOLD~ to the file's TODO declaration. This example defines two open states and one completed state.
+
+#+begin_example
+#+TODO: TODO HOLD | DONE
+#+end_example
+
+Use ~HOLD~ on a task heading, save the file, and reopen the task. If the status has no category set in the app, keywords before the vertical bar are open and those after it are completed.
+
+* Show the status in Waiting
+Open Settings → Task statuses. Tap the plus sign next to Waiting and add ~HOLD~. Go back to Waiting and check that matching tasks appear. If they do not, check the TODO declaration in the file, then check the status category in Settings.

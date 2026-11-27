@@ -3,7 +3,7 @@ import { util } from '@kit.ArkTS'
 import { fileIo } from '@kit.CoreFileKit'
 import { AppConfig } from '../models/OrgTask'
 import { isSystemRepository, ONBOARDING_FILE } from '../models/SystemRepository'
-import { displayLocale } from '../ui/LocalizedText'
+import { bundledLocale } from '../ui/LocalizedText'
 import { AppConfigService } from './AppConfigService'
 import { NativeCoreService } from './NativeCoreService'
 import { PageRoute } from './PagePath'
@@ -28,9 +28,8 @@ export async function prepareOnboarding(context: Context): Promise<PageRoute | u
 }
 
 async function createOnboarding(context: Context, config: AppConfig, rootDirectory: string): Promise<PageRoute | undefined> {
-  const language = displayLocale().startsWith('en') ? 'en' : 'zh'
   let template: Uint8Array
-  try { template = await context.resourceManager.getRawFileContent(`templates/onboarding-${language}.org`) }
+  try { template = await context.resourceManager.getRawFileContent(`templates/${bundledLocale()}/onboarding.org`) }
   catch (_) { throw new Error('读取新手引导模板失败') }
   const workspace = await NativeCoreService.workspaceFor(config.repos, config.todoDefaults, config.coreSettings)
   const repo = (await workspace.repos()).find(item => item.rootDirectory === rootDirectory)

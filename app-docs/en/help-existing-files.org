@@ -1,0 +1,15 @@
+#+TITLE: Add existing Org files
+#+DESCRIPTION: Put your Org files in a repository the app can access, then open them from Notebooks.
+#+KEYWORDS: import add files source local UTF-8
+#+HELP_TOPIC: projects
+#+LANGUAGE: en
+
+* Add files to a repository
+1. In Settings → Repositories, add a local repository and choose a folder the app can access.
+2. Copy your UTF-8 Org files into that folder or a subfolder.
+3. Open Notebooks and find the files under that repository. Pull down to refresh if needed.
+
+A repository is a folder that holds your files. An Org file can contain headings, tasks, and notes. A heading becomes a task when it uses a TODO keyword recognized by that file.
+
+* View the Org source
+Open a file, then use the More menu in the upper-right corner to switch between Source and Document. For more about project files, see [[file:help-regions-projects.org][How categories, projects, and tasks fit together]].

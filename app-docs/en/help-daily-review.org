@@ -1,0 +1,21 @@
+#+TITLE: Plan your day from Inbox
+#+DESCRIPTION: Pick what to do today and put the rest where you can find it later.
+#+KEYWORDS: daily review organize inbox today schedule planned waiting anytime someday logbook
+#+HELP_TOPIC: tasks
+#+LANGUAGE: en
+
+* Capture first, then plan
+When something comes to mind, put it in Inbox. When you review Inbox, decide what to do next. For something you will do today, schedule it for Today. For a specific day in the future, set its date and look for it in Planned.
+
+* Choose the right list
+| List | When to use it |
+|-
+| Today | See tasks due today, overdue tasks, and tasks in their deadline warning period. |
+| Planned | See what is scheduled from tomorrow onward. |
+| Waiting | Track work that depends on someone else. |
+| Anytime | Find tasks with no scheduled date or deadline. |
+| Someday | Keep things you may want to do later. |
+| Notes | Keep reference material. |
+| Logbook | Revisit completed or canceled tasks. |
+
+For more on scheduled dates and deadlines, see [[file:help-dates.org][Set scheduled dates, deadlines, and reminders]].
